@@ -224,7 +224,11 @@ def test_filesystem_deletion_failure_keeps_source_registered(
     result = runner.invoke(app, ["source", "remove", source_id, "--yes"])
 
     assert result.exit_code != 0
-    assert "simulated filesystem failure" in result.output
+    # Rich's console wraps long error lines at the detected terminal width,
+    # which is narrower on Windows CI runners than elsewhere -- collapse
+    # whitespace/newlines before matching so this doesn't depend on where
+    # that wrap happens to fall.
+    assert "simulated filesystem failure" in " ".join(result.output.split())
     # Not partially removed: the row is still there, and untouched.
     assert source_id in _list_ids(runner)
     info = runner.invoke(app, ["source", "info", source_id])
@@ -303,7 +307,8 @@ def test_remove_refuses_while_a_daemon_is_running(
     result = runner.invoke(app, ["source", "remove", source_id, "--yes"])
 
     assert result.exit_code != 0
-    assert "daemon" in result.output.lower()
-    assert "ragpilot daemon stop" in result.output
+    normalized_output = " ".join(result.output.split())
+    assert "daemon" in normalized_output.lower()
+    assert "ragpilot daemon stop" in normalized_output
     assert source_id in _list_ids(runner)
     assert project_dir.is_dir()
