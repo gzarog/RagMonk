@@ -17,6 +17,12 @@ export embeds a literal page-break marker string at each page transition;
 overrides and reconstructs page numbers by counting marker crossings
 while walking the document, dropping the marker items themselves from
 the output.
+
+Search Quality Improvement Plan, Phase 2: a table's caption (Docling's
+``TableItem.captions``, when the source document/backend populates it) is
+resolved to plain text and attached to that table's own unit rather than
+surviving as a separate, unrelated paragraph unit -- see
+``_caption_by_table_ref``.
 """
 
 from __future__ import annotations
@@ -48,6 +54,13 @@ class NormalizedUnit:
     page_start: int | None
     page_end: int | None
     table_rows: tuple[tuple[str, ...], ...] | None = None
+    # A table's caption text, when Docling's own structure associates one
+    # (``TableItem.captions`` -- a list of refs to a caption ``TextItem``
+    # elsewhere in the tree, not necessarily adjacent in document order).
+    # The caption's own ``TextItem`` is dropped from the unit list entirely
+    # (see ``_consumed_caption_refs`` below) rather than also surviving as
+    # an unrelated stray paragraph right after the table.
+    caption: str | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +82,27 @@ def _page_range(item: object) -> tuple[int | None, int | None]:
     if not pages:
         return None, None
     return min(pages), max(pages)
+
+
+def _caption_by_table_ref(doc: DoclingDocument) -> tuple[dict[str, str], set[str]]:
+    """Pre-scans ``doc.tables`` for caption associations before the main
+    per-item loop runs, so that loop can (a) attach a table's caption text
+    to its own unit and (b) skip the caption's own ``TextItem`` wherever
+    it appears in iteration order -- a table's caption is frequently *not*
+    a sequential-order sibling of the table itself in Docling's tree, so
+    this can't be decided item-by-item during a single forward pass.
+
+    Returns ``(caption_text_by_table_self_ref, consumed_caption_self_refs)``.
+    """
+    caption_by_table: dict[str, str] = {}
+    consumed: set[str] = set()
+    for table in doc.tables:
+        text = table.caption_text(doc).strip()
+        if text:
+            caption_by_table[table.self_ref] = text
+        for cap_ref in table.captions:
+            consumed.add(cap_ref.cref)
+    return caption_by_table, consumed
 
 
 def _table_rows(item: TableItem) -> tuple[tuple[str, ...], ...]:
@@ -103,11 +137,17 @@ def normalize(
     # everything encountered so far belongs to, incremented each time a
     # marker item is crossed.
     current_page = 1
+    caption_by_table, consumed_caption_refs = _caption_by_table_ref(doc)
 
     for item, _tree_level in doc.iterate_items():
         if not isinstance(item, TitleItem | SectionHeaderItem | TableItem | TextItem):
             continue
         if isinstance(item, TextItem) and _label_value(item) in _SKIPPED_TEXT_LABELS:
+            continue
+        if isinstance(item, TextItem) and item.self_ref in consumed_caption_refs:
+            # Already surfaced as this table's own `caption` field below --
+            # would otherwise also survive here as an unrelated stray
+            # paragraph, per this module's docstring.
             continue
 
         is_marker = (
@@ -169,6 +209,7 @@ def normalize(
                     page_start=page_start,
                     page_end=page_end,
                     table_rows=_table_rows(item),
+                    caption=caption_by_table.get(item.self_ref),
                 )
             )
             continue

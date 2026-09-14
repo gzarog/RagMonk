@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ragpilot.core import paths
 from ragpilot.core.errors import ConfigError
@@ -50,10 +50,76 @@ class IndexingConfig(BaseModel):
     reconciliation_interval_seconds: int = 900
 
 
+class ChunkingConfig(BaseModel):
+    """Search Quality Improvement Plan, Phase 2: token-aware, hierarchy-
+    aware chunk boundaries (``documents/chunker.py``), replacing the
+    previous pure character-count paragraph grouping.
+
+    ``strategy`` is validated but only ``"hybrid"`` (token-budget packing
+    that respects heading/table boundaries -- see that module) is
+    implemented so far; the field exists now so a future strategy can be
+    added without another config migration. ``min_tokens``/``overlap_tokens``
+    are soft targets ``merge_peers``/splitting aim for, not hard floors --
+    ``max_tokens`` is the one hard ceiling every non-atomic chunk must
+    respect (an atomic table too large to split further is the documented
+    exception, see ``chunker.chunk_document``'s docstring).
+    """
+
+    strategy: str = "hybrid"
+    max_tokens: int = 350
+    min_tokens: int = 60
+    overlap_tokens: int = 40
+    merge_peers: bool = True
+
+    @field_validator("strategy")
+    @classmethod
+    def _validate_strategy(cls, value: str) -> str:
+        allowed = {"hybrid"}
+        if value not in allowed:
+            raise ValueError(
+                f"unknown documents.chunking.strategy {value!r}; expected one of {sorted(allowed)}"
+            )
+        return value
+
+    @field_validator("max_tokens")
+    @classmethod
+    def _validate_max_tokens(cls, value: int) -> int:
+        if value < 16:
+            raise ValueError("documents.chunking.max_tokens must be at least 16")
+        return value
+
+    @field_validator("min_tokens")
+    @classmethod
+    def _validate_min_tokens(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("documents.chunking.min_tokens must be at least 1")
+        return value
+
+    @field_validator("overlap_tokens")
+    @classmethod
+    def _validate_overlap_tokens(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("documents.chunking.overlap_tokens must not be negative")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_relative_bounds(self) -> ChunkingConfig:
+        if self.min_tokens > self.max_tokens:
+            raise ValueError(
+                "documents.chunking.min_tokens must not exceed documents.chunking.max_tokens"
+            )
+        if self.overlap_tokens >= self.max_tokens:
+            raise ValueError(
+                "documents.chunking.overlap_tokens must be less than documents.chunking.max_tokens"
+            )
+        return self
+
+
 class DocumentsConfig(BaseModel):
     enabled: bool = True
     ocr: str = "auto"
     max_pages: int = 1000
+    chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
 
 
 class CodeConfig(BaseModel):
