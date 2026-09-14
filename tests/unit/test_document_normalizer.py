@@ -12,6 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from docling_core.types.doc import DocItemLabel
+from docling_core.types.doc.base import BoundingBox
+from docling_core.types.doc.common.reference import ProvenanceItem
 from docling_core.types.doc.document import DoclingDocument
 
 from ragpilot.core.models import DocumentFormat
@@ -21,16 +23,17 @@ from ragpilot.documents.metadata import extract_metadata
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "documents"
 
 
+def _prov(page_no: int) -> ProvenanceItem:
+    return ProvenanceItem(
+        page_no=page_no, bbox=BoundingBox(l=0, t=0, r=1, b=1), charspan=(0, 1)
+    )
+
+
 def _convert(name: str):  # noqa: ANN201 - test helper
     path = FIXTURES / name
     doc_format = docling_adapter.detect_format(path)
     conversion = docling_adapter.convert(path)
-    normalized = normalizer.normalize(
-        conversion.document,
-        doc_format,
-        page_count_override=conversion.page_count,
-        page_break_marker=conversion.page_break_marker,
-    )
+    normalized = normalizer.normalize(conversion.document, doc_format)
     chunks = chunker.chunk_document(normalized)
     meta = extract_metadata(conversion.document, normalized, doc_format, path)
     return doc_format, normalized, chunks, meta
@@ -150,30 +153,23 @@ def test_corrupt_docx_raises_document_conversion_error() -> None:
         raise AssertionError("expected DocumentConversionError")
 
 
-def test_page_break_marker_reconstructs_page_numbers_without_prov() -> None:
-    """Proves ``normalizer.normalize``'s marker-based page reconstruction
-    in isolation: a synthetic ``DoclingDocument`` built with no ``prov`` on
-    any item, exactly matching the shape a real PDF's Markdown-backend
-    reparse produces (see ``docling_adapter``'s module docstring) -- no
-    real PDF or ML model involved.
+def test_page_numbers_come_from_native_prov_not_a_marker() -> None:
+    """Phase 1B: page numbers are read straight off each item's real
+    ``prov`` (via ``normalizer._page_range``) -- no page-break marker or
+    override involved. A synthetic multi-page ``DoclingDocument`` built
+    with ``prov`` set directly, exactly the shape Docling's real PDF
+    pipeline itself produces (see ``docling_adapter``'s module docstring)
+    -- no real PDF or ML model needed to prove this.
     """
-    marker = docling_adapter.PAGE_BREAK_MARKER
     doc = DoclingDocument(name="synthetic")
-    doc.add_title("Doc Title")
-    doc.add_text(DocItemLabel.TEXT, "Page one text.")
-    doc.add_text(DocItemLabel.TEXT, marker)
-    doc.add_heading("Section Two", level=1)
-    doc.add_text(DocItemLabel.TEXT, "Page two text.")
-    doc.add_text(DocItemLabel.TEXT, marker)
-    doc.add_text(DocItemLabel.TEXT, "Page three text.")
+    doc.add_title("Doc Title", prov=_prov(1))
+    doc.add_text(DocItemLabel.TEXT, "Page one text.", prov=_prov(1))
+    doc.add_heading("Section Two", level=1, prov=_prov(2))
+    doc.add_text(DocItemLabel.TEXT, "Page two text.", prov=_prov(2))
+    doc.add_text(DocItemLabel.TEXT, "Page three text.", prov=_prov(3))
 
-    normalized = normalizer.normalize(
-        doc, DocumentFormat.PDF, page_count_override=3, page_break_marker=marker
-    )
+    normalized = normalizer.normalize(doc, DocumentFormat.PDF)
 
-    # Marker items produce no unit at all -- only the five real content
-    # items (title, 3 paragraphs, 1 heading) survive.
-    assert len(normalized.units) == 5
     assert [u.text for u in normalized.units] == [
         "Doc Title",
         "Page one text.",
@@ -181,15 +177,10 @@ def test_page_break_marker_reconstructs_page_numbers_without_prov() -> None:
         "Page two text.",
         "Page three text.",
     ]
-
     by_text = {u.text: u for u in normalized.units}
     assert by_text["Doc Title"].page_start == 1
     assert by_text["Doc Title"].page_end == 1
     assert by_text["Page one text."].page_start == 1
-    assert by_text["Page one text."].page_end == 1
     assert by_text["Section Two"].page_start == 2
-    assert by_text["Section Two"].page_end == 2
     assert by_text["Page two text."].page_start == 2
-    assert by_text["Page two text."].page_end == 2
     assert by_text["Page three text."].page_start == 3
-    assert by_text["Page three text."].page_end == 3
