@@ -8,21 +8,44 @@ converted by Docling's rule-based backends and never touches that download
 path, so only PDF conversion needs to be gated behind that marker in
 tests.
 
-PDF gets one extra step the other formats don't: rather than normalizing
-Docling's PDF-layout ``DoclingDocument`` directly, ``convert()`` exports it
-to Markdown text, caches that text (keyed by content hash, in
-``document_conversion_cache`` -- see ``storage/schema.py``'s
-``KNOWLEDGE_DB_V6``), and reparses the Markdown through Docling's own
-Markdown backend into a *second* ``DoclingDocument`` -- and it is that
-reparsed document callers actually normalize/chunk/index. This means the
-PDF layout/table-structure model only ever runs once per distinct PDF
-content, no matter how many times the file is re-indexed: a cache hit
-reparses cached Markdown without touching the model at all. The reparsed
-document carries no page provenance of its own (a plain Markdown-backend
-parse attaches no ``prov`` to anything, and its ``num_pages()`` is always
-0), so ``convert()`` returns the real page count and a page-break marker
-string alongside it -- see ``ConversionResult`` -- for
-``normalizer.normalize`` to reconstruct page numbers from.
+PDF gets one extra step the other formats don't: Docling's real PDF-layout
+``DoclingDocument`` is expensive to produce (that layout/table-structure
+model), so it is cached -- keyed by content hash, in
+``document_conversion_cache`` (see ``storage/schema.py``'s
+``KNOWLEDGE_DB_V6``/``KNOWLEDGE_DB_V10``) -- as its own serialized JSON, via
+its pydantic model's native ``model_dump_json()``/``model_validate_json()``
+round-trip (``DoclingDocument`` is itself a pydantic model in this
+project's pinned ``docling-core`` version). A cache hit deserializes that
+JSON straight back into the *same* ``DoclingDocument`` Docling's PDF
+pipeline produced -- headings, tables, text items, and every item's real
+``prov`` page provenance -- without touching the model at all. This is
+callers' only source of a PDF's ``DoclingDocument``: unlike the Phase 3
+design this replaces, there is no second, reparsed document with
+different properties than the first.
+
+Earlier (Phase 3 through the search-quality improvement plan's Phase 1A)
+this cached a Markdown *export* of that document instead, and reparsed the
+Markdown through Docling's separate Markdown backend into a second
+``DoclingDocument`` -- the one actually normalized/chunked/indexed. That
+reparsed document carried no page provenance of its own (a plain
+Markdown-backend parse attaches no ``prov`` to anything, and its
+``num_pages()`` was always 0), so a page-break marker string embedded in
+the Markdown export stood in for real provenance, and callers
+reconstructed page numbers by counting marker crossings while walking the
+document. The round-trip existed to let a cache hit skip the PDF pipeline
+by feeding *something* back through Docling's (cheap, rule-based) Markdown
+backend rather than needing to reconstruct a full ``DoclingDocument`` from
+scratch. Caching the native document's own JSON serialization instead
+gets the same "skip the expensive pipeline on a cache hit" property more
+directly -- deserializing pydantic JSON is at least as cheap as reparsing
+Markdown, doesn't require a second Docling backend at all, and needs no
+marker/reconstruction hack because the document that comes back already
+has every item's real ``prov``. Nothing else the Markdown round-trip
+happened to provide (its own text normalization, whitespace collapsing,
+etc.) is lost: those are round-tripped losslessly by the pydantic model
+itself, whereas the Markdown export was Docling's own *lossy* rendering of
+the very same document -- serializing the document directly is strictly
+more faithful, not less.
 """
 
 from __future__ import annotations
@@ -30,7 +53,6 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -50,7 +72,6 @@ if TYPE_CHECKING:
     from docling.datamodel.base_models import InputFormat
     from docling.document_converter import DocumentConverter
     from docling_core.types.doc.document import DoclingDocument
-    from docling_core.types.io import DocumentStream
 
 # Phase 3's supported extensions. Anything else that ``sources.detector``
 # still classifies as ``FileKind.DOCUMENT`` (legacy .doc/.ppt/.xls,
@@ -98,19 +119,24 @@ def _format_to_input_format() -> dict[DocumentFormat, InputFormat]:
     return _format_to_input_format_cache
 
 
-# Plain text, no Markdown/HTML special syntax: an HTML-comment-style
-# placeholder (e.g. "<!--PAGEBREAK-->") is silently swallowed by Docling's
-# Markdown parser and produces no item at all when reparsed, so it cannot
-# be recovered by ``normalizer.normalize``. Wrapped in U+2063 INVISIBLE
-# SEPARATOR on both sides to minimize accidental collision with real
-# document text while still round-tripping as an exact, distinct
-# ``TextItem.text`` value through the reparse.
-PAGE_BREAK_MARKER = "⁣RAGPILOT-PAGE-BREAK⁣"
+# Identifies the cache row's ``serialized_document`` encoding -- currently
+# only one value exists, but this is a stored (not just implied-by-
+# cache_version) column so a future second encoding could be introduced
+# and distinguished without another cache_version bump forcing every
+# existing row to be treated as stale.
+_SERIALIZATION_FORMAT = "docling_document/json"
 
-# Bump if PAGE_BREAK_MARKER or export_to_markdown's options ever change --
-# see document_conversion_cache_repo.get's cache_version handling for why
-# a stale-version cache row must be treated as a miss rather than reused.
-_CACHE_VERSION = 1
+# Bump whenever the meaning of ``serialized_document`` changes -- the
+# encoding above, or which Docling version's ``DoclingDocument`` shape it
+# assumes -- so a cache row written under the old meaning is treated as a
+# miss rather than reused. See document_conversion_cache_repo.get's
+# cache_version handling. Bumped for Phase 1B (search-quality improvement
+# plan): this project's documented migration strategy is to never attempt
+# to convert an old cache row forward -- a version bump alone makes every
+# row written before it (including every Markdown-keyed row from before
+# Phase 1B) a guaranteed miss, so it is simply regenerated, natively, the
+# next time its PDF is indexed.
+_CACHE_VERSION = 2
 
 
 class UnsupportedDocumentFormatError(RagpilotError):
@@ -190,30 +216,24 @@ def pdf_page_count(path: Path) -> int:
 class ConversionResult:
     """``convert()``'s return type.
 
-    For every non-PDF format, ``page_count``/``page_break_marker`` are
-    both ``None`` -- callers fall back to ``document``'s own
-    ``num_pages()``/``item.prov``, exactly as before this type existed.
-
-    For PDF, ``document`` is the *reparsed-from-Markdown* document, not
-    Docling's PDF-layout document -- it carries no ``prov`` on any item
-    and its own ``num_pages()`` is always 0, so ``page_count`` carries the
-    real PDF page count (via ``pdf_page_count``) instead, and
-    ``page_break_marker`` is ``PAGE_BREAK_MARKER``: the literal text
-    callers must special-case when walking ``document``'s items to
-    reconstruct page numbers (see ``normalizer.normalize``).
+    Just ``document`` -- every format, PDF included, hands back the real
+    ``DoclingDocument`` Docling itself produced (from the PDF pipeline, or
+    from a cache hit's deserialization of a prior run of it), so callers
+    read page numbers and provenance the same way regardless of format:
+    ``document.num_pages()`` and each item's own ``prov``. Kept as a
+    dataclass (rather than ``convert()`` returning a bare
+    ``DoclingDocument``) as a stable extension point for future per-
+    conversion metadata, mirroring its shape before Phase 1B removed the
+    PDF-only ``page_count``/``page_break_marker`` fields it used to carry.
     """
 
     document: DoclingDocument
-    page_count: int | None = None
-    page_break_marker: str | None = None
 
 
-def _run_conversion(
-    converter: DocumentConverter, path: Path, source: str | DocumentStream
-) -> DoclingDocument:
+def _run_conversion(converter: DocumentConverter, path: Path, source: str) -> DoclingDocument:
     """Runs ``converter`` and returns its resulting document, or raises
-    ``DocumentConversionError`` -- shared by both the PDF and non-PDF
-    conversion paths below, and by the Markdown reparse.
+    ``DocumentConversionError`` -- shared by the PDF and non-PDF
+    conversion paths below.
     """
     from docling.datamodel.base_models import ConversionStatus
 
@@ -230,50 +250,41 @@ def _run_conversion(
     return result.document
 
 
-_md_converter: DocumentConverter | None = None
-
-
-def _get_md_converter() -> DocumentConverter:
-    """Separate singleton from ``_get_converter()``'s PDF-pipeline-
-    configured one: this one never touches PDF layout/table-structure
-    models at all, it is Docling's plain, rule-based Markdown backend --
-    the same one used for real ``.md`` files, just fed cached or
-    freshly-exported PDF Markdown instead of a file on disk.
+def _deserialize_cached_document(
+    cached: document_conversion_cache_repo.CachedConversion,
+) -> DoclingDocument | None:
+    """Reconstructs the cached ``DoclingDocument`` from
+    ``cached.serialized_document``, or ``None`` if it can't be -- treated
+    exactly like a cache miss by ``_convert_pdf``, which falls back to
+    reconverting. This is deliberately defensive beyond what
+    ``cache_version`` alone already guards: a row can only have been
+    written by *this* code (nothing else populates
+    ``serialized_document``), but an in-place ``pip install`` upgrade of
+    ``docling-core`` between the write and this read could still change
+    ``DoclingDocument``'s pydantic shape without anyone having bumped
+    ``_CACHE_VERSION`` for it, and a hand-edited or truncated row is
+    always possible. Falling back to a real reconversion is exactly as
+    correct as a cache miss and costs nothing beyond that miss's own
+    price, so there is no reason to let a deserialization failure here
+    propagate as a hard error.
     """
-    global _md_converter
-    if _md_converter is None:
-        from docling.datamodel.base_models import InputFormat
-        from docling.document_converter import DocumentConverter
+    from docling_core.types.doc.document import DoclingDocument
 
-        _md_converter = DocumentConverter(allowed_formats=[InputFormat.MD])
-    return _md_converter
-
-
-def _reparse_markdown(path: Path, markdown_text: str) -> DoclingDocument:
-    """Reparses ``markdown_text`` (Docling's own Markdown export of a PDF)
-    back into a ``DoclingDocument`` via Docling's Markdown backend, in
-    memory -- no temp file on disk. The stream must be named with an
-    MD-recognized extension: Docling sniffs format from the name even
-    when ``allowed_formats`` only contains one entry, so the resulting
-    document's ``origin.filename`` ends up being this synthetic
-    ``"<stem>.md"`` name rather than the real PDF's -- harmless, since
-    ``metadata.extract_metadata``'s ``source_filename`` field is computed
-    but never consumed anywhere else in this codebase.
-    """
-    from docling_core.types.io import DocumentStream
-
-    stream = DocumentStream(name=f"{path.stem}.md", stream=BytesIO(markdown_text.encode("utf-8")))
-    return _run_conversion(_get_md_converter(), path, stream)
+    if cached.serialization_format != _SERIALIZATION_FORMAT:
+        return None
+    try:
+        return DoclingDocument.model_validate_json(cached.serialized_document)
+    except Exception:  # noqa: BLE001 - any deserialization failure degrades to a cache miss
+        return None
 
 
 def _convert_pdf(path: Path, conn: sqlite3.Connection | None) -> ConversionResult:
-    """PDF's extra step: export Docling's real PDF-layout conversion to
-    Markdown (cached by content hash so an unchanged PDF never re-runs
-    the model), then reparse that Markdown into the document that
-    actually gets normalized/chunked/indexed. See this module's
-    docstring for the full rationale.
+    """PDF's extra step: Docling's real PDF-layout pipeline is expensive
+    (a real layout/table-structure ML model), so its output -- the native
+    ``DoclingDocument`` -- is cached by content hash and deserialized
+    straight back on a hit, never touching the pipeline again. See this
+    module's docstring for the full rationale.
     """
-    real_page_count = pdf_page_count(path)
     content_hash = hash_file(path)
     cached = (
         document_conversion_cache_repo.get(conn, content_hash, cache_version=_CACHE_VERSION)
@@ -281,24 +292,28 @@ def _convert_pdf(path: Path, conn: sqlite3.Connection | None) -> ConversionResul
         else None
     )
     if cached is not None:
-        markdown = cached.markdown
-    else:
-        document = _run_conversion(_get_converter(), path, str(path))
-        markdown = document.export_to_markdown(page_break_placeholder=PAGE_BREAK_MARKER)
-        if conn is not None:
-            with transaction(conn):
-                document_conversion_cache_repo.put(
-                    conn,
-                    document_conversion_cache_repo.CachedConversion(
-                        content_hash=content_hash, markdown=markdown, page_count=real_page_count
-                    ),
-                    cache_version=_CACHE_VERSION,
-                    created_at=datetime.now(UTC).isoformat(),
-                )
-    reparsed = _reparse_markdown(path, markdown)
-    return ConversionResult(
-        document=reparsed, page_count=real_page_count, page_break_marker=PAGE_BREAK_MARKER
-    )
+        document = _deserialize_cached_document(cached)
+        if document is not None:
+            return ConversionResult(document=document)
+
+    document = _run_conversion(_get_converter(), path, str(path))
+    if conn is not None:
+        import docling
+
+        with transaction(conn):
+            document_conversion_cache_repo.put(
+                conn,
+                document_conversion_cache_repo.CachedConversion(
+                    content_hash=content_hash,
+                    serialized_document=document.model_dump_json(),
+                    serialization_format=_SERIALIZATION_FORMAT,
+                    page_count=document.num_pages() or None,
+                    parser_version=docling.__version__,
+                ),
+                cache_version=_CACHE_VERSION,
+                created_at=datetime.now(UTC).isoformat(),
+            )
+    return ConversionResult(document=document)
 
 
 def convert(path: Path, *, conn: sqlite3.Connection | None = None) -> ConversionResult:
@@ -307,8 +322,8 @@ def convert(path: Path, *, conn: sqlite3.Connection | None = None) -> Conversion
     raises ``DocumentConversionError``.
 
     ``conn``, when given, is the caller's already-open per-project
-    ``knowledge.db`` connection -- used only for PDF's Markdown-export
-    cache (``document_conversion_cache``). Every other format ignores it
+    ``knowledge.db`` connection -- used only for PDF's conversion cache
+    (``document_conversion_cache``). Every other format ignores it
     entirely and converts exactly as it always has.
     """
     if detect_format(path) is DocumentFormat.PDF:
