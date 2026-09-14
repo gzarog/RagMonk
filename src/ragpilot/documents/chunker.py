@@ -1,20 +1,48 @@
 """Groups a ``NormalizedDocument``'s units into indexable/storable chunks.
 
-Headings and tables are stored one-to-one; consecutive paragraph units
-under the same heading are merged up to ``max_chunk_chars`` so a very
-finely split source document (one ``TextItem`` per line, in the worst
-case) does not produce one DB row per line. Every output ``Chunk`` still
-carries its own page/heading-path provenance, per the blueprint's
-evidence-first rule.
+Search Quality Improvement Plan, Phase 2: chunk boundaries are now
+token-aware and hierarchy-aware (``core.config.ChunkingConfig``) rather
+than the previous pure character-count paragraph grouping. Headings and
+tables are still stored one-to-one (never merged away, never split) --
+only *how many pieces a run of paragraph units under one heading becomes*
+changed:
+
+- Consecutive paragraph units under the same heading are greedily packed
+  into chunks up to ``max_tokens`` (replacing the old flat
+  ``max_chunk_chars``), using ``documents/tokenization.py``'s
+  dependency-free token estimator -- see that module's docstring for why
+  it isn't the real embedding-model tokenizer.
+- A single unit whose own text exceeds ``max_tokens`` is split at
+  sentence, then word, boundaries (never a raw character cut) before
+  packing -- see ``tokenization.split_by_token_budget``.
+- ``overlap_tokens`` worth of trailing text from one chunk seeds the next
+  chunk *within the same heading's pending run only*: ``flush_pending``
+  is always scoped to one contiguous run of paragraph units between two
+  headings/tables, so overlap structurally cannot bleed across a heading
+  boundary -- there is no shared state between two separate
+  ``flush_pending`` calls.
+- ``merge_peers`` absorbs a chunk that came out under ``min_tokens`` into
+  an adjacent chunk from the *same* run, provided the merge still fits
+  ``max_tokens`` -- avoiding a standalone near-empty chunk without ever
+  exceeding the hard ceiling.
+- Tables are the one deliberate, documented exception to "no chunk
+  exceeds ``max_tokens``": splitting a table's rows across multiple
+  chunks would break row-level meaning for no real benefit at this
+  project's scale, so a table always stays one atomic chunk regardless of
+  ``token_count`` -- unlike ``chunk_document``, this hasn't changed since
+  before Phase 2.
+
+Every output ``Chunk`` still carries its own page/heading-path
+provenance, per the blueprint's evidence-first rule.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ragpilot.core.config import ChunkingConfig
 from ragpilot.documents.normalizer import NormalizedDocument, NormalizedUnit
-
-DEFAULT_MAX_CHUNK_CHARS = 1000
+from ragpilot.documents.tokenization import count_tokens, split_by_token_budget
 
 
 @dataclass(frozen=True)
@@ -27,15 +55,201 @@ class Chunk:
     page_start: int | None
     page_end: int | None
     table_rows: tuple[tuple[str, ...], ...] | None = None
+    # A table's associated caption text (see normalizer._caption_by_table_ref);
+    # always None for "heading"/"paragraph" chunks.
+    caption: str | None = None
+    # Heading-path-prefixed rendering of `text` (or, for a table, of its
+    # caption/flattened cells -- see `_countable_text`). Not wired into
+    # FTS/embedding indexing yet -- Phase 3 decides what actually feeds
+    # search from raw vs. contextual text; this phase only makes the value
+    # available on every chunk.
+    contextual_text: str = ""
+    # Real (estimated) subword-token count of the text `token_count` was
+    # computed from -- see `tokenization.count_tokens`. A table's count is
+    # taken from its flattened cell text (see `_countable_text`) since its
+    # own `text` is always "".
+    token_count: int = 0
+
+
+@dataclass(frozen=True)
+class _Piece:
+    """One already-budget-sized fragment of a paragraph unit's text, with
+    that unit's page provenance carried along -- page numbers are tracked
+    per source ``NormalizedUnit``, not per word, so every piece split out
+    of one unit shares that unit's page_start/page_end.
+    """
+
+    text: str
+    page_start: int | None
+    page_end: int | None
+
+
+def _contextual_text(heading_path: tuple[str, ...], body: str) -> str:
+    if not heading_path:
+        return body
+    prefix = " > ".join(heading_path)
+    return f"{prefix}\n\n{body}" if body else prefix
+
+
+def _countable_text(unit: NormalizedUnit) -> str:
+    """The text a table unit's ``token_count``/``contextual_text`` should
+    be computed from -- its own ``text`` is always ``""`` (cells live in
+    ``table_rows``), so this flattens cells the same way
+    ``documents_repo.insert_table`` already does for the FTS body, plus
+    the caption when one is attached.
+    """
+    if unit.kind != "table":
+        return unit.text
+    cells = " ".join(cell for row in (unit.table_rows or ()) for cell in row if cell)
+    if unit.caption and cells:
+        return f"{unit.caption}\n\n{cells}"
+    return unit.caption or cells
+
+
+def _pieces_for_unit(unit: NormalizedUnit, max_tokens: int) -> list[_Piece]:
+    return [
+        _Piece(text=t, page_start=unit.page_start, page_end=unit.page_end)
+        for t in split_by_token_budget(unit.text, max_tokens)
+    ]
+
+
+def _pack_pieces(pieces: list[_Piece], config: ChunkingConfig) -> list[list[_Piece]]:
+    """Greedy token-budget packing across every piece in one heading's
+    pending run, applying ``overlap_tokens`` between consecutive groups.
+
+    Every piece is individually <= ``max_tokens`` (guaranteed by
+    ``split_by_token_budget``), so a fresh group can always accept at
+    least one new piece -- the overlap seed is trimmed, never the new
+    piece, so a produced group never exceeds ``max_tokens``.
+    """
+    groups: list[list[_Piece]] = []
+    overlap_seed: list[_Piece] = []
+    i = 0
+    n = len(pieces)
+    while i < n:
+        current: list[_Piece] = []
+        current_tokens = 0
+        if overlap_seed and config.overlap_tokens > 0:
+            next_tokens = count_tokens(pieces[i].text)
+            seed: list[_Piece] = []
+            seed_tokens = 0
+            for piece in reversed(overlap_seed):
+                piece_tokens = count_tokens(piece.text)
+                if seed_tokens + piece_tokens > config.overlap_tokens:
+                    break
+                if seed_tokens + piece_tokens + next_tokens > config.max_tokens:
+                    break
+                seed.insert(0, piece)
+                seed_tokens += piece_tokens
+            current, current_tokens = seed, seed_tokens
+
+        started_new = False
+        while i < n:
+            piece = pieces[i]
+            piece_tokens = count_tokens(piece.text)
+            if current and started_new and current_tokens + piece_tokens > config.max_tokens:
+                break
+            current.append(piece)
+            current_tokens += piece_tokens
+            started_new = True
+            i += 1
+            if current_tokens >= config.max_tokens:
+                break
+
+        groups.append(current)
+        overlap_seed = current
+    return groups
+
+
+def _group_tokens(group: list[_Piece]) -> int:
+    return sum(count_tokens(p.text) for p in group)
+
+
+def _split_evenly(
+    pieces: list[_Piece], max_tokens: int
+) -> tuple[list[_Piece], list[_Piece]]:
+    """Splits ``pieces`` into two halves as close to equal token size as
+    piece boundaries allow -- used to rebalance two adjacent packed
+    groups rather than just re-testing their original split point (see
+    ``_merge_peers``).
+    """
+    target = -(-_group_tokens(pieces) // 2)  # ceil(total / 2)
+    first: list[_Piece] = []
+    first_tokens = 0
+    split_at = len(pieces)
+    for idx, piece in enumerate(pieces):
+        piece_tokens = count_tokens(piece.text)
+        if first and first_tokens + piece_tokens > target:
+            split_at = idx
+            break
+        first.append(piece)
+        first_tokens += piece_tokens
+    return first, pieces[split_at:]
+
+
+def _merge_peers(groups: list[list[_Piece]], config: ChunkingConfig) -> list[list[_Piece]]:
+    """Rebalances each adjacent pair of packed groups, left to right,
+    whenever either side is under ``min_tokens``.
+
+    A greedily-packed group can end up short of the floor purely because
+    content didn't divide evenly across ``max_tokens``-sized groups -- and
+    critically, it can *never* be fixed by simply concatenating it with
+    its immediate neighbor: ``_pack_pieces`` only starts a new group when
+    the current one plus the very next piece would exceed ``max_tokens``,
+    so any two adjacent groups it produces are, by that same construction,
+    already too large to recombine. Splitting their *combined* pieces
+    evenly instead (rather than at the original boundary) can still bring
+    both sides up to ``min_tokens`` when the pair's total supports it; when
+    it doesn't (not enough combined content for two full-sized floors --
+    ``min_tokens`` is a soft target, not a hard floor, see
+    ``ChunkingConfig``), the pair is left as ``_pack_pieces`` produced it.
+    Every rebalanced half is re-checked against ``max_tokens`` before
+    being accepted, so the one hard ceiling can never regress either.
+    """
+    if not config.merge_peers or len(groups) < 2:
+        return groups
+    result = [list(g) for g in groups]
+    for i in range(len(result) - 1):
+        if _group_tokens(result[i]) >= config.min_tokens and (
+            _group_tokens(result[i + 1]) >= config.min_tokens
+        ):
+            continue
+        first, second = _split_evenly(result[i] + result[i + 1], config.max_tokens)
+        if not first or not second:
+            continue
+        if _group_tokens(first) <= config.max_tokens and _group_tokens(second) <= config.max_tokens:
+            result[i], result[i + 1] = first, second
+    return result
+
+
+def _finalize_group(
+    group: list[_Piece], heading_path: tuple[str, ...], parent_index: int | None
+) -> Chunk:
+    text = "\n\n".join(p.text for p in group)
+    pages = [pg for p in group for pg in (p.page_start, p.page_end) if pg is not None]
+    return Chunk(
+        kind="paragraph",
+        text=text,
+        heading_level=None,
+        heading_path=heading_path,
+        parent_index=parent_index,
+        page_start=min(pages) if pages else None,
+        page_end=max(pages) if pages else None,
+        contextual_text=_contextual_text(heading_path, text),
+        token_count=count_tokens(text),
+    )
 
 
 def chunk_document(
-    normalized: NormalizedDocument, *, max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS
+    normalized: NormalizedDocument, *, config: ChunkingConfig | None = None
 ) -> list[Chunk]:
-    # Headings are never merged away, but merging paragraphs does drop
-    # rows, so a heading's position in ``units`` no longer matches its
-    # position in the output -- this remaps old index -> new index for
-    # every heading so paragraph/table ``parent_index`` values stay valid.
+    cfg = config or ChunkingConfig()
+
+    # Headings are never merged away, but merging/splitting paragraphs
+    # does change row counts, so a heading's position in ``units`` no
+    # longer matches its position in the output -- this remaps old index
+    # -> new index for every heading so paragraph/table ``parent_index``
+    # values stay valid.
     old_heading_to_new: dict[int, int] = {}
     chunks: list[Chunk] = []
     pending: list[NormalizedUnit] = []
@@ -48,25 +262,17 @@ def chunk_document(
         parent_new = (
             old_heading_to_new.get(first.parent_index) if first.parent_index is not None else None
         )
-        pages = [p for u in pending for p in (u.page_start, u.page_end) if p is not None]
-        chunks.append(
-            Chunk(
-                kind="paragraph",
-                text="\n\n".join(u.text for u in pending),
-                heading_level=None,
-                heading_path=first.heading_path,
-                parent_index=parent_new,
-                page_start=min(pages) if pages else None,
-                page_end=max(pages) if pages else None,
-            )
-        )
+        pieces: list[_Piece] = []
+        for unit in pending:
+            pieces.extend(_pieces_for_unit(unit, cfg.max_tokens))
+        groups = _merge_peers(_pack_pieces(pieces, cfg), cfg)
+        for group in groups:
+            if group:
+                chunks.append(_finalize_group(group, first.heading_path, parent_new))
         pending = []
 
     for old_index, unit in enumerate(normalized.units):
         if unit.kind == "paragraph":
-            pending_chars = sum(len(u.text) for u in pending)
-            if pending and pending_chars + len(unit.text) + 2 > max_chunk_chars:
-                flush_pending()
             pending.append(unit)
             continue
 
@@ -75,6 +281,7 @@ def chunk_document(
             old_heading_to_new.get(unit.parent_index) if unit.parent_index is not None else None
         )
         new_index = len(chunks)
+        countable = _countable_text(unit)
         chunks.append(
             Chunk(
                 kind=unit.kind,
@@ -85,6 +292,9 @@ def chunk_document(
                 page_start=unit.page_start,
                 page_end=unit.page_end,
                 table_rows=unit.table_rows,
+                caption=unit.caption,
+                contextual_text=_contextual_text(unit.heading_path, countable),
+                token_count=count_tokens(countable),
             )
         )
         if unit.kind == "heading":

@@ -186,3 +186,68 @@ def test_search_output_invalid_config_file_raises_config_error(tmp_path: Path) -
     _write_yaml(home / "config.yaml", {"search": {"output": {"fallback": ["bogus"]}}})
     with pytest.raises(ConfigError):
         load_config(home=home, cwd=cwd, environ={})
+
+
+def test_documents_chunking_defaults(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    config = load_config(home=home, cwd=cwd, environ={})
+    assert config.documents.chunking.strategy == "hybrid"
+    assert config.documents.chunking.max_tokens == 350
+    assert config.documents.chunking.min_tokens == 60
+    assert config.documents.chunking.overlap_tokens == 40
+    assert config.documents.chunking.merge_peers is True
+
+
+def test_documents_chunking_configurable_via_user_config(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    _write_yaml(
+        home / "config.yaml",
+        {"documents": {"chunking": {"max_tokens": 500, "merge_peers": False}}},
+    )
+    config = load_config(home=home, cwd=cwd, environ={})
+    assert config.documents.chunking.max_tokens == 500
+    assert config.documents.chunking.merge_peers is False
+    # Untouched siblings keep their defaults.
+    assert config.documents.chunking.min_tokens == 60
+
+
+def test_documents_chunking_env_var_override(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    config = load_config(
+        home=home,
+        cwd=cwd,
+        environ={"RAGPILOT_DOCUMENTS__CHUNKING__MAX_TOKENS": "200"},
+    )
+    assert config.documents.chunking.max_tokens == 200
+
+
+def test_documents_chunking_rejects_unknown_strategy() -> None:
+    with pytest.raises(ValueError, match="unknown documents.chunking.strategy"):
+        RagpilotConfig.model_validate({"documents": {"chunking": {"strategy": "bogus"}}})
+
+
+def test_documents_chunking_rejects_min_tokens_above_max_tokens() -> None:
+    with pytest.raises(ValueError, match="min_tokens must not exceed"):
+        RagpilotConfig.model_validate(
+            {"documents": {"chunking": {"min_tokens": 400, "max_tokens": 350}}}
+        )
+
+
+def test_documents_chunking_rejects_overlap_tokens_at_or_above_max_tokens() -> None:
+    with pytest.raises(ValueError, match="overlap_tokens must be less than"):
+        RagpilotConfig.model_validate(
+            {"documents": {"chunking": {"overlap_tokens": 350, "max_tokens": 350}}}
+        )
+
+
+def test_documents_chunking_rejects_max_tokens_too_small() -> None:
+    with pytest.raises(ValueError, match="max_tokens must be at least 16"):
+        RagpilotConfig.model_validate({"documents": {"chunking": {"max_tokens": 4}}})
+
+
+def test_documents_chunking_rejects_negative_overlap_tokens() -> None:
+    with pytest.raises(ValueError, match="must not be negative"):
+        RagpilotConfig.model_validate({"documents": {"chunking": {"overlap_tokens": -1}}})

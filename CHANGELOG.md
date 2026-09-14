@@ -1092,6 +1092,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     removal semantics in the registry.
   - The original source files on disk are never touched, only derived
     data.
+- Search Quality Improvement Plan, Phase 2: token-aware, hierarchy-aware
+  chunk boundaries.
+  - **The problem**: `documents/chunker.py` grouped paragraph units into
+    chunks by a flat character count (`DEFAULT_MAX_CHUNK_CHARS`), with no
+    concept of tokens, a token budget, or a floor -- a "1000-character"
+    chunk could be anywhere from ~150 to ~500 real tokens depending on
+    word length and punctuation density, and a lone short paragraph under
+    a heading always became its own tiny standalone row regardless of
+    size.
+  - **`documents/tokenization.py`** (new): a small, dependency-free
+    word/punctuation token estimator (`count_tokens`) plus a sentence-
+    then-word-boundary budget splitter (`split_by_token_budget`), used in
+    place of the real embedding-model tokenizer -- documented in the
+    module's own docstring why: loading `retrieval/embedder.py`'s
+    `transformers.AutoTokenizer` downloads/caches model files from
+    Hugging Face on first use (the same real-network dependency
+    `CONTRIBUTING.md`'s `embedding_model` marker exists to keep out of
+    the default test suite), and chunk *boundaries* have to keep working
+    even when the embedding model is entirely unavailable (FTS-only
+    indexing, `EmbeddingModelUnavailableError`) -- coupling boundary
+    decisions to that model being loadable would regress that
+    degrade-gracefully guarantee for every document, not just semantic
+    search.
+  - **`core/config.py`**: new `ChunkingConfig`
+    (`documents.chunking.{strategy,max_tokens,min_tokens,overlap_tokens,
+    merge_peers}`, defaults `hybrid`/350/60/40/`true`) under
+    `DocumentsConfig`, validated the same way `SearchOutputConfig`
+    already is (`strategy` restricted to the one implemented value,
+    `min_tokens <= max_tokens`, `overlap_tokens < max_tokens`). Threaded
+    through `indexing/coordinator.py`'s `ProcessorContext` (a new
+    `chunking` field, mirroring `max_document_pages`) to
+    `documents/pipeline.py`'s call into `chunk_document`.
+  - **`documents/chunker.py`**: paragraph units under one heading are now
+    greedily packed by real token count up to `max_tokens` instead of
+    `max_chunk_chars`; a single unit whose own text exceeds `max_tokens`
+    is split at sentence, then word, boundaries (never a raw character
+    cut) before packing. `overlap_tokens` worth of trailing text seeds
+    the next chunk -- structurally scoped to one heading's own
+    contiguous run of paragraph units (`flush_pending`), so it can never
+    bleed into a different heading's first chunk. `merge_peers`
+    rebalances (not just concatenates -- adjacent greedily-packed groups
+    are, by construction, always too large to simply recombine; see the
+    function's own docstring) any adjacent pair where one side came out
+    under `min_tokens`, without ever exceeding `max_tokens` on either
+    side; when a pair's combined content genuinely can't support two
+    full-sized floors, the shortfall is left as-is (`min_tokens` is a
+    soft target, not a hard floor -- `max_tokens` is the one hard
+    ceiling). Tables remain the one deliberate, documented exception:
+    never split, so a table's `token_count` can legitimately exceed
+    `max_tokens`.
+  - `Chunk` grew `contextual_text` (heading-path-prefixed rendering of a
+    chunk's text, or of a table's caption/flattened cells) and
+    `token_count` (the real count the boundary decision was based on).
+    Neither is wired into FTS/embedding indexing yet -- Phase 3 decides
+    what actually feeds search from raw vs. contextual text; this phase
+    only makes both available on every chunk. Existing fields
+    (`text`/`heading_path`/`heading_level`/`parent_index`/`page_start`/
+    `page_end`/`table_rows`) are unchanged/unrenamed.
+  - **Table captions**: `documents/normalizer.py` now resolves a table's
+    Docling-associated caption (`TableItem.captions`) to its own unit's
+    new `caption` field, and drops the caption's own `TextItem` from the
+    unit list entirely -- it no longer also survives as an unrelated
+    stray paragraph placed right after the table.
+  - Verified against `benchmarks/search_quality/baseline_report.json`: the
+    golden-query Recall@1/3/5/10/MRR/NDCG@10 numbers and generated chunk
+    counts are byte-identical to the committed Phase 0 baseline on that
+    fixture project (its documents are small enough that no boundary
+    actually moved) -- `tests/integration/test_search_quality.py`'s
+    blocking floors pass unchanged, and the baseline did not need
+    regenerating.
 - CLI performance improvement plan, Phase 1: startup benchmark and
   heavy-import regression test.
   - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,

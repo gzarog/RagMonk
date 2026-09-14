@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ragpilot.core.config import RagpilotConfig
+from ragpilot.core.config import ChunkingConfig, RagpilotConfig
 from ragpilot.core.models import FileKind, FileRecord, FileStatus
 from ragpilot.indexing import retry
 from ragpilot.indexing.incremental import ChangeType, classify_change, find_deleted
@@ -56,6 +56,14 @@ class ProcessorContext:
     # coordinator pre-filtering by page count, since page count is not
     # knowable until a processor has looked at the file.
     max_document_pages: int | None = None
+    # ``config.documents.chunking`` -- Phase 3's DocumentProcessor threads
+    # this straight through to ``chunker.chunk_document`` rather than the
+    # coordinator knowing anything about chunk boundaries itself, matching
+    # ``max_document_pages`` immediately above. ``None`` (the default a
+    # processor context built outside this coordinator, e.g. in a test,
+    # would have) means "use ``ChunkingConfig()``'s own defaults" -- see
+    # ``documents/pipeline.py``.
+    chunking: ChunkingConfig | None = None
     # The generation this run's derived rows should be tagged with --
     # always files.generation + 1, matching the bump files_repo.mark_indexed
     # applies right after a processor returns successfully. Writing this
@@ -260,6 +268,7 @@ class IndexCoordinator:
                 source_root=self._root,
                 next_generation=file.generation + 1,
                 max_document_pages=self._config.documents.max_pages,
+                chunking=self._config.documents.chunking,
             )
             started = time.monotonic()
             try:

@@ -17,6 +17,7 @@ import sqlite3
 import uuid
 from datetime import UTC, datetime
 
+from ragpilot.core.config import ChunkingConfig
 from ragpilot.core.errors import RagpilotError
 from ragpilot.core.models import Document, DocumentFormat, FileStatus, Paragraph, Section, Table
 from ragpilot.documents import chunker, docling_adapter, normalizer
@@ -61,7 +62,7 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
 
     conversion = docling_adapter.convert(ctx.path, conn=ctx.conn)
     normalized = normalizer.normalize(conversion.document, doc_format)
-    chunks = chunker.chunk_document(normalized)
+    chunks = chunker.chunk_document(normalized, config=ctx.chunking or ChunkingConfig())
     meta = extract_metadata(conversion.document, normalized, doc_format, ctx.path)
 
     now = _now()
