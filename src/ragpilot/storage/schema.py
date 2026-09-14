@@ -319,21 +319,26 @@ KNOWLEDGE_DB_V5: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model_id)",
 )
 
-# PDF documents are converted via a Markdown round-trip (see
-# ``documents/docling_adapter.py``'s module docstring): Docling's real PDF
-# layout/table-structure pipeline runs once, exports to Markdown, and that
-# Markdown is what actually gets normalized/chunked/indexed. The PDF
-# pipeline is the expensive step (a real ML model), so this table caches
-# its Markdown output keyed by the file's *content hash* rather than its
-# file id or path -- a moved, renamed, or duplicated PDF with identical
+# PDF documents' expensive step -- Docling's real layout/table-structure
+# pipeline -- is cached keyed by the file's *content hash* rather than its
+# file id or path, so a moved, renamed, or duplicated PDF with identical
 # bytes still hits the cache, and re-indexing an unchanged PDF never
 # re-runs the model.
 #
+# Originally (Phase 3) this cached the pipeline's Markdown *export*, which
+# was then reparsed through Docling's separate Markdown backend into the
+# document that actually got normalized/chunked/indexed -- see git history
+# for that rationale. Phase 1B (search-quality improvement plan) replaced
+# that round-trip with caching the native ``DoclingDocument`` itself (see
+# ``documents/docling_adapter.py``'s module docstring); ``KNOWLEDGE_DB_V10``
+# below reshapes this same table for that, in place, rather than
+# introducing a new one.
+#
 # ``cache_version`` guards against a cached row being misinterpreted after
-# the marker string or ``export_to_markdown`` options change: a lookup
-# that finds a row with a stale ``cache_version`` must treat it as a miss
-# (see ``document_conversion_cache_repo.get``), not hand back Markdown
-# that no longer matches how callers reparse it.
+# ``docling_adapter``'s serialization scheme changes: a lookup that finds a
+# row with a stale ``cache_version`` must treat it as a miss (see
+# ``document_conversion_cache_repo.get``), not hand back a document that no
+# longer matches how callers deserialize it.
 #
 # Purely derived, disposable state -- like ``embeddings``, losing this
 # table only costs a slower next index run, never correctness -- and it is
@@ -454,4 +459,36 @@ KNOWLEDGE_DB_V9: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_vector_items_subject ON vector_items(subject_type, subject_id)",
     "CREATE INDEX IF NOT EXISTS idx_vector_items_model ON vector_items(model_id)",
     "CREATE INDEX IF NOT EXISTS idx_vector_items_file ON vector_items(file_id)",
+)
+
+# Search-quality improvement plan, Phase 1B: ``document_conversion_cache``
+# (``KNOWLEDGE_DB_V6``) switches from caching a PDF's Markdown *export* to
+# caching the native ``DoclingDocument`` Docling's real PDF pipeline
+# produces, serialized whole (see ``documents/docling_adapter.py``'s module
+# docstring for the full before/after). The row shape barely changes --
+# ``markdown`` held one flavor of serialized text, ``serialized_document``
+# holds another -- so this reshapes the existing table in place rather
+# than creating a new one:
+#
+#   * ``RENAME COLUMN`` repurposes ``markdown`` as ``serialized_document``
+#     without touching any row's bytes -- a genuinely additive, purely
+#     catalog-level change. Every row written before this migration keeps
+#     its old Markdown text sitting under the new name, inert: the
+#     ``_CACHE_VERSION`` bump in ``docling_adapter.py`` (accompanying this
+#     migration) means such a row's ``cache_version`` no longer matches
+#     what ``document_conversion_cache_repo.get`` looks up, so it is
+#     always treated as a miss and never actually read back as if it held
+#     a serialized ``DoclingDocument``. This is this project's documented
+#     migration strategy for this table: don't convert old cache rows,
+#     bump the version so they are treated as stale and get regenerated
+#     natively next time their PDF is indexed.
+#   * ``serialization_format``/``parser_version`` are new, nullable
+#     columns (``ADD COLUMN``, no backfill -- exactly ``KNOWLEDGE_DB_V7``'s
+#     precedent for a column only rows written going forward populate).
+#
+# ``page_count`` and ``cache_version``/``created_at`` are unchanged.
+KNOWLEDGE_DB_V10: tuple[str, ...] = (
+    "ALTER TABLE document_conversion_cache RENAME COLUMN markdown TO serialized_document",
+    "ALTER TABLE document_conversion_cache ADD COLUMN serialization_format TEXT",
+    "ALTER TABLE document_conversion_cache ADD COLUMN parser_version TEXT",
 )

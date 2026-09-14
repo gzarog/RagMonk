@@ -7,16 +7,15 @@ nearest enclosing heading), so nothing downstream needs to walk a tree to
 recover a unit's provenance -- see the module docstring rationale on
 ``core.models.Section``.
 
-For PDF, ``docling_adapter.convert`` hands back a document reparsed from
-its own Markdown export rather than Docling's original PDF-layout
-document (see that module's docstring) -- every item in it carries an
-empty ``prov`` list, so page numbers can't be read off items the way
-``_page_range`` does for every other format. Instead, PDF's Markdown
-export embeds a literal page-break marker string at each page transition;
-``normalize`` accepts that marker plus the real page count as optional
-overrides and reconstructs page numbers by counting marker crossings
-while walking the document, dropping the marker items themselves from
-the output.
+Every format, PDF included, is normalized straight off the real
+``DoclingDocument`` Docling itself produced (see ``docling_adapter.py``'s
+module docstring) -- page numbers come from each item's own ``prov`` via
+``_page_range``, and ``doc.num_pages()`` is always accurate, uniformly
+across formats. Before Phase 1B (search-quality improvement plan), PDF
+was normalized off a *second*, reparsed-from-Markdown document that
+carried no ``prov`` at all, so this module reconstructed page numbers by
+counting a page-break marker string embedded in that Markdown -- see git
+history for that mechanism; nothing here depends on it anymore.
 
 Search Quality Improvement Plan, Phase 2: a table's caption (Docling's
 ``TableItem.captions``, when the source document/backend populates it) is
@@ -115,16 +114,8 @@ def _table_rows(item: TableItem) -> tuple[tuple[str, ...], ...]:
     return tuple(tuple(row) for row in grid)
 
 
-def normalize(
-    doc: DoclingDocument,
-    doc_format: DocumentFormat,
-    *,
-    page_count_override: int | None = None,
-    page_break_marker: str | None = None,
-) -> NormalizedDocument:
-    page_count = (
-        page_count_override if page_count_override is not None else (doc.num_pages() or None)
-    )
+def normalize(doc: DoclingDocument, doc_format: DocumentFormat) -> NormalizedDocument:
+    page_count = doc.num_pages() or None
     units: list[NormalizedUnit] = []
     # (heading_level, unit_index, title) for every heading currently "open"
     # -- a ``TitleItem`` is treated as level 0, ``SectionHeaderItem.level``
@@ -133,10 +124,6 @@ def normalize(
     # outline.
     stack: list[tuple[int, int, str]] = []
     total_text_chars = 0
-    # Only meaningful when page_break_marker is set (PDF): the page
-    # everything encountered so far belongs to, incremented each time a
-    # marker item is crossed.
-    current_page = 1
     caption_by_table, consumed_caption_refs = _caption_by_table_ref(doc)
 
     for item, _tree_level in doc.iterate_items():
@@ -150,28 +137,7 @@ def normalize(
             # paragraph, per this module's docstring.
             continue
 
-        is_marker = (
-            page_break_marker is not None
-            and isinstance(item, TextItem)
-            and item.text == page_break_marker
-        )
-        if is_marker:
-            # A page-transition marker, not real content -- never becomes
-            # a unit, just advances the page counter everything after it
-            # is stamped with.
-            current_page += 1
-            continue
-
-        page_start: int | None
-        page_end: int | None
-        if page_break_marker is not None:
-            # Reparsed-from-Markdown items carry no ``prov`` at all, so
-            # ``_page_range`` would just return (None, None) here --
-            # ``current_page`` (tracked via marker crossings above) is
-            # this format's only source of page numbers.
-            page_start, page_end = current_page, current_page
-        else:
-            page_start, page_end = _page_range(item)
+        page_start, page_end = _page_range(item)
 
         if isinstance(item, TitleItem | SectionHeaderItem):
             level = 0 if isinstance(item, TitleItem) else item.level

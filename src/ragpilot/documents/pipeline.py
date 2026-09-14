@@ -61,12 +61,7 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
             return ProcessingOutcome(status=FileStatus.SKIPPED_LIMIT)
 
     conversion = docling_adapter.convert(ctx.path, conn=ctx.conn)
-    normalized = normalizer.normalize(
-        conversion.document,
-        doc_format,
-        page_count_override=conversion.page_count,
-        page_break_marker=conversion.page_break_marker,
-    )
+    normalized = normalizer.normalize(conversion.document, doc_format)
     chunks = chunker.chunk_document(normalized, config=ctx.chunking or ChunkingConfig())
     meta = extract_metadata(conversion.document, normalized, doc_format, ctx.path)
 

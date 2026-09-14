@@ -1012,6 +1012,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     hardware-dependent millisecond numbers.
   - No retrieval/indexing/chunking source code changed in this phase --
     benchmark infrastructure only.
+- Search Quality Improvement Plan, Phase 1B: PDF documents are now
+  normalized straight off Docling's real PDF-layout `DoclingDocument`
+  instead of a document reparsed from that document's own Markdown
+  export.
+  - **Before**: `docling_adapter.convert` exported the real PDF
+    pipeline's `DoclingDocument` to Markdown, cached that Markdown text
+    by content hash, and reparsed it through Docling's separate Markdown
+    backend into a *second* `DoclingDocument` -- the one actually
+    normalized/chunked/indexed. That reparsed document carried no `prov`
+    on any item, so `normalizer.normalize` reconstructed page numbers by
+    counting a literal page-break marker string embedded in the Markdown
+    export.
+  - **After**: the real PDF pipeline's own `DoclingDocument` is cached
+    directly, serialized via its pydantic model's native
+    `model_dump_json()`, and a cache hit deserializes straight back via
+    `model_validate_json()` -- no second Docling backend, no marker, no
+    reconstruction. `normalizer.normalize` now reads page numbers off
+    every format's real `prov` uniformly, PDF included; its
+    `page_count_override`/`page_break_marker` parameters and the whole
+    marker-reconstruction code path are gone.
+  - `document_conversion_cache` (`storage/schema.py`'s `KNOWLEDGE_DB_V6`)
+    is reshaped in place by a new additive migration, `KNOWLEDGE_DB_V10`:
+    its `markdown` column is renamed to `serialized_document` (a pure
+    catalog change -- no row's bytes are touched) and two new nullable
+    columns, `serialization_format` and `parser_version`, are added.
+    Per this project's documented migration strategy, no cache row
+    written before this phase is converted -- `docling_adapter
+    ._CACHE_VERSION` is bumped alongside the migration, so every such row
+    (holding old Markdown text under its new column name) is treated as
+    stale and simply regenerated, natively, the next time its PDF is
+    indexed.
+  - A cache hit now costs a single pydantic JSON deserialization instead
+    of a full reparse through Docling's Markdown backend -- strictly
+    cheaper, so re-indexing an unchanged PDF is at least as fast as
+    before (measured locally: ~10s cold PDF-pipeline conversion vs.
+    ~1.4ms warm cache-hit deserialization for this project's PDF test
+    fixture).
+  - `tests/unit/test_docling_pdf.py` (network-gated, `docling_pdf`
+    marker) gained tests for a duplicate PDF with identical content
+    reusing the cache, a moved/renamed PDF reusing the cache, and a
+    stale `cache_version` forcing reconversion.
+    `tests/unit/test_document_conversion_cache.py` gained a
+    non-network-dependent test proving the JSON serialization scheme
+    itself round-trips headings, paragraphs, tables, and page `prov`
+    losslessly. `test_document_normalizer.py`'s
+    `test_page_break_marker_reconstructs_page_numbers_without_prov` is
+    removed (the mechanism it tested no longer exists) and replaced by
+    `test_page_numbers_come_from_native_prov_not_a_marker`.
 - Search Quality Improvement Plan, Phase 1A: safe, confirmed `ragpilot
   source remove`.
   - **The bug**: `remove` deleted only the source's row in `sources.db`,
