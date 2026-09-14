@@ -1,0 +1,227 @@
+{
+  "cold_warm_semantic_search": {
+    "cold_hits": 20,
+    "cold_ms": 3.745,
+    "note": "'Cold' is the first semantic_search call in this process (loads the persistent ANN index from disk); 'warm' repeats the same query against the process-cached in-memory index (see retrieval/ann.py's get_cached_backend).",
+    "warm_hits": 20,
+    "warm_p50_ms": 1.215,
+    "warm_p95_ms": 1.371
+  },
+  "generated_at": "2026-09-14T11:13:53Z",
+  "golden_query_quality": {
+    "by_category": {
+      "code_to_document": {
+        "count": 5,
+        "mrr": 0.5,
+        "ndcg_at_10": 0.6207,
+        "recall_at": {
+          "1": 0.0,
+          "10": 1.0,
+          "3": 0.8,
+          "5": 0.8
+        }
+      },
+      "cross_document": {
+        "count": 8,
+        "mrr": 0.6875,
+        "ndcg_at_10": 0.7543,
+        "recall_at": {
+          "1": 0.1667,
+          "10": 1.0,
+          "3": 0.6458,
+          "5": 0.9375
+        }
+      },
+      "exact_heading_lookup": {
+        "count": 6,
+        "mrr": 1.0,
+        "ndcg_at_10": 1.0,
+        "recall_at": {
+          "1": 1.0,
+          "10": 1.0,
+          "3": 1.0,
+          "5": 1.0
+        }
+      },
+      "exact_symbol_lookup": {
+        "count": 11,
+        "mrr": 1.0,
+        "ndcg_at_10": 1.0,
+        "recall_at": {
+          "1": 1.0,
+          "10": 1.0,
+          "3": 1.0,
+          "5": 1.0
+        }
+      },
+      "exact_title_lookup": {
+        "count": 6,
+        "mrr": 1.0,
+        "ndcg_at_10": 1.0,
+        "recall_at": {
+          "1": 1.0,
+          "10": 1.0,
+          "3": 1.0,
+          "5": 1.0
+        }
+      },
+      "file_path_lookup": {
+        "count": 4,
+        "mrr": 0.8125,
+        "ndcg_at_10": 0.736,
+        "recall_at": {
+          "1": 0.375,
+          "10": 1.0,
+          "3": 0.375,
+          "5": 0.75
+        }
+      },
+      "keyword_search": {
+        "count": 8,
+        "mrr": 0.8125,
+        "ndcg_at_10": 0.8616,
+        "recall_at": {
+          "1": 0.5625,
+          "10": 1.0,
+          "3": 1.0,
+          "5": 1.0
+        }
+      },
+      "semantic_document": {
+        "count": 8,
+        "mrr": 0.7812,
+        "ndcg_at_10": 0.8416,
+        "recall_at": {
+          "1": 0.625,
+          "10": 1.0,
+          "3": 0.75,
+          "5": 1.0
+        }
+      },
+      "table_question": {
+        "count": 8,
+        "mrr": 0.9375,
+        "ndcg_at_10": 0.9539,
+        "recall_at": {
+          "1": 0.875,
+          "10": 1.0,
+          "3": 1.0,
+          "5": 1.0
+        }
+      },
+      "typo_partial_term": {
+        "count": 8,
+        "mrr": 0.875,
+        "ndcg_at_10": 0.9077,
+        "recall_at": {
+          "1": 0.75,
+          "10": 1.0,
+          "3": 1.0,
+          "5": 1.0
+        }
+      }
+    },
+    "overall": {
+      "count": 72,
+      "mrr": 0.8542,
+      "ndcg_at_10": 0.8833,
+      "recall_at": {
+        "1": 0.6713,
+        "10": 1.0,
+        "3": 0.8843,
+        "5": 0.9653
+      }
+    }
+  },
+  "indexing": {
+    "document_count": 3,
+    "embedding_count": 26,
+    "full_index_time_ms": 66.54,
+    "generated_chunk_count": {
+      "code_entities": 10,
+      "document_sections": 16,
+      "document_sections_by_kind": {
+        "heading": 9,
+        "paragraph": 5,
+        "table": 2
+      },
+      "total": 26
+    },
+    "indexing_time_ms_by_file_type": {
+      "code": 37.016,
+      "document": 44.143
+    },
+    "knowledge_db_size_bytes": 331776,
+    "note": "Measured against the small, hand-written fixture project (a handful of files) -- real, honestly-obtained numbers, but indicative of pipeline correctness/overhead only, not representative of large-corpus performance. See the latency section for synthetic-corpus numbers.",
+    "reindex_time_ms_unchanged": 34.151,
+    "vector_count": 26,
+    "vector_index_size_bytes": 7388
+  },
+  "latency": {
+    "by_category": {
+      "alias": {
+        "meets_target": true,
+        "mode": "lexical",
+        "p50_ms": 0.374,
+        "p95_ms": 0.437
+      },
+      "conceptual": {
+        "meets_target": true,
+        "mode": "semantic",
+        "p50_ms": 1.263,
+        "p95_ms": 1.395
+      },
+      "exact_symbol": {
+        "meets_target": true,
+        "mode": "lexical",
+        "p50_ms": 0.339,
+        "p95_ms": 0.423
+      },
+      "file_path": {
+        "meets_target": true,
+        "mode": "lexical",
+        "p50_ms": 0.292,
+        "p95_ms": 0.377
+      },
+      "hybrid": {
+        "meets_target": true,
+        "mode": "hybrid",
+        "p50_ms": 11.657,
+        "p95_ms": 12.691
+      },
+      "multi_keyword": {
+        "meets_target": true,
+        "mode": "lexical",
+        "p50_ms": 12.093,
+        "p95_ms": 12.764
+      },
+      "qualified_symbol": {
+        "meets_target": true,
+        "mode": "lexical",
+        "p50_ms": 0.466,
+        "p95_ms": 0.542
+      },
+      "single_keyword": {
+        "meets_target": true,
+        "mode": "lexical",
+        "p50_ms": 6.457,
+        "p95_ms": 6.865
+      }
+    },
+    "corpus_size": "small",
+    "hybrid": {
+      "p50_ms": 11.657,
+      "p95_ms": 12.691
+    },
+    "lexical": {
+      "p50_ms": 3.337,
+      "p95_ms": 12.764
+    },
+    "repeats": 20,
+    "semantic": {
+      "p50_ms": 1.263,
+      "p95_ms": 1.395
+    }
+  },
+  "schema_version": 1
+}

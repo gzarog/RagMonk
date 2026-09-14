@@ -1,27 +1,109 @@
 # Golden query set for search quality regression testing (blueprint
-# section 37). Each entry generalizes the blueprint's own
+# section 37; expanded under the Phase 0 search-quality-improvement
+# baseline). Each entry generalizes the blueprint's own
 # `expected`/`expected_paths`/`expected_documents` examples into one
 # uniform `expected` list of {kind, path} pairs -- the relevant set a
-# query's top results are scored against (Recall@5/@10, MRR, NDCG@10;
-# see benchmarks/search/quality.py).
+# query's top results are scored against (Recall@1/3/5/10, MRR, NDCG@10;
+# see benchmarks/search/quality.py and benchmarks/search_quality/
+# evaluator.py).
 #
 # Evaluated against the fixture project built by
-# tests/integration/test_search_quality.py's `_write_project` -- change
+# benchmarks/search_quality/fixture_project.py's `write_project` (also
+# used directly by tests/integration/test_search_quality.py) -- change
 # one without the other and this file's paths/queries stop resolving to
-# anything.
+# anything. Every entry below was verified against a real index of that
+# fixture (real Tree-sitter + Docling parsing, no synthetic shortcuts)
+# before being committed here; see that test file for how to re-verify.
+#
+# `category` is one of the search-quality plan's nine required buckets
+# (exact_title_lookup, exact_heading_lookup, exact_symbol_lookup,
+# keyword_search, semantic_document, table_question, cross_document,
+# code_to_document, typo_partial_term) plus one extra this project's
+# search already treats as its own signal, `file_path_lookup` (path/
+# filename queries -- present in the original 8-query set as the
+# "settlement_service.py" example, kept distinct from exact_symbol_lookup
+# since it exercises `retrieval/lexical.py`'s PATH tier/`files_repo`
+# path search rather than an identifier lookup).
+#
+# `expected` is deliberately not "whatever the current top-5 happens to
+# contain": it is the reviewer's judgment of what genuinely answers each
+# query given the fixture's content, so a query can and sometimes does
+# have expected relevant items that rank below 5 today (e.g. a path hit
+# crowded out by document FTS noise, or a document only reachable via a
+# lower-tier signal) -- a real, non-trivial baseline number for later
+# phases to improve on, not an artificially inflated one. Every single
+# query is still required to score Recall@5 > 0 (see
+# tests/integration/test_search_quality.py) -- a query with zero
+# relevant hits anywhere in the top 5 would not be evidence of anything
+# measurable.
+#
+# `typo_partial_term` is honestly scoped to what this system can
+# currently do: FTS5's default tokenizer performs no fuzzy/edit-distance
+# matching, so a genuine misspelling only still resolves when (a) it is
+# a *fragment* that falls through to `files_repo.search_by_substring`'s
+# LIKE fallback (mid-word, not token-aligned), or (b) it sits alongside
+# other, correctly-spelled tokens in a multi-word query that the
+# permissive OR-token FTS query still matches on. True spelling
+# correction is out of scope for this phase and not something these
+# queries pretend already works.
+
 - query: SettlementService
+  category: exact_symbol_lookup
   expected:
     - {kind: entity, path: services/settlement_service.py}
 
 - query: services.settlement_service.SettlementService.process
+  category: exact_symbol_lookup
   expected:
     - {kind: entity, path: services/settlement_service.py}
 
 - query: SettlementService.process
+  category: exact_symbol_lookup
+  expected:
+    - {kind: entity, path: services/settlement_service.py}
+
+- query: PaymentConsumer
+  category: exact_symbol_lookup
+  expected:
+    - {kind: entity, path: consumers/payment_consumer.py}
+
+- query: RetryWorker
+  category: exact_symbol_lookup
+  expected:
+    - {kind: entity, path: workers/retry_worker.py}
+
+- query: consumers.payment_consumer.PaymentConsumer.handle
+  category: exact_symbol_lookup
+  expected:
+    - {kind: entity, path: consumers/payment_consumer.py}
+
+- query: workers.retry_worker.RetryWorker.run
+  category: exact_symbol_lookup
+  expected:
+    - {kind: entity, path: workers/retry_worker.py}
+
+- query: PaymentConsumer.handle
+  category: exact_symbol_lookup
+  expected:
+    - {kind: entity, path: consumers/payment_consumer.py}
+
+- query: RetryWorker.run
+  category: exact_symbol_lookup
+  expected:
+    - {kind: entity, path: workers/retry_worker.py}
+
+- query: retry_settlement
+  category: exact_symbol_lookup
+  expected:
+    - {kind: entity, path: services/settlement_service.py}
+
+- query: SettlementService.retry_settlement
+  category: exact_symbol_lookup
   expected:
     - {kind: entity, path: services/settlement_service.py}
 
 - query: settlement_service.py
+  category: file_path_lookup
   # An entity defined in this file legitimately outranks the bare path
   # hit itself (lexical.py's FTS tier sits above its PATH tier) -- both
   # correctly answer "where is settlement_service.py".
@@ -29,11 +111,214 @@
     - {kind: path, path: services/settlement_service.py}
     - {kind: entity, path: services/settlement_service.py}
 
+- query: payment_consumer.py
+  category: file_path_lookup
+  expected:
+    - {kind: path, path: consumers/payment_consumer.py}
+
+- query: retry_worker.py
+  category: file_path_lookup
+  # The PATH-tier hit itself is crowded out of the top 5 here by FTS
+  # entity/document noise sharing the "retry"/"worker" tokens -- a real,
+  # documented gap (recall@5 partial, not full) rather than a query
+  # rewritten to hide it.
+  expected:
+    - {kind: path, path: workers/retry_worker.py}
+    - {kind: entity, path: workers/retry_worker.py}
+
+- query: health_notes.md
+  category: file_path_lookup
+  # Same gap as retry_worker.py above: the PATH hit itself ranks below 5
+  # (document_fts's title/body match wins the merge first).
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+    - {kind: path, path: docs/health_notes.md}
+
 - query: cholesterol
+  category: keyword_search
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: blood pressure
+  category: keyword_search
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: timeout seconds
+  category: keyword_search
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: retry attempts
+  category: keyword_search
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: LDL cholesterol levels
+  category: keyword_search
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: payments engineer
+  category: keyword_search
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: settlement request
+  category: keyword_search
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: provider payment
+  category: keyword_search
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: how are provider settlements retried
+  category: semantic_document
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: cardiovascular risk
+  category: semantic_document
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: what happens when a payment attempt times out
+  category: semantic_document
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: how many times will Stripe retry a failed settlement
+  category: semantic_document
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: who should be notified about repeated provider timeouts
+  category: semantic_document
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: what is considered normal blood pressure
+  category: semantic_document
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: how is cardiovascular risk determined from cholesterol levels
+  category: semantic_document
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: what does the retry worker do when a provider times out
+  category: semantic_document
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: Settlement Guide
+  category: exact_title_lookup
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: settlement guide
+  category: exact_title_lookup
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: Health Notes
+  category: exact_title_lookup
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: HEALTH NOTES
+  category: exact_title_lookup
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: Payment Provider Notes
+  category: exact_title_lookup
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: payment provider notes
+  category: exact_title_lookup
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: Retry Policy
+  category: exact_heading_lookup
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: Retry Limits by Provider
+  category: exact_heading_lookup
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: Cholesterol
+  category: exact_heading_lookup
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: Blood Pressure Ranges
+  category: exact_heading_lookup
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: Provider Timeout Behavior
+  category: exact_heading_lookup
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: Escalation
+  category: exact_heading_lookup
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: how many retries does Stripe get
+  category: table_question
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: Adyen timeout seconds
+  category: table_question
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: PayPal max retries
+  category: table_question
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: Stripe retry limit
+  category: table_question
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: what is normal blood pressure
+  category: table_question
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: Elevated blood pressure systolic value
+  category: table_question
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: High blood pressure diastolic
+  category: table_question
+  expected:
+    - {kind: document, path: docs/health_notes.md}
+
+- query: blood pressure category ranges
+  category: table_question
   expected:
     - {kind: document, path: docs/health_notes.md}
 
 - query: settlement retry
+  category: cross_document
   # The code entities that actually implement settlement retry are just
   # as relevant an answer here as the prose document describing it.
   expected:
@@ -41,10 +326,118 @@
     - {kind: entity, path: services/settlement_service.py}
     - {kind: entity, path: workers/retry_worker.py}
 
-- query: how are provider settlements retried
+- query: provider timeout
+  category: cross_document
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: settlement retries provider
+  category: cross_document
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: retry worker
+  category: cross_document
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: payment attempt
+  category: cross_document
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: Stripe Adyen
+  category: cross_document
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: settlement failed
+  category: cross_document
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: maximum retry attempts
+  category: cross_document
+  # payment_provider_notes.md only shares the "retry" token with this
+  # query (no "maximum"/"attempts"), so it ranks well below 5 today --
+  # a genuine, documented partial-recall gap for this query, not a
+  # query rewritten to hide it.
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: SettlementService
+  category: code_to_document
+  # payment_provider_notes.md only mentions "SettlementService" once and
+  # ranks below 5 here -- a real partial-recall gap, kept rather than
+  # hidden (see the module-level note on `expected`).
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: PaymentConsumer
+  category: code_to_document
   expected:
     - {kind: document, path: docs/settlement_guide.md}
 
-- query: cardiovascular risk
+- query: RetryWorker
+  category: code_to_document
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: SettlementService.retry_settlement
+  category: code_to_document
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: retry_settlement
+  category: code_to_document
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: ttlement_serv
+  category: typo_partial_term
+  expected:
+    - {kind: path, path: services/settlement_service.py}
+
+- query: yment_consum
+  category: typo_partial_term
+  expected:
+    - {kind: path, path: consumers/payment_consumer.py}
+
+- query: etry_work
+  category: typo_partial_term
+  expected:
+    - {kind: path, path: workers/retry_worker.py}
+
+- query: settlment retry policy
+  category: typo_partial_term
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
+
+- query: choresterol measurements taken
+  category: typo_partial_term
   expected:
     - {kind: document, path: docs/health_notes.md}
+
+- query: provdier timeout window
+  category: typo_partial_term
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: setlement escalation payments
+  category: typo_partial_term
+  expected:
+    - {kind: document, path: docs/payment_provider_notes.md}
+
+- query: mximum retries provider
+  category: typo_partial_term
+  expected:
+    - {kind: document, path: docs/settlement_guide.md}
