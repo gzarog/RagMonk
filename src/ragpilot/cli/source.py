@@ -15,6 +15,14 @@ from ._common import cli_command, console
 app = typer.Typer(no_args_is_help=True, help="Manage registered sources.")
 
 
+def _confirm_removal(source_id: str, source_path: str, project_dir: str) -> bool:
+    console.print("[bold]This will permanently remove:[/bold]")
+    console.print(f"  - source [bold]{source_id}[/bold] ({source_path}) from the registry")
+    console.print(f"  - its indexed data at {project_dir}")
+    console.print("[dim]The original files at the source path are never touched.[/dim]")
+    return typer.confirm("Proceed?")
+
+
 @app.command("add")
 @cli_command
 def add(
@@ -76,8 +84,32 @@ def disable(source_id: Annotated[str, typer.Argument()]) -> None:
 
 @app.command("remove")
 @cli_command
-def remove(source_id: Annotated[str, typer.Argument()]) -> None:
+def remove(
+    source_id: Annotated[str, typer.Argument()],
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")
+    ] = False,
+) -> None:
     with AppContext.bootstrap() as ctx:
         registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
-        registry.remove(source_id)
-        console.print(f"[bold red]Removed[/bold red] {source_id}")
+        source = registry.get(source_id)
+        # Checked before the confirmation prompt (and, redundantly, again
+        # inside `registry.remove`) so a running daemon fails fast here
+        # rather than the CLI hanging on `acquire_lock` below behind a
+        # daemon pass that keeps re-triggering itself.
+        registry.assert_no_active_daemon()
+        project_dir = registry.project_dir_for(source)
+
+        if not yes and not _confirm_removal(source.id, source.path, str(project_dir)):
+            console.print("Aborted; nothing was removed.")
+            raise typer.Exit(code=0)
+
+        lock = ctx.acquire_lock("index")
+        try:
+            outcome = registry.remove(source_id)
+        finally:
+            lock.release()
+
+        console.print(f"[bold red]Removed[/bold red] {outcome.source.id} ({outcome.source.path})")
+        if outcome.project_dir_deleted:
+            console.print(f"  deleted indexed data at {outcome.project_dir}")

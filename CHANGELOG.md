@@ -1012,6 +1012,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     hardware-dependent millisecond numbers.
   - No retrieval/indexing/chunking source code changed in this phase --
     benchmark infrastructure only.
+- Search Quality Improvement Plan, Phase 1A: safe, confirmed `ragpilot
+  source remove`.
+  - **The bug**: `remove` deleted only the source's row in `sources.db`,
+    never its derived project directory (`knowledge.db`/`-wal`/`-shm`,
+    `vectors.usearch`/`.meta.json`, `cache/`, `state/`) -- and did so with
+    no confirmation prompt at all. The directory was left behind forever,
+    and re-adding the exact same path later (same canonical path, same
+    deterministic project id) silently reused that stale, already-indexed
+    generation instead of starting clean.
+  - `sources/registry.py`'s `SourceRegistry.remove` now deletes the
+    entire project directory wholesale (`shutil.rmtree`, not an
+    enumeration of known files -- so a derived artifact a later phase
+    adds is covered automatically) and only removes the `sources` row
+    once that succeeds; a filesystem failure leaves the source registered
+    rather than half-removed. Reuses `core/paths.py`'s existing
+    project-id/project-dir resolution (the same one `index`/`rebuild`
+    use) rather than a new path scheme, and resets the process-local
+    search-result/query-embedding caches (`retrieval/cache.py`) on
+    success. Refuses outright, with an actionable
+    "run `ragpilot daemon stop` first" error, while a daemon is running --
+    failing fast rather than risking a race with its watcher/reconciliation
+    threads or hanging behind the same `index.lock` a daemon pass holds.
+  - `cli/source.py`'s `remove` now shows the source id, path, and the
+    project directory that will be deleted, then prompts for
+    confirmation (only `y`/`yes` proceeds; anything else, a bare Enter, or
+    EOF/Ctrl+C leaves everything untouched) -- `--yes`/`-y` skips only the
+    prompt, for non-interactive use. Acquires the same `index` lock
+    `index`/`rebuild` already take before touching anything, keeping the
+    CLI layer to confirmation/presentation only, with the actual
+    removal semantics in the registry.
+  - The original source files on disk are never touched, only derived
+    data.
 - CLI performance improvement plan, Phase 1: startup benchmark and
   heavy-import regression test.
   - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,
