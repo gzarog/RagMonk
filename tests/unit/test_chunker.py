@@ -399,6 +399,98 @@ def test_table_without_a_caption_has_none() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Search Quality Improvement Plan, Phase 3: raw_text/search_text/
+# embedding_text assembly (`text` is `raw_text`, unrenamed)
+# ---------------------------------------------------------------------------
+
+
+def test_search_text_and_contextual_text_assemble_title_heading_path_and_body() -> None:
+    units = [
+        _heading("Settlement Processing", heading_path=()),
+        _heading(
+            "Provider Settlement Flow",
+            level=1,
+            heading_path=("Settlement Processing",),
+            parent_index=0,
+        ),
+        _paragraph(
+            "The provider sends a settlement notification.",
+            heading_path=("Settlement Processing", "Provider Settlement Flow"),
+            parent_index=1,
+        ),
+    ]
+    chunks = chunk_document(_doc(units), doc_title="Sportsbook Architecture")
+    body = next(c for c in chunks if c.kind == "paragraph")
+
+    # raw_text (`text`): the clean body, exactly as given -- never
+    # rewritten with title/heading context.
+    assert body.text == "The provider sends a settlement notification."
+
+    # search_text: title, then each heading_path segment, then the body --
+    # one per line, per the plan's own worked example.
+    assert body.search_text == (
+        "Sportsbook Architecture\n"
+        "Settlement Processing\n"
+        "Provider Settlement Flow\n"
+        "The provider sends a settlement notification."
+    )
+
+    # embedding_text (`contextual_text`): a "Document: .../Section: ..."
+    # breadcrumb, blank line, then the body.
+    assert body.contextual_text == (
+        "Document: Sportsbook Architecture\n"
+        "Section: Settlement Processing > Provider Settlement Flow\n"
+        "\n"
+        "The provider sends a settlement notification."
+    )
+
+
+def test_search_text_and_contextual_text_degrade_gracefully_without_a_title() -> None:
+    """``doc_title`` defaults to "" (unit tests building a synthetic
+    document directly never pass one) -- both fields must still be well
+    formed, just without a title line/segment.
+    """
+    units = [_heading("H1"), _paragraph("short body text.", heading_path=("H1",), parent_index=0)]
+    chunks = chunk_document(_doc(units))
+    body = next(c for c in chunks if c.kind == "paragraph")
+
+    assert body.search_text == "H1\nshort body text."
+    assert body.contextual_text == "Section: H1\n\nshort body text."
+
+
+def test_search_text_and_contextual_text_degrade_to_plain_body_with_no_title_or_heading() -> None:
+    units = [_paragraph("standalone body.", heading_path=())]
+    chunks = chunk_document(_doc(units))
+    assert chunks[0].search_text == "standalone body."
+    assert chunks[0].contextual_text == "standalone body."
+
+
+def test_heading_chunks_search_text_includes_ancestor_heading_path() -> None:
+    """A HEADING-kind chunk's own `text` is just its own title (e.g.
+    "Provider Settlement Flow") -- its `search_text` must still carry its
+    *ancestor* heading_path and the document title, so a query for an
+    ancestor heading term also finds a deeply nested heading row (see
+    ``storage/repositories/documents_repo.py``'s module docstring on why
+    this is what actually gets indexed for FTS).
+    """
+    units = [
+        _heading("Settlement Processing", heading_path=()),
+        _heading(
+            "Provider Settlement Flow",
+            level=1,
+            heading_path=("Settlement Processing",),
+            parent_index=0,
+        ),
+    ]
+    chunks = chunk_document(_doc(units), doc_title="Sportsbook Architecture")
+    nested_heading = chunks[1]
+    assert nested_heading.text == "Provider Settlement Flow"
+    assert nested_heading.search_text == (
+        "Sportsbook Architecture\nSettlement Processing\nProvider Settlement Flow"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Default config
 # ---------------------------------------------------------------------------
 

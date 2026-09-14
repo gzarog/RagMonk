@@ -73,10 +73,19 @@ def embed_touched_files(
                 subjects.append((EmbeddingSubjectType.ENTITY, entity.id, file_id, text))
     for file_id in touched_document_file_ids:
         for unit in documents_repo.list_units_by_file(conn, file_id):
-            if unit.text.strip():
-                subjects.append(
-                    (EmbeddingSubjectType.DOCUMENT_SECTION, unit.id, file_id, unit.text)
-                )
+            # `embedding_text` (search-quality plan Phase 3) is the
+            # document-title + heading-path-contextualized rendering of
+            # `text` computed at chunk time (`chunker.Chunk.
+            # contextual_text`) -- embedding that instead of the raw,
+            # isolated section text is what actually improves natural-
+            # language/semantic retrieval (see `documents/chunker.py`'s
+            # module docstring). Falls back to `unit.text` only for a row
+            # written before this field existed (pre-migration, never
+            # reindexed since) or a direct-insert caller that left it
+            # unset -- never a hard failure either way.
+            text = unit.embedding_text or unit.text
+            if text.strip():
+                subjects.append((EmbeddingSubjectType.DOCUMENT_SECTION, unit.id, file_id, text))
 
     if not subjects:
         return 0

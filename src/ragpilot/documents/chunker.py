@@ -1,5 +1,29 @@
 """Groups a ``NormalizedDocument``'s units into indexable/storable chunks.
 
+Search Quality Improvement Plan, Phase 3: every chunk now exposes three
+distinct text views, computed once here rather than re-derived ad hoc by
+each consumer:
+
+- ``text`` (unchanged) -- the clean, authoritative body shown to users as
+  evidence. Never rewritten with title/heading context baked in.
+- ``search_text`` -- lexical text for FTS: the document title, then each
+  ``heading_path`` segment, then ``text``, one per line. Boosts matching
+  on title/heading vocabulary a query didn't phrase against the raw body
+  (see ``_search_text``), without polluting the clean ``text`` returned
+  as evidence.
+- ``contextual_text`` -- this chunk's embedding input: a
+  "Document: .../Section: ..." breadcrumb followed by ``text`` (see
+  ``_contextual_text``). Phase 2 first introduced this field from
+  ``heading_path`` alone, before the document's title was available this
+  early in the pipeline (it used to be assembled in ``pipeline.py`` only
+  after chunking); Phase 3 threads ``doc_title`` into ``chunk_document``
+  itself so both fields can include it.
+
+Both are plain string formatting over already-known values (no new
+dependency), computed alongside ``token_count`` so a caller
+(``documents/pipeline.py``) never has to re-walk a chunk's text/heading
+path/title to build them itself.
+
 Search Quality Improvement Plan, Phase 2: chunk boundaries are now
 token-aware and hierarchy-aware (``core.config.ChunkingConfig``) rather
 than the previous pure character-count paragraph grouping. Headings and
@@ -58,12 +82,13 @@ class Chunk:
     # A table's associated caption text (see normalizer._caption_by_table_ref);
     # always None for "heading"/"paragraph" chunks.
     caption: str | None = None
-    # Heading-path-prefixed rendering of `text` (or, for a table, of its
-    # caption/flattened cells -- see `_countable_text`). Not wired into
-    # FTS/embedding indexing yet -- Phase 3 decides what actually feeds
-    # search from raw vs. contextual text; this phase only makes the value
-    # available on every chunk.
+    # This chunk's embedding input: "Document: <title>" / "Section: <heading
+    # path>" breadcrumb followed by `text` (or, for a table, its
+    # caption/flattened cells -- see `_countable_text`). See `_contextual_text`.
     contextual_text: str = ""
+    # This chunk's FTS input: document title, then each heading_path segment,
+    # then `text` -- one per line. See `_search_text`.
+    search_text: str = ""
     # Real (estimated) subword-token count of the text `token_count` was
     # computed from -- see `tokenization.count_tokens`. A table's count is
     # taken from its flattened cell text (see `_countable_text`) since its
@@ -84,11 +109,38 @@ class _Piece:
     page_end: int | None
 
 
-def _contextual_text(heading_path: tuple[str, ...], body: str) -> str:
-    if not heading_path:
+def _contextual_text(doc_title: str, heading_path: tuple[str, ...], body: str) -> str:
+    """This chunk's embedding input: a breadcrumb of where the text sits
+    in the document, then a blank line, then the text itself -- giving a
+    similarity model context an isolated chunk's own words don't carry
+    (e.g. "Settlement" alone doesn't say *which* settlement flow), per
+    the search-quality plan's own worked example. Either header line is
+    dropped when its source value is empty, so a title-less document or a
+    heading-less unit degrades to just the other line, and a chunk with
+    neither degrades to plain `body`.
+    """
+    header_lines = []
+    if doc_title:
+        header_lines.append(f"Document: {doc_title}")
+    if heading_path:
+        header_lines.append(f"Section: {' > '.join(heading_path)}")
+    header = "\n".join(header_lines)
+    if not header:
         return body
-    prefix = " > ".join(heading_path)
-    return f"{prefix}\n\n{body}" if body else prefix
+    return f"{header}\n\n{body}" if body else header
+
+
+def _search_text(doc_title: str, heading_path: tuple[str, ...], body: str) -> str:
+    """This chunk's FTS input: the document title and every heading_path
+    segment each get their own line ahead of the body -- so a query
+    phrased against title/heading vocabulary that never appears in the
+    body text itself still matches this chunk on the lexical pass,
+    without ever changing `text`, the clean body returned as evidence.
+    """
+    header_lines = [line for line in (doc_title, *heading_path) if line]
+    if not body:
+        return "\n".join(header_lines) if header_lines else body
+    return "\n".join((*header_lines, body)) if header_lines else body
 
 
 def _countable_text(unit: NormalizedUnit) -> str:
@@ -223,7 +275,10 @@ def _merge_peers(groups: list[list[_Piece]], config: ChunkingConfig) -> list[lis
 
 
 def _finalize_group(
-    group: list[_Piece], heading_path: tuple[str, ...], parent_index: int | None
+    group: list[_Piece],
+    heading_path: tuple[str, ...],
+    parent_index: int | None,
+    doc_title: str,
 ) -> Chunk:
     text = "\n\n".join(p.text for p in group)
     pages = [pg for p in group for pg in (p.page_start, p.page_end) if pg is not None]
@@ -235,14 +290,26 @@ def _finalize_group(
         parent_index=parent_index,
         page_start=min(pages) if pages else None,
         page_end=max(pages) if pages else None,
-        contextual_text=_contextual_text(heading_path, text),
+        contextual_text=_contextual_text(doc_title, heading_path, text),
+        search_text=_search_text(doc_title, heading_path, text),
         token_count=count_tokens(text),
     )
 
 
 def chunk_document(
-    normalized: NormalizedDocument, *, config: ChunkingConfig | None = None
+    normalized: NormalizedDocument,
+    *,
+    config: ChunkingConfig | None = None,
+    doc_title: str = "",
 ) -> list[Chunk]:
+    """``doc_title`` (the containing document's title, once known --
+    ``documents/metadata.py``'s ``extract_metadata`` output) is threaded
+    into every chunk's ``search_text``/``contextual_text``; omit it (the
+    default) when a caller genuinely has no title yet, e.g. a unit test
+    building a synthetic ``NormalizedDocument`` directly -- both fields
+    then simply degrade to heading-path-only, as Phase 2 first shipped
+    them.
+    """
     cfg = config or ChunkingConfig()
 
     # Headings are never merged away, but merging/splitting paragraphs
@@ -268,7 +335,7 @@ def chunk_document(
         groups = _merge_peers(_pack_pieces(pieces, cfg), cfg)
         for group in groups:
             if group:
-                chunks.append(_finalize_group(group, first.heading_path, parent_new))
+                chunks.append(_finalize_group(group, first.heading_path, parent_new, doc_title))
         pending = []
 
     for old_index, unit in enumerate(normalized.units):
@@ -293,7 +360,8 @@ def chunk_document(
                 page_end=unit.page_end,
                 table_rows=unit.table_rows,
                 caption=unit.caption,
-                contextual_text=_contextual_text(unit.heading_path, countable),
+                contextual_text=_contextual_text(doc_title, unit.heading_path, countable),
+                search_text=_search_text(doc_title, unit.heading_path, countable),
                 token_count=count_tokens(countable),
             )
         )

@@ -492,3 +492,32 @@ KNOWLEDGE_DB_V10: tuple[str, ...] = (
     "ALTER TABLE document_conversion_cache ADD COLUMN serialization_format TEXT",
     "ALTER TABLE document_conversion_cache ADD COLUMN parser_version TEXT",
 )
+
+# Search-quality improvement plan, Phase 3: ``document_sections`` gains
+# ``embedding_text`` -- the document-title + heading-path-contextualized
+# rendering of a row's ``text`` that ``documents/chunker.py`` computes at
+# chunk time (``Chunk.contextual_text``) and ``documents/pipeline.py`` now
+# stores verbatim. Nullable, no backfill, exactly ``KNOWLEDGE_DB_V7``'s
+# precedent: a row written before this migration simply has
+# ``embedding_text IS NULL`` until its file is next reindexed, and
+# ``documents_repo.DocumentUnit``/``indexing/embedding_indexer.py`` both
+# treat that the same as "" -- fall back to embedding the row's own
+# ``text`` rather than erroring or leaving the row unembedded.
+#
+# Kept as its own persisted column rather than only ever recomputed at
+# embed time: ``embedding_indexer.py`` embeds already-stored
+# ``document_sections`` rows (not live ``Chunk`` objects), and having the
+# exact contextualized string actually embedded sitting on the row itself
+# makes what got embedded inspectable/debuggable without re-deriving it
+# from ``documents``/``document_sections`` by hand.
+#
+# The FTS-lexical counterpart (``Chunk.search_text``) is deliberately NOT
+# given its own column here: it is written straight into
+# ``document_fts``'s existing indexed ``body`` column
+# (``documents_repo.insert_section``/``insert_paragraph``/``insert_table``),
+# which is itself already the "store lexical FTS fields explicitly" the
+# search-quality plan asks for -- a second, redundant copy on
+# ``document_sections`` would have no reader.
+KNOWLEDGE_DB_V11: tuple[str, ...] = (
+    "ALTER TABLE document_sections ADD COLUMN embedding_text TEXT",
+)

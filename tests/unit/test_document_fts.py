@@ -104,6 +104,56 @@ def test_fts_returns_matching_paragraph(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_fts_matches_search_text_heading_and_title_terms_absent_from_raw_body(
+    tmp_path: Path,
+) -> None:
+    """Search Quality Improvement Plan, Phase 3: ``document_fts``'s body
+    column is populated from ``search_text`` (document title + heading
+    path + raw text -- see ``documents/chunker.py``), not the raw
+    paragraph text alone, so a query for a title/heading term that never
+    appears in the paragraph's own words still finds it.
+    """
+    conn = connect(tmp_path / "knowledge.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        _seed_file(conn)
+        with transaction(conn):
+            _seed_document(conn)
+            documents_repo.insert_paragraph(
+                conn,
+                Paragraph(
+                    id="p1",
+                    document_id="d1",
+                    file_id="f1",
+                    text="Run the bootstrap script to configure everything.",
+                    heading_path=["Installation"],
+                    order_index=0,
+                    generation=1,
+                    created_at="now",
+                ),
+                doc_title="Manual",
+                search_text=(
+                    "Manual\nInstallation\n"
+                    "Run the bootstrap script to configure everything."
+                ),
+            )
+
+        # "Manual" (the document title) and "Installation" (its heading)
+        # appear nowhere in the paragraph's own raw text.
+        assert "Manual" not in "Run the bootstrap script to configure everything."
+        assert "Installation" not in "Run the bootstrap script to configure everything."
+
+        assert {r["section_id"] for r in documents_repo.search_fts(conn, "Manual")} == {"p1"}
+        assert {r["section_id"] for r in documents_repo.search_fts(conn, "Installation")} == {"p1"}
+        # The stored row's own `text` is untouched by this -- evidence
+        # shown to users still shows the clean, context-free body.
+        unit = documents_repo.get_unit(conn, "p1")
+        assert unit is not None
+        assert unit.text == "Run the bootstrap script to configure everything."
+    finally:
+        conn.close()
+
+
 def test_fts_rows_removed_when_file_regenerated(tmp_path: Path) -> None:
     conn = connect(tmp_path / "knowledge.db")
     try:

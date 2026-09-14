@@ -115,6 +115,44 @@ def test_docs_cli_and_fts_reflect_indexed_documents(
         conn.close()
 
 
+def test_indexed_paragraph_stores_contextualized_embedding_text(
+    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Search Quality Improvement Plan, Phase 3, end-to-end through the
+    real pipeline (Docling parsing -> normalize -> chunk -> store): a
+    paragraph's persisted ``embedding_text`` carries the document title
+    and heading path the isolated, raw paragraph text alone does not --
+    this is what ``indexing/embedding_indexer.py`` actually embeds (see
+    ``tests/unit/test_embedding_indexer.py`` for that seam directly).
+    """
+    root = tmp_path / "docs_project"
+    root.mkdir()
+    shutil.copy(FIXTURES / "simple.md", root / "simple.md")
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    _add_source(runner, root)
+    assert runner.invoke(app, ["index"]).exit_code == 0
+
+    conn = _knowledge_conn(ragpilot_home, root)
+    try:
+        rows = conn.execute(
+            "SELECT text, embedding_text FROM document_sections "
+            "WHERE kind = 'paragraph' AND text LIKE 'Paragraph in section one%'"
+        ).fetchall()
+        assert len(rows) == 1
+        raw_text = rows[0]["text"]
+        embedding_text = rows[0]["embedding_text"]
+        assert raw_text == "Paragraph in section one."
+        # The raw text (shown to users as evidence) is untouched.
+        assert embedding_text != raw_text
+        assert embedding_text.startswith("Document: Title Heading\nSection: ")
+        assert "Section One" in embedding_text
+        assert embedding_text.endswith(raw_text)
+    finally:
+        conn.close()
+
+
 def test_oversized_pdf_is_skipped_limit_without_model_download(
     ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
