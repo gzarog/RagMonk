@@ -205,22 +205,27 @@ class IndexCoordinator:
             now = _now()
             if prev is None:
                 file_id = uuid.uuid4().hex
-                files_repo.insert(
-                    self._conn,
-                    FileRecord(
-                        id=file_id,
-                        source_id=self._source_id,
-                        path=sf.path,
-                        kind=kind,
-                        size=sf.size,
-                        mtime=sf.mtime,
-                        content_hash=content_hash,
-                        status=FileStatus.QUEUED,
-                        generation=0,
-                        created_at=now,
-                        updated_at=now,
-                    ),
+                new_record = FileRecord(
+                    id=file_id,
+                    source_id=self._source_id,
+                    path=sf.path,
+                    kind=kind,
+                    size=sf.size,
+                    mtime=sf.mtime,
+                    content_hash=content_hash,
+                    status=FileStatus.QUEUED,
+                    generation=0,
+                    created_at=now,
+                    updated_at=now,
                 )
+                files_repo.insert(self._conn, new_record)
+                # scan()'s own intra-run dedup should already rule this
+                # out, but existing_by_path is otherwise a snapshot taken
+                # once, before this loop -- keeping it in sync as we go
+                # is what makes a same-run duplicate scanned path
+                # (whatever produced it) UNCHANGED on its second sighting
+                # instead of a second, UNIQUE-constraint-violating insert.
+                existing_by_path[sf.path] = new_record
                 result.new += 1
             else:
                 file_id = prev.id

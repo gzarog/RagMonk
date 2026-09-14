@@ -15,6 +15,23 @@ def ragpilot_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return home
 
 
+@pytest.fixture(autouse=True)
+def _disable_background_update_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``AppContext.bootstrap()`` (CLI performance improvement plan, Phase
+    4) unconditionally calls ``update/background.py``'s
+    ``maybe_launch_background_check`` on every real bootstrap -- hundreds
+    of existing tests call ``AppContext.bootstrap()`` without touching
+    the update subsystem at all, and none of them should spawn a real
+    detached subprocess making a real GitHub request. Tests that
+    specifically exercise the update subsystem construct/pass their own
+    ``UpdatesConfig`` directly (``tests/unit/test_update_background.py``)
+    or monkeypatch the hook functions themselves
+    (``tests/unit/test_lifecycle_updates.py``), so this default is safe
+    to override there.
+    """
+    monkeypatch.setenv("RAGPILOT_UPDATES__ENABLED", "false")
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()

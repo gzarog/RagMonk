@@ -341,6 +341,9 @@ class DocumentSearchRow:
     snippet: str | None = None
     heading: str | None = None
     fts_rank: int = 0
+    page_start: int | None = None
+    page_end: int | None = None
+    heading_path: list[str] = field(default_factory=list)
 
 
 def search_title_projection(
@@ -367,36 +370,60 @@ def search_title_projection(
 
 
 def search_fts_projection(
-    conn: sqlite3.Connection, query: str, *, limit: int = 25
+    conn: sqlite3.Connection, query: str, *, limit: int = 25, snippet_max_tokens: int = 32
 ) -> list[DocumentSearchRow]:
+    """``snippet_max_tokens`` is clamped to FTS5's own ``snippet()`` hard
+    limit (1-64 tokens) rather than trusted as-is -- a caller passing a
+    ``search.output.snippet_max_tokens`` config value already validated
+    to that same range (``core/config.py``'s ``SearchOutputConfig``)
+    never hits the clamp, but this repository function has no way to
+    know the value reaching it was validated, so it re-enforces the one
+    constraint that would otherwise make the query itself raise.
+
+    ``snippet(document_fts, -1, ...)``: column ``-1`` lets FTS5 pick
+    whichever indexed column (``heading_text``/``body``/``doc_title``)
+    actually matched, rather than assuming ``body`` -- a heading-only or
+    title-only hit still gets a real match-centered excerpt instead of an
+    empty one. No highlight markers (``''``/``''`` start/end) -- this is
+    plain extracted text, not markup, so it renders identically in a
+    terminal, ``--json``, or an MCP tool response.
+    """
+    clamped_max_tokens = max(1, min(64, snippet_max_tokens))
     rows = conn.execute(
         """
         SELECT df.document_id, df.section_id, df.heading_text, df.body,
                df.doc_title, d.title AS document_title, f.path, f.mtime,
-               bm25(document_fts) AS rank
+               ds.page_start, ds.page_end, ds.heading_path,
+               bm25(document_fts) AS rank,
+               snippet(document_fts, -1, '', '', '...', ?) AS match_snippet
         FROM document_fts df
         JOIN documents d ON d.id = df.document_id
         JOIN files f ON f.id = d.file_id
+        JOIN document_sections ds ON ds.id = df.section_id
         WHERE document_fts MATCH ?
         ORDER BY rank
         LIMIT ?
         """,
-        (query, limit),
+        (clamped_max_tokens, query, limit),
     ).fetchall()
     results: list[DocumentSearchRow] = []
     for rank, row in enumerate(rows):
         heading = row["heading_text"] or ""
         body = row["body"] or ""
         title = row["doc_title"] or row["document_title"] or row["path"]
+        match_snippet = (row["match_snippet"] or "").strip()
         results.append(
             DocumentSearchRow(
                 id=row["section_id"] or row["document_id"],
                 title=title,
                 path=row["path"],
                 mtime=row["mtime"],
-                snippet=(body or heading)[:280] or None,
+                snippet=match_snippet or (body or heading)[:280] or None,
                 heading=heading or None,
                 fts_rank=rank,
+                page_start=row["page_start"],
+                page_end=row["page_end"],
+                heading_path=json.loads(row["heading_path"]) if row["heading_path"] else [],
             )
         )
     return results

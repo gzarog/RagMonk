@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from ragpilot.service import pid
 
 
@@ -60,3 +62,67 @@ def test_running_daemon_reflects_a_live_pid(tmp_path: Path) -> None:
     info = pid.running_daemon(tmp_path)
     assert info is not None
     assert info.pid == os.getpid()
+
+
+class TestStopAndWait:
+    """Shared by ``ops/restore.py`` (before swapping in a backup) and
+    ``ops/uninstall.py`` (before purging RAGPILOT_HOME) -- signal
+    delivery and process death are mocked out here (a real daemon
+    subprocess is exercised separately, see the ``daemon_subprocess``
+    marker in CONTRIBUTING.md).
+    """
+
+    def test_returns_false_when_no_daemon_running(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[int] = []
+        monkeypatch.setattr(pid, "signal_stop", lambda p: calls.append(p))
+
+        assert pid.stop_and_wait(tmp_path) is False
+        assert calls == []
+
+    def test_stops_and_removes_pid_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pid.write_pid_file(tmp_path, 4242)
+        signalled: list[int] = []
+        monkeypatch.setattr(pid, "signal_stop", lambda p: signalled.append(p))
+        # Alive on the first check (the signal was just sent), dead on
+        # every check after -- simulates a process that stops promptly.
+        alive = iter([True, False])
+        monkeypatch.setattr(pid, "is_process_alive", lambda p: next(alive, False))
+
+        result = pid.stop_and_wait(tmp_path, timeout_seconds=5)
+
+        assert result is True
+        assert signalled == [4242]
+        assert pid.read_pid_file(tmp_path) is None
+
+    def test_raises_error_cls_when_process_never_stops(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pid.write_pid_file(tmp_path, 4242)
+        monkeypatch.setattr(pid, "signal_stop", lambda p: None)
+        monkeypatch.setattr(pid, "is_process_alive", lambda p: True)
+
+        with pytest.raises(RuntimeError, match="did not stop"):
+            pid.stop_and_wait(tmp_path, timeout_seconds=0.05, poll_interval_seconds=0.01)
+
+    def test_uses_the_given_error_cls_and_action(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _CustomError(Exception):
+            pass
+
+        pid.write_pid_file(tmp_path, 4242)
+        monkeypatch.setattr(pid, "signal_stop", lambda p: None)
+        monkeypatch.setattr(pid, "is_process_alive", lambda p: True)
+
+        with pytest.raises(_CustomError, match="refusing to purge data"):
+            pid.stop_and_wait(
+                tmp_path,
+                timeout_seconds=0.05,
+                poll_interval_seconds=0.01,
+                action="purge data",
+                error_cls=_CustomError,
+            )

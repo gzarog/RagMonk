@@ -4,6 +4,7 @@ graceful shutdown hook so every command starts and ends in the same way.
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,8 @@ from ragpilot.core.config import RagpilotConfig, load_config
 from ragpilot.storage.migrations import apply_migrations
 from ragpilot.storage.sqlite import connect
 from ragpilot.telemetry.logging import configure_logging
+from ragpilot.update import background as update_background
+from ragpilot.update import notifier as update_notifier
 
 try:
     import fcntl
@@ -75,6 +78,16 @@ class AppContext:
             cache_size_mb=config.runtime.sqlite_cache_size_mb,
         )
         apply_migrations(sources_conn, "sources")
+        # CLI performance improvement plan, Phase 4: every "normal" command
+        # goes through this one bootstrap path (unlike `version`/`--help`/
+        # `config`/`update`, none of which call it -- see the plan's
+        # "commands that must never trigger network update checking" list).
+        # This only ever *decides* whether to spawn a detached background
+        # checker from the local cache's age; it never itself makes a
+        # network call, and a failure here must never break the command
+        # that happens to trigger it.
+        with contextlib.suppress(Exception):  # see this block's comment above
+            update_background.maybe_launch_background_check(resolved_home, config.updates)
         return cls(config=config, home=resolved_home, cwd=resolved_cwd, sources_conn=sources_conn)
 
     def project_conn(self, project_id: str) -> sqlite3.Connection:
@@ -117,6 +130,12 @@ class AppContext:
         for conn in self._project_conns.values():
             conn.close()
         self._project_conns.clear()
+        # Printed last, after a command's own output (matches this plan's
+        # own worked examples: results first, notice appended below) --
+        # reads the local cache only, see notifier.py. Never allowed to
+        # break cleanup or the command's own exit code.
+        with contextlib.suppress(Exception):  # see this block's comment above
+            update_notifier.maybe_notify(self.home, self.config.updates)
 
     def __enter__(self) -> AppContext:
         return self

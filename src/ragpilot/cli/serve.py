@@ -15,7 +15,6 @@ import typer
 
 from ragpilot.core.errors import ConfigError, UsageError
 from ragpilot.core.lifecycle import AppContext
-from ragpilot.mcp.server import run_stdio
 
 from ._common import cli_command, error_console
 
@@ -47,4 +46,9 @@ def serve(
     # JSON-RPC channel once run_stdio() starts, so even a startup banner
     # has to go to stderr.
     error_console.print("[bold]RAGpilot MCP server starting on stdio...[/bold]")
+    # Deferred import (CLI performance improvement plan, Phase 2): the mcp
+    # SDK must only load for `ragpilot serve --mcp`, never for any other
+    # command that happens to import this module.
+    from ragpilot.mcp.server import run_stdio
+
     run_stdio()

@@ -51,11 +51,24 @@ def _spawn(home: Path) -> int:
     kwargs: dict[str, Any] = {}
     if sys.platform == "win32":
         # No process-group/session concept to detach with on Windows --
-        # these two flags are the documented equivalent: the child gets
-        # its own process group (so a Ctrl+C to this CLI's console
-        # doesn't reach it) and no console of its own.
+        # CREATE_NEW_PROCESS_GROUP is the equivalent for the "a Ctrl+C to
+        # this CLI's console doesn't reach the child" half.
+        #
+        # For "no console window", DETACHED_PROCESS alone is not enough:
+        # Microsoft's own docs describe it as "no console handle set",
+        # but in practice CreateProcess can still allocate a new console
+        # for a console-subsystem child (python.exe is one) under
+        # DETACHED_PROCESS, producing exactly the visible extra window
+        # reported live -- `ragpilot daemon start` popping open a second
+        # terminal window instead of returning silently to the caller's
+        # own console. CREATE_NO_WINDOW is the flag whose specific job is
+        # suppressing window creation for a console-subsystem process;
+        # combined with the two above, the child is both detached and
+        # genuinely invisible.
         kwargs["creationflags"] = (
-            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
+            subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            | subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
+            | subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
         )
     else:
         # Detaches the child into its own session so it survives this

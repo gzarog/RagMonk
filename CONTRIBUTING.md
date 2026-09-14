@@ -180,6 +180,36 @@ plan) -- see that package's own docstring:
   `benchmark_search`) exercises the generator itself without hard-gating
   on its hardware-dependent latency numbers.
 
+### The `cli_startup_benchmark` marker and `benchmarks/cli_startup/`
+
+The CLI performance improvement plan's startup benchmark
+(`benchmarks/cli_startup/`, a top-level package alongside
+`benchmarks/search/`) measures subprocess wall-clock startup for the
+lightweight commands (`version`, `--help`, `config --help`, `status`,
+`search --help`) that should start almost immediately. Its pytest
+coverage (`tests/integration/test_cli_startup_benchmarks.py`) is marked
+`@pytest.mark.cli_startup_benchmark` and excluded from the default run
+the same way `benchmark_search` is, since its millisecond numbers are
+only meaningful on real, unshared hardware. Run it explicitly:
+
+```bash
+pytest -m cli_startup_benchmark -q -s
+python -m benchmarks.cli_startup --strict
+```
+
+`--strict` is the form that actually enforces `targets.py`'s warm-start
+budgets -- meant for a real developer machine, not CI, which runs
+`cli_startup_benchmark` tests in the same non-blocking style as
+`benchmark_search` (see `.github/workflows/ci.yml`) and only asserts the
+benchmark itself runs (every command completes), never the wall-clock
+numbers.
+
+CLI startup has a separate, always-on regression test that *is* a hard
+CI gate: `tests/unit/test_cli_startup_imports.py` asserts the lightweight
+commands never import Docling/torch/transformers/mcp/openai/anthropic/
+usearch, regardless of what a shared runner's timing looks like on any
+given run.
+
 ### The install scripts (`install.sh` / `install.ps1`)
 
 `install.sh` and `install.ps1` at the repo root are what `README.md`'s

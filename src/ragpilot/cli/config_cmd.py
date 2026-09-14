@@ -70,6 +70,12 @@ def set_value(
         cursor[last] = int(value)
     elif isinstance(current, float):
         cursor[last] = float(value)
+    elif isinstance(current, list):
+        # A comma-separated string, e.g. `ragpilot config set
+        # search.output.fallback snippets,json,files` -- the only list-typed
+        # config field today; re-validated against its Pydantic model right
+        # below, same as every other type here.
+        cursor[last] = [item.strip() for item in value.split(",") if item.strip()]
     else:
         cursor[last] = value
 

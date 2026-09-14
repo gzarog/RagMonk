@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ragpilot.core import paths
 from ragpilot.core.errors import ConfigError
@@ -86,6 +86,50 @@ class SearchCacheConfig(BaseModel):
     max_query_embeddings: int = 256
 
 
+class SearchOutputConfig(BaseModel):
+    """Controls ``ragpilot search``'s default (no ``--json``/``--snippets``/
+    ``--table`` flag) rendering, and what one document hit falls back to
+    when a real match-centered snippet isn't available -- both driven by
+    this same ordered list, so "configurable fallback" has one meaning
+    rather than two. ``fallback[0]`` is the effective default mode; a
+    document hit that lacks a usable ``SearchResult.snippet`` (in
+    "snippets" mode) degrades to whichever mode comes next in this same
+    list, and finally to just its file path if the list is exhausted --
+    nothing a search matched is ever silently dropped. Code/entity hits
+    are unaffected either way: they always render via their existing
+    title/path/tier row (see ``cli/search.py``).
+    """
+
+    fallback: list[str] = Field(default_factory=lambda: ["snippets", "json", "files"])
+    # SQLite FTS5's own ``snippet()`` hard limit is 1-64 tokens -- see
+    # ``storage/repositories/documents_repo.py::search_fts_projection``.
+    snippet_max_tokens: int = 32
+
+    @field_validator("fallback")
+    @classmethod
+    def _validate_fallback(cls, value: list[str]) -> list[str]:
+        allowed = {"snippets", "json", "files", "table"}
+        if not value:
+            raise ValueError("search.output.fallback must not be empty")
+        for mode in value:
+            if mode not in allowed:
+                raise ValueError(
+                    f"unknown search.output.fallback mode {mode!r}; "
+                    f"expected one of {sorted(allowed)}"
+                )
+        return value
+
+    @field_validator("snippet_max_tokens")
+    @classmethod
+    def _validate_snippet_max_tokens(cls, value: int) -> int:
+        if not 1 <= value <= 64:
+            raise ValueError(
+                "search.output.snippet_max_tokens must be between 1 and 64 "
+                "(SQLite FTS5's own snippet() limit)"
+            )
+        return value
+
+
 class SearchConfig(BaseModel):
     lexical: bool = True
     graph: bool = True
@@ -106,6 +150,7 @@ class SearchConfig(BaseModel):
     semantic_top_k: int = 30
     vector: SearchVectorConfig = Field(default_factory=SearchVectorConfig)
     cache: SearchCacheConfig = Field(default_factory=SearchCacheConfig)
+    output: SearchOutputConfig = Field(default_factory=SearchOutputConfig)
 
 
 class ContextConfig(BaseModel):
@@ -160,6 +205,23 @@ class TelemetryConfig(BaseModel):
     anonymous_usage: bool = False
 
 
+class UpdatesConfig(BaseModel):
+    """CLI performance improvement plan, Phase 4: automatic update
+    checking/notification. ``enabled=false`` disables both the background
+    check (``update/background.py``) and the startup notification
+    (``update/notifier.py``) entirely -- useful for enterprise/offline
+    environments (see the plan's Configuration/Offline Behavior
+    sections). ``channel`` is reserved for a future non-stable release
+    channel; this repository only ever publishes one today, so it is
+    accepted and stored but not yet acted on.
+    """
+
+    enabled: bool = True
+    check_interval_hours: int = 24
+    notify: bool = True
+    channel: str = "stable"
+
+
 class RagpilotConfig(BaseModel):
     version: int = 1
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
@@ -173,6 +235,7 @@ class RagpilotConfig(BaseModel):
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
     ai: AiConfig = Field(default_factory=AiConfig)
+    updates: UpdatesConfig = Field(default_factory=UpdatesConfig)
 
 
 _KNOWN_SECTIONS = {
@@ -188,6 +251,7 @@ _KNOWN_SECTIONS = {
     "privacy",
     "telemetry",
     "ai",
+    "updates",
 }
 
 

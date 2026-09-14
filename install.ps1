@@ -14,6 +14,11 @@ $InstallDir = if ($env:RAGPILOT_INSTALL_DIR) { $env:RAGPILOT_INSTALL_DIR } else 
 $AppDir = Join-Path $InstallDir "app"
 $VenvDir = Join-Path $InstallDir "venv"
 $BinDir = if ($env:RAGPILOT_BIN_DIR) { $env:RAGPILOT_BIN_DIR } else { Join-Path $InstallDir "bin" }
+# Same default as ragpilot's own core/paths.py::runtime_dir() on Windows --
+# RAGPILOT_INSTALL_DIR/RAGPILOT_HOME happen to share a default today, but
+# are independent overrides, so this is computed the same way rather than
+# assumed equal to InstallDir above.
+$RagpilotHome = if ($env:RAGPILOT_HOME) { $env:RAGPILOT_HOME } else { Join-Path $env:LOCALAPPDATA "RAGpilot" }
 
 function Find-Python {
     # Each candidate is a hashtable { Exe; Args } rather than a flat array --
@@ -83,8 +88,60 @@ New-Item -ItemType Directory -Force -Path (Split-Path $AppDir -Parent) | Out-Nul
 Move-Item -Path $ExtractedDir.FullName -Destination $AppDir
 Remove-Item -Recurse -Force $ExtractRoot
 
+# Resolve a version to report via SETUPTOOLS_SCM_PRETEND_VERSION: the
+# downloaded zipball above has no .git for hatch-vcs to derive one from,
+# so it would otherwise always fall back to the hardcoded "0.0.0"
+# placeholder (see pyproject.toml's [tool.hatch.version]
+# fallback-version). $Ref is used directly when it already looks like
+# this project's own release-tag shape (an upgrade -- update/installer.py
+# always passes an exact, already-validated tag here); the default
+# "main" instead queries GitHub for the latest actual release, since
+# "main" itself isn't a version. Any other custom/branch $Ref is left
+# unresolved -- reporting an unrelated release's version for arbitrary
+# branch content would be actively misleading. A failed or missing
+# lookup (offline, no releases yet) just skips the override, same as
+# before this existed.
+$PretendVersion = $null
+if ($Ref -match '^[vV]?\d+\.\d+\.\d+$') {
+    $PretendVersion = $Ref -replace '^[vV]', ''
+} elseif ($Ref -eq "main") {
+    try {
+        $LatestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" `
+            -Headers @{ Accept = "application/vnd.github+json" }
+        if ($LatestRelease.tag_name -match '^[vV]?\d+\.\d+\.\d+$') {
+            $PretendVersion = $LatestRelease.tag_name -replace '^[vV]', ''
+        }
+    } catch {
+        Write-Host "Could not determine the latest release version (continuing without it): $_"
+    }
+}
+
 Write-Host "Creating virtual environment at $VenvDir..."
-if (Test-Path $VenvDir) { Remove-Item -Recurse -Force $VenvDir }
+# Any existing venv is renamed out of the way first, rather than deleted,
+# and the new one is then built fresh directly at $VenvDir -- never at a
+# temporary path later swapped in. Two Windows constraints rule out the
+# alternatives: `ragpilot update install` re-runs this exact script from
+# inside the currently-running $VenvDir\Scripts\ragpilot.exe, and deleting
+# or overwriting that file while its own process is executing fails with
+# a sharing violation ("[WinError 32] ... being used by another
+# process") -- but pip's own generated console-script launchers (like
+# that ragpilot.exe) embed the venv's exact interpreter *path* at install
+# time, so a venv built elsewhere and then renamed into place afterward
+# ends up with launchers pointing at a path that no longer exists --
+# renaming the *old* venv out from under the running process, before
+# building the new one straight at the real path, avoids both problems
+# at once. A directory rename (unlike an in-place delete/overwrite)
+# succeeds even while a file inside it is open, so this works even mid
+# self-upgrade; a stale "${VenvDir}.old" left behind because it was still
+# in use is cleaned up automatically at the top of the next run, once
+# nothing has it open anymore. (${VenvDir}, not bare $VenvDir, immediately
+# before the literal ".old" text below: PowerShell parses a bare
+# "$VenvDir.old" in a double-quoted string as member access --
+# $VenvDir.old -- not concatenation, and since strings have no such
+# property it silently evaluates to empty rather than erroring.)
+$VenvDirOld = "${VenvDir}.old"
+if (Test-Path $VenvDirOld) { Remove-Item -Recurse -Force $VenvDirOld -ErrorAction SilentlyContinue }
+if (Test-Path $VenvDir) { Rename-Item -Path $VenvDir -NewName (Split-Path $VenvDirOld -Leaf) }
 & $Python.Exe @($Python.Args) -m venv $VenvDir
 
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
@@ -106,7 +163,17 @@ Write-Host "(you may see `"Cache entry deserialization failed`" warnings below -
 # is the only feedback during a multi-minute, multi-hundred-MB install (torch
 # chief among the dependencies) -- silencing it makes a slow-but-working
 # install indistinguishable from a hung one.
-& $VenvPython -m pip install $AppDir
+if ($PretendVersion) { $env:SETUPTOOLS_SCM_PRETEND_VERSION = $PretendVersion }
+try {
+    & $VenvPython -m pip install $AppDir
+} finally {
+    if ($PretendVersion) { Remove-Item Env:\SETUPTOOLS_SCM_PRETEND_VERSION -ErrorAction SilentlyContinue }
+}
+
+# Best-effort: if the old venv above is still in use (a self-upgrade, the
+# running process's own files), this silently leaves it behind for the
+# next run's cleanup at the top of this section instead of failing here.
+Remove-Item -Recurse -Force $VenvDirOld -ErrorAction SilentlyContinue
 
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 $LauncherPath = Join-Path $BinDir "ragpilot.cmd"
@@ -121,6 +188,21 @@ if (";$UserPath;" -notlike "*;$BinDir;*") {
     Write-Host ""
     Write-Host "Added $BinDir to your user PATH. Open a new terminal for this to take effect."
 }
+
+
+# Lets `ragpilot update install` (update/installer.py) detect that this is
+# an install-script install and where to re-run this same script, rather
+# than guessing from the running interpreter's own path -- see this
+# file's own record of itself as the one thing that can't guess itself.
+New-Item -ItemType Directory -Force -Path $RagpilotHome | Out-Null
+$InstallInfo = [ordered]@{
+    install_method = "install-script"
+    repository     = $Repo
+    install_dir    = $InstallDir
+    venv_dir       = $VenvDir
+    bin_dir        = $BinDir
+}
+$InstallInfo | ConvertTo-Json | Set-Content -Path (Join-Path $RagpilotHome "install_info.json") -Encoding UTF8
 
 Write-Host ""
 Write-Host "Run 'ragpilot version' to verify, then 'ragpilot init' to get started."

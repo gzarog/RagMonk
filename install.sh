@@ -13,6 +13,11 @@ INSTALL_DIR="${RAGPILOT_INSTALL_DIR:-$HOME/.ragpilot}"
 APP_DIR="$INSTALL_DIR/app"
 VENV_DIR="$INSTALL_DIR/venv"
 BIN_DIR="${RAGPILOT_BIN_DIR:-$HOME/.local/bin}"
+# Same default as ragpilot's own core/paths.py::runtime_dir() on POSIX --
+# RAGPILOT_INSTALL_DIR/RAGPILOT_HOME happen to share a default today, but
+# are independent overrides, so this is computed the same way rather than
+# assumed equal to INSTALL_DIR above.
+RAGPILOT_HOME="${RAGPILOT_HOME:-$HOME/.ragpilot}"
 
 find_python() {
     for candidate in python3.13 python3.12 python3 python; do
@@ -60,6 +65,34 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR"
 tar -xzf "$TARBALL" -C "$APP_DIR" --strip-components=1
 
+# Resolve a version to report via SETUPTOOLS_SCM_PRETEND_VERSION: the
+# downloaded tarball above has no .git for hatch-vcs to derive one from,
+# so it would otherwise always fall back to the hardcoded "0.0.0"
+# placeholder (see pyproject.toml's [tool.hatch.version]
+# fallback-version). $REF is used directly when it already looks like
+# this project's own release-tag shape (an upgrade -- update/installer.py
+# always passes an exact, already-validated tag here); the default
+# "main" instead queries GitHub for the latest actual release, since
+# "main" itself isn't a version. Any other custom/branch $REF is left
+# unresolved -- reporting an unrelated release's version for arbitrary
+# branch content would be actively misleading. A failed or missing
+# lookup (offline, no releases yet) just skips the override, same as
+# before this existed.
+PRETEND_VERSION=""
+case "$REF" in
+    v[0-9]*.[0-9]*.[0-9]*)
+        PRETEND_VERSION="${REF#v}"
+        ;;
+    main)
+        LATEST_TAG="$(curl -fsSL -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+            | grep -o '"tag_name" *: *"[^"]*"' | head -n1 | sed 's/.*"\([^"]*\)"$/\1/')"
+        case "$LATEST_TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) PRETEND_VERSION="${LATEST_TAG#v}" ;;
+        esac
+        ;;
+esac
+
 echo "Creating virtual environment at $VENV_DIR..."
 rm -rf "$VENV_DIR"
 "$PYTHON" -m venv "$VENV_DIR"
@@ -82,11 +115,30 @@ echo "(you may see \"Cache entry deserialization failed\" warnings below -- harm
 # is the only feedback during a multi-minute, multi-hundred-MB install (torch
 # chief among the dependencies) -- silencing it makes a slow-but-working
 # install indistinguishable from a hung one.
-"$VENV_DIR/bin/pip" install "$APP_DIR"
+if [ -n "$PRETEND_VERSION" ]; then
+    SETUPTOOLS_SCM_PRETEND_VERSION="$PRETEND_VERSION" "$VENV_DIR/bin/pip" install "$APP_DIR"
+else
+    "$VENV_DIR/bin/pip" install "$APP_DIR"
+fi
 
 mkdir -p "$BIN_DIR"
 ln -sf "$VENV_DIR/bin/ragpilot" "$BIN_DIR/ragpilot"
 echo "RAGpilot installed: $BIN_DIR/ragpilot"
+
+# Lets `ragpilot update install` (update/installer.py) detect that this is
+# an install-script install and where to re-run this same script, rather
+# than guessing from the running interpreter's own path -- see this
+# file's own record of itself as the one thing that can't guess itself.
+mkdir -p "$RAGPILOT_HOME"
+cat > "$RAGPILOT_HOME/install_info.json" <<EOF
+{
+  "install_method": "install-script",
+  "repository": "$REPO",
+  "install_dir": "$INSTALL_DIR",
+  "venv_dir": "$VENV_DIR",
+  "bin_dir": "$BIN_DIR"
+}
+EOF
 
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;

@@ -32,18 +32,25 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
-
-from docling.datamodel.base_models import ConversionStatus, InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling_core.types.doc.document import DoclingDocument
-from docling_core.types.io import DocumentStream
+from typing import TYPE_CHECKING
 
 from ragpilot.core.errors import RagpilotError
 from ragpilot.core.models import DocumentFormat
 from ragpilot.sources.fingerprint import hash_file
 from ragpilot.storage.repositories import document_conversion_cache_repo
 from ragpilot.storage.sqlite import transaction
+
+# CLI performance improvement plan, Phase 2: Docling (which itself pulls in
+# torch for its layout/table-structure models) must never load just from
+# `import ragpilot.documents.docling_adapter` -- only when a function here
+# that actually needs it runs. Safe under annotations only (this module has
+# `from __future__ import annotations`, so every annotation below is a
+# string at runtime); every *runtime* use imports locally instead.
+if TYPE_CHECKING:
+    from docling.datamodel.base_models import InputFormat
+    from docling.document_converter import DocumentConverter
+    from docling_core.types.doc.document import DoclingDocument
+    from docling_core.types.io import DocumentStream
 
 # Phase 3's supported extensions. Anything else that ``sources.detector``
 # still classifies as ``FileKind.DOCUMENT`` (legacy .doc/.ppt/.xls,
@@ -62,21 +69,34 @@ EXTENSION_TO_FORMAT: dict[str, DocumentFormat] = {
     ".eml": DocumentFormat.EML,
 }
 
-_FORMAT_TO_INPUT_FORMAT: dict[DocumentFormat, InputFormat] = {
-    DocumentFormat.PDF: InputFormat.PDF,
-    DocumentFormat.DOCX: InputFormat.DOCX,
-    DocumentFormat.PPTX: InputFormat.PPTX,
-    DocumentFormat.XLSX: InputFormat.XLSX,
-    DocumentFormat.HTML: InputFormat.HTML,
-    # Docling itself has no distinct "plain text" InputFormat -- .md and
-    # .txt both route to InputFormat.MD (see docling.datamodel.base_models
-    # .FormatToExtensions), and plain text is valid (trivial) Markdown.
-    DocumentFormat.MARKDOWN: InputFormat.MD,
-    DocumentFormat.TXT: InputFormat.MD,
-    DocumentFormat.EML: InputFormat.EMAIL,
-}
+_format_to_input_format_cache: dict[DocumentFormat, InputFormat] | None = None
 
-_SUCCESS_STATUSES = (ConversionStatus.SUCCESS, ConversionStatus.PARTIAL_SUCCESS)
+
+def _format_to_input_format() -> dict[DocumentFormat, InputFormat]:
+    """Built lazily and cached: its values are Docling's own ``InputFormat``
+    enum members, so building this at import time would itself force
+    Docling to load.
+    """
+    global _format_to_input_format_cache
+    if _format_to_input_format_cache is None:
+        from docling.datamodel.base_models import InputFormat
+
+        _format_to_input_format_cache = {
+            DocumentFormat.PDF: InputFormat.PDF,
+            DocumentFormat.DOCX: InputFormat.DOCX,
+            DocumentFormat.PPTX: InputFormat.PPTX,
+            DocumentFormat.XLSX: InputFormat.XLSX,
+            DocumentFormat.HTML: InputFormat.HTML,
+            # Docling itself has no distinct "plain text" InputFormat -- .md
+            # and .txt both route to InputFormat.MD (see
+            # docling.datamodel.base_models.FormatToExtensions), and plain
+            # text is valid (trivial) Markdown.
+            DocumentFormat.MARKDOWN: InputFormat.MD,
+            DocumentFormat.TXT: InputFormat.MD,
+            DocumentFormat.EML: InputFormat.EMAIL,
+        }
+    return _format_to_input_format_cache
+
 
 # Plain text, no Markdown/HTML special syntax: an HTML-comment-style
 # placeholder (e.g. "<!--PAGEBREAK-->") is silently swallowed by Docling's
@@ -131,6 +151,10 @@ def _get_converter() -> DocumentConverter:
     """
     global _converter
     if _converter is None:
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+
+        input_formats = _format_to_input_format()
         pdf_options = PdfPipelineOptions()
         # OCR is explicitly out of scope for Phase 3 (config.documents.ocr
         # is read only for the future -- see docs/CHANGELOG). Turning it
@@ -139,8 +163,10 @@ def _get_converter() -> DocumentConverter:
         pdf_options.do_ocr = False
         pdf_options.do_table_structure = True
         _converter = DocumentConverter(
-            allowed_formats=list(_FORMAT_TO_INPUT_FORMAT.values()),
-            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options)},
+            allowed_formats=list(input_formats.values()),
+            format_options={
+                input_formats[DocumentFormat.PDF]: PdfFormatOption(pipeline_options=pdf_options)
+            },
         )
     return _converter
 
@@ -189,13 +215,15 @@ def _run_conversion(
     ``DocumentConversionError`` -- shared by both the PDF and non-PDF
     conversion paths below, and by the Markdown reparse.
     """
+    from docling.datamodel.base_models import ConversionStatus
+
     try:
         result = converter.convert(source)
     except Exception as exc:  # noqa: BLE001 - Docling's own exception types vary by backend
         raise DocumentConversionError(
             f"{path}: Docling failed to convert this file: {exc}"
         ) from exc
-    if result.status not in _SUCCESS_STATUSES:
+    if result.status not in (ConversionStatus.SUCCESS, ConversionStatus.PARTIAL_SUCCESS):
         raise DocumentConversionError(
             f"{path}: Docling conversion did not succeed (status={result.status})"
         )
@@ -214,6 +242,9 @@ def _get_md_converter() -> DocumentConverter:
     """
     global _md_converter
     if _md_converter is None:
+        from docling.datamodel.base_models import InputFormat
+        from docling.document_converter import DocumentConverter
+
         _md_converter = DocumentConverter(allowed_formats=[InputFormat.MD])
     return _md_converter
 
@@ -229,6 +260,8 @@ def _reparse_markdown(path: Path, markdown_text: str) -> DoclingDocument:
     ``metadata.extract_metadata``'s ``source_filename`` field is computed
     but never consumed anywhere else in this codebase.
     """
+    from docling_core.types.io import DocumentStream
+
     stream = DocumentStream(name=f"{path.stem}.md", stream=BytesIO(markdown_text.encode("utf-8")))
     return _run_conversion(_get_md_converter(), path, stream)
 

@@ -23,15 +23,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ragpilot.ai.anthropic import DEFAULT_MODEL as _ANTHROPIC_DEFAULT_MODEL
-from ragpilot.ai.anthropic import AnthropicProvider
 from ragpilot.ai.base import AiNotConfiguredError, AiPrivacyBlockedError, AiProvider
-from ragpilot.ai.ollama import DEFAULT_BASE_URL as _OLLAMA_DEFAULT_BASE_URL
-from ragpilot.ai.ollama import DEFAULT_MODEL as _OLLAMA_DEFAULT_MODEL
-from ragpilot.ai.ollama import OllamaProvider
-from ragpilot.ai.openai import DEFAULT_MODEL as _OPENAI_DEFAULT_MODEL
-from ragpilot.ai.openai import OpenAiProvider
-from ragpilot.ai.openai_compatible import API_KEY_ENV_VAR, OpenAiCompatibleProvider
 from ragpilot.core.config import AiConfig, PrivacyConfig
 
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
@@ -71,7 +63,15 @@ def create_provider(
             "ragpilot config set ai.provider <openai|anthropic|ollama|openai_compatible>"
         )
 
+    # Each branch imports only its own provider module (CLI performance
+    # improvement plan, Phase 2): `ai/openai.py` and `ai/anthropic.py` each
+    # import their real SDK (`openai`/`anthropic`) at module level, so
+    # importing every provider up front here -- regardless of which one is
+    # actually configured -- would load both SDKs on every `ragpilot ask`.
     if provider == "openai":
+        from ragpilot.ai.openai import DEFAULT_MODEL as _OPENAI_DEFAULT_MODEL
+        from ragpilot.ai.openai import OpenAiProvider
+
         _require_external_ai_allowed(privacy, label="openai")
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
@@ -85,6 +85,9 @@ def create_provider(
         )
 
     if provider == "anthropic":
+        from ragpilot.ai.anthropic import DEFAULT_MODEL as _ANTHROPIC_DEFAULT_MODEL
+        from ragpilot.ai.anthropic import AnthropicProvider
+
         _require_external_ai_allowed(privacy, label="anthropic")
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
@@ -100,6 +103,8 @@ def create_provider(
         )
 
     if provider == "openai_compatible":
+        from ragpilot.ai.openai_compatible import API_KEY_ENV_VAR, OpenAiCompatibleProvider
+
         _require_external_ai_allowed(privacy, label="openai_compatible")
         if not ai.base_url:
             raise AiNotConfiguredError("ai.provider=openai_compatible requires ai.base_url")
@@ -114,6 +119,10 @@ def create_provider(
         )
 
     if provider == "ollama":
+        from ragpilot.ai.ollama import DEFAULT_BASE_URL as _OLLAMA_DEFAULT_BASE_URL
+        from ragpilot.ai.ollama import DEFAULT_MODEL as _OLLAMA_DEFAULT_MODEL
+        from ragpilot.ai.ollama import OllamaProvider
+
         base_url = ai.base_url or _OLLAMA_DEFAULT_BASE_URL
         if not _is_local_host(base_url):
             _require_external_ai_allowed(privacy, label="ollama (non-local base_url)")

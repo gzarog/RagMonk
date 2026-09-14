@@ -123,3 +123,37 @@ def running_daemon(home: Path) -> PidInfo | None:
     if info is None or not is_process_alive(info.pid):
         return None
     return info
+
+
+def stop_and_wait(
+    home: Path,
+    *,
+    timeout_seconds: float = 15.0,
+    poll_interval_seconds: float = 0.1,
+    action: str = "proceed",
+    error_cls: type[Exception] = RuntimeError,
+) -> bool:
+    """Stops a running daemon and waits for it to actually exit, so a
+    caller about to touch files under ``home`` (``ops/restore.py``'s
+    pre-swap step, ``ops/uninstall.py``'s pre-delete step) never races a
+    daemon still holding them open. Returns whether a daemon was found
+    running at all; raises ``error_cls`` if it doesn't stop in time --
+    callers pass their own exception type (e.g. ``DatabaseError``) to
+    keep their existing exit-code mapping.
+    """
+    import time
+
+    info = running_daemon(home)
+    if info is None:
+        return False
+    signal_stop(info.pid)
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline and is_process_alive(info.pid):
+        time.sleep(poll_interval_seconds)
+    if is_process_alive(info.pid):
+        raise error_cls(
+            f"daemon (pid {info.pid}) did not stop within {timeout_seconds:.0f}s; "
+            f"refusing to {action} while it is running"
+        )
+    remove_pid_file(home)
+    return True

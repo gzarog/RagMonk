@@ -69,6 +69,27 @@ def daemon_health_path(home: Path | None = None) -> Path:
     return (home or runtime_dir()) / "daemon_health.json"
 
 
+def install_info_path(home: Path | None = None) -> Path:
+    """CLI performance improvement plan, Phase 5: install.sh/install.ps1
+    write this after a successful install-script install, recording how
+    and where -- the authoritative signal ``update/installer.py``'s
+    ``detect_install_method`` checks before falling back to runtime
+    heuristics (an editable/dev checkout, a pipx venv path, else pip).
+    """
+    return (home or runtime_dir()) / "install_info.json"
+
+
+def update_cache_path(home: Path | None = None) -> Path:
+    """CLI performance improvement plan, Phase 3: the small local cache
+    ``ragpilot update check`` writes and ``ragpilot update status`` reads
+    -- one per ``RAGPILOT_HOME``, mirroring ``daemon_health_path`` above.
+    A later phase's startup notification reads this too, which is the
+    whole point of it existing: never a synchronous GitHub call on every
+    invocation. See ``update/cache.py``.
+    """
+    return (home or runtime_dir()) / "update.json"
+
+
 def projects_dir(home: Path | None = None) -> Path:
     return (home or runtime_dir()) / "projects"
 

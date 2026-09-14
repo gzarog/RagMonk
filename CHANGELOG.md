@@ -1012,3 +1012,483 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     hardware-dependent millisecond numbers.
   - No retrieval/indexing/chunking source code changed in this phase --
     benchmark infrastructure only.
+- CLI performance improvement plan, Phase 1: startup benchmark and
+  heavy-import regression test.
+  - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,
+    `pytest -m cli_startup_benchmark`): measures real subprocess
+    wall-clock startup (cold + warm p50/p95) for the lightweight commands
+    that should start almost immediately -- `version`, `--help`,
+    `config --help`, `status`, `search --help` -- against warm-start
+    budgets in `targets.py`. Same non-blocking pattern as
+    `benchmarks/search/`: millisecond numbers are reported, not
+    hard-asserted, in CI (a shared/virtualized runner is not real,
+    unshared hardware); `python -m benchmarks.cli_startup --strict` is
+    the form that actually enforces them, for a real machine.
+  - **Architectural regression test**
+    (`tests/unit/test_cli_startup_imports.py`, always-on/default suite):
+    runs each lightweight command in a fresh subprocess and asserts
+    `sys.modules` never picks up Docling/torch/transformers/mcp/openai/
+    anthropic/usearch -- the actual hard CI gate against startup
+    regressing, since exact timing on a shared runner cannot be. Marked
+    `xfail(strict=True)` for now: `ragpilot.cli.main` currently imports
+    every CLI submodule eagerly, which transitively loads the full heavy
+    stack regardless of command; a follow-up phase removes those eager
+    imports and flips this to a plain (passing) assertion.
+
+- CLI performance improvement plan, Phase 2: lazy imports for the three
+  chains eagerly reachable from `ragpilot.cli.main` (which imports every
+  CLI submodule up front, regardless of which command was invoked) into
+  Docling, the `mcp` SDK, and the `openai`/`anthropic` SDKs.
+  - `indexing/runner.py`'s `build_processor_registry` now imports
+    `documents.pipeline.document_processor` inside the function (still
+    gated behind `config.documents.enabled`) instead of at module level --
+    severs the one path (`cli/index.py`, `cli/rebuild.py` via
+    `ops/rebuild.py`, `cli/watch.py`/`cli/daemon.py` via
+    `service/daemon.py`) that pulled Docling (and, through it, torch) into
+    every one of those commands' imports.
+  - `documents/docling_adapter.py` no longer imports Docling/docling_core
+    at module level at all: `InputFormat`/`ConversionStatus`/
+    `PdfPipelineOptions`/`DocumentConverter`/`PdfFormatOption`/
+    `DocumentStream` are now imported inside the functions that actually
+    construct or use them (`_get_converter`, `_get_md_converter`,
+    `_run_conversion`, `_reparse_markdown`); `DoclingDocument` is
+    `TYPE_CHECKING`-only (safe under this module's existing
+    `from __future__ import annotations`). The `InputFormat`-keyed format
+    map is now built lazily and cached (`_format_to_input_format`) rather
+    than at import time.
+  - `cli/serve.py` now imports `mcp.server.run_stdio` inside `serve()`,
+    right before calling it, instead of at module level -- the `mcp` SDK
+    now only loads for `ragpilot serve --mcp`.
+  - `ai/factory.py`'s `create_provider` now imports each provider module
+    (`ai/openai.py`, `ai/anthropic.py`, `ai/openai_compatible.py`,
+    `ai/ollama.py`) inside its own branch instead of importing all four at
+    module level -- `ragpilot ask` now loads only the SDK for whichever
+    `ai.provider` is actually configured, not every provider's SDK.
+  - Net effect, measured with `python -m benchmarks.cli_startup` (Phase
+    1's benchmark): `version`/`--help`/`config --help`/`status`/
+    `search --help` each dropped from ~9s to roughly 500-600ms subprocess
+    wall-clock on shared/virtualized hardware -- still short of the
+    aggressive targets in `benchmarks/cli_startup/targets.py` (which
+    assume real, unshared developer hardware, per that module's own
+    docstring) but a ~15-18x improvement. `tests/unit/test_cli_startup_imports.py`
+    (Phase 1's `xfail(strict=True)` regression test) is now a plain,
+    passing assertion -- the fix that test was written against. Also
+    fixes a latent bug in that test's own subprocess-output parsing (masked
+    by `xfail` until now): it naively split the entire captured stdout on
+    commas, which broke on `--help`'s own usage text (real commas in
+    argument descriptions); now reads a single marker-prefixed line
+    instead.
+
+- CLI performance improvement plan, Phase 3: manual update discovery --
+  `ragpilot update`/`update check`/`update status`/`update install`.
+  - New top-level `update/` package: `versioning.py` (installed version +
+    minimal MAJOR.MINOR.PATCH parsing/comparison -- full SemVer 2.0
+    pre-release/build-metadata precedence is out of scope, since this
+    plan's own release process (Phase 6) only ever produces plain
+    `MAJOR.MINOR.PATCH` tags), `checker.py` (queries GitHub's releases API
+    for `gzarog/Ragpilotv2` -- hardcoded, not configurable, and HTTPS
+    only -- and rejects any release whose tag is not a valid semantic
+    version), `cache.py` (`<RAGPILOT_HOME>/update.json` read/write, same
+    write-then-rename durability pattern as `service/health.py`'s daemon
+    health snapshot), `models.py`, and `installer.py` (currently a stub:
+    installation-method detection and the real upgrade path are a later
+    phase -- see below).
+  - New `cli/update.py`: `ragpilot update check` queries GitHub and
+    prints/writes the result (`Installed: X` / `Latest: Y` / "Update
+    available. Run: ragpilot update install" or "RAGpilot X is up to
+    date."); `ragpilot update status` reads the cache only and never
+    talks to GitHub; bare `ragpilot update` behaves like `update check`.
+    `ragpilot update install` exists but clearly reports it isn't
+    implemented yet, with the manual `curl | sh` / `irm | iex` / `pip
+    install` upgrade commands as a stand-in -- a later phase replaces
+    this stub with the real installation-method-aware upgrade path
+    (Definition of Done's "provides or performs the correct upgrade
+    path" isn't met yet by design). Distinct from the pre-existing
+    `ragpilot upgrade` (database schema migrations), which is unchanged.
+  - No command performs a synchronous GitHub request except the explicit
+    `ragpilot update check` (and, transitively, bare `ragpilot update`);
+    `update status` and every other command only ever read the local
+    cache. Automatic/background checking, and the startup notification
+    that reads this same cache, are a later phase.
+  - Validated against the real repository during development:
+    `ragpilot update check` successfully reached GitHub through this
+    environment's proxy and correctly *rejected* `gzarog/Ragpilotv2`'s
+    current release (tagged `ragpilot_0_1_0`, not `v*.*.*`) as an invalid
+    version rather than crashing or misreporting it -- exactly the
+    Security Requirements' "accept valid semantic versions only"
+    behavior. That tag predates this plan's tagging convention and is
+    expected to be superseded once Phase 6 lands.
+
+- CLI performance improvement plan, Phase 4: cached automatic update
+  notifications -- no command makes a synchronous GitHub request.
+  - New `updates:` config section (`enabled`, `check_interval_hours`,
+    `notify`, `channel` -- `RAGPILOT_UPDATES__*` env overrides). `channel`
+    is reserved for a future non-stable release channel; accepted and
+    stored, not yet acted on, since this repository only publishes one
+    channel today.
+  - `update/background.py`: `AppContext.bootstrap()` -- the one path
+    every "normal" command shares, and specifically *not* `version`/
+    `--help`/`config`/`update ...`, none of which call it -- now decides,
+    from the local cache's age (`updates.check_interval_hours`, default
+    24h), whether to spawn a fully detached `python -m
+    ragpilot.update.background <home>` process that makes the one real
+    GitHub request and writes the cache, then exits. The calling command
+    never waits on it; a failed spawn (no fork permission, etc.) is
+    swallowed. A newer discovered version resets the "already notified"
+    marker; rediscovering the same one on the next scheduled check does
+    not.
+  - `update/notifier.py`: `AppContext.close()` -- run at the end of every
+    normal command, after its own output -- reads that same cache (never
+    GitHub) and prints "A newer RAGpilot version is available: X → Y" at
+    most once per version, always to stderr so it never lands inside a
+    `--json` payload or (`ragpilot serve --mcp`) the MCP stdio transport's
+    JSON-RPC channel.
+  - Both hooks wrapped in `contextlib.suppress` at the `AppContext` call
+    site: a bug in either must never break a command's own execution or
+    its exit code.
+  - Test-suite safety net: a new autouse fixture
+    (`tests/conftest.py::_disable_background_update_checks`) sets
+    `RAGPILOT_UPDATES__ENABLED=false` for every test by default --
+    without it, every existing test calling `AppContext.bootstrap()`
+    (hundreds of them) would have spawned a real detached subprocess
+    making a real GitHub request on every run.
+  - Manually verified end-to-end against the real repository: with a
+    simulated stale-but-populated cache, `ragpilot status` printed the
+    notification once (after its own table output, on stderr) and
+    correctly did not repeat it on the next invocation; with no cache,
+    the command still completed in well under a second while the
+    (real, unmocked) background check ran and -- as in Phase 3's own
+    validation -- found this repository's current release tag invalid
+    and silently wrote nothing, exactly the designed offline/failure
+    behavior.
+
+- CLI performance improvement plan, Phase 5: `ragpilot update install`,
+  installation-method detection, and migration/health-check integration.
+  - `install.sh`/`install.ps1` now write `<RAGPILOT_HOME>/install_info.json`
+    (`install_method`, `repository`, `install_dir`, `venv_dir`, `bin_dir`)
+    after a successful install-script install -- the authoritative signal
+    `update/installer.py`'s `detect_install_method` checks before falling
+    back to runtime heuristics: a PEP 610 `direct_url.json` check for an
+    editable/dev install (`pip install -e .`), then a pipx-shaped venv
+    path, then "pip" for any other installed distribution, else "unknown".
+    CI's install-script job now also asserts that file gets written.
+  - `update/installer.py`'s `install_latest` runs this plan's full
+    sequence: check the latest release, confirm it's actually newer
+    (a no-op "already up to date" return otherwise), detect the install
+    method, run that method's upgrade command (`curl | sh`/`irm | iex`
+    re-run with `RAGPILOT_REF` set to the validated release tag for
+    install-script; `pip install --upgrade "git+...@<tag>"`; `pipx
+    install --force "git+...@<tag>"`), then -- via `sys.executable`
+    again, so this runs the *newly* upgraded code rather than the old
+    process's already-imported modules -- `ragpilot upgrade` (schema
+    migrations) and `ragpilot doctor` (health check), reusing those
+    existing commands rather than duplicating their logic. An editable/
+    dev install or an undetectable method refuses with clear manual
+    instructions instead of guessing. The release tag only ever reaches a
+    subprocess via an environment variable or as one non-shell-interpreted
+    argv element, never interpolated into a shell string -- defense in
+    depth on top of `checker.py`'s existing tag-format validation.
+    `ragpilot update install` replaces Phase 3's "not implemented yet"
+    stub; `ragpilot upgrade` (schema migrations) is unchanged.
+  - The whole sequence is built around an injectable command-runner seam
+    (`tests/unit/test_update_installer.py`), so its tests never spawn a
+    real `curl`/`pip`/`pipx`/`powershell` process; manually confirmed
+    against this real sandbox's own editable dev install that
+    `detect_install_method` correctly reports `"editable"`.
+
+- CLI performance improvement plan, Phase 6: one source of truth for the
+  version, and an automatic patch release on every successful merge to
+  `main`.
+  - **Tag-derived versioning**: `pyproject.toml` now declares
+    `dynamic = ["version"]` with `[tool.hatch.version] source = "vcs"`
+    (via the `hatch-vcs` build backend) instead of a version duplicated
+    by hand in both `pyproject.toml` and `src/ragpilot/__init__.py`. An
+    immutable git tag (`v0.1.8`, ...) is now the only source of truth;
+    `[tool.hatch.build.hooks.vcs]` writes the resolved version to the
+    gitignored `src/ragpilot/_version.py` at build/install time, and
+    `__init__.py` imports `__version__` from it (falling back to
+    `"0+unknown"` for a raw, never-installed source checkout). An
+    editable/unreleased build gets a PEP 440 dev version instead (e.g.
+    `"0.1.dev39+gd6cd42e.d20260911"`) -- `update/versioning.py`'s
+    `is_newer` now parses the installed side with `packaging.version`
+    (already a transitive dependency of the packaging toolchain itself;
+    now declared explicitly) so comparing against a dev build never
+    mistakes "no tag yet" for "no update available"; the untrusted,
+    externally-sourced side (a GitHub release tag) stays held to the
+    existing strict `MAJOR.MINOR.PATCH`-only validation.
+  - **`.github/workflows/main-release.yml`** (new): triggered by
+    `workflow_run` on `ci.yml`'s "CI" workflow completing, filtered to a
+    run whose head branch is `main` (never a pull request's own CI run)
+    and whose conclusion is `success` (so a failing required check on
+    `main` blocks the release exactly like it should) -- reads the
+    latest `v*.*.*` tag, bumps its patch component (defaulting to
+    `v0.1.0` when no tag exists yet, as is currently the case for this
+    repository), and pushes the new tag. `concurrency: group:
+    main-release` serializes back-to-back merges so two close-together
+    releases can't both compute the same next version from a stale read.
+    No commit is ever pushed back to `main` to record the new version --
+    the tag itself *is* the record (this plan's own stated reason to
+    prefer tag-derived versions: it can't recursively re-trigger this
+    same workflow the way editing `pyproject.toml`/`__init__.py` back
+    into `main` could).
+  - **`.github/workflows/release.yml`** now also accepts `workflow_call`
+    (alongside its existing `on: push: tags: "v*.*.*"`, unchanged for a
+    human/automation with real push access pushing a tag directly) --
+    `main-release.yml` calls it explicitly right after pushing the new
+    tag, rather than depending on that push to trigger it the normal way:
+    a push authenticated with the default `GITHUB_TOKEN` deliberately
+    never triggers another workflow's own `on: push` (GitHub's built-in
+    anti-recursion rule), so relying on that would have silently built
+    nothing. `tag_name`/the checkout `ref` are now `inputs.tag ||
+    github.ref_name` throughout, since `GITHUB_REF` for the
+    `workflow_call` path is `main`'s branch ref, not the tag.
+  - `ci.yml`'s required `lint-and-typecheck`/`test` jobs and
+    `release.yml`'s build job now check out full history (`fetch-depth:
+    0`) instead of the default shallow clone -- hatch-vcs needs every
+    tag reachable to compute a meaningful version, which a depth-1 clone
+    can't provide.
+  - **Validated locally, end to end**: built a real sdist/wheel via
+    `python -m build` against this branch's actual (dirty, no-tag)
+    working tree -- succeeded, producing a PEP 440 dev version. Then,
+    with a clean working tree and a local `v0.1.0` tag at HEAD, rebuilt
+    and got exactly `ragpilot-0.1.0` (no dev suffix) -- confirming the
+    exact scenario `release.yml`'s build job will see for a real tagged
+    release. The tag-bump shell logic in `main-release.yml` was verified
+    against several tag sets (none, sequential, double-digit components
+    like `v0.1.9`→`v0.1.10`, mixed major versions) via `sort -V`, which
+    orders them numerically rather than lexicographically.
+  - **Two real bugs this surfaced in CI, both in the hatch-vcs config,
+    fixed in this same change**: (1) `pip install`-ing from a plain
+    source tarball/zipball (exactly what `install.sh`/`install.ps1`
+    download) has no `.git` directory at all, and setuptools-scm (which
+    hatch-vcs wraps) hard-failed the entire install rather than falling
+    back -- fixed with `fallback-version = "0.0.0"`. (2) this
+    repository's actual first release predates this plan's tagging
+    convention (tagged `ragpilot_0_1_0`, not `v0.1.0`) and, once
+    `fetch-depth: 0` made every tag reachable, setuptools-scm's tag
+    selection (`git describe`, unconditional nearest-tag, parsed only
+    *after* selection) picked that one and hard-failed trying to parse
+    it as a version -- `tag-pattern`/`tag_regex` only affects parsing
+    *after* selection, so it can't prevent this; fixed with a
+    `[tool.hatch.version.raw-options]` `git_describe_command` override
+    adding `--match 'v*.*.*'`, which excludes it from ever being
+    selected as a candidate in the first place. Both reproduced and
+    fixed locally against this repository's actual tag before pushing:
+    a real archive with no `.git` now builds `ragpilot-0.0.0`; a `.git`
+    checkout with only the `ragpilot_0_1_0` tag reachable now builds a
+    `0.0.1.dev<N>+g<sha>` dev version instead of failing outright; a
+    clean `v0.1.0` tag at HEAD still builds exactly `ragpilot-0.1.0`.
+
+- `ragpilot uninstall [--keep-data] [--yes] [--json]`: removes the
+  installed application and, by default, all of its data.
+  - Reuses `update/installer.py`'s `detect_install_method` (the same
+    "how was this installed" question `ragpilot update install` already
+    answers) to dispatch application removal: `pip uninstall -y
+    ragpilot`, `pipx uninstall ragpilot`, or -- for an install-script
+    install -- deleting exactly `venv_dir` and `install_dir/app` plus the
+    one launcher file in `bin_dir`, read from `install_info.json`. Never
+    the whole `install_dir` (it can share a parent directory with
+    `RAGPILOT_HOME` by default) and never anything else that happens to
+    live alongside the launcher in the shared `bin_dir`. An editable/dev
+    install or an undetectable method is never auto-removed -- clear
+    manual instructions are reported instead, independent of whether data
+    was purged.
+  - Data purge (default; `--keep-data` skips it): stops a running daemon
+    first, then deletes `RAGPILOT_HOME` entirely -- the same pre-delete
+    safety step `ops/restore.py` already took before swapping in a
+    backup, now shared via a new `service/pid.py` helper
+    (`stop_and_wait`) rather than duplicated a second time.
+  - Prompts for confirmation (listing exactly what will be deleted)
+    before touching anything, unless `--yes`/`-y` is given.
+  - On Windows, an install-script uninstall's file removal is a
+    short-lived, fully detached process that waits for this process to
+    exit first (the same reason `ragpilot update install`'s upgrade step
+    launches a separate process) -- deleting files this running
+    interpreter has open can fail outright on Windows, unlike POSIX,
+    where a direct, synchronous removal is reliable.
+  - Manually verified end to end in this sandbox: declining the prompt
+    leaves everything untouched; `--yes` purges data and correctly
+    reports manual removal instructions for this sandbox's own editable
+    install; a real running daemon is stopped (confirmed via `ps`) before
+    its data directory is deleted; `--keep-data` leaves `RAGPILOT_HOME`
+    in place.
+
+- Fixed a real-world Windows bug in `ragpilot update install`'s
+  install-script path: it re-runs `install.ps1` from inside the
+  currently-running `venv\Scripts\ragpilot.exe`, which rebuilt that same
+  venv in place -- deleting or overwriting its own running exe file, which
+  Windows refuses (a sharing violation pip surfaced as `ERROR: Could not
+  install packages due to an OSError: [WinError 32] ... being used by
+  another process`). `install.ps1` now renames the existing venv out of
+  the way first (a directory rename succeeds even with an open file
+  inside it, unlike deleting/overwriting that file directly) and builds
+  the new one fresh, directly at the real venv path -- not at a temporary
+  path swapped in afterward, since pip's own generated console-script
+  launchers (`ragpilot.exe` included) embed the venv's exact interpreter
+  path at install time and break if the venv is relocated post-install
+  (this was tried first and caught by the new regression test below,
+  which is exactly what it's for). A rename-away left half-done because
+  the old venv is still in use is cleaned up automatically at the start of
+  the next install/upgrade run, once it's no longer locked. install.sh
+  (POSIX) is unaffected -- replacing an open file works there already.
+  Covered by a new Windows CI regression test that holds an exclusive
+  read lock on the installed `ragpilot.exe` (simulating a running process)
+  across a second `install.ps1` run and confirms both that run and the
+  resulting CLI still work.
+
+- Fixed `ragpilot version`/`__version__` always reporting `0.0.0` for
+  every install-script install: `install.sh`/`install.ps1` download a
+  branch or tag *archive* (zip/tarball) from GitHub, which never includes
+  a `.git` directory, so hatch-vcs can never derive a real version from
+  it and always falls back to the hardcoded `0.0.0` placeholder (see the
+  entry above this one). Both scripts now set
+  `SETUPTOOLS_SCM_PRETEND_VERSION` before the real `pip install`, resolved
+  from `$Ref`/`$REF`: an explicit release tag (the shape
+  `update/installer.py`'s upgrade path always passes) is used directly;
+  the default `main` instead queries GitHub for the latest actual
+  release, since `main` itself isn't a version; any other custom/branch
+  ref is left unresolved, reporting the honest `0.0.0` rather than an
+  unrelated release's version. Verified end to end against a real
+  `.git`-less copy of this repository: unset, the build is `ragpilot-0.0.0`
+  (confirming the bug); with the env var set, both the built wheel's
+  version metadata and the installed `ragpilot.__version__` reflect it
+  exactly.
+
+- Fixed a second real-world Windows bug in `ragpilot uninstall`,
+  reported against a live install: it purged `RAGPILOT_HOME` *before*
+  removing the application, but install.sh/install.ps1's default layout
+  nests the venv *inside* `RAGPILOT_HOME` (they share the same default
+  root) -- purging data first could delete the very interpreter the
+  `pip uninstall`/`pipx uninstall` step (run via `sys.executable`) then
+  needed, breaking it outright (`failed to locate pyvenv.cfg: The system
+  cannot find the file specified`, followed by a broken `rich` import).
+  `cli/uninstall.py` now removes the application first and purges data
+  second -- application removal never touches `RAGPILOT_HOME`, so the
+  reverse order has no equivalent risk. Covered by a new test asserting
+  the call order directly.
+
+- `ragpilot search`: document hits now render as match-centered snippet
+  blocks by default (a real usability gap -- there was previously no way
+  to see *why* a document matched without a separate `--json` round
+  trip and manual truncated-text guesswork):
+  ```
+  PDF: 1177646_0076000_1.pdf
+  Page: 2
+  Match:
+  HDL Cholesterol .......... 51 mg/dL
+  ```
+  - The snippet itself is real: SQLite FTS5's own `snippet()` function
+    (`documents_repo.search_fts_projection`), auto-picking whichever
+    indexed column (`heading_text`/`body`/`doc_title`) actually matched
+    and bounding the excerpt to `search.output.snippet_max_tokens`
+    (default 32, clamped to FTS5's own 1-64 limit) -- replacing the
+    previous naive `(body or heading)[:280]` character slice, which
+    would silently return unrelated leading text instead of the actual
+    match for anything past the first ~280 characters of a paragraph.
+    This also upgrades every other consumer of `SearchResult.snippet`
+    (`--json`, the MCP `ragpilot_search` tool, `--hybrid`), not just the
+    new block rendering.
+  - Page number (PDF/DOCX/PPTX, `document_sections.page_start`/
+    `page_end`, now joined into the FTS query and `SearchResult.location`
+    for the first time) or heading path (Markdown/HTML/plain text, which
+    have no page concept) is shown alongside the excerpt, whichever the
+    format actually has.
+  - `--snippets` forces this mode explicitly; `--table` reverts to the
+    single title/path/tier table every result kind shared before this
+    existed. Code/entity hits are unaffected either way -- they always
+    render via that same plain table row, confirmed as out of scope for
+    this change (a source-code snippet is a different feature).
+  - The default mode, and what one document hit falls back to when it
+    has no real match snippet (an exact-title hit with no FTS row),
+    are both driven by the same new `search.output.fallback` config
+    list (`SearchOutputConfig`, `["snippets", "json", "files"]` out of
+    the box) -- "configurable fallback" has one meaning, not two.
+    `ragpilot config set search.output.fallback json,files` (or hand-edit
+    `config.yaml`); `ragpilot config set` learned to coerce a
+    comma-separated value into a list for this (the only list-typed
+    config field so far).
+  - Fixed in the same change: `cli/_common.py`'s `print_json` was calling
+    `json.dumps` without `ensure_ascii=False`, so any non-ASCII indexed
+    content (a real report against a live install: Greek lab-report
+    text) came out as unreadable `\uXXXX` escapes in every `--json`
+    command's output, not just `search` -- the underlying extracted text
+    was always correct; only its terminal rendering was broken.
+
+- Fixed `ragpilot index` crashing with `Error: UNIQUE constraint failed:
+  files.source_id, files.path` on a brand-new source's very first index
+  run -- reported live on Windows against a real repo layout. Two
+  independent gaps combined: (1) `sources/scanner.py`'s `scan()` had no
+  intra-run deduplication, so the same real file could be yielded twice
+  in one pass -- on Windows, an NTFS junction (`mklink /J`, common in
+  repo-sync/build-artifact layouts) is invisible to both
+  `Path.is_symlink()` and `os.walk`'s own `followlinks` (neither
+  recognizes `IO_REPARSE_TAG_MOUNT_POINT` the way they do a real
+  symlink), so a junction looping back to an already-reached directory
+  still gets walked into even with `follow_symlinks=False` (the
+  default); (2) `indexing/coordinator.py`'s `IndexCoordinator.run()`
+  checked each scanned path against `existing_by_path`, a dict snapshot
+  taken once *before* the per-file loop and never updated as new files
+  were inserted within that same run, so a duplicate scanned path was
+  misclassified as "new" a second time and crashed on the second
+  insert. Fixed at both layers: `scan()` now tracks resolved
+  directories and files it has already yielded in this pass and skips a
+  repeat (pruning a directory-level duplicate before `os.walk` ever
+  descends into it a second time, which also bounds what would
+  otherwise be unbounded recursion for a junction looping back to one
+  of its own ancestors); `IndexCoordinator.run()` now keeps
+  `existing_by_path` in sync as it inserts, so a duplicate scanned path
+  from *any* source is recognized as unchanged instead of crashing --
+  independent defense-in-depth, not reliant on the scanner fix alone.
+  Reproduced and verified with a dedicated regression test that
+  disables the coordinator's own scanner-level protection and confirms
+  the exact reported `IntegrityError` without the coordinator fix, and
+  a clean, correctly-deduplicated run with it.
+
+- Fixed `ragpilot daemon start` popping open a second, visible console
+  window on Windows instead of returning silently to the caller's own
+  terminal -- reported live. `cli/daemon.py`'s `_spawn` used
+  `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS` for the detached
+  background process; `DETACHED_PROCESS` alone doesn't reliably suppress
+  a console window for a console-subsystem child (`python.exe` is one)
+  in practice, despite Microsoft's docs describing it as "no console
+  handle set". Added `CREATE_NO_WINDOW`, the flag whose specific job is
+  suppressing window creation for a console-subsystem process. Covered
+  by a new Windows-only regression test that starts the daemon for real
+  and checks the Win32 window list directly (`EnumWindows` via
+  `ctypes`, the same direct-WinAPI-access pattern as `service/pid.py`)
+  for any visible window owned by the spawned PID, rather than trusting
+  the spawn flags alone -- there is no other way to catch this class of
+  bug in CI, since a headless test run has no other visible trace of a
+  window actually appearing.
+
+- `ragpilot install-agent` learned `--client NAME` (repeatable, or
+  `--client all`) to automatically register RAGpilot with a real MCP
+  client's own config file, not just print/write a generic snippet to a
+  path the user names. Four clients, each verified against its current
+  vendor docs rather than assumed from memory (schemas differ more than
+  expected -- VS Code's top-level key is `servers`, not `mcpServers`;
+  Cursor's server entries have no `type` field; Codex uses TOML, not
+  JSON):
+  - `claude-code`: project-scope `.mcp.json` (cwd), `{"mcpServers": {...}}`.
+  - `cursor`: project-scope `.cursor/mcp.json` (cwd), same shape, no `type`.
+  - `vscode`: workspace `.vscode/mcp.json` (cwd), `{"servers": {...}}`.
+  - `codex`: user-level `~/.codex/config.toml` (`.codex/config.toml`
+    project-scope exists too, but only takes effect once Codex has
+    separately marked that project "trusted", so the user-level file --
+    which works unconditionally -- is what this targets).
+
+  Every path is a hardcoded, documented location for that specific
+  client (nothing is discovered by scanning the filesystem), and only
+  the single `ragpilot` entry within that file is ever added or updated
+  -- every other server/setting already in the file is preserved
+  untouched, verified for both JSON (deep merge) and TOML (`tomllib` to
+  read/detect, since the standard library has no TOML writer; a new
+  entry is appended as raw text rather than risking a full-document
+  rewrite that could drop comments/formatting elsewhere in a file this
+  command didn't create). A JSON client's differing pre-existing
+  `ragpilot` entry is corrected in place (a single dict-key replace is
+  always structurally safe); Codex's TOML equivalent is left alone and
+  reported instead, since appending a second `[mcp_servers.ragpilot]`
+  table would be invalid TOML and corrupt the file. Re-running is always
+  safe: a matching entry is reported as already configured, not
+  duplicated. `--client` and `--write` are mutually exclusive.

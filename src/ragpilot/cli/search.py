@@ -1,8 +1,9 @@
-"""``ragpilot search QUERY [--limit N] [--json] [--explain]``."""
+"""``ragpilot search QUERY [--limit N] [--json] [--snippets] [--table] [--explain]``."""
 
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -10,8 +11,92 @@ from rich.table import Table
 
 from ragpilot.core.lifecycle import AppContext
 from ragpilot.retrieval import lexical, merger, query_classifier, reranker, semantic
+from ragpilot.retrieval.lexical import SearchResult
 
 from ._common import cli_command, console, print_json
+
+_HITS_TABLE_COLUMNS = ("Kind", "Tier", "Title", "Path", "Source")
+
+
+def _hits_table(results: list[SearchResult]) -> Table:
+    table = Table(*_HITS_TABLE_COLUMNS)
+    for result in results:
+        table.add_row(
+            result.kind, result.tier.name.lower(), result.title, result.path, result.source_id
+        )
+    return table
+
+
+def _format_label(path: str) -> str:
+    suffix = Path(path).suffix.lstrip(".").upper()
+    return suffix or "FILE"
+
+
+def _print_document_snippet(result: SearchResult, *, fallback_modes: list[str]) -> None:
+    """Renders one document hit as a match-centered block:
+
+    ```
+    PDF: 1177646_0076000_1.pdf
+    Page: 2
+    Match:
+    HDL Cholesterol .......... 51 mg/dL
+    ```
+
+    A hit with no real match snippet (``result.snippet`` falsy -- rare
+    for an FTS-sourced hit, see ``documents_repo.search_fts_projection``,
+    but possible for an exact-title hit with no FTS row at all) degrades
+    to whichever mode comes next in ``fallback_modes`` -- a compact JSON
+    dump of the hit for "json", or just its path for "files"/anything
+    else -- rather than printing a block with an empty ``Match:``.
+    """
+    location = result.location or {}
+    if result.snippet:
+        console.print(f"[bold]{_format_label(result.path)}:[/bold] {result.path}")
+        page_start = location.get("page_start")
+        page_end = location.get("page_end")
+        if page_start is not None:
+            page_label = (
+                str(page_start)
+                if page_end in (None, page_start)
+                else f"{page_start}-{page_end}"
+            )
+            console.print(f"Page: {page_label}")
+        elif location.get("heading_path"):
+            console.print(f"Section: {' > '.join(location['heading_path'])}")
+        elif location.get("section"):
+            console.print(f"Section: {location['section']}")
+        console.print("Match:")
+        console.print(result.snippet)
+        console.print("")
+        return
+
+    next_mode = next((mode for mode in fallback_modes if mode in ("json", "files")), "files")
+    if next_mode == "json":
+        console.print_json(data=result.to_dict())
+    else:
+        console.print(result.path)
+
+
+def _print_snippets_mode(results: list[SearchResult], *, fallback: list[str]) -> None:
+    other_hits = [r for r in results if r.kind != "document"]
+    doc_hits = [r for r in results if r.kind == "document"]
+    if other_hits:
+        console.print(_hits_table(other_hits))
+    fallback_after_snippets = [mode for mode in fallback if mode != "snippets"]
+    for result in doc_hits:
+        _print_document_snippet(result, fallback_modes=fallback_after_snippets)
+
+
+def _print_files_mode(results: list[SearchResult]) -> None:
+    other_hits = [r for r in results if r.kind != "document"]
+    doc_hits = [r for r in results if r.kind == "document"]
+    if other_hits:
+        console.print(_hits_table(other_hits))
+    seen: set[str] = set()
+    for result in doc_hits:
+        if result.path not in seen:
+            seen.add(result.path)
+            console.print(result.path)
 
 
 @cli_command
@@ -21,6 +106,17 @@ def search(
     ],
     limit: Annotated[int, typer.Option("--limit", min=1, max=200)] = lexical.DEFAULT_LIMIT,
     json_output: Annotated[bool, typer.Option("--json")] = False,
+    snippets: Annotated[
+        bool,
+        typer.Option(
+            "--snippets",
+            help="Show document hits as match-centered snippet blocks (the default; "
+            "see search.output.fallback in config.yaml).",
+        ),
+    ] = False,
+    table_output: Annotated[
+        bool, typer.Option("--table", help="Show every hit as a plain title/path/tier table.")
+    ] = False,
     explain: Annotated[
         bool, typer.Option("--explain", help="Show per-stage timing diagnostics.")
     ] = False,
@@ -83,7 +179,22 @@ def search(
             candidates = merger.merge(results, semantic_hits)
             ranked_hits = reranker.rerank(candidates, limit=limit)
 
+        # Precedence: an explicit flag always wins over
+        # ``search.output.fallback``'s configured default (``fallback[0]``,
+        # "snippets" out of the box) -- the same convention ``--json``
+        # already had over the plain default before this mode existed.
+        # ``--table`` is the escape hatch back to the single unified table
+        # every result kind shared before this mode existed.
         if json_output:
+            effective_mode = "json"
+        elif snippets:
+            effective_mode = "snippets"
+        elif table_output:
+            effective_mode = "table"
+        else:
+            effective_mode = search_config.output.fallback[0]
+
+        if effective_mode == "json":
             payload: dict[str, object] = {
                 "query": query,
                 "results": [r.to_dict() for r in results],
@@ -109,17 +220,12 @@ def search(
 
         if not results:
             console.print(f"[yellow]No results for '{query}'.[/yellow]")
+        elif effective_mode == "table":
+            console.print(_hits_table(results))
+        elif effective_mode == "files":
+            _print_files_mode(results)
         else:
-            table = Table("Kind", "Tier", "Title", "Path", "Source")
-            for result in results:
-                table.add_row(
-                    result.kind,
-                    result.tier.name.lower(),
-                    result.title,
-                    result.path,
-                    result.source_id,
-                )
-            console.print(table)
+            _print_snippets_mode(results, fallback=search_config.output.fallback)
 
         if semantic_result is not None:
             if semantic_result.results:

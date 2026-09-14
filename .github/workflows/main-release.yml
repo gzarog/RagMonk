@@ -1,0 +1,91 @@
+name: Main release
+
+# Fires after "CI" (ci.yml) completes -- filtered to a run whose head
+# branch is `main`, which is what a real push-to-main event produces
+# (a pull_request-triggered CI run's head_branch is the PR's own
+# branch, not main, so this never reacts to a PR's own CI). Turns a
+# successful merge into the next patch version: read the latest
+# "v*.*.*" tag, bump the patch component, create+push the new tag, then
+# call release.yml directly to build artifacts and publish the GitHub
+# Release for it.
+#
+# Never releases directly from a pull request, and never edits
+# pyproject.toml/__init__.py back into main to record the new version --
+# this project's version is git-tag-derived (hatch-vcs; see
+# pyproject.toml's [tool.hatch.version]), so creating the tag *is*
+# recording the version, with no commit and no risk of the version-bump
+# commit itself re-triggering this same workflow.
+#
+# "Call release.yml directly" rather than just letting the tag push
+# trigger release.yml's own `on: push: tags:` the normal way: a push
+# authenticated with the default GITHUB_TOKEN never triggers another
+# workflow run (a deliberate GitHub Actions anti-recursion rule) -- so
+# this workflow_calls the release build/publish job explicitly instead
+# of depending on that not happening.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+# Serializes back-to-back merges: without this, two CI runs completing
+# close together could both read the same "latest tag" before either
+# pushes its own, computing the same next version twice. Queued (not
+# cancelled) so every merge still gets its own release, one at a time.
+concurrency:
+  group: main-release
+  cancel-in-progress: false
+
+jobs:
+  tag-next-version:
+    name: Compute and push the next version tag
+    # Belt-and-suspenders on top of the `branches: [main]` filter above:
+    # only a successful run of CI's own `push` trigger (never a
+    # pull_request run, never a failed/cancelled run) gets a release.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.compute.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0  # every tag must be reachable to find the real latest one
+      - name: Compute the next patch version
+        id: compute
+        run: |
+          set -eu
+          latest_tag="$(git tag --list 'v*.*.*' | sort -V | tail -n1)"
+          if [ -z "$latest_tag" ]; then
+            next_tag="v0.1.0"
+          else
+            version="${latest_tag#v}"
+            major="${version%%.*}"
+            rest="${version#*.}"
+            minor="${rest%%.*}"
+            patch="${rest#*.}"
+            next_tag="v${major}.${minor}.$((patch + 1))"
+          fi
+          echo "Latest tag: ${latest_tag:-<none>} -> next tag: $next_tag"
+          echo "tag=$next_tag" >> "$GITHUB_OUTPUT"
+      - name: Create and push the tag
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.compute.outputs.tag }}"
+          git push origin "${{ steps.compute.outputs.tag }}"
+
+  release:
+    name: Build and publish the release
+    needs: tag-next-version
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag-next-version.outputs.tag }}
+    permissions:
+      contents: write

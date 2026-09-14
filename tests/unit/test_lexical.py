@@ -64,7 +64,7 @@ def _collect(
 ) -> list[lexical.SearchResult]:
     return lexical._merge(
         lexical._search_entities(conn, "s1", query, limit)
-        + lexical._search_documents(conn, "s1", query, limit)
+        + lexical._search_documents(conn, "s1", query, limit, snippet_max_tokens=32)
         + lexical._search_paths(conn, "s1", query, limit)
     )
 

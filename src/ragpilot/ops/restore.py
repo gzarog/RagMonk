@@ -17,7 +17,6 @@ import os
 import shutil
 import sqlite3
 import tarfile
-import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,9 +27,6 @@ from ragpilot.core.errors import DatabaseError, UsageError
 from ragpilot.ops.backup import MANIFEST_FORMAT_VERSION
 from ragpilot.service import pid
 from ragpilot.storage.migrations import MIGRATIONS, DatabaseKind
-
-_STOP_TIMEOUT_SECONDS = 15.0
-_POLL_INTERVAL_SECONDS = 0.1
 
 
 @dataclass(frozen=True)
@@ -95,23 +91,6 @@ def _db_schema_version(db_path: Path) -> int:
         return 0
     finally:
         conn.close()
-
-
-def _stop_daemon_if_running(home: Path) -> bool:
-    info = pid.running_daemon(home)
-    if info is None:
-        return False
-    pid.signal_stop(info.pid)
-    deadline = time.monotonic() + _STOP_TIMEOUT_SECONDS
-    while time.monotonic() < deadline and pid.is_process_alive(info.pid):
-        time.sleep(_POLL_INTERVAL_SECONDS)
-    if pid.is_process_alive(info.pid):
-        raise DatabaseError(
-            f"daemon (pid {info.pid}) did not stop within {_STOP_TIMEOUT_SECONDS:.0f}s; "
-            "refusing to restore into a live runtime directory"
-        )
-    pid.remove_pid_file(home)
-    return True
 
 
 def _move_aside(path: Path, holding: Path) -> Path | None:
@@ -239,7 +218,9 @@ def restore_backup(archive: Path, *, home: Path, restart_daemon: bool = True) ->
         # Everything above only read the temp staging copy -- the live
         # runtime directory has not been touched, so any failure up to
         # here leaves it exactly as it was before this call.
-        daemon_was_running = _stop_daemon_if_running(home)
+        daemon_was_running = pid.stop_and_wait(
+            home, action="restore into a live runtime directory", error_cls=DatabaseError
+        )
 
         _swap_into_place(home, staging, has_projects=has_projects, has_config=has_config)
 

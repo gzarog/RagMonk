@@ -17,7 +17,6 @@ from ragpilot.core import paths
 from ragpilot.core.config import RagpilotConfig
 from ragpilot.core.lifecycle import AppContext
 from ragpilot.core.models import FileKind, Source, SourceStatus
-from ragpilot.documents.pipeline import document_processor
 from ragpilot.indexing.coordinator import (
     IndexCoordinator,
     IndexRunResult,
@@ -39,8 +38,13 @@ def build_processor_registry(config: RagpilotConfig) -> ProcessorRegistry:
     registry.register(FileKind.CODE, code_processor)
     # Respects documents.enabled (core/config.py) -- when off, document-kind
     # files still index via the default raw processor (recorded, marked
-    # INDEXED) just without Docling-derived content.
+    # INDEXED) just without Docling-derived content. Import deferred to here
+    # (CLI performance improvement plan, Phase 2): documents.pipeline pulls
+    # in Docling, which itself pulls in torch -- a cost a `version`/`status`/
+    # `search` invocation that never touches this registry must not pay.
     if config.documents.enabled:
+        from ragpilot.documents.pipeline import document_processor
+
         registry.register(FileKind.DOCUMENT, document_processor)
     return registry
 

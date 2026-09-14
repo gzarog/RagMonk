@@ -50,7 +50,27 @@ def scan(
     ignore_matcher: IgnoreMatcher,
     follow_symlinks: bool = False,
 ) -> Iterator[ScannedFile]:
+    """``seen_dirs``/``seen_files`` (resolved, real paths, not the
+    as-walked ones) guard against the same real file being yielded more
+    than once in a single pass -- which ``IndexCoordinator.run()``
+    (``indexing/coordinator.py``) would otherwise misclassify as "new"
+    twice and crash on ``files.source_id, files.path``'s UNIQUE
+    constraint on the second insert. This is not just defensive: on
+    Windows, an NTFS junction (``mklink /J``, common in
+    repo-sync/build-artifact layouts) is invisible to both
+    ``Path.is_symlink()`` (the check just below) and ``os.walk``'s own
+    ``followlinks`` -- neither recognizes ``IO_REPARSE_TAG_MOUNT_POINT``
+    the way they do a real symlink -- so with ``follow_symlinks=False``
+    (the default) a junction still gets walked into. If it loops back to
+    a directory already reached by a normal path (a real report against
+    a live install), pruning ``seen_dirs`` here catches it at the
+    directory level -- before ``os.walk`` ever descends a second time --
+    which also bounds what would otherwise be unbounded recursion for a
+    junction that loops back to one of its own ancestors.
+    """
     root = root.resolve()
+    seen_dirs: set[str] = {str(root)}
+    seen_files: set[str] = set()
     for dirpath, dirnames, filenames in os.walk(root, followlinks=follow_symlinks):
         current = Path(dirpath)
         kept_dirs = []
@@ -61,9 +81,13 @@ def scan(
             if ignore_matcher.is_ignored(candidate, is_dir=True):
                 continue
             try:
-                guard.resolve(candidate)
+                resolved_dir = guard.resolve(candidate)
             except SecurityViolationError:
                 continue
+            resolved_dir_str = str(resolved_dir)
+            if resolved_dir_str in seen_dirs:
+                continue
+            seen_dirs.add(resolved_dir_str)
             kept_dirs.append(dirname)
         dirnames[:] = kept_dirs
 
@@ -77,8 +101,12 @@ def scan(
                 resolved = guard.resolve(candidate)
             except SecurityViolationError:
                 continue
+            resolved_str = str(resolved)
+            if resolved_str in seen_files:
+                continue
+            seen_files.add(resolved_str)
             try:
                 stat = resolved.stat()
             except OSError:
                 continue
-            yield ScannedFile(path=str(resolved), size=stat.st_size, mtime=stat.st_mtime)
+            yield ScannedFile(path=resolved_str, size=stat.st_size, mtime=stat.st_mtime)

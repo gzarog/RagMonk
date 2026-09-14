@@ -23,7 +23,13 @@ def json_envelope(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def print_json(data: dict[str, Any]) -> None:
-    print(json.dumps(json_envelope(data), indent=2, default=str))
+    # ensure_ascii=False: json.dumps defaults to escaping every non-ASCII
+    # character as \uXXXX, which turns any non-Latin indexed content
+    # (Greek, Cyrillic, CJK, accented Latin, ...) into unreadable escape
+    # sequences in --json output -- this project already writes UTF-8
+    # everywhere else (config.yaml, install_info.json), so JSON output
+    # should be no different.
+    print(json.dumps(json_envelope(data), indent=2, default=str, ensure_ascii=False))
 
 
 def cli_command[**P, T](func: Callable[P, T]) -> Callable[P, T]:

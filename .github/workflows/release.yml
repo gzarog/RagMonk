@@ -1,11 +1,25 @@
 name: Release
 
-# Tags only -- never runs on a pull request or a push to main, so it has
-# no effect on the PR-gating CI in ci.yml.
+# Two ways in: a human (or any automation with real push access) pushing
+# a "v*.*.*" tag directly -- never a pull request or a plain push to
+# main, so this has no effect on the PR-gating CI in ci.yml -- or an
+# explicit call from main-release.yml right after *it* creates that tag.
+# The second path exists because a push authenticated with the default
+# GITHUB_TOKEN never triggers another workflow's own `on: push` (a
+# deliberate GitHub Actions anti-recursion rule) -- so the merge-to-main
+# pipeline calls this workflow directly instead of relying on that.
 on:
   push:
     tags:
       - "v*.*.*"
+  workflow_call:
+    inputs:
+      tag:
+        description: >-
+          Tag to release (e.g. v0.1.8). Only used for the workflow_call
+          path above; a direct tag push uses that push's own ref instead.
+        required: false
+        type: string
 
 jobs:
   build-artifacts:
@@ -13,6 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0  # full history/tags -- hatch-vcs needs it, see ci.yml's own checkout step
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -51,6 +68,10 @@ jobs:
       - name: Create/update GitHub release with unsigned artifacts
         uses: softprops/action-gh-release@v2
         with:
+          # Explicit rather than relying on GITHUB_REF: for the
+          # workflow_call path above, GITHUB_REF is main's branch ref,
+          # not the tag -- see this workflow's own `on:` comment.
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: |
             dist/*.whl
             dist/*.tar.gz
@@ -61,7 +82,7 @@ jobs:
           # checksummed here, but deliberately not signed. See
           # scripts/generate_release_artifacts.py and CHANGELOG.md.
           body: |
-            Unsigned build artifacts for ${{ github.ref_name }}.
+            Unsigned build artifacts for ${{ inputs.tag || github.ref_name }}.
 
             - Verify integrity with `SHA256SUMS` (`sha256sum -c SHA256SUMS`).
             - `sbom.json` is a plain dependency manifest (name/version/license),

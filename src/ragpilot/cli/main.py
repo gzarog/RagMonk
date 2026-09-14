@@ -27,6 +27,8 @@ from ragpilot.cli import (
     source,
     status,
     symbol,
+    uninstall,
+    update,
     upgrade,
     vectors,
     version_cmd,
@@ -45,6 +47,7 @@ app.add_typer(config_cmd.app, name="config")
 app.add_typer(link.app, name="link")
 app.add_typer(daemon.app, name="daemon")
 app.add_typer(vectors.app, name="vectors")
+app.add_typer(update.app, name="update")
 
 app.command("init", help="Bootstrap the RAGpilot runtime directory.")(init.init)
 app.command("index", help="Scan sources and process pending files.")(index.index)
@@ -82,6 +85,9 @@ app.command("upgrade", help="Apply pending schema migrations, backing up first i
 app.command("ask", help="Ask a question, answered by an AI provider grounded in real evidence.")(
     ask.ask
 )
+app.command(
+    "uninstall", help="Remove the RAGpilot application and, by default, all of its data."
+)(uninstall.uninstall)
 
 
 if __name__ == "__main__":

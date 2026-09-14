@@ -236,7 +236,7 @@ def _search_entities(
 
 
 def _search_documents(
-    conn: sqlite3.Connection, source_id: str, query: str, limit: int
+    conn: sqlite3.Connection, source_id: str, query: str, limit: int, *, snippet_max_tokens: int
 ) -> list[SearchResult]:
     """Exact-title and FTS document hits, each row already joined against
     its file -- replaces the previous ``list_all()`` full-corpus title
@@ -260,7 +260,9 @@ def _search_documents(
     fts_query = _fts_query(query)
     if fts_query is None:
         return results
-    for row in documents_repo.search_fts_projection(conn, fts_query, limit=limit):
+    for row in documents_repo.search_fts_projection(
+        conn, fts_query, limit=limit, snippet_max_tokens=snippet_max_tokens
+    ):
         tier = RankTier.TITLE_OR_HEADING if _contains_ci(row.heading, query) else RankTier.FTS
         results.append(
             SearchResult(
@@ -271,7 +273,12 @@ def _search_documents(
                 path=row.path,
                 source_id=source_id,
                 snippet=row.snippet,
-                location={"section": row.heading},
+                location={
+                    "section": row.heading,
+                    "page_start": row.page_start,
+                    "page_end": row.page_end,
+                    "heading_path": row.heading_path,
+                },
                 fts_rank=row.fts_rank,
                 mtime=row.mtime,
             )
@@ -336,6 +343,7 @@ def search_with_timings(
 
     connections = list(all_project_connections(ctx))
     cache_config = ctx.config.search.cache
+    snippet_max_tokens = ctx.config.search.output.snippet_max_tokens
     cache_key: str | None = None
     if cache_config.enabled:
         started = time.perf_counter()
@@ -360,7 +368,9 @@ def search_with_timings(
         collected.extend(entity_hits)
 
         started = time.perf_counter()
-        document_hits = _search_documents(conn, source_id, query, limit)
+        document_hits = _search_documents(
+            conn, source_id, query, limit, snippet_max_tokens=snippet_max_tokens
+        )
         stopwatch.record("documents", started, document_hits)
         collected.extend(document_hits)
 
