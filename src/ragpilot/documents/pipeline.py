@@ -62,8 +62,16 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
 
     conversion = docling_adapter.convert(ctx.path, conn=ctx.conn)
     normalized = normalizer.normalize(conversion.document, doc_format)
-    chunks = chunker.chunk_document(normalized, config=ctx.chunking or ChunkingConfig())
+    # Metadata (title, in particular) is extracted before chunking rather
+    # than after, unlike pre-Phase-3: `chunk_document` now bakes the
+    # document title into every chunk's `search_text`/`contextual_text`
+    # (see `documents/chunker.py`), so the title has to be known first.
+    # `extract_metadata` only reads `conversion.document`/`normalized`, not
+    # `chunks`, so reordering is safe.
     meta = extract_metadata(conversion.document, normalized, doc_format, ctx.path)
+    chunks = chunker.chunk_document(
+        normalized, config=ctx.chunking or ChunkingConfig(), doc_title=meta.title or ""
+    )
 
     now = _now()
     document_id = uuid.uuid4().hex
@@ -142,6 +150,8 @@ def _insert_chunk(
                 created_at=created_at,
             ),
             doc_title=doc_title,
+            search_text=chunk.search_text,
+            embedding_text=chunk.contextual_text,
         )
     elif chunk.kind == "table":
         rows = [list(row) for row in (chunk.table_rows or ())]
@@ -163,6 +173,8 @@ def _insert_chunk(
                 created_at=created_at,
             ),
             doc_title=doc_title,
+            search_text=chunk.search_text,
+            embedding_text=chunk.contextual_text,
         )
     else:
         documents_repo.insert_paragraph(
@@ -181,4 +193,6 @@ def _insert_chunk(
                 created_at=created_at,
             ),
             doc_title=doc_title,
+            search_text=chunk.search_text,
+            embedding_text=chunk.contextual_text,
         )

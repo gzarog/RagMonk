@@ -1162,6 +1162,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     actually moved) -- `tests/integration/test_search_quality.py`'s
     blocking floors pass unchanged, and the baseline did not need
     regenerating.
+- Search Quality Improvement Plan, Phase 3: `search_text`/`embedding_text`
+  wired into FTS and embedding indexing.
+  - **The problem**: Phase 2 computed `Chunk.contextual_text` from
+    `heading_path` alone (the document's title wasn't known that early in
+    the pipeline) and never wired it anywhere -- `retrieval/lexical.py`'s
+    `document_fts` indexed each row's raw `text`, and
+    `indexing/embedding_indexer.py` embedded each `document_sections`
+    row's raw, context-free `text` too. An isolated chunk's own words
+    often don't say which document/section they're from (e.g.
+    "Settlement" alone doesn't say *which* settlement flow), which is
+    exactly the ambiguity a similarity model needs resolved.
+  - **`documents/chunker.py`**: `chunk_document` now takes an optional
+    `doc_title`, threaded into two formatted views computed on every
+    `Chunk` alongside `contextual_text`/`token_count` (`text`/`raw_text`
+    itself is unrenamed and unchanged -- the clean body always returned
+    as evidence):
+    - `search_text` (new field): document title, then each `heading_path`
+      segment, then `text` -- one per line. Lexical-search-oriented: a
+      query phrased against title/heading vocabulary absent from the raw
+      body now matches on the lexical pass.
+    - `contextual_text` (Phase 2 field, reshaped): now also carries
+      `doc_title` -- `"Document: <title>\nSection: <heading path>\n\n<text>"`
+      -- rather than heading-path-only. This is the chunk's embedding
+      input.
+    Both degrade gracefully line-by-line when title/heading_path/body are
+    partially or entirely absent (e.g. a synthetic unit test's
+    heading-less, title-less chunk still gets a well-formed, non-empty
+    value back).
+  - **`documents/pipeline.py`**: `extract_metadata` now runs *before*
+    `chunk_document` (it never depended on the chunk list, only on
+    `conversion.document`/`normalized`) so the document's title is known
+    in time to pass as `chunk_document`'s new `doc_title`.
+  - **`storage/repositories/documents_repo.py`**: `insert_section`/
+    `insert_paragraph`/`insert_table` gained optional `search_text`/
+    `embedding_text` keyword args. `documents/pipeline.py` (the real
+    indexing path) always passes `Chunk.search_text`/`Chunk.
+    contextual_text`; every other existing direct-insert caller (unit
+    tests, the synthetic-corpus latency benchmark) that doesn't pass them
+    keeps its previous `document_fts` body content unchanged, so none of
+    them needed updating. `search_text` becomes `document_fts`'s indexed
+    body column (replacing the raw text it held before); `embedding_text`
+    is persisted verbatim on the row's own `document_sections.embedding_text`
+    (new nullable column, `KNOWLEDGE_DB_V11`, additive/no-backfill --
+    `KNOWLEDGE_DB_V7`'s precedent) since `indexing/embedding_indexer.py`
+    reads already-stored rows, not live `Chunk` objects, so this is the
+    one seam wide enough to carry the embedding-time text forward.
+    `documents_repo.DocumentUnit` grew a matching `embedding_text` field
+    (`""` when unset, never `None`, so every reader can treat it
+    uniformly).
+  - **`indexing/embedding_indexer.py`**: `embed_touched_files` now embeds
+    each document-section subject's `embedding_text` (falling back to its
+    raw `text` only when `embedding_text` is unset -- a row written before
+    this migration and not yet reindexed) instead of always embedding raw
+    `text`. This is the actual natural-language/semantic-retrieval
+    improvement this phase targets; verified directly (real embedder
+    still never loaded in the default suite) in the new
+    `tests/unit/test_embedding_indexer.py`.
+  - Verified against `benchmarks/search_quality/baseline_report.json`:
+    golden-query Recall@1/3/5/10/MRR/NDCG@10 (including the
+    `semantic_document` category) and generated chunk/vector counts are
+    byte-identical to the committed baseline -- that evaluation is
+    deliberately lexical-only (`retrieval/lexical.search`) against a
+    fixture small enough that the pre-existing separate `heading_text`/
+    `doc_title` FTS columns already gave every golden query's expected
+    row a matching signal, so wiring `search_text` into the shared `body`
+    column moved nothing measurable on this particular fixture; the
+    `embedding_text` change (semantic retrieval) isn't exercised by that
+    lexical-only script at all, and is instead covered by
+    `tests/unit/test_embedding_indexer.py` and
+    `tests/integration/test_document_indexing.py`'s new assertions.
+    `tests/integration/test_search_quality.py`'s blocking floors pass
+    unchanged, and the baseline did not need regenerating (mirrors Phase
+    2's own "byte-identical, no regeneration needed" precedent).
 - CLI performance improvement plan, Phase 1: startup benchmark and
   heavy-import regression test.
   - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,
