@@ -1,160 +1,152 @@
-"""Golden-query quality regression test (blueprint section 37): indexes
-a small, fixed fixture project through the real CLI pipeline (Tree-
-sitter parsing, FTS indexing -- no synthetic corpus shortcuts, unlike
-``benchmarks/search``'s latency suite), runs every query in
+"""Golden-query quality regression tests (blueprint section 37; Phase 0
+of the search-quality improvement plan): index a small, fixed fixture
+project through the real CLI pipeline (Tree-sitter parsing, FTS
+indexing -- no synthetic corpus shortcuts, unlike ``benchmarks/search``'s
+latency suite), run every query in
 ``benchmarks/search/golden_queries.yaml`` through the real
-``retrieval/lexical.search``, and asserts Recall@5/@10, MRR, and
-NDCG@10 stay at the levels this fixture is known to support.
+``retrieval/lexical.search``, and assert Recall@1/3/5/10, MRR, and
+NDCG@10 (``benchmarks/search_quality/evaluator.py``) stay at the levels
+this fixture is known to support.
 
 Deliberately lexical-only: every golden query below is answerable by
 lexical search alone (the fixture's document text literally shares
-vocabulary with each "conceptual"-style query), so this stays in the
-default, network/model-free test suite -- semantic/hybrid search has
+vocabulary with each "semantic_document"-style query), so this stays in
+the default, network/model-free test suite -- semantic/hybrid search has
 its own separate, already-covered contract (see
 ``tests/integration/test_semantic_retrieval.py``).
+
+Always-on and blocking (no pytest marker, unlike
+``benchmark_search``/``docling_pdf``/etc.): fast, offline, and fully
+deterministic, so a change to lexical ranking that regresses retrieval
+quality is caught here rather than only noticed by a human eyeballing
+search output -- "search changes cannot be merged without running the
+benchmark suite."
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from statistics import mean
-from typing import Any
 
 import pytest
-import yaml
-from benchmarks.search.quality import ndcg_at_k, recall_at_k, reciprocal_rank, result_key
+from benchmarks.search_quality.evaluator import (
+    GOLDEN_QUERIES_PATH,
+    evaluate_golden_queries,
+    format_report,
+    load_golden_queries,
+)
+from benchmarks.search_quality.fixture_project import write_project
 from typer.testing import CliRunner
 
 from ragpilot.cli.main import app
 from ragpilot.core.lifecycle import AppContext
-from ragpilot.retrieval import lexical
 
-GOLDEN_QUERIES_PATH = (
-    Path(__file__).resolve().parents[2] / "benchmarks" / "search" / "golden_queries.yaml"
-)
-
-# The blueprint's quality targets are stated qualitatively ("speed must
-# not reduce retrieval quality"), not as fixed numbers -- these
-# thresholds are this fixture's own known-achievable baseline, pinned so
-# a future change to lexical ranking that quietly regresses it fails
-# here rather than only being noticed by a human eyeballing search
-# output.
-_MIN_RECALL_AT_5 = 1.0
+# This fixture's own known-achievable baseline (see
+# ``benchmarks/search_quality/baseline_report.json``, generated from this
+# exact fixture/golden-query set), pinned with a small margin below the
+# measured numbers so a real regression in lexical ranking fails here
+# rather than only being noticed by a human eyeballing search output.
+# The blueprint states quality targets qualitatively ("speed must not
+# reduce retrieval quality"), not as fixed numbers -- these are this
+# project's own concrete floor.
+_MIN_RECALL_AT_5 = 0.95
 _MIN_RECALL_AT_10 = 1.0
-_MIN_MRR = 0.9
-_MIN_NDCG_AT_10 = 0.9
+_MIN_MRR = 0.80
+_MIN_NDCG_AT_10 = 0.85
+
+# Per-category floors (Recall@5), each set with margin below this
+# fixture's own measured baseline for that category -- some categories
+# (code_to_document, file_path_lookup) are genuinely harder for today's
+# lexical-only ranking and score lower on purpose (see
+# ``golden_queries.yaml``'s header comment on `expected`), so one
+# overall floor above would either miss a regression in a strong
+# category or be unmeetable for a weak one.
+_MIN_RECALL_AT_5_BY_CATEGORY: dict[str, float] = {
+    "code_to_document": 0.6,
+    "cross_document": 0.7,
+    "exact_heading_lookup": 1.0,
+    "exact_symbol_lookup": 1.0,
+    "exact_title_lookup": 1.0,
+    "file_path_lookup": 0.5,
+    "keyword_search": 0.85,
+    "semantic_document": 0.85,
+    "table_question": 0.85,
+    "typo_partial_term": 0.75,
+}
 
 
-def _write_project(root: Path) -> None:
-    services = root / "services"
-    services.mkdir(parents=True)
-    (services / "settlement_service.py").write_text(
-        "class SettlementService:\n"
-        "    def process(self):\n"
-        "        return self.retry_settlement()\n"
-        "\n"
-        "    def retry_settlement(self):\n"
-        "        return 'retried'\n"
-    )
-
-    consumers = root / "consumers"
-    consumers.mkdir()
-    (consumers / "payment_consumer.py").write_text(
-        "from services.settlement_service import SettlementService\n\n\n"
-        "class PaymentConsumer:\n"
-        "    def handle(self):\n"
-        "        service = SettlementService()\n"
-        "        return service.process()\n"
-    )
-
-    workers = root / "workers"
-    workers.mkdir()
-    (workers / "retry_worker.py").write_text(
-        "from services.settlement_service import SettlementService\n\n\n"
-        "class RetryWorker:\n"
-        "    def run(self):\n"
-        "        service = SettlementService()\n"
-        "        return service.retry_settlement()\n"
-    )
-
-    docs = root / "docs"
-    docs.mkdir()
-    (docs / "settlement_guide.md").write_text(
-        "# Settlement Guide\n\n"
-        "Provider settlements are retried automatically by the retry worker "
-        "whenever a payment attempt times out. The SettlementService "
-        "coordinates the retry logic.\n"
-    )
-    (docs / "health_notes.md").write_text(
-        "# Health Notes\n\n"
-        "Cholesterol measurements should be taken annually. LDL cholesterol "
-        "levels above 160 mg/dL indicate elevated cardiovascular risk.\n"
-    )
-
-
-def _load_golden_queries() -> list[dict[str, Any]]:
-    data = yaml.safe_load(GOLDEN_QUERIES_PATH.read_text(encoding="utf-8"))
-    assert isinstance(data, list) and data, f"no golden queries loaded from {GOLDEN_QUERIES_PATH}"
-    return data
-
-
-def test_golden_query_set_meets_quality_thresholds(
+def _index_fixture_project(
     ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+) -> Path:
     root = tmp_path / "project"
-    _write_project(root)
+    write_project(root)
     monkeypatch.chdir(tmp_path)
 
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
     index_result = runner.invoke(app, ["index"])
     assert index_result.exit_code == 0, index_result.output
+    return root
 
-    golden = _load_golden_queries()
+
+def test_golden_query_set_meets_quality_thresholds(
+    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _index_fixture_project(ragpilot_home, runner, tmp_path, monkeypatch)
+
     ctx = AppContext.bootstrap(home=ragpilot_home, cwd=tmp_path)
     try:
-        recalls_at_5: list[float] = []
-        recalls_at_10: list[float] = []
-        reciprocal_ranks: list[float] = []
-        ndcgs_at_10: list[float] = []
+        report = evaluate_golden_queries(ctx, project_root=root)
+        print("\n" + format_report(report))
 
-        for item in golden:
-            results = lexical.search(ctx, item["query"], limit=10)
-            # Golden paths are relative to the fixture root; real search
-            # results carry the absolute indexed path, so normalize
-            # before building comparison keys.
-            retrieved = [
-                result_key(r.kind, Path(r.path).relative_to(root).as_posix()) for r in results
-            ]
-            relevant = {result_key(e["kind"], e["path"]) for e in item["expected"]}
-
-            recall5 = recall_at_k(retrieved, relevant, k=5)
-            recall10 = recall_at_k(retrieved, relevant, k=10)
-            rr = reciprocal_rank(retrieved, relevant)
-            ndcg = ndcg_at_k(retrieved, relevant, k=10)
-
-            assert recall5 > 0, (
-                f"query {item['query']!r} found none of its expected relevant "
-                f"results within the top 5 (retrieved: {retrieved[:5]})"
+        for evaluation in report.queries:
+            assert evaluation.recall_at[5] > 0, (
+                f"query {evaluation.query!r} ({evaluation.category}) found none of its "
+                f"expected relevant results within the top 5 "
+                f"(retrieved: {evaluation.retrieved[:5]}, relevant: {evaluation.relevant})"
             )
-            recalls_at_5.append(recall5)
-            recalls_at_10.append(recall10)
-            reciprocal_ranks.append(rr)
-            ndcgs_at_10.append(ndcg)
 
-        recall_at_5 = mean(recalls_at_5)
-        recall_at_10 = mean(recalls_at_10)
-        mrr = mean(reciprocal_ranks)
-        ndcg_at_10 = mean(ndcgs_at_10)
-        print(
-            f"\nGolden query set ({len(golden)} queries): "
-            f"Recall@5={recall_at_5:.3f} Recall@10={recall_at_10:.3f} "
-            f"MRR={mrr:.3f} NDCG@10={ndcg_at_10:.3f}"
-        )
-
-        assert recall_at_5 >= _MIN_RECALL_AT_5
-        assert recall_at_10 >= _MIN_RECALL_AT_10
-        assert mrr >= _MIN_MRR
-        assert ndcg_at_10 >= _MIN_NDCG_AT_10
+        assert report.overall.recall_at[5] >= _MIN_RECALL_AT_5
+        assert report.overall.recall_at[10] >= _MIN_RECALL_AT_10
+        assert report.overall.mrr >= _MIN_MRR
+        assert report.overall.ndcg_at_10 >= _MIN_NDCG_AT_10
     finally:
         ctx.close()
+
+
+def test_golden_query_set_per_category_recall_floor(
+    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The per-category counterpart to the overall-metrics test above:
+    a category with genuinely fewer/harder queries can hide a real
+    regression inside an otherwise-healthy overall average, so each
+    category is also held to its own floor.
+    """
+    root = _index_fixture_project(ragpilot_home, runner, tmp_path, monkeypatch)
+
+    golden = load_golden_queries()
+    categories = {item["category"] for item in golden}
+    assert categories >= set(_MIN_RECALL_AT_5_BY_CATEGORY), (
+        "a category was added to golden_queries.yaml without a matching floor in "
+        f"{__name__}._MIN_RECALL_AT_5_BY_CATEGORY: {categories - set(_MIN_RECALL_AT_5_BY_CATEGORY)}"
+    )
+
+    ctx = AppContext.bootstrap(home=ragpilot_home, cwd=tmp_path)
+    try:
+        report = evaluate_golden_queries(ctx, project_root=root, golden=golden)
+        failures = [
+            f"{category}: Recall@5={summary.recall_at[5]:.3f} < floor "
+            f"{_MIN_RECALL_AT_5_BY_CATEGORY[category]:.3f}"
+            for category, summary in report.by_category.items()
+            if summary.recall_at[5] < _MIN_RECALL_AT_5_BY_CATEGORY[category]
+        ]
+        assert not failures, "category Recall@5 below floor:\n" + "\n".join(failures)
+    finally:
+        ctx.close()
+
+
+def test_golden_queries_path_is_expected_location() -> None:
+    """Guards against the golden query file silently moving without this
+    test suite (and CONTRIBUTING.md's documented location) following.
+    """
+    assert GOLDEN_QUERIES_PATH.name == "golden_queries.yaml"
+    assert GOLDEN_QUERIES_PATH.is_file()

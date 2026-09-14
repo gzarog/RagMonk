@@ -951,6 +951,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     now means "these tokens together," which a single-token query (the
     common case) behaves identically under either way.
 
+- Search Quality Improvement Plan, Phase 0: a measurable benchmark
+  baseline, captured *before* any extraction/ranking changes begin, for
+  every later phase of the plan to diff its own work against.
+  - **Expanded golden query set**: `benchmarks/search/golden_queries.yaml`
+    grew from 8 to 72 queries, each tagged with a `category` -- the
+    plan's nine required buckets (`exact_title_lookup`,
+    `exact_heading_lookup`, `exact_symbol_lookup`, `keyword_search`,
+    `semantic_document`, `table_question`, `cross_document`,
+    `code_to_document`, `typo_partial_term`) plus `file_path_lookup`
+    (present in the original 8-query set, kept as its own category since
+    it exercises `retrieval/lexical.py`'s PATH tier specifically). Every
+    query resolves against a real, extended fixture project -- new
+    `benchmarks/search_quality/fixture_project.py` (three code files,
+    three Markdown documents with headings and two tables), shared by the
+    quality test and the new report generator below so the two can't
+    silently drift out of sync. `expected` relevant sets are the
+    reviewer's judgment of genuinely-relevant results, not "whatever the
+    current top-5 happens to contain" -- several queries (documented
+    inline) deliberately have a real, non-1.0 achievable recall today
+    (e.g. a PATH-tier hit crowded out of the top 5 by document FTS
+    noise), a genuine baseline gap for later phases to close rather than
+    a query rewritten to hide it. `typo_partial_term` is honestly scoped
+    to what FTS5's default tokenizer can already do (no fuzzy/edit-
+    distance matching): fragment queries that fall through to the path
+    LIKE fallback, and single-typo words riding along with correctly-
+    spelled tokens in a multi-word OR query -- not a claim that spelling
+    correction already works.
+  - **`benchmarks/search_quality/`** (new top-level package, alongside
+    `benchmarks/search/`'s existing latency suite): `evaluator.py` runs
+    the golden set through the real `retrieval/lexical.search` and
+    computes Recall@1/3/5/10, MRR, and NDCG@10
+    (`benchmarks/search/quality.py`), overall and broken down per
+    category -- the one evaluation both the quality test and the report
+    generator below build on. `report.py`
+    (`python -m benchmarks.search_quality`) produces the plan's full
+    baseline report: golden-query quality; lexical/semantic/hybrid search
+    latency p50/p95 and cold-vs-warm semantic search latency (reusing
+    `benchmarks/search`'s existing synthetic-corpus latency infra);
+    indexing time by file type, re-indexing (no-op) time, generated chunk
+    count (code entities + document sections), vector count, and
+    knowledge-DB/vector-index size on disk (measured directly against the
+    fixture project, real Tree-sitter/Docling parsing). Its actual output
+    is committed as `benchmarks/search_quality/baseline_report.json`/
+    `.md` -- a real, run-once artifact, not just code that could produce
+    one.
+  - **Blocking quality gate**: `tests/integration/test_search_quality.py`
+    (refactored onto the new evaluator, no pytest marker -- fast, offline,
+    deterministic, runs in the default suite) now asserts both the
+    overall Recall@1/3/5/10/MRR/NDCG@10 and each category's own Recall@5
+    stay at or above this fixture's known-achievable floor (a per-
+    category floor rather than one overall number, since a weak category
+    can hide inside an otherwise-healthy overall average and a strong
+    category's regression can hide inside a lenient overall floor) --
+    "search changes cannot be merged without running the benchmark
+    suite." True latency benchmarking stays non-blocking exactly as
+    before: a new `tests/integration/test_search_quality_report.py`,
+    marked `benchmark_search` like the existing latency suite, exercises
+    the full report generator end to end without hard-gating on its
+    hardware-dependent millisecond numbers.
+  - No retrieval/indexing/chunking source code changed in this phase --
+    benchmark infrastructure only.
 - CLI performance improvement plan, Phase 1: startup benchmark and
   heavy-import regression test.
   - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,

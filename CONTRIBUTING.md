@@ -147,13 +147,38 @@ style as `docling_pdf`/`embedding_model` (see `.github/workflows/
 ci.yml`) and only asserts the pipeline itself works (every category
 finds its known fixture), never the wall-clock numbers.
 
-Search *quality* (not speed) has a separate, always-on regression test:
-`tests/integration/test_search_quality.py` indexes a small, fixed
-fixture project through the real CLI pipeline and evaluates every query
-in `benchmarks/search/golden_queries.yaml` (blueprint section 37) via
-Recall@5/@10, MRR, and NDCG@10 (`benchmarks/search/quality.py`) --
-this one *does* run in the default suite, since it is fast, offline,
-and deterministic.
+Search *quality* (not speed) has a separate, always-on regression suite in
+`benchmarks/search_quality/` (Phase 0 of the search-quality improvement
+plan) -- see that package's own docstring:
+
+- `benchmarks/search_quality/fixture_project.py`: the one small,
+  hand-written project (three code files, three Markdown documents with
+  headings and tables) every golden query is evaluated against, shared by
+  the test below and the report generator so it can't drift out of sync.
+- `benchmarks/search/golden_queries.yaml`: 72 queries across ten
+  categories (exact title/heading/symbol/path lookup, keyword search,
+  natural-language "semantic_document" queries, table questions,
+  cross-document queries, code-to-document queries, and partial/typo'd
+  terms), each with an `expected` relevant set and a `category` tag.
+- `benchmarks/search_quality/evaluator.py`: runs the golden set through
+  the real `retrieval/lexical.search` and computes Recall@1/3/5/10, MRR,
+  and NDCG@10 (`benchmarks/search/quality.py`), overall and per category.
+- `tests/integration/test_search_quality.py`: indexes the fixture project
+  through the real CLI pipeline and asserts both the overall metrics and
+  each category's Recall@5 stay at or above this fixture's own known-
+  achievable floor. Always-on and blocking (no marker) -- fast, offline,
+  fully deterministic -- so a lexical-ranking regression is caught here,
+  not just noticed by eyeballing search output.
+- `benchmarks/search_quality/report.py`
+  (`python -m benchmarks.search_quality`): the full Phase 0 baseline
+  report -- golden-query quality plus lexical/semantic/hybrid latency,
+  cold-vs-warm semantic search latency, indexing time by file type,
+  re-indexing time, chunk/vector counts, and on-disk DB/index size. Its
+  real output is committed as `benchmarks/search_quality/
+  baseline_report.json`/`.md`, for later phases to diff their own changes
+  against. `tests/integration/test_search_quality_report.py` (also marked
+  `benchmark_search`) exercises the generator itself without hard-gating
+  on its hardware-dependent latency numbers.
 
 ### The `cli_startup_benchmark` marker and `benchmarks/cli_startup/`
 
