@@ -187,7 +187,12 @@ def test_query_for_a_fact_only_in_a_later_split_chunk_still_finds_it(indexed_tab
     assert hits
     bodies = [h["body"] for h in hits]
     matching = next(body for body in bodies if _DEGRADED_SERVER in body)
-    assert matching.splitlines()[0] == "Server | CPU | RAM | Status"
+    # Phase 3's search_text prepends a "Document: .../Section: ..." breadcrumb
+    # ahead of the table's own rendering, so the repeated header row is no
+    # longer necessarily *line 0* -- just present, proving the repeat-on-split
+    # behavior ran, rather than requiring a specific position that composing
+    # with Phase 3's contextualization would otherwise break.
+    assert "Server | CPU | RAM | Status" in matching.splitlines()
     row_line = next(line for line in matching.splitlines() if _DEGRADED_SERVER in line)
     assert "85%" in row_line and "16GB" in row_line and "degraded" in row_line
 
