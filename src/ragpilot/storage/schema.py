@@ -521,3 +521,14 @@ KNOWLEDGE_DB_V10: tuple[str, ...] = (
 KNOWLEDGE_DB_V11: tuple[str, ...] = (
     "ALTER TABLE document_sections ADD COLUMN embedding_text TEXT",
 )
+
+# Search Quality Improvement Plan, Phase 4: a table's caption
+# (``core.models.Table.caption``, resolved from Docling's own structure
+# since Phase 2 but never actually persisted anywhere until now -- see
+# that field's docstring) gets its own nullable column, mirroring how
+# ``heading_path`` is both a raw column and separately materialized into
+# ``document_fts`` -- ``ADD COLUMN``, no backfill, exactly
+# ``KNOWLEDGE_DB_V7``'s precedent: only rows written going forward
+# populate it (a table row from before this migration simply reads back
+# ``caption IS NULL`` until its file is next reindexed).
+KNOWLEDGE_DB_V12: tuple[str, ...] = ("ALTER TABLE document_sections ADD COLUMN caption TEXT",)

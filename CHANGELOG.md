@@ -1235,6 +1235,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `tests/integration/test_search_quality.py`'s blocking floors pass
     unchanged, and the baseline did not need regenerating (mirrors Phase
     2's own "byte-identical, no regeneration needed" precedent).
+- Search Quality Improvement Plan, Phase 4: row-aware table extraction.
+  - **The problem**: `documents_repo.insert_table` indexed a table as one
+    space-joined blob of every cell (`" ".join(cell for row in table_rows
+    for cell in row)`) -- a table's cells' row association was lost the
+    moment they were flattened, so a query like "which server has 85%
+    CPU?" had no way to tell that `api-02` and `85%` came from the same
+    row rather than merely both appearing somewhere in the same table.
+    Separately, a table's caption (Phase 2's `caption` field) was
+    computed but never actually persisted or indexed anywhere, and a
+    table was never split regardless of size, however large.
+  - **`documents/table_renderer.py`** (new): renders a table's row-major
+    grid as one pipe-delimited line per row (`render_rows`/
+    `render_table`, caption prepended when present) instead of a
+    flattened blob, so the tokens that were in the same row stay on the
+    same line for both FTS5 and an embedding model. `split_data_rows`
+    splits a table's data rows at row boundaries only -- never mid-row --
+    into groups that each fit a token budget once its header rows and any
+    fixed overhead (e.g. the caption) are counted in; a single row that
+    alone still exceeds the budget is kept whole (there is no meaningful
+    sub-row unit to cut at).
+  - **`documents/normalizer.py`**: `NormalizedUnit` grew
+    `header_row_count`, resolved per table from Docling's own per-cell
+    `TableCell.column_header` metadata when the backend populated it
+    (the maximal contiguous run of header rows starting at row 0, so a
+    merged/multi-row header is counted correctly), falling back to
+    "row 0 is the header" for hand-authored Markdown/HTML/DOCX tables
+    whose backends never run that model at all.
+  - **`documents/chunker.py`**: a table whose row-aware rendering exceeds
+    `max_tokens` is now split into multiple table chunks at row
+    boundaries, each repeating the table's header rows at the top
+    (`table_renderer.split_data_rows`) so every resulting chunk stays
+    independently interpretable -- e.g. a 60-row table becomes several
+    chunks of "header + a handful of data rows" instead of one giant,
+    over-budget chunk. A table that already fits `max_tokens` is still
+    emitted as exactly one chunk, unchanged from before. The one
+    remaining atomic exception is now row-scoped rather than
+    table-scoped: a single row too large to fit alongside its own
+    repeated header stays in its own one-row chunk.
+  - **`storage/repositories/documents_repo.py`**: `insert_table` now
+    indexes `table_renderer.render_table`'s row-aware rendering as both
+    the table's FTS `body` and its `document_sections.text` (the same
+    column `embed_touched_files` reads for embedding text), replacing the
+    flattened-cell blob -- exactly mirroring how `Paragraph.text` already
+    feeds both. Heading-path/document-title context still reaches search
+    the same way it always has, via the existing `fts_heading`/
+    `doc_title` FTS columns, rather than being duplicated into the
+    table's own text (a table-only special case for that would both
+    diverge from every other chunk kind's `text` and risk
+    `knowledge/linker.py` cross-domain-link false positives, since it
+    substring-matches entity names against this same text).
+  - **`core/models.py`**/**schema migration `KNOWLEDGE_DB_V12`**:
+    `Table` grew a `caption` field, now actually persisted (a new
+    nullable `document_sections.caption` column, additive `ALTER TABLE`,
+    no backfill) instead of being silently dropped between chunking and
+    storage as before -- mirrors how `heading_path` is both a raw column
+    and separately materialized into FTS. (Numbered `V12`, not `V11`:
+    Phase 3's `embedding_text` column landed first and claimed `V11`.)
+  - New `documents/table_renderer.py` unit tests, `documents/chunker.py`
+    table-splitting/header-repetition tests, a `documents_repo`/
+    `document_fts` round-trip test, and an end-to-end integration test
+    (`tests/integration/test_table_search.py`) indexing a small table and
+    a 60-row table through the real CLI and proving: a CPU/RAM value
+    query resolves to the row it actually belongs to; a large table
+    splits into multiple chunks each carrying the header row; a term only
+    present in a later split's rows is still found; and a query combining
+    two facts only true of the same row (not merely present somewhere in
+    the table) resolves to that row's own chunk.
+  - Verified against `benchmarks/search_quality/baseline_report.json`:
+    the `table_question`-category (and every other category's) golden-
+    query Recall@1/3/5/10/MRR/NDCG@10 numbers are byte-identical to the
+    committed baseline (its two table fixtures are small enough to stay
+    one chunk each, so ranking is unaffected) -- the baseline did not
+    need regenerating.
 - CLI performance improvement plan, Phase 1: startup benchmark and
   heavy-import regression test.
   - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,

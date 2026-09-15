@@ -279,32 +279,119 @@ def test_overlap_applies_within_a_section_but_never_crosses_a_heading() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tables: atomic, documented max_tokens exception
+# Tables: row-boundary splitting (Phase 4), header repeated on every split
 # ---------------------------------------------------------------------------
 
 
-def test_table_is_never_split_even_when_its_flattened_text_exceeds_max_tokens() -> None:
-    big_cell = " ".join(f"cell{i:04d}" for i in range(100))
-    table_unit = NormalizedUnit(
+def _table_unit(
+    rows: tuple[tuple[str, ...], ...],
+    *,
+    header_row_count: int = 1,
+    heading_path: tuple[str, ...] = ("H1",),
+    caption: str | None = None,
+) -> NormalizedUnit:
+    return NormalizedUnit(
         kind="table",
         text="",
         heading_level=None,
-        heading_path=("H1",),
+        heading_path=heading_path,
         parent_index=0,
         page_start=1,
         page_end=1,
-        table_rows=(("Header",), (big_cell,)),
+        table_rows=rows,
+        header_row_count=header_row_count,
+        caption=caption,
     )
+
+
+def test_small_table_that_fits_max_tokens_stays_one_chunk() -> None:
+    rows = (("Provider", "Max Retries"), ("Stripe", "5"), ("Adyen", "3"))
+    units = [_heading("H1"), _table_unit(rows)]
+
+    chunks = chunk_document(_doc(units))
+    tables = [c for c in chunks if c.kind == "table"]
+    assert len(tables) == 1
+    assert tables[0].table_rows == rows
+    assert tables[0].text == ""
+
+
+def test_large_table_splits_by_row_boundaries_and_repeats_header_row() -> None:
+    header = ("Server", "CPU", "RAM", "Status")
+    data_rows = tuple((f"srv{i:02d}", "40%", "8GB", "healthy") for i in range(20))
+    table_unit = _table_unit((header, *data_rows))
+    config = ChunkingConfig(max_tokens=30, min_tokens=1, overlap_tokens=0, merge_peers=True)
+    units = [_heading("H1"), table_unit]
+
+    chunks = chunk_document(_doc(units), config=config)
+    tables = [c for c in chunks if c.kind == "table"]
+
+    assert len(tables) > 1
+    for table_chunk in tables:
+        # Never a mid-row cut, and the header block is repeated verbatim
+        # at the top of every split -- each chunk is independently
+        # interpretable per the plan's spec.
+        assert table_chunk.table_rows[0] == header
+        assert table_chunk.token_count <= config.max_tokens
+        assert table_chunk.heading_path == ("H1",)
+        assert table_chunk.page_start == 1 and table_chunk.page_end == 1
+
+    # No data row is dropped or duplicated as data (only the header
+    # legitimately repeats): every split's own non-header rows, laid end
+    # to end, reconstruct exactly the original data rows in order.
+    reconstructed = tuple(row for table_chunk in tables for row in table_chunk.table_rows[1:])
+    assert reconstructed == data_rows
+
+    # A term that only appears in a later split's rows (never in the
+    # first split, never in the header) is still attached to a chunk that
+    # carries the header -- i.e. header-repeat-on-split actually ran, not
+    # just "chunking happened".
+    last_row_chunk = next(c for c in tables if "srv19" in c.table_rows[-1])
+    assert last_row_chunk.table_rows[0] == header
+    assert last_row_chunk is not tables[0]
+
+
+def test_table_row_too_large_alone_stays_atomic_within_its_own_chunk() -> None:
+    # The one remaining atomic exception (row-scoped, not whole-table
+    # scoped, since Phase 4): a single data row that alone -- with its
+    # header repeated -- still exceeds max_tokens has no meaningful
+    # sub-row unit to cut at, so it is kept whole.
+    big_cell = " ".join(f"cell{i:04d}" for i in range(100))
+    table_unit = _table_unit((("Header",), (big_cell,)))
     config = ChunkingConfig(max_tokens=20, min_tokens=1, overlap_tokens=0, merge_peers=True)
     units = [_heading("H1"), table_unit]
 
     chunks = chunk_document(_doc(units), config=config)
     tables = [c for c in chunks if c.kind == "table"]
     assert len(tables) == 1
-    # The documented deliberate exception: a table's token_count can
-    # legitimately exceed max_tokens because it is never split.
     assert tables[0].token_count > config.max_tokens
     assert tables[0].table_rows == (("Header",), (big_cell,))
+
+
+def test_table_caption_repeated_in_every_split_chunk() -> None:
+    header = ("Server", "CPU")
+    data_rows = tuple((f"srv{i:02d}", "40%") for i in range(20))
+    table_unit = _table_unit((header, *data_rows), caption="Table 1: Fleet status.")
+    config = ChunkingConfig(max_tokens=20, min_tokens=1, overlap_tokens=0, merge_peers=True)
+    units = [_heading("H1"), table_unit]
+
+    chunks = chunk_document(_doc(units), config=config)
+    tables = [c for c in chunks if c.kind == "table"]
+    assert len(tables) > 1
+    for table_chunk in tables:
+        assert table_chunk.caption == "Table 1: Fleet status."
+        assert "Table 1: Fleet status." in table_chunk.contextual_text
+
+
+def test_table_without_header_metadata_has_no_data_rows_to_split_into_zero_groups() -> None:
+    # header_row_count spanning the whole table (a header-only table, no
+    # data rows) can never be split -- there is nothing to split.
+    units = [_heading("H1"), _table_unit((("Only", "Header"),), header_row_count=2)]
+    config = ChunkingConfig(max_tokens=16, min_tokens=1, overlap_tokens=0, merge_peers=True)
+
+    chunks = chunk_document(_doc(units), config=config)
+    tables = [c for c in chunks if c.kind == "table"]
+    assert len(tables) == 1
+    assert tables[0].table_rows == (("Only", "Header"),)
 
 
 # ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ import sqlite3
 from dataclasses import dataclass, field
 
 from ragpilot.core.models import Document, DocumentFormat, Paragraph, Section, SectionKind, Table
+from ragpilot.documents import table_renderer
 from ragpilot.storage.repositories import links_repo
 
 
@@ -38,10 +39,12 @@ from ragpilot.storage.repositories import links_repo
 class DocumentUnit:
     """One ``document_sections`` row, kind-agnostic -- the shape
     ``knowledge/linker.py`` and ``knowledge/evidence.py`` actually need
-    (heading/paragraph text, or a table's cells flattened into ``text``
-    so a linker match doesn't have to special-case table rows). Not a
-    replacement for ``Section``/``Paragraph``/``Table``: those stay the
-    Phase 3 storage-facing shapes; this is a read-facing projection.
+    (heading/paragraph text, or -- since Phase 4 -- a table's own
+    row-aware rendering, already sitting in ``text`` exactly as
+    ``insert_table`` wrote it, so a linker match doesn't have to
+    special-case table rows). Not a replacement for
+    ``Section``/``Paragraph``/``Table``: those stay the Phase 3
+    storage-facing shapes; this is a read-facing projection.
     """
 
     id: str
@@ -144,6 +147,7 @@ def _insert_row(
     table_rows: list[list[str]] | None,
     num_rows: int | None,
     num_cols: int | None,
+    caption: str | None,
     generation: int,
     created_at: str,
     fts_heading: str,
@@ -156,9 +160,9 @@ def _insert_row(
         INSERT INTO document_sections (
             id, document_id, file_id, kind, heading_level, text,
             heading_path, parent_id, order_index, page_start, page_end,
-            table_rows, num_rows, num_cols, generation, created_at,
+            table_rows, num_rows, num_cols, caption, generation, created_at,
             embedding_text
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             row_id,
@@ -175,6 +179,7 @@ def _insert_row(
             json.dumps(table_rows) if table_rows is not None else None,
             num_rows,
             num_cols,
+            caption,
             generation,
             created_at,
             embedding_text,
@@ -211,6 +216,7 @@ def insert_section(
         table_rows=None,
         num_rows=None,
         num_cols=None,
+        caption=None,
         generation=section.generation,
         created_at=section.created_at,
         fts_heading=section.text,
@@ -244,6 +250,7 @@ def insert_paragraph(
         table_rows=None,
         num_rows=None,
         num_cols=None,
+        caption=None,
         generation=paragraph.generation,
         created_at=paragraph.created_at,
         fts_heading=" > ".join(paragraph.heading_path),
@@ -261,7 +268,24 @@ def insert_table(
     search_text: str | None = None,
     embedding_text: str | None = None,
 ) -> None:
-    flattened = " ".join(cell for row in table.rows for cell in row if cell)
+    # Search Quality Improvement Plan, Phase 4: row-aware rendering
+    # (``table_renderer.render_table``) replaces the previous flattened,
+    # space-joined cell blob -- see that module's docstring for why
+    # flattening loses row/column association ("which server has 85%
+    # CPU?"). This is both the table's `text` (so it feeds
+    # ``embed_touched_files`` via ``list_units_by_file`` -- the only
+    # thing an embedding subject's text can be, table or not) and its
+    # default FTS `body` (overridden by an explicit `search_text`, exactly
+    # mirroring `insert_paragraph`'s own `search_text if search_text is not
+    # None else paragraph.text` fallback). Heading-path/title context
+    # still reaches FTS the same way it always has -- the
+    # `fts_heading`/`doc_title` columns below -- rather than being
+    # duplicated in here; a table-only special case for that would both
+    # diverge from every other kind's own `text`/`fts_body` (always
+    # exactly its own content, no prefix) and risk cross-domain-linker
+    # false positives (`knowledge/linker.py` substring-matches entity
+    # names against this same `text`).
+    rendered = table_renderer.render_table(table.rows, caption=table.caption)
     _insert_row(
         conn,
         row_id=table.id,
@@ -269,7 +293,7 @@ def insert_table(
         file_id=table.file_id,
         kind=SectionKind.TABLE,
         heading_level=None,
-        text="",
+        text=rendered,
         heading_path=table.heading_path,
         parent_id=table.parent_id,
         order_index=table.order_index,
@@ -278,26 +302,27 @@ def insert_table(
         table_rows=table.rows,
         num_rows=table.num_rows,
         num_cols=table.num_cols,
+        caption=table.caption,
         generation=table.generation,
         created_at=table.created_at,
         fts_heading=" > ".join(table.heading_path),
-        fts_body=search_text if search_text is not None else flattened,
+        fts_body=search_text if search_text is not None else rendered,
         doc_title=doc_title,
         embedding_text=embedding_text,
     )
 
 
 def _row_to_unit(row: sqlite3.Row) -> DocumentUnit:
-    text = row["text"] or ""
-    if row["kind"] == SectionKind.TABLE.value and row["table_rows"]:
-        cells = json.loads(row["table_rows"])
-        text = " ".join(cell for r in cells for cell in r if cell)
+    # A table's `text` is, since Phase 4, already its own row-aware
+    # rendering (``insert_table``) -- no more re-deriving a flattened
+    # blob from `table_rows` here, so every kind now reads back exactly
+    # the text it was written with.
     return DocumentUnit(
         id=row["id"],
         document_id=row["document_id"],
         file_id=row["file_id"],
         kind=SectionKind(row["kind"]),
-        text=text,
+        text=row["text"] or "",
         heading_path=json.loads(row["heading_path"]) if row["heading_path"] else [],
         page_start=row["page_start"],
         page_end=row["page_end"],
