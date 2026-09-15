@@ -1444,6 +1444,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     resolvable, so the new tiers had nothing to change for them), and
     `tests/integration/test_search_quality.py`'s blocking floors
     (overall and per-category) still pass.
+- Search Quality Improvement Plan, Phase 7: weighted BM25 column scoring
+  for document search.
+  - **The problem**: `documents_repo.search_fts`/`search_fts_projection`
+    called FTS5's `bm25(document_fts)` with no column-weight arguments, so
+    a term's incidental appearance several times in an unrelated
+    paragraph's `body` could outscore the same term appearing once in the
+    document's own `doc_title` or a section's `heading_text` -- title and
+    heading are a much stronger relevance signal than raw body term
+    frequency, and the scoring gave them no credit for that.
+  - **`documents_repo.py`**: new `_DOCUMENT_FTS_COLUMN_WEIGHTS` constant
+    (`doc_title=8.0`, `heading_text=5.0`, `body=1.0`, the search-quality
+    plan's benchmark-driven starting point) passed as `bm25(document_fts,
+    w1, w2, w3, w4, w5)`'s five positional arguments -- one per
+    `document_fts` column *in its actual `CREATE VIRTUAL TABLE`
+    declaration order* (`section_id`, `document_id`, `heading_text`,
+    `body`, `doc_title`; the first two are `UNINDEXED` placeholders, kept
+    in the tuple purely to hold their position), not the more intuitive
+    title/heading/body reading order -- see the constant's docstring for
+    why getting that order wrong would silently misweight the wrong
+    column. Both `search_fts` and `search_fts_projection` (the function
+    `retrieval/lexical.py`'s `_search_documents` actually calls) now build
+    their `ORDER BY` from the same `_BM25_DOCUMENT_FTS_EXPR`, so a direct
+    repository caller and the real search path always score identically.
+    `code_fts`/`entities_repo.py` deliberately left untouched: an exact
+    entity name/qualified-name match already ranks above any FTS hit via
+    its own `RankTier.EXACT_SYMBOL`/`QUALIFIED_SYMBOL` tier (not `code_fts`
+    scoring at all), so `code_fts`'s `name`/`qualified_name`/`snippet`
+    columns don't carry the same "structural title vs. incidental body"
+    distinction `document_fts` does -- no schema/config change either,
+    per the plan's own "hardcode first, expose weights in configuration
+    only after stable defaults are proven" sequencing.
+  - New `tests/unit/test_lexical.py` coverage: an end-to-end DB-backed
+    test proving a document whose title alone carries the query term
+    outranks a same-tier document where the term appears five times,
+    incidentally, in an unrelated paragraph's body; and a composition
+    regression test proving a genuine exact-phrase match still outranks a
+    weaker OR-fallback-tier match even when that weaker match's one shared
+    token sits in the heavily-weighted `doc_title` column -- `_sort_key`
+    orders by `LexicalTier` ahead of `fts_rank`, so Phase 6's tiered query
+    planning and this phase's column weighting compose rather than fight.
+  - Verified against `benchmarks/search_quality/baseline_report.json`
+    (not regenerated -- every category's numbers are byte-identical to
+    the committed Phase 6 baseline): `exact_title_lookup`/
+    `exact_heading_lookup` stay at a perfect 1.0 across every metric
+    (already at ceiling on this fixture, pre- and post-weighting), and
+    `keyword_search`/every other category shows no regression.
+    `tests/integration/test_search_quality.py`'s blocking floors still
+    pass.
 - CLI performance improvement plan, Phase 1: startup benchmark and
   heavy-import regression test.
   - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,
