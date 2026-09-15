@@ -116,10 +116,30 @@ class ChunkingConfig(BaseModel):
 
 
 class DocumentsConfig(BaseModel):
+    """``ocr`` (Search Quality Improvement Plan, Phase 5) controls
+    ``documents/docling_adapter.py``'s PDF OCR fallback: ``"off"`` never
+    runs OCR (Phase 3's original, only behavior); ``"auto"`` (the default)
+    runs Docling's plain PDF pipeline first and only re-runs it with OCR
+    enabled when that first pass looks like it missed real text (see
+    ``docling_adapter._should_ocr``); ``"always"`` skips the detection
+    pass and runs OCR unconditionally, since a caller who already wants
+    OCR gains nothing from paying for two pipeline runs.
+    """
+
     enabled: bool = True
     ocr: str = "auto"
     max_pages: int = 1000
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
+
+    @field_validator("ocr")
+    @classmethod
+    def _validate_ocr(cls, value: str) -> str:
+        allowed = {"off", "auto", "always"}
+        if value not in allowed:
+            raise ValueError(
+                f"unknown documents.ocr {value!r}; expected one of {sorted(allowed)}"
+            )
+        return value
 
 
 class CodeConfig(BaseModel):

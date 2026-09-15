@@ -43,6 +43,17 @@ MIGRATIONS: dict[DatabaseKind, tuple[Migration, ...]] = {
         Migration(9, "vector_items", schema.KNOWLEDGE_DB_V9),
         Migration(10, "native_docling_document_cache", schema.KNOWLEDGE_DB_V10),
         Migration(11, "raw_search_embedding_text", schema.KNOWLEDGE_DB_V11),
+        # 12 is deliberately skipped here: it was already claimed by the
+        # (not yet merged, as of this migration) table-aware-extraction
+        # branch's own KNOWLEDGE_DB_V12. Picking 13 avoids two branches
+        # colliding on the same version number the way two earlier
+        # phases already once did -- see this list's own history. Version
+        # numbers are keys into ``schema_migrations``, not a count, so a
+        # gap here is harmless; whichever of the two branches merges
+        # second should renumber to close it, but nothing breaks if it
+        # doesn't (``apply_migrations`` only cares that each version is
+        # applied at most once, in the order listed here).
+        Migration(13, "pdf_conversion_cache_ocr_key", schema.KNOWLEDGE_DB_V13),
     ),
 }
 

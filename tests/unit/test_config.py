@@ -251,3 +251,36 @@ def test_documents_chunking_rejects_max_tokens_too_small() -> None:
 def test_documents_chunking_rejects_negative_overlap_tokens() -> None:
     with pytest.raises(ValueError, match="must not be negative"):
         RagpilotConfig.model_validate({"documents": {"chunking": {"overlap_tokens": -1}}})
+
+
+def test_documents_ocr_defaults_to_auto(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    config = load_config(home=home, cwd=cwd, environ={})
+    assert config.documents.ocr == "auto"
+
+
+@pytest.mark.parametrize("value", ["off", "auto", "always"])
+def test_documents_ocr_accepts_each_supported_mode(value: str) -> None:
+    config = RagpilotConfig.model_validate({"documents": {"ocr": value}})
+    assert config.documents.ocr == value
+
+
+def test_documents_ocr_rejects_unknown_mode() -> None:
+    with pytest.raises(ValueError, match="unknown documents.ocr"):
+        RagpilotConfig.model_validate({"documents": {"ocr": "bogus"}})
+
+
+def test_documents_ocr_configurable_via_user_config(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    _write_yaml(home / "config.yaml", {"documents": {"ocr": "off"}})
+    config = load_config(home=home, cwd=cwd, environ={})
+    assert config.documents.ocr == "off"
+
+
+def test_documents_ocr_env_var_override(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    config = load_config(home=home, cwd=cwd, environ={"RAGPILOT_DOCUMENTS__OCR": "always"})
+    assert config.documents.ocr == "always"

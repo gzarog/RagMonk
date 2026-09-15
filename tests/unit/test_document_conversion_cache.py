@@ -1,6 +1,7 @@
 """Storage-level tests for ``document_conversion_cache``: get/put
-round-trip, cache_version mismatch treated as a miss, and upsert
-overwrite -- pure SQLite, no Docling/PDF/ML model involved (see
+round-trip, cache_version mismatch treated as a miss, upsert overwrite,
+and (Search Quality Improvement Plan, Phase 5) ``ocr_used`` as part of the
+cache key -- pure SQLite, no Docling/PDF/ML model involved (see
 ``test_docling_pdf.py`` for the real end-to-end cache proof).
 """
 
@@ -25,7 +26,10 @@ def conn(tmp_path: Path):  # noqa: ANN201
 
 
 def test_get_on_empty_cache_is_a_miss(conn) -> None:  # noqa: ANN001
-    assert document_conversion_cache_repo.get(conn, "deadbeef", cache_version=1) is None
+    assert (
+        document_conversion_cache_repo.get(conn, "deadbeef", ocr_used="off", cache_version=1)
+        is None
+    )
 
 
 def test_put_then_get_round_trips(conn) -> None:  # noqa: ANN001
@@ -34,6 +38,7 @@ def test_put_then_get_round_trips(conn) -> None:  # noqa: ANN001
             conn,
             CachedConversion(
                 content_hash="hash-a",
+                ocr_used="off",
                 serialized_document='{"schema_name": "DoclingDocument"}',
                 serialization_format="docling_document/json",
                 page_count=3,
@@ -43,9 +48,10 @@ def test_put_then_get_round_trips(conn) -> None:  # noqa: ANN001
             created_at="2026-01-01T00:00:00+00:00",
         )
 
-    cached = document_conversion_cache_repo.get(conn, "hash-a", cache_version=1)
+    cached = document_conversion_cache_repo.get(conn, "hash-a", ocr_used="off", cache_version=1)
     assert cached is not None
     assert cached.content_hash == "hash-a"
+    assert cached.ocr_used == "off"
     assert cached.serialized_document == '{"schema_name": "DoclingDocument"}'
     assert cached.serialization_format == "docling_document/json"
     assert cached.page_count == 3
@@ -58,6 +64,7 @@ def test_get_with_mismatched_cache_version_is_a_miss(conn) -> None:  # noqa: ANN
             conn,
             CachedConversion(
                 content_hash="hash-a",
+                ocr_used="off",
                 serialized_document="{}",
                 serialization_format="docling_document/json",
                 page_count=1,
@@ -73,7 +80,9 @@ def test_get_with_mismatched_cache_version_is_a_miss(conn) -> None:  # noqa: ANN
     # Markdown text under the ``markdown`` column ``serialized_document``
     # was renamed from) a guaranteed miss once ``docling_adapter``'s
     # ``_CACHE_VERSION`` is bumped, without any data migration.
-    assert document_conversion_cache_repo.get(conn, "hash-a", cache_version=2) is None
+    assert (
+        document_conversion_cache_repo.get(conn, "hash-a", ocr_used="off", cache_version=2) is None
+    )
 
 
 def test_put_upserts_overwriting_the_existing_row(conn) -> None:  # noqa: ANN001
@@ -82,6 +91,7 @@ def test_put_upserts_overwriting_the_existing_row(conn) -> None:  # noqa: ANN001
             conn,
             CachedConversion(
                 content_hash="hash-a",
+                ocr_used="off",
                 serialized_document="old",
                 serialization_format="docling_document/json",
                 page_count=1,
@@ -95,6 +105,7 @@ def test_put_upserts_overwriting_the_existing_row(conn) -> None:  # noqa: ANN001
             conn,
             CachedConversion(
                 content_hash="hash-a",
+                ocr_used="off",
                 serialized_document="new",
                 serialization_format="docling_document/json",
                 page_count=2,
@@ -104,7 +115,7 @@ def test_put_upserts_overwriting_the_existing_row(conn) -> None:  # noqa: ANN001
             created_at="2026-01-02T00:00:00+00:00",
         )
 
-    cached = document_conversion_cache_repo.get(conn, "hash-a", cache_version=1)
+    cached = document_conversion_cache_repo.get(conn, "hash-a", ocr_used="off", cache_version=1)
     assert cached is not None
     assert cached.serialized_document == "new"
     assert cached.page_count == 2
@@ -112,6 +123,58 @@ def test_put_upserts_overwriting_the_existing_row(conn) -> None:  # noqa: ANN001
 
     row_count = conn.execute("SELECT COUNT(*) AS n FROM document_conversion_cache").fetchone()["n"]
     assert row_count == 1
+
+
+def test_ocr_used_is_part_of_the_cache_key(conn) -> None:  # noqa: ANN001
+    """Search Quality Improvement Plan, Phase 5: the same ``content_hash``
+    can have up to two independent rows -- one per pipeline (plain vs.
+    OCR'd) -- and a lookup under one ``ocr_used`` must never return the
+    other's row, in either direction.
+    """
+    with transaction(conn):
+        document_conversion_cache_repo.put(
+            conn,
+            CachedConversion(
+                content_hash="hash-a",
+                ocr_used="off",
+                serialized_document="plain-document",
+                serialization_format="docling_document/json",
+                page_count=1,
+                parser_version="2.127.0",
+            ),
+            cache_version=1,
+            created_at="2026-01-01T00:00:00+00:00",
+        )
+        document_conversion_cache_repo.put(
+            conn,
+            CachedConversion(
+                content_hash="hash-a",
+                ocr_used="on",
+                serialized_document="ocr-document",
+                serialization_format="docling_document/json",
+                page_count=1,
+                parser_version="2.127.0",
+            ),
+            cache_version=1,
+            created_at="2026-01-01T00:00:00+00:00",
+        )
+
+    plain = document_conversion_cache_repo.get(conn, "hash-a", ocr_used="off", cache_version=1)
+    ocr = document_conversion_cache_repo.get(conn, "hash-a", ocr_used="on", cache_version=1)
+    assert plain is not None
+    assert ocr is not None
+    assert plain.serialized_document == "plain-document"
+    assert ocr.serialized_document == "ocr-document"
+
+    row_count = conn.execute("SELECT COUNT(*) AS n FROM document_conversion_cache").fetchone()["n"]
+    assert row_count == 2
+
+    # A mode neither row was written under is still a miss, not one of the
+    # two above matched by accident.
+    assert (
+        document_conversion_cache_repo.get(conn, "hash-a", ocr_used="maybe", cache_version=1)
+        is None
+    )
 
 
 def test_docling_document_json_round_trips_headings_paragraphs_and_tables() -> None:

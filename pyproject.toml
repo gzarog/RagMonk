@@ -17,12 +17,22 @@ dependencies = [
     "pyyaml>=6",
     "tree-sitter>=0.24,<0.27",
     "tree-sitter-language-pack>=1.17,<2",
-    # Plain "docling" only -- its OCR/VLM/ASR/XBRL extras (easyocr,
-    # ocrmac, rapidocr, onnxruntime, remote-serving, tesserocr, vlm, xbrl,
-    # asr) are deliberately not added; Phase 3 wires up PDF/DOCX/PPTX/
-    # XLSX/HTML/Markdown/TXT/EML only. Docling's own base install still
-    # pulls in torch + layout/table-structure model packages for PDF --
-    # unavoidable, see docs/CHANGELOG and documents/docling_adapter.py.
+    # Plain "docling" only -- its VLM/ASR/XBRL extras (ocrmac,
+    # remote-serving, tesserocr, vlm, xbrl, asr) are deliberately not
+    # added; Phase 3 wires up PDF/DOCX/PPTX/XLSX/HTML/Markdown/TXT/EML
+    # only. Docling's own base install still pulls in torch +
+    # layout/table-structure model packages for PDF -- unavoidable, see
+    # docs/CHANGELOG and documents/docling_adapter.py. As of the pinned
+    # range's current resolution, plain "docling" itself already
+    # transitively depends on "docling-slim[standard]", which in turn
+    # pulls in RapidOCR -- so, unlike when this comment was first written,
+    # Search Quality Improvement Plan Phase 5's OCR fallback
+    # (documents/docling_adapter.py, gated by documents.ocr) needs no
+    # extra dependency added here at all. This is an upstream Docling
+    # packaging detail, not something this project chose or can rely on
+    # holding for every version in this range -- docling_adapter.py's OCR
+    # path still degrades gracefully (skips OCR, keeps the plain
+    # conversion) if a future resolution ever lacks a usable OCR engine.
     "docling>=2.40,<3",
     # Official MCP Python SDK. Pinned below 2.x: the 2.x line renamed
     # ``mcp.server.fastmcp.FastMCP`` to ``mcp.server.mcpserver.MCPServer``

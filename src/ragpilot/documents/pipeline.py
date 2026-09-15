@@ -60,7 +60,11 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
         if page_count > ctx.max_document_pages:
             return ProcessingOutcome(status=FileStatus.SKIPPED_LIMIT)
 
-    conversion = docling_adapter.convert(ctx.path, conn=ctx.conn)
+    # ``ctx.ocr`` is ``None`` for any ``ProcessorContext`` built outside
+    # the real coordinator (unit tests, mainly) -- falls back to "off",
+    # Phase 3's original, only behavior, exactly like the coordinator's
+    # own docstring for this field promises.
+    conversion = docling_adapter.convert(ctx.path, conn=ctx.conn, ocr_mode=ctx.ocr or "off")
     normalized = normalizer.normalize(conversion.document, doc_format)
     # Metadata (title, in particular) is extracted before chunking rather
     # than after, unlike pre-Phase-3: `chunk_document` now bakes the

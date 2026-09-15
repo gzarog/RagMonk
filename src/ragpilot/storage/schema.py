@@ -521,3 +521,51 @@ KNOWLEDGE_DB_V10: tuple[str, ...] = (
 KNOWLEDGE_DB_V11: tuple[str, ...] = (
     "ALTER TABLE document_sections ADD COLUMN embedding_text TEXT",
 )
+
+# Search Quality Improvement Plan, Phase 5: ``document_conversion_cache``
+# (``KNOWLEDGE_DB_V6``/``V10``) gains ``ocr_used`` -- ``"off"`` or ``"on"``,
+# whichever pipeline (plain vs. OCR-enabled) actually produced that row's
+# ``serialized_document`` -- and it joins ``content_hash`` as this table's
+# key, replacing ``content_hash`` alone as the primary key. See
+# ``documents/docling_adapter.py``'s module docstring and
+# ``document_conversion_cache_repo``'s for the full rationale: a PDF's
+# plain and OCR'd conversions are genuinely different documents, and a
+# cache lookup that couldn't distinguish them could hand either one back
+# for a request that needed the other.
+#
+# SQLite has no ``ALTER TABLE ... DROP CONSTRAINT``/"change primary key"
+# statement, so this rebuilds the table under a temporary name rather than
+# altering it in place -- the same "rename, recreate, copy forward, drop"
+# shape a primary-key change always needs in SQLite. Unlike
+# ``KNOWLEDGE_DB_V10``'s deliberate "bump cache_version, let every old row
+# go stale" choice (there was no way to know *which* pipeline had produced
+# an old Markdown-keyed row), every row that exists before this migration
+# was, unambiguously, produced by the plain pipeline -- OCR did not exist
+# yet -- so this backfills ``ocr_used = 'off'`` for all of them rather
+# than discarding a cache that is still entirely valid.
+KNOWLEDGE_DB_V13: tuple[str, ...] = (
+    "ALTER TABLE document_conversion_cache RENAME TO document_conversion_cache_pre_ocr",
+    """
+    CREATE TABLE document_conversion_cache (
+        content_hash TEXT NOT NULL,
+        ocr_used TEXT NOT NULL DEFAULT 'off',
+        serialized_document TEXT NOT NULL,
+        serialization_format TEXT,
+        page_count INTEGER,
+        parser_version TEXT,
+        cache_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (content_hash, ocr_used)
+    )
+    """,
+    """
+    INSERT INTO document_conversion_cache (
+        content_hash, ocr_used, serialized_document, serialization_format,
+        page_count, parser_version, cache_version, created_at
+    )
+    SELECT content_hash, 'off', serialized_document, serialization_format,
+        page_count, parser_version, cache_version, created_at
+    FROM document_conversion_cache_pre_ocr
+    """,
+    "DROP TABLE document_conversion_cache_pre_ocr",
+)

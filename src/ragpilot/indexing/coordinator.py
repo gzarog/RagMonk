@@ -64,6 +64,15 @@ class ProcessorContext:
     # would have) means "use ``ChunkingConfig()``'s own defaults" -- see
     # ``documents/pipeline.py``.
     chunking: ChunkingConfig | None = None
+    # ``config.documents.ocr`` -- Phase 5's OCR fallback mode ("off" |
+    # "auto" | "always"), threaded straight through to
+    # ``docling_adapter.convert`` exactly like ``chunking``/
+    # ``max_document_pages`` above. ``None`` (the default a
+    # coordinator-external ``ProcessorContext``, e.g. a test, would have)
+    # means "no OCR" -- ``documents/pipeline.py`` falls back to ``"off"``,
+    # preserving every pre-Phase-5 caller's exact behavior rather than
+    # silently opting them into OCR.
+    ocr: str | None = None
     # The generation this run's derived rows should be tagged with --
     # always files.generation + 1, matching the bump files_repo.mark_indexed
     # applies right after a processor returns successfully. Writing this
@@ -269,6 +278,7 @@ class IndexCoordinator:
                 next_generation=file.generation + 1,
                 max_document_pages=self._config.documents.max_pages,
                 chunking=self._config.documents.chunking,
+                ocr=self._config.documents.ocr,
             )
             started = time.monotonic()
             try:
