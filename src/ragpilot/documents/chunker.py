@@ -303,7 +303,10 @@ def _finalize_group(
 
 
 def _table_chunk(
-    unit: NormalizedUnit, rows: tuple[tuple[str, ...], ...], parent_index: int | None
+    unit: NormalizedUnit,
+    rows: tuple[tuple[str, ...], ...],
+    parent_index: int | None,
+    doc_title: str,
 ) -> Chunk:
     rendered = table_renderer.render_table(rows, caption=unit.caption)
     return Chunk(
@@ -316,13 +319,14 @@ def _table_chunk(
         page_end=unit.page_end,
         table_rows=rows,
         caption=unit.caption,
-        contextual_text=_contextual_text(unit.heading_path, rendered),
+        contextual_text=_contextual_text(doc_title, unit.heading_path, rendered),
+        search_text=_search_text(doc_title, unit.heading_path, rendered),
         token_count=count_tokens(rendered),
     )
 
 
 def _table_chunks(
-    unit: NormalizedUnit, parent_index: int | None, cfg: ChunkingConfig
+    unit: NormalizedUnit, parent_index: int | None, cfg: ChunkingConfig, doc_title: str
 ) -> list[Chunk]:
     """One chunk for a table whose row-aware rendering already fits
     ``max_tokens``; multiple row-boundary-split chunks, header rows
@@ -330,7 +334,7 @@ def _table_chunks(
     module's docstring and ``table_renderer.split_data_rows``.
     """
     rows = unit.table_rows or ()
-    whole = _table_chunk(unit, rows, parent_index)
+    whole = _table_chunk(unit, rows, parent_index, doc_title)
     if whole.token_count <= cfg.max_tokens or not rows:
         return [whole]
 
@@ -351,7 +355,9 @@ def _table_chunks(
         return [whole]
 
     return [
-        _table_chunk(unit, header_rows + tuple(tuple(row) for row in group), parent_index)
+        _table_chunk(
+            unit, header_rows + tuple(tuple(row) for row in group), parent_index, doc_title
+        )
         for group in groups
     ]
 
@@ -409,7 +415,7 @@ def chunk_document(
         )
 
         if unit.kind == "table":
-            chunks.extend(_table_chunks(unit, parent_new, cfg))
+            chunks.extend(_table_chunks(unit, parent_new, cfg, doc_title))
             continue
 
         countable = _countable_text(unit)
