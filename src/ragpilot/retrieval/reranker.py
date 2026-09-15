@@ -11,8 +11,9 @@ itself by score; a candidate found via both keeps its lexical tier as
 the primary signal, with its semantic score folded in only as a
 same-tier tie-breaker. Ties beyond that fall back to the exact
 tie-breaker chain ``lexical.py``'s own ``_sort_key`` already
-established (entity kind, recency, source, path, id), so identically
-lexically-tiered results keep the ordering users already see today.
+established (query-structure tier, FTS rank, entity kind, recency,
+source, path, id), so identically lexically-tiered results keep the
+ordering users already see today.
 """
 
 from __future__ import annotations
@@ -59,6 +60,7 @@ def _sort_key(candidate: SearchCandidate) -> tuple[Any, ...]:
     secondary_score = -(candidate.semantic_score if candidate.semantic_score is not None else -1.0)
     return (
         primary_tier,
+        candidate.lexical_query_tier,
         candidate.lexical_fts_rank,
         candidate.entity_kind_rank,
         secondary_score,

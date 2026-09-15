@@ -1308,6 +1308,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     committed baseline (its two table fixtures are small enough to stay
     one chunk each, so ranking is unaffected) -- the baseline did not
     need regenerating.
+- Search Quality Improvement Plan, Phase 6: tiered lexical query
+  planning.
+  - **The problem**: `retrieval/lexical.py`'s FTS query builder had
+    exactly one tier -- every query token quoted and OR'd together
+    (`"delayed" OR "settlement" OR "provider"`) -- so a multi-word query
+    scored a document sharing just one token identically (as far as
+    ranking was concerned) to one containing the full phrase, and only
+    `_sort_key`'s bm25-rank tiebreaker separated them within the same
+    `RankTier.FTS` bucket.
+  - **`retrieval/lexical.py`**: new `LexicalQueryPlan`/
+    `LexicalQueryVariant` dataclasses build four candidate FTS5 MATCH
+    expressions per query, most-precise first -- Tier A exact phrase
+    (`"delayed settlement provider"`), Tier B all terms ANDed
+    (`"delayed" AND "settlement" AND "provider"`), Tier C a selective
+    prefix fallback (only tokens >= 4 chars get `word*`-wildcarded, and
+    only when that actually differs from Tier B, so a query of only
+    short tokens earns no Tier C at all), and Tier D today's permissive
+    OR fallback as the last-resort safety net. New `LexicalTier` enum
+    (`PHRASE`/`ALL_TERMS`/`PREFIX`/`OR_FALLBACK`) tiers this
+    query-*structure* precision -- a second axis entirely orthogonal to
+    the existing `RankTier` (which tiers *signal kind*, e.g. exact
+    symbol vs. FTS; see the module docstring for how the two compose).
+    `_run_query_plan` executes a plan's variants in order and stops as
+    soon as a tier has already surfaced enough distinct results, so
+    Tier C/D only ever cost a query when Tier A/B's exact-phrase/
+    all-terms match came up short; an identical expression to one
+    already tried (always true for a single-token query, where every
+    tier collapses to the same one-token match) is skipped rather than
+    re-run, so single-token/identifier lookups fire exactly the one FTS
+    query they always did. `SearchResult` grew a `query_tier` field
+    (default `PHRASE`, so every non-FTS result kind is unaffected);
+    `_sort_key` now breaks ties within a `RankTier` bucket by
+    `query_tier` before `fts_rank`, so a hit found by multiple tiers
+    (`_merge`'s existing (kind, id) dedup) always keeps its *strongest*
+    tier rather than whichever tier happened to run last.
+  - **`retrieval/merger.py`**/**`retrieval/reranker.py`**: `SearchCandidate`
+    carries the winning `lexical_query_tier` through hybrid merge, and
+    `reranker._sort_key` includes it as a tiebreaker too, so
+    `ragpilot search`'s hybrid (lexical + semantic) path gets the same
+    phrase-over-OR-noise ordering as plain lexical search, not just
+    `retrieval/lexical.search` itself.
+  - New `tests/unit/test_lexical.py` coverage: `LexicalQueryPlan`
+    construction for single-token (Tier A/B/D collapse to one query,
+    Tier C never built) and multi-word queries (all four tiers, in
+    order); `_run_query_plan`'s early-stop and full-fallthrough
+    behavior via a call-counting stub; and an end-to-end DB-backed test
+    proving a document matching the full phrase outranks a same-tier
+    document the OR-fallback alone found.
+  - Verified against `benchmarks/search_quality/baseline_report.json`
+    (regenerated -- numbers changed): overall MRR 0.8542 -> 0.9028 and
+    NDCG@10 0.8833 -> 0.9158; `keyword_search` MRR 0.8125 -> 0.9375
+    (Recall@1 0.5625 -> 0.8125); `cross_document` MRR 0.6875 -> 0.9375;
+    `table_question` MRR/NDCG@10 both reach 1.0. Every
+    exact_symbol_lookup/exact_title_lookup/exact_heading_lookup number
+    stays at a perfect 1.0, `code_to_document`/`semantic_document`/
+    `file_path_lookup`/`typo_partial_term` are byte-identical (none of
+    those categories' queries are both multi-word and lexically
+    resolvable, so the new tiers had nothing to change for them), and
+    `tests/integration/test_search_quality.py`'s blocking floors
+    (overall and per-category) still pass.
 - CLI performance improvement plan, Phase 1: startup benchmark and
   heavy-import regression test.
   - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,

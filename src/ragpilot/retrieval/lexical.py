@@ -17,6 +17,17 @@ are folded in as deterministic tie-breakers *within* a tier instead (see
 recency via each result's file mtime, and source priority via the
 registered source id (the closest thing to a priority Phase 1's registry
 stores), rather than inventing configuration that doesn't exist yet.
+
+Phase 6 adds a second, orthogonal tier axis, ``LexicalTier``: within a
+single ``RankTier`` bucket (``FTS``/``TITLE_OR_HEADING``), a hit found by
+a more precise FTS5 *query structure* (an exact phrase, then all terms
+ANDed, then a selective prefix fallback, then today's permissive
+OR-of-every-token query) outranks one only the broader tier found --
+see ``LexicalQueryPlan``/``_run_query_plan``. ``RankTier`` still tiers
+*what kind of signal* matched (an entity name vs. a bag-of-words FTS
+hit); ``LexicalTier`` tiers *how specific the query itself was* within
+the FTS signal -- the two are independent axes, not a renumbering of
+one into the other.
 """
 
 from __future__ import annotations
@@ -24,6 +35,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
@@ -53,6 +65,7 @@ _ENTITY_KIND_RANK: dict[EntityType, int] = {
     )
 }
 
+
 class RankTier(IntEnum):
     EXACT_SYMBOL = 0
     QUALIFIED_SYMBOL = 1
@@ -60,6 +73,22 @@ class RankTier(IntEnum):
     TITLE_OR_HEADING = 3
     FTS = 4
     PATH = 5
+
+
+class LexicalTier(IntEnum):
+    """Query-STRUCTURE precision an FTS5 hit was found at, most exact
+    first -- see the module docstring for how this differs from
+    ``RankTier``. Only meaningful for hits produced by
+    ``_run_query_plan``; every other result kind (exact/qualified/alias
+    symbol, title, path) defaults to ``PHRASE`` since those never went
+    through a multi-tier FTS plan and ``RankTier`` alone already places
+    them correctly.
+    """
+
+    PHRASE = 0
+    ALL_TERMS = 1
+    PREFIX = 2
+    OR_FALLBACK = 3
 
 
 @dataclass(frozen=True)
@@ -73,6 +102,7 @@ class SearchResult:
     snippet: str | None = None
     location: dict[str, Any] | None = None
     fts_rank: int = 0
+    query_tier: LexicalTier = LexicalTier.PHRASE
     entity_kind_rank: int = 99
     mtime: float = 0.0
 
@@ -136,14 +166,129 @@ class _StopwatchTimings:
 def _fts_query(text: str) -> str | None:
     """Builds a permissive FTS5 MATCH expression: each word token quoted
     (so punctuation in the query, e.g. "settlement.BetSettled", can never
-    be parsed as FTS syntax) and OR'd together, favoring recall -- the
-    ranking below is what narrows a broad FTS hit set back down, not the
-    query itself.
+    be parsed as FTS syntax) and OR'd together, favoring recall. This is
+    now specifically ``LexicalQueryPlan``'s Tier D (OR fallback) --
+    kept as its own top-level function (rather than inlined into
+    ``_build_query_plan``) since ``documents_repo.search_fts`` callers
+    outside this module's own multi-tier plan (e.g. ``test_table_search.
+    py``) still sanitize a raw query into this same permissive form.
     """
     tokens = re.findall(r"\w+", text)
     if not tokens:
         return None
     return " OR ".join(f'"{t}"' for t in tokens)
+
+
+# Tokens shorter than this never get prefix-wildcarded into Tier C: a
+# 2-3 character prefix (e.g. "to*", "for*") matches a huge fraction of
+# any corpus and would reintroduce exactly the OR-tier noise this phase
+# removes, without meaningfully helping a genuinely truncated/typo'd
+# term -- those are overwhelmingly the longer, more specific words in a
+# query (identifiers, domain terms), not short function words.
+_PREFIX_MIN_TOKEN_LEN = 4
+
+
+@dataclass(frozen=True)
+class LexicalQueryVariant:
+    """One candidate FTS5 MATCH expression plus the ``LexicalTier`` it
+    represents -- see ``LexicalQueryPlan``.
+    """
+
+    tier: LexicalTier
+    expression: str
+
+
+@dataclass(frozen=True)
+class LexicalQueryPlan:
+    """Ordered FTS5 MATCH candidates for one query, most-precise first:
+    exact phrase, then all terms ANDed, then (only when at least one
+    token is long enough to plausibly be a truncated/typo'd word, and
+    only when it would actually narrow anything beyond Tier B) a prefix
+    fallback, then today's permissive OR-of-every-token query as the
+    last-resort safety net. ``_run_query_plan`` executes these in order
+    and stops once a tier has already surfaced enough distinct results,
+    so Tier C/D only ever cost a query when a higher tier's exact-phrase
+    or all-terms match came up short.
+    """
+
+    phrase: LexicalQueryVariant
+    all_terms: LexicalQueryVariant | None
+    prefix: LexicalQueryVariant | None
+    fallback: LexicalQueryVariant
+
+    def variants(self) -> list[LexicalQueryVariant]:
+        candidates = (self.phrase, self.all_terms, self.prefix, self.fallback)
+        return [v for v in candidates if v is not None]
+
+
+def _build_query_plan(text: str) -> LexicalQueryPlan | None:
+    """A single-word/identifier query collapses Tier A/B/D to the exact
+    same expression (a phrase of one token *is* all-terms-of-one-token
+    *is* or-of-one-token), so only ``phrase``/``fallback`` are populated
+    and ``_run_query_plan`` below de-duplicates them into the one query
+    ``search()`` always ran for such queries -- no behavior or
+    performance change for the common single-token lookup case.
+    """
+    tokens = re.findall(r"\w+", text)
+    if not tokens:
+        return None
+    quoted = [f'"{t}"' for t in tokens]
+    fallback = LexicalQueryVariant(LexicalTier.OR_FALLBACK, " OR ".join(quoted))
+
+    if len(tokens) == 1:
+        return LexicalQueryPlan(
+            phrase=LexicalQueryVariant(LexicalTier.PHRASE, quoted[0]),
+            all_terms=None,
+            prefix=None,
+            fallback=fallback,
+        )
+
+    phrase = LexicalQueryVariant(LexicalTier.PHRASE, '"' + " ".join(tokens) + '"')
+    all_terms_expression = " AND ".join(quoted)
+    all_terms = LexicalQueryVariant(LexicalTier.ALL_TERMS, all_terms_expression)
+
+    prefix = None
+    if any(len(t) >= _PREFIX_MIN_TOKEN_LEN for t in tokens):
+        prefix_expression = " AND ".join(
+            f"{t}*" if len(t) >= _PREFIX_MIN_TOKEN_LEN else f'"{t}"' for t in tokens
+        )
+        if prefix_expression != all_terms_expression:
+            prefix = LexicalQueryVariant(LexicalTier.PREFIX, prefix_expression)
+
+    return LexicalQueryPlan(phrase=phrase, all_terms=all_terms, prefix=prefix, fallback=fallback)
+
+
+def _run_query_plan[Row](
+    plan: LexicalQueryPlan,
+    limit: int,
+    execute: Callable[[str], list[Row]],
+    row_id: Callable[[Row], str],
+) -> list[tuple[Row, LexicalTier]]:
+    """Runs ``plan``'s variants most-precise first, stopping as soon as
+    enough distinct rows (by ``row_id``) have been seen -- an identical
+    expression to one already tried (always true for single-token
+    queries, see ``_build_query_plan``) is skipped rather than re-run.
+
+    Rows are returned tagged with the tier that found them and are
+    *not* deduplicated across tiers here: a row a broader, later tier
+    re-finds is left for the caller's own (kind, id) merge (``_merge``)
+    to resolve via ``_sort_key``, which already keeps a result's
+    strongest tier -- duplicating that logic here would just be a
+    second, easier-to-desync copy of the same rule.
+    """
+    seen_expressions: set[str] = set()
+    seen_ids: set[str] = set()
+    tagged: list[tuple[Row, LexicalTier]] = []
+    for variant in plan.variants():
+        if variant.expression in seen_expressions:
+            continue
+        seen_expressions.add(variant.expression)
+        rows = execute(variant.expression)
+        tagged.extend((row, variant.tier) for row in rows)
+        seen_ids.update(row_id(row) for row in rows)
+        if len(seen_ids) >= limit:
+            break
+    return tagged
 
 
 def _contains_ci(haystack: str | None, needle: str) -> bool:
@@ -153,6 +298,7 @@ def _contains_ci(haystack: str | None, needle: str) -> bool:
 def _sort_key(result: SearchResult) -> tuple[Any, ...]:
     return (
         result.tier,
+        result.query_tier,
         result.fts_rank,
         result.entity_kind_rank,
         -result.mtime,
@@ -214,9 +360,14 @@ def _search_entities(
                 )
             )
 
-    fts_query = _fts_query(query)
-    if fts_query is not None:
-        for row in entities_repo.search_fts_projection(conn, fts_query, limit=limit):
+    plan = _build_query_plan(query)
+    if plan is not None:
+        for row, query_tier in _run_query_plan(
+            plan,
+            limit,
+            lambda expression: entities_repo.search_fts_projection(conn, expression, limit=limit),
+            lambda entity_row: entity_row.id,
+        ):
             results.append(
                 SearchResult(
                     kind="entity",
@@ -228,6 +379,7 @@ def _search_entities(
                     snippet=row.signature,
                     location={"line_start": row.start_line, "line_end": row.end_line},
                     fts_rank=row.fts_rank,
+                    query_tier=query_tier,
                     entity_kind_rank=_ENTITY_KIND_RANK.get(row.kind, 99),
                     mtime=row.mtime,
                 )
@@ -257,11 +409,16 @@ def _search_documents(
             )
         )
 
-    fts_query = _fts_query(query)
-    if fts_query is None:
+    plan = _build_query_plan(query)
+    if plan is None:
         return results
-    for row in documents_repo.search_fts_projection(
-        conn, fts_query, limit=limit, snippet_max_tokens=snippet_max_tokens
+    for row, query_tier in _run_query_plan(
+        plan,
+        limit,
+        lambda expression: documents_repo.search_fts_projection(
+            conn, expression, limit=limit, snippet_max_tokens=snippet_max_tokens
+        ),
+        lambda document_row: document_row.id,
     ):
         tier = RankTier.TITLE_OR_HEADING if _contains_ci(row.heading, query) else RankTier.FTS
         results.append(
@@ -280,6 +437,7 @@ def _search_documents(
                     "heading_path": row.heading_path,
                 },
                 fts_rank=row.fts_rank,
+                query_tier=query_tier,
                 mtime=row.mtime,
             )
         )

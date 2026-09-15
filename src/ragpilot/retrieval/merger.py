@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ragpilot.retrieval.lexical import RankTier, SearchResult
+from ragpilot.retrieval.lexical import LexicalTier, RankTier, SearchResult
 from ragpilot.retrieval.semantic import SemanticHit
 
 
@@ -37,6 +37,7 @@ class SearchCandidate:
     location: dict[str, object] | None = None
     lexical_tier: RankTier | None = None
     lexical_fts_rank: int = 0
+    lexical_query_tier: LexicalTier = LexicalTier.PHRASE
     entity_kind_rank: int = 99
     mtime: float = 0.0
     semantic_score: float | None = None
@@ -63,6 +64,7 @@ def merge(
             location=result.location,
             lexical_tier=result.tier,
             lexical_fts_rank=result.fts_rank,
+            lexical_query_tier=result.query_tier,
             entity_kind_rank=result.entity_kind_rank,
             mtime=result.mtime,
         )
