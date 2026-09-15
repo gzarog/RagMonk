@@ -12,13 +12,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from docling_core.types.doc import DocItemLabel
-from docling_core.types.doc.base import BoundingBox
+from docling_core.types.doc.base import BoundingBox, Size
 from docling_core.types.doc.common.reference import ProvenanceItem
 from docling_core.types.doc.document import DoclingDocument
 
 from ragpilot.core.models import DocumentFormat
 from ragpilot.documents import chunker, docling_adapter, normalizer
 from ragpilot.documents.metadata import extract_metadata
+from ragpilot.documents.normalizer import SCANNED_CHARS_PER_PAGE_THRESHOLD, _is_low_text_density
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "documents"
 
@@ -184,3 +185,90 @@ def test_page_numbers_come_from_native_prov_not_a_marker() -> None:
     assert by_text["Section Two"].page_start == 2
     assert by_text["Page two text."].page_start == 2
     assert by_text["Page three text."].page_start == 3
+
+
+# Search Quality Improvement Plan, Phase 5: ``_is_low_text_density`` is a
+# pure function of (page_count, total_text_chars, pages_with_text), so its
+# threshold behavior is tested directly -- no DoclingDocument needed at
+# all. ``normalizer._should_ocr``'s equivalent in ``docling_adapter`` (see
+# ``test_docling_adapter_ocr.py``) and ``normalize``'s own ``is_scanned``
+# both go through this same function, so pinning its behavior here pins
+# both callers' at once.
+
+
+def test_low_text_density_zero_chars_is_low_density() -> None:
+    assert _is_low_text_density(page_count=5, total_text_chars=0, pages_with_text=0) is True
+
+
+def test_low_text_density_below_threshold_chars_per_page() -> None:
+    total = (SCANNED_CHARS_PER_PAGE_THRESHOLD * 2) - 1  # just under 2 pages' worth
+    assert _is_low_text_density(page_count=2, total_text_chars=total, pages_with_text=2) is True
+
+
+def test_low_text_density_at_threshold_chars_per_page_with_full_coverage_is_not_low() -> None:
+    total = SCANNED_CHARS_PER_PAGE_THRESHOLD * 2
+    assert _is_low_text_density(page_count=2, total_text_chars=total, pages_with_text=2) is False
+
+
+def test_low_text_density_most_pages_without_text_even_with_enough_average_chars() -> None:
+    # Plenty of chars/page on average, but concentrated on 1 of 5 pages --
+    # "most pages contain no text blocks" must still flag this as low
+    # density even though the average alone would not.
+    assert _is_low_text_density(page_count=5, total_text_chars=1000, pages_with_text=1) is True
+
+
+def test_low_text_density_majority_pages_with_text_is_not_low_density() -> None:
+    assert _is_low_text_density(page_count=5, total_text_chars=1000, pages_with_text=3) is False
+
+
+def test_low_text_density_falls_back_to_total_chars_when_page_count_unknown() -> None:
+    assert _is_low_text_density(page_count=None, total_text_chars=0, pages_with_text=0) is True
+    assert _is_low_text_density(page_count=None, total_text_chars=5, pages_with_text=0) is False
+
+
+def _page_document(*, text_pages: set[int], total_pages: int) -> DoclingDocument:
+    """A synthetic PDF-shaped document with ``total_pages`` pages, one
+    ``TextItem`` on each page in ``text_pages`` and none on the rest --
+    exactly what an image-only page looks like with OCR off. The text
+    itself is well over ``SCANNED_CHARS_PER_PAGE_THRESHOLD`` characters so
+    a fully-covered document only ever exercises the "most pages have no
+    text" half of ``_is_low_text_density``, never its chars-per-page half
+    too.
+    """
+    doc = DoclingDocument(name="synthetic")
+    for page_no in range(1, total_pages + 1):
+        doc.add_page(page_no=page_no, size=Size(width=612, height=792))
+    for page_no in sorted(text_pages):
+        doc.add_text(
+            DocItemLabel.TEXT,
+            "This page has real extracted body text, plenty of it here.",
+            prov=_prov(page_no),
+        )
+    return doc
+
+
+def test_normalize_is_scanned_true_for_an_entirely_textless_pdf() -> None:
+    doc = _page_document(text_pages=set(), total_pages=3)
+    normalized = normalizer.normalize(doc, DocumentFormat.PDF)
+    assert normalized.page_count == 3
+    assert normalized.is_scanned is True
+
+
+def test_normalize_is_scanned_true_when_most_pages_have_no_text() -> None:
+    doc = _page_document(text_pages={1}, total_pages=5)
+    normalized = normalizer.normalize(doc, DocumentFormat.PDF)
+    assert normalized.is_scanned is True
+
+
+def test_normalize_is_scanned_false_for_a_normal_text_pdf() -> None:
+    doc = _page_document(text_pages={1, 2, 3}, total_pages=3)
+    normalized = normalizer.normalize(doc, DocumentFormat.PDF)
+    assert normalized.is_scanned is False
+
+
+def test_normalize_is_scanned_false_for_non_pdf_formats_even_with_no_text() -> None:
+    # is_scanned is a PDF-only concept; other formats never set it, no
+    # matter how little text they normalize to.
+    doc = DoclingDocument(name="empty")
+    normalized = normalizer.normalize(doc, DocumentFormat.DOCX)
+    assert normalized.is_scanned is False

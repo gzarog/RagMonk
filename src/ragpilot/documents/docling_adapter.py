@@ -46,10 +46,42 @@ etc.) is lost: those are round-tripped losslessly by the pydantic model
 itself, whereas the Markdown export was Docling's own *lossy* rendering of
 the very same document -- serializing the document directly is strictly
 more faithful, not less.
+
+Search Quality Improvement Plan, Phase 5: ``documents.ocr`` (``"off"`` |
+``"auto"`` | ``"always"``) wires up Docling's real OCR pipeline, which
+Phase 3 deliberately left unimplemented (``pdf_options.do_ocr`` was always
+``False``). ``"off"`` is exactly Phase 3's original, only behavior --
+unchanged. ``"auto"`` runs the plain pipeline first (``_get_converter``,
+cached as before) and only re-runs conversion with OCR enabled
+(``_get_ocr_converter``, a second, independent singleton) when that plain
+result looks too textless to be real body content -- see
+``_should_ocr``/``normalizer._is_low_text_density``. ``"always"`` skips
+that detection pass and runs the OCR pipeline unconditionally, since a
+caller who already wants OCR gains nothing from paying for two pipeline
+runs. Either way, the result is cached in the same
+``document_conversion_cache`` table the plain pipeline already used,
+keyed by content hash *and* whether OCR was actually applied to produce
+that row (see ``document_conversion_cache_repo``'s ``ocr_used`` column) --
+so a page cached from a plain conversion is never handed back for a
+request that actually needed OCR, and vice versa, while "auto" that
+doesn't trigger OCR still reuses (and populates) the exact same cache
+entry "off" would.
+
+This project's pinned Docling range does not add a hard new dependency
+for this: plain ``docling`` already transitively pulls in RapidOCR (see
+``pyproject.toml``'s dependency comment) as of the version this was
+written against. Regardless, ``_run_ocr_conversion`` degrades gracefully
+-- returns ``None``, logs a warning, and callers fall back to the plain
+conversion -- whenever OCR genuinely can't run in a given environment
+(Docling's own ``OcrAutoOptions`` already does this silently for "no
+engine installed"; ``_run_ocr_conversion`` additionally covers any other
+OCR-specific failure, e.g. a blocked model-weight download) so a missing
+or broken OCR engine never fails the whole file.
 """
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -61,6 +93,9 @@ from ragpilot.core.models import DocumentFormat
 from ragpilot.sources.fingerprint import hash_file
 from ragpilot.storage.repositories import document_conversion_cache_repo
 from ragpilot.storage.sqlite import transaction
+from ragpilot.telemetry.logging import get_logger, log_event
+
+_logger = get_logger("docling_adapter")
 
 # CLI performance improvement plan, Phase 2: Docling (which itself pulls in
 # torch for its layout/table-structure models) must never load just from
@@ -138,6 +173,18 @@ _SERIALIZATION_FORMAT = "docling_document/json"
 # next time its PDF is indexed.
 _CACHE_VERSION = 2
 
+# ``document_conversion_cache_repo``'s ``ocr_used`` cache-key column: which
+# of the two possible pipeline outputs a given row holds for its
+# content_hash. Not the 3-value ``documents.ocr`` config setting itself --
+# "auto" resolves to one of these two at conversion time (see
+# ``_convert_pdf``), so a cache row only ever needs to record which
+# pipeline *actually ran*, not which mode asked for it. This is what makes
+# "auto" (when it doesn't trigger OCR) transparently share "off"'s cache
+# entry, and "auto" (when it does trigger OCR) transparently share
+# "always"'s.
+_OCR_NOT_APPLIED = "off"
+_OCR_APPLIED = "on"
+
 
 class UnsupportedDocumentFormatError(RagpilotError):
     """A ``FileKind.DOCUMENT`` file whose extension is outside Phase 3's
@@ -182,10 +229,14 @@ def _get_converter() -> DocumentConverter:
 
         input_formats = _format_to_input_format()
         pdf_options = PdfPipelineOptions()
-        # OCR is explicitly out of scope for Phase 3 (config.documents.ocr
-        # is read only for the future -- see docs/CHANGELOG). Turning it
-        # off also means PDF conversion never needs an OCR engine's own
-        # model weights on top of the layout/table-structure ones.
+        # The plain, always-available pipeline: OCR off, so this converter
+        # never needs an OCR engine's own model weights on top of the
+        # layout/table-structure ones. Every ``documents.ocr`` setting
+        # ("off", and "auto" before/unless it triggers) uses this same
+        # singleton; OCR itself is a second, independent converter (see
+        # ``_get_ocr_converter``) rather than a flag flipped on this one,
+        # so an OCR request elsewhere can never change what this pipeline
+        # does for every other caller.
         pdf_options.do_ocr = False
         pdf_options.do_table_structure = True
         _converter = DocumentConverter(
@@ -195,6 +246,40 @@ def _get_converter() -> DocumentConverter:
             },
         )
     return _converter
+
+
+_ocr_converter: DocumentConverter | None = None
+
+
+def _get_ocr_converter() -> DocumentConverter:
+    """The OCR-enabled counterpart to ``_get_converter``, built and cached
+    the same way. Only ``documents.ocr``'s "auto" (once triggered) and
+    "always" modes ever call this -- see ``_convert_pdf`` -- so a run that
+    never needs OCR never pays to construct it.
+
+    Deliberately leaves ``ocr_options`` at its Docling default
+    (``OcrAutoOptions``) rather than pinning a specific engine: Docling's
+    own auto-selection already tries whatever OCR engine is actually
+    installed (RapidOCR, EasyOCR, ocrmac, ...) and, if none is, logs a
+    warning and runs with OCR effectively a no-op instead of raising --
+    exactly the graceful degradation this module wants, provided for free.
+    """
+    global _ocr_converter
+    if _ocr_converter is None:
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+
+        input_formats = _format_to_input_format()
+        pdf_options = PdfPipelineOptions()
+        pdf_options.do_ocr = True
+        pdf_options.do_table_structure = True
+        _ocr_converter = DocumentConverter(
+            allowed_formats=list(input_formats.values()),
+            format_options={
+                input_formats[DocumentFormat.PDF]: PdfFormatOption(pipeline_options=pdf_options)
+            },
+        )
+    return _ocr_converter
 
 
 def pdf_page_count(path: Path) -> int:
@@ -278,45 +363,151 @@ def _deserialize_cached_document(
         return None
 
 
-def _convert_pdf(path: Path, conn: sqlite3.Connection | None) -> ConversionResult:
+def _cached_document(
+    conn: sqlite3.Connection | None, content_hash: str, *, ocr_used: str
+) -> DoclingDocument | None:
+    """Looks up ``document_conversion_cache`` for ``content_hash``'s row
+    written under ``ocr_used`` (``_OCR_NOT_APPLIED``/``_OCR_APPLIED``),
+    deserializing it -- or ``None`` on any kind of miss (no connection, no
+    row, a stale ``cache_version``, or a deserialization failure -- see
+    ``_deserialize_cached_document``). Shared by every ``_convert_pdf``
+    branch so a cache lookup for either pipeline output looks the same.
+    """
+    if conn is None:
+        return None
+    cached = document_conversion_cache_repo.get(
+        conn, content_hash, ocr_used=ocr_used, cache_version=_CACHE_VERSION
+    )
+    return _deserialize_cached_document(cached) if cached is not None else None
+
+
+def _store_document(
+    conn: sqlite3.Connection | None,
+    content_hash: str,
+    document: DoclingDocument,
+    *,
+    ocr_used: str,
+) -> None:
+    """Upserts ``document`` into ``document_conversion_cache`` under
+    ``content_hash``/``ocr_used`` -- a no-op when ``conn`` is ``None``
+    (callers that convert without a cache at all, e.g. the ``docling_pdf``
+    golden test's bare ``convert(path)``).
+    """
+    if conn is None:
+        return
+    import docling
+
+    with transaction(conn):
+        document_conversion_cache_repo.put(
+            conn,
+            document_conversion_cache_repo.CachedConversion(
+                content_hash=content_hash,
+                ocr_used=ocr_used,
+                serialized_document=document.model_dump_json(),
+                serialization_format=_SERIALIZATION_FORMAT,
+                page_count=document.num_pages() or None,
+                parser_version=docling.__version__,
+            ),
+            cache_version=_CACHE_VERSION,
+            created_at=datetime.now(UTC).isoformat(),
+        )
+
+
+def _should_ocr(document: DoclingDocument) -> bool:
+    """True when ``document`` -- the plain pipeline's own output -- looks
+    too textless to be real body content, i.e. OCR would likely help. Runs
+    the exact same check ``normalizer.normalize``'s ``is_scanned`` flag
+    does (``normalizer._is_low_text_density``), so "does this look
+    scanned" has one definition, not two independently-tuned ones -- see
+    both modules' docstrings.
+    """
+    from ragpilot.documents import normalizer
+
+    return normalizer.normalize(document, DocumentFormat.PDF).is_scanned
+
+
+def _run_ocr_conversion(path: Path) -> DoclingDocument | None:
+    """Runs the OCR-enabled pipeline (``_get_ocr_converter``), or returns
+    ``None`` if OCR genuinely couldn't run here. Docling's own
+    ``OcrAutoOptions`` already degrades silently (logs a warning, no OCR
+    applied) when no OCR engine is installed at all -- but this is
+    deliberately broader than catching just that, covering any other
+    OCR-specific failure a real environment can hit (a blocked/partial
+    model-weight download, an unexpected Docling exception), exactly like
+    ``_run_conversion``'s own ``except Exception`` for the plain pipeline.
+    Callers treat ``None`` exactly like "OCR wouldn't have helped": keep
+    (or fall back to) the plain, non-OCR conversion rather than failing
+    the whole file over an OCR-only problem.
+    """
+    try:
+        return _run_conversion(_get_ocr_converter(), path, str(path))
+    except Exception as exc:  # noqa: BLE001 - OCR is best-effort, see docstring
+        log_event(
+            _logger,
+            "ocr_conversion_failed",
+            level=logging.WARNING,
+            path=str(path),
+            error=str(exc),
+        )
+        return None
+
+
+def _convert_pdf(
+    path: Path, conn: sqlite3.Connection | None, ocr_mode: str = "off"
+) -> ConversionResult:
     """PDF's extra step: Docling's real PDF-layout pipeline is expensive
     (a real layout/table-structure ML model), so its output -- the native
-    ``DoclingDocument`` -- is cached by content hash and deserialized
-    straight back on a hit, never touching the pipeline again. See this
-    module's docstring for the full rationale.
+    ``DoclingDocument`` -- is cached by content hash (and, since Phase 5,
+    whether OCR was applied) and deserialized straight back on a hit,
+    never touching the pipeline again. See this module's docstring for
+    the full rationale, including ``ocr_mode``'s "off"/"auto"/"always"
+    behavior.
     """
     content_hash = hash_file(path)
-    cached = (
-        document_conversion_cache_repo.get(conn, content_hash, cache_version=_CACHE_VERSION)
-        if conn is not None
-        else None
-    )
-    if cached is not None:
-        document = _deserialize_cached_document(cached)
-        if document is not None:
-            return ConversionResult(document=document)
 
-    document = _run_conversion(_get_converter(), path, str(path))
-    if conn is not None:
-        import docling
+    if ocr_mode == "always":
+        document = _cached_document(conn, content_hash, ocr_used=_OCR_APPLIED)
+        if document is None:
+            document = _run_ocr_conversion(path)
+            if document is not None:
+                _store_document(conn, content_hash, document, ocr_used=_OCR_APPLIED)
+        if document is None:
+            # OCR genuinely unavailable (see _run_ocr_conversion) -- "always"
+            # still has to return something, so this is the one place OCR
+            # being requested falls back to the plain pipeline instead of
+            # never running it.
+            document = _cached_document(conn, content_hash, ocr_used=_OCR_NOT_APPLIED)
+            if document is None:
+                document = _run_conversion(_get_converter(), path, str(path))
+                _store_document(conn, content_hash, document, ocr_used=_OCR_NOT_APPLIED)
+        return ConversionResult(document=document)
 
-        with transaction(conn):
-            document_conversion_cache_repo.put(
-                conn,
-                document_conversion_cache_repo.CachedConversion(
-                    content_hash=content_hash,
-                    serialized_document=document.model_dump_json(),
-                    serialization_format=_SERIALIZATION_FORMAT,
-                    page_count=document.num_pages() or None,
-                    parser_version=docling.__version__,
-                ),
-                cache_version=_CACHE_VERSION,
-                created_at=datetime.now(UTC).isoformat(),
-            )
+    # "off", or "auto" before its detection pass below: always the plain,
+    # non-OCR pipeline -- exactly Phase 3's only path, and "off"'s own
+    # cache entry (which "auto" transparently reuses/populates too when it
+    # doesn't end up triggering OCR).
+    document = _cached_document(conn, content_hash, ocr_used=_OCR_NOT_APPLIED)
+    if document is None:
+        document = _run_conversion(_get_converter(), path, str(path))
+        _store_document(conn, content_hash, document, ocr_used=_OCR_NOT_APPLIED)
+
+    if ocr_mode == "auto" and _should_ocr(document):
+        ocr_document = _cached_document(conn, content_hash, ocr_used=_OCR_APPLIED)
+        if ocr_document is None:
+            ocr_document = _run_ocr_conversion(path)
+            if ocr_document is not None:
+                _store_document(conn, content_hash, ocr_document, ocr_used=_OCR_APPLIED)
+        if ocr_document is not None:
+            document = ocr_document
+        # else: OCR unavailable/failed -- keep the plain document already
+        # produced above; _run_ocr_conversion already logged why.
+
     return ConversionResult(document=document)
 
 
-def convert(path: Path, *, conn: sqlite3.Connection | None = None) -> ConversionResult:
+def convert(
+    path: Path, *, conn: sqlite3.Connection | None = None, ocr_mode: str = "off"
+) -> ConversionResult:
     """Converts ``path`` (already confirmed supported by ``detect_format``)
     to a Docling ``DoclingDocument``, wrapped in a ``ConversionResult``, or
     raises ``DocumentConversionError``.
@@ -325,8 +516,22 @@ def convert(path: Path, *, conn: sqlite3.Connection | None = None) -> Conversion
     ``knowledge.db`` connection -- used only for PDF's conversion cache
     (``document_conversion_cache``). Every other format ignores it
     entirely and converts exactly as it always has.
+
+    ``ocr_mode`` is ``documents.ocr``'s effective value ("off" | "auto" |
+    "always"), meaningful for PDF only -- every other format ignores it,
+    since OCR is a PDF-pipeline concept. Defaults to "off" (not this
+    project's real "auto" default) so every existing caller that doesn't
+    pass it -- direct tests included -- keeps Phase 3's exact, unchanged
+    behavior; the real default is applied by ``indexing/coordinator.py``
+    threading ``config.documents.ocr`` through ``ProcessorContext``, the
+    same pattern ``chunking``/``max_document_pages`` already use. Any
+    value other than "auto"/"always" (including "off", and defensively
+    anything unrecognized) takes the "off" path -- config itself already
+    restricts ``documents.ocr`` to these three values (see
+    ``core.config.DocumentsConfig``), so this is a last-resort safety net,
+    not the primary validation.
     """
     if detect_format(path) is DocumentFormat.PDF:
-        return _convert_pdf(path, conn)
+        return _convert_pdf(path, conn, ocr_mode)
     document = _run_conversion(_get_converter(), path, str(path))
     return ConversionResult(document=document)

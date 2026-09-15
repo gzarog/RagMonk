@@ -11,6 +11,17 @@ layout document's own JSON serialization, that a second ``convert()``
 against the same connection reuses it rather than re-running the real PDF
 pipeline (including for a duplicate/renamed file with identical content),
 and that a stale ``cache_version`` is treated as a miss.
+
+Search Quality Improvement Plan, Phase 5: also proves ``documents.ocr``'s
+"auto" mode really does trigger Docling's real OCR pipeline against a
+genuinely textless PDF (``scanned.pdf``, a hand-assembled fixture with an
+empty content stream rather than a true raster scan -- see
+``generate_fixtures.py``'s ``_make_scanned_pdf`` docstring for why that's
+a faithful enough stand-in: it hits the exact "zero extracted text"
+condition that triggers OCR, without this project needing an
+image-embedding fixture library it otherwise has no use for). Every other
+"auto"/"always"/cache-mode-distinguishing behavior is covered, mocked and
+model-download-free, in ``test_docling_adapter_ocr.py``.
 """
 
 from __future__ import annotations
@@ -71,7 +82,10 @@ def test_convert_caches_the_native_document_by_content_hash(tmp_path: Path) -> N
         apply_migrations(conn, "knowledge")
         assert (
             document_conversion_cache_repo.get(
-                conn, hash_file(path), cache_version=docling_adapter._CACHE_VERSION
+                conn,
+                hash_file(path),
+                ocr_used=docling_adapter._OCR_NOT_APPLIED,
+                cache_version=docling_adapter._CACHE_VERSION,
             )
             is None
         )
@@ -79,7 +93,10 @@ def test_convert_caches_the_native_document_by_content_hash(tmp_path: Path) -> N
         docling_adapter.convert(path, conn=conn)
 
         cached = document_conversion_cache_repo.get(
-            conn, hash_file(path), cache_version=docling_adapter._CACHE_VERSION
+            conn,
+            hash_file(path),
+            ocr_used=docling_adapter._OCR_NOT_APPLIED,
+            cache_version=docling_adapter._CACHE_VERSION,
         )
         assert cached is not None
         assert cached.page_count == 1
@@ -193,7 +210,10 @@ def test_stale_cache_version_causes_reconversion(tmp_path: Path) -> None:
         # must miss, so this call has to run the real pipeline again
         # rather than raise from a mocked, must-not-be-called converter.
         stale = document_conversion_cache_repo.get(
-            conn, hash_file(path), cache_version=docling_adapter._CACHE_VERSION
+            conn,
+            hash_file(path),
+            ocr_used=docling_adapter._OCR_NOT_APPLIED,
+            cache_version=docling_adapter._CACHE_VERSION,
         )
         assert stale is None
 
@@ -201,8 +221,53 @@ def test_stale_cache_version_causes_reconversion(tmp_path: Path) -> None:
         assert result.document.num_pages() == 1
 
         fresh = document_conversion_cache_repo.get(
-            conn, hash_file(path), cache_version=docling_adapter._CACHE_VERSION
+            conn,
+            hash_file(path),
+            ocr_used=docling_adapter._OCR_NOT_APPLIED,
+            cache_version=docling_adapter._CACHE_VERSION,
         )
         assert fresh is not None
+    finally:
+        conn.close()
+
+
+def test_auto_mode_runs_real_ocr_on_a_textless_pdf(tmp_path: Path) -> None:
+    """End-to-end proof (real Docling pipeline, real OCR engine) that
+    ``documents.ocr="auto"`` actually detects a textless PDF and re-runs
+    conversion with OCR enabled -- both cache entries (plain and OCR'd)
+    end up populated, keyed apart by ``ocr_used``.
+    """
+    path = FIXTURES / "scanned.pdf"
+    conn = connect(tmp_path / "knowledge.db")
+    try:
+        apply_migrations(conn, "knowledge")
+
+        plain_only = docling_adapter.convert(path, conn=conn, ocr_mode="off")
+        doc_format = docling_adapter.detect_format(path)
+        assert normalizer.normalize(plain_only.document, doc_format).is_scanned is True
+
+        result = docling_adapter.convert(path, conn=conn, ocr_mode="auto")
+        assert result.document.num_pages() == 1
+
+        plain_cached = document_conversion_cache_repo.get(
+            conn,
+            hash_file(path),
+            ocr_used=docling_adapter._OCR_NOT_APPLIED,
+            cache_version=docling_adapter._CACHE_VERSION,
+        )
+        ocr_cached = document_conversion_cache_repo.get(
+            conn,
+            hash_file(path),
+            ocr_used=docling_adapter._OCR_APPLIED,
+            cache_version=docling_adapter._CACHE_VERSION,
+        )
+        # Both rows exist independently, under their own `ocr_used` key --
+        # not one overwriting the other. Their content happens to be
+        # identical for this particular fixture (an empty page has
+        # nothing for even a real OCR engine to recover), so this doesn't
+        # assert they differ; ``test_docling_adapter_ocr.py`` proves the
+        # cache genuinely keeps them apart when they *do* differ.
+        assert plain_cached is not None
+        assert ocr_cached is not None
     finally:
         conn.close()

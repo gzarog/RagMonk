@@ -11,7 +11,13 @@ from ragpilot.ops.backup import MANIFEST_FORMAT_VERSION, create_backup
 from ragpilot.storage.migrations import MIGRATIONS, apply_migrations
 from ragpilot.storage.sqlite import connect
 
-_KNOWLEDGE_SCHEMA_VERSION = len(MIGRATIONS["knowledge"])
+# The highest migration *version number*, not the count of migrations --
+# ``current_version`` (what ``create_backup`` actually records per
+# project) is ``MAX(version)`` from ``schema_migrations``, and this
+# project's migration versions are not guaranteed contiguous (a version
+# can be reserved by a not-yet-merged branch, leaving a gap here -- see
+# ``storage/migrations/__init__.py``'s own numbering notes).
+_KNOWLEDGE_SCHEMA_VERSION = max(migration.version for migration in MIGRATIONS["knowledge"])
 
 
 def _make_source(path: str, *, now: str = "2026-01-01T00:00:00+00:00") -> Source:
