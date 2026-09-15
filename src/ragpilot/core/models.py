@@ -363,6 +363,13 @@ class Table(BaseModel):
     """A table (``kind == TABLE``), its cells stored as a row-major grid
     of strings rather than individual cell rows -- there is no query need
     yet for addressing a single cell, and this keeps one table one row.
+
+    A large source table split by ``documents/chunker.py`` (Search
+    Quality Improvement Plan, Phase 4) into several row-boundary chunks
+    becomes several ``Table`` rows, each self-contained: its own ``rows``
+    already has that table's header rows repeated at the top, so nothing
+    downstream needs to know which ``Table`` row is a "continuation" of
+    another.
     """
 
     id: str
@@ -377,5 +384,13 @@ class Table(BaseModel):
     order_index: int
     page_start: int | None = None
     page_end: int | None = None
+    # This table's caption text (``NormalizedUnit.caption`` /
+    # ``Chunk.caption``, Phase 2), persisted from here on (Phase 4) --
+    # previously computed but never actually stored anywhere, silently
+    # dropped between chunking and storage. See ``documents_repo.
+    # insert_table`` for how it is both kept as its own column (mirroring
+    # `heading_path`'s raw-JSON-column treatment) and folded into the
+    # table's searchable/embeddable text.
+    caption: str | None = None
     generation: int
     created_at: str

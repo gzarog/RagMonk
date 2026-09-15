@@ -170,6 +170,7 @@ def _insert_chunk(
                 rows=rows,
                 num_rows=len(rows),
                 num_cols=len(rows[0]) if rows else 0,
+                caption=chunk.caption,
                 order_index=order_index,
                 page_start=chunk.page_start,
                 page_end=chunk.page_end,

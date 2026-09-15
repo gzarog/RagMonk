@@ -61,8 +61,11 @@ class ChunkingConfig(BaseModel):
     added without another config migration. ``min_tokens``/``overlap_tokens``
     are soft targets ``merge_peers``/splitting aim for, not hard floors --
     ``max_tokens`` is the one hard ceiling every non-atomic chunk must
-    respect (an atomic table too large to split further is the documented
-    exception, see ``chunker.chunk_document``'s docstring).
+    respect. A table too large for one chunk is split at row boundaries
+    instead (Search Quality Improvement Plan, Phase 4); the one remaining
+    atomic exception is a single table row that alone still exceeds
+    ``max_tokens`` -- see ``chunker.chunk_document``'s docstring and
+    ``documents/table_renderer.split_data_rows``.
     """
 
     strategy: str = "hybrid"
