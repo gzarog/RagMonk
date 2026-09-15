@@ -25,12 +25,18 @@ changed:
   an adjacent chunk from the *same* run, provided the merge still fits
   ``max_tokens`` -- avoiding a standalone near-empty chunk without ever
   exceeding the hard ceiling.
-- Tables are the one deliberate, documented exception to "no chunk
-  exceeds ``max_tokens``": splitting a table's rows across multiple
-  chunks would break row-level meaning for no real benefit at this
-  project's scale, so a table always stays one atomic chunk regardless of
-  ``token_count`` -- unlike ``chunk_document``, this hasn't changed since
-  before Phase 2.
+- A table whose row-aware rendering (``table_renderer.render_table``)
+  exceeds ``max_tokens`` is split at row boundaries -- never mid-row --
+  into multiple table chunks, each repeating the table's header rows at
+  the top (``table_renderer.split_data_rows``), so every resulting chunk
+  stays independently interpretable. A table that already fits
+  ``max_tokens``, or whose header block leaves no data rows to split, is
+  still emitted as exactly one chunk, same as before. The one remaining
+  atomic exception is a single row that alone (with its header repeated)
+  still exceeds ``max_tokens`` -- there is no meaningful sub-row unit to
+  cut at, so it is kept whole -- see ``split_data_rows``'s docstring.
+  Before Phase 4, a table was *never* split regardless of size; see git
+  history for that simpler, whole-table-only behavior.
 
 Every output ``Chunk`` still carries its own page/heading-path
 provenance, per the blueprint's evidence-first rule.
@@ -41,6 +47,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ragpilot.core.config import ChunkingConfig
+from ragpilot.documents import table_renderer
 from ragpilot.documents.normalizer import NormalizedDocument, NormalizedUnit
 from ragpilot.documents.tokenization import count_tokens, split_by_token_budget
 
@@ -59,15 +66,16 @@ class Chunk:
     # always None for "heading"/"paragraph" chunks.
     caption: str | None = None
     # Heading-path-prefixed rendering of `text` (or, for a table, of its
-    # caption/flattened cells -- see `_countable_text`). Not wired into
+    # caption/row-aware rendering -- see `_countable_text`). Not wired into
     # FTS/embedding indexing yet -- Phase 3 decides what actually feeds
     # search from raw vs. contextual text; this phase only makes the value
     # available on every chunk.
     contextual_text: str = ""
     # Real (estimated) subword-token count of the text `token_count` was
     # computed from -- see `tokenization.count_tokens`. A table's count is
-    # taken from its flattened cell text (see `_countable_text`) since its
-    # own `text` is always "".
+    # taken from its row-aware rendering (see `_countable_text`), which is
+    # exactly what its own `table_rows` (plus `caption`) render to -- its
+    # `text` field is always "".
     token_count: int = 0
 
 
@@ -94,16 +102,14 @@ def _contextual_text(heading_path: tuple[str, ...], body: str) -> str:
 def _countable_text(unit: NormalizedUnit) -> str:
     """The text a table unit's ``token_count``/``contextual_text`` should
     be computed from -- its own ``text`` is always ``""`` (cells live in
-    ``table_rows``), so this flattens cells the same way
-    ``documents_repo.insert_table`` already does for the FTS body, plus
-    the caption when one is attached.
+    ``table_rows``), so this renders its full grid row-aware (see
+    ``table_renderer.render_table``, and that module's docstring for why
+    that's not the same as the pre-Phase-4 flattened-cell blob), plus the
+    caption when one is attached.
     """
     if unit.kind != "table":
         return unit.text
-    cells = " ".join(cell for row in (unit.table_rows or ()) for cell in row if cell)
-    if unit.caption and cells:
-        return f"{unit.caption}\n\n{cells}"
-    return unit.caption or cells
+    return table_renderer.render_table(unit.table_rows or (), caption=unit.caption)
 
 
 def _pieces_for_unit(unit: NormalizedUnit, max_tokens: int) -> list[_Piece]:
@@ -240,6 +246,60 @@ def _finalize_group(
     )
 
 
+def _table_chunk(
+    unit: NormalizedUnit, rows: tuple[tuple[str, ...], ...], parent_index: int | None
+) -> Chunk:
+    rendered = table_renderer.render_table(rows, caption=unit.caption)
+    return Chunk(
+        kind="table",
+        text="",
+        heading_level=None,
+        heading_path=unit.heading_path,
+        parent_index=parent_index,
+        page_start=unit.page_start,
+        page_end=unit.page_end,
+        table_rows=rows,
+        caption=unit.caption,
+        contextual_text=_contextual_text(unit.heading_path, rendered),
+        token_count=count_tokens(rendered),
+    )
+
+
+def _table_chunks(
+    unit: NormalizedUnit, parent_index: int | None, cfg: ChunkingConfig
+) -> list[Chunk]:
+    """One chunk for a table whose row-aware rendering already fits
+    ``max_tokens``; multiple row-boundary-split chunks, header rows
+    repeated at the top of each, for one that doesn't -- see this
+    module's docstring and ``table_renderer.split_data_rows``.
+    """
+    rows = unit.table_rows or ()
+    whole = _table_chunk(unit, rows, parent_index)
+    if whole.token_count <= cfg.max_tokens or not rows:
+        return [whole]
+
+    header_rows = rows[: unit.header_row_count]
+    data_rows = rows[unit.header_row_count :]
+    groups = table_renderer.split_data_rows(
+        data_rows,
+        header_rows=header_rows,
+        max_tokens=cfg.max_tokens,
+        fixed_overhead=unit.caption or "",
+    )
+    if len(groups) <= 1:
+        # Splitting couldn't actually reduce anything -- no data rows
+        # beyond the header, or the header alone (or one oversized row)
+        # already exceeds the budget -- so the single whole-table chunk
+        # already computed above is exactly what a one-group split would
+        # produce; reuse it rather than rebuilding an identical Chunk.
+        return [whole]
+
+    return [
+        _table_chunk(unit, header_rows + tuple(tuple(row) for row in group), parent_index)
+        for group in groups
+    ]
+
+
 def chunk_document(
     normalized: NormalizedDocument, *, config: ChunkingConfig | None = None
 ) -> list[Chunk]:
@@ -280,8 +340,12 @@ def chunk_document(
         parent_new = (
             old_heading_to_new.get(unit.parent_index) if unit.parent_index is not None else None
         )
+
+        if unit.kind == "table":
+            chunks.extend(_table_chunks(unit, parent_new, cfg))
+            continue
+
         new_index = len(chunks)
-        countable = _countable_text(unit)
         chunks.append(
             Chunk(
                 kind=unit.kind,
@@ -291,14 +355,11 @@ def chunk_document(
                 parent_index=parent_new,
                 page_start=unit.page_start,
                 page_end=unit.page_end,
-                table_rows=unit.table_rows,
-                caption=unit.caption,
-                contextual_text=_contextual_text(unit.heading_path, countable),
-                token_count=count_tokens(countable),
+                contextual_text=_contextual_text(unit.heading_path, unit.text),
+                token_count=count_tokens(unit.text),
             )
         )
-        if unit.kind == "heading":
-            old_heading_to_new[old_index] = new_index
+        old_heading_to_new[old_index] = new_index
 
     flush_pending()
     return chunks

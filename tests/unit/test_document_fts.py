@@ -14,6 +14,7 @@ from ragpilot.core.models import (
     FileStatus,
     Paragraph,
     Section,
+    Table,
 )
 from ragpilot.storage.migrations import apply_migrations
 from ragpilot.storage.repositories import documents_repo, files_repo
@@ -132,5 +133,63 @@ def test_fts_rows_removed_when_file_regenerated(tmp_path: Path) -> None:
 
         assert documents_repo.search_fts(conn, "bootstrap") == []
         assert documents_repo.get_document_by_file(conn, "f1") is None
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Search Quality Improvement Plan, Phase 4: row-aware table indexing
+# ---------------------------------------------------------------------------
+
+
+def test_insert_table_indexes_row_aware_text_not_a_flattened_blob(tmp_path: Path) -> None:
+    conn = connect(tmp_path / "knowledge.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        _seed_file(conn)
+        with transaction(conn):
+            _seed_document(conn)
+            documents_repo.insert_table(
+                conn,
+                Table(
+                    id="t1",
+                    document_id="d1",
+                    file_id="f1",
+                    heading_path=["Servers"],
+                    rows=[
+                        ["Server", "CPU", "RAM", "Status"],
+                        ["api-01", "40%", "8GB", "healthy"],
+                        ["api-02", "85%", "16GB", "degraded"],
+                    ],
+                    num_rows=3,
+                    num_cols=4,
+                    caption="Table 1: Fleet status.",
+                    order_index=0,
+                    generation=1,
+                    created_at="now",
+                ),
+                doc_title="Manual",
+            )
+
+        # Before Phase 4 this would be one space-joined blob with every
+        # cell's row association lost -- now the row containing "85%" is
+        # the same line as "api-02" and "16GB".
+        hits = documents_repo.search_fts(conn, "85")
+        assert [r["section_id"] for r in hits] == ["t1"]
+        body = hits[0]["body"]
+        row_line = next(line for line in body.splitlines() if "api-02" in line)
+        assert "85%" in row_line and "16GB" in row_line and "degraded" in row_line
+        # The caption is folded into the searchable/embeddable text too.
+        assert "Table 1: Fleet status." in body
+
+        # `document_sections.text` (what `embed_touched_files` reads via
+        # `list_units_by_file`) is the exact same row-aware rendering, and
+        # the caption round-trips through its own dedicated column.
+        [unit] = documents_repo.list_units_by_file(conn, "f1")
+        assert unit.text == body
+        stored_caption = conn.execute(
+            "SELECT caption FROM document_sections WHERE id = 't1'"
+        ).fetchone()["caption"]
+        assert stored_caption == "Table 1: Fleet status."
     finally:
         conn.close()

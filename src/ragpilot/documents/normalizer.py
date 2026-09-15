@@ -22,6 +22,14 @@ Search Quality Improvement Plan, Phase 2: a table's caption (Docling's
 resolved to plain text and attached to that table's own unit rather than
 surviving as a separate, unrelated paragraph unit -- see
 ``_caption_by_table_ref``.
+
+Search Quality Improvement Plan, Phase 4: a table's own header-row count
+is resolved here too (``_table_header_row_count``), from Docling's
+per-cell ``TableCell.column_header`` metadata when the backend populated
+it, falling back to "row 0 is the header" otherwise -- see that
+function's docstring. ``documents/chunker.py`` uses it to repeat the
+header block at the top of every row-boundary split of an oversized
+table (``documents/table_renderer.py``).
 """
 
 from __future__ import annotations
@@ -60,6 +68,12 @@ class NormalizedUnit:
     # (see ``_consumed_caption_refs`` below) rather than also surviving as
     # an unrelated stray paragraph right after the table.
     caption: str | None = None
+    # Number of leading rows (of `table_rows`) that make up this table's
+    # header block -- always 0 for a non-table unit; see
+    # `_table_header_row_count`. `documents/chunker.py` repeats exactly
+    # these rows at the top of every row-boundary split it produces for a
+    # table too large to stay one chunk.
+    header_row_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -112,6 +126,32 @@ def _table_rows(item: TableItem) -> tuple[tuple[str, ...], ...]:
         if 0 <= r < data.num_rows and 0 <= c < data.num_cols:
             grid[r][c] = cell.text
     return tuple(tuple(row) for row in grid)
+
+
+def _table_header_row_count(item: TableItem) -> int:
+    """How many leading rows of ``_table_rows(item)`` make up this
+    table's header block.
+
+    Prefers Docling's own per-cell ``TableCell.column_header`` metadata
+    (populated by the ML table-structure model for PDF/image tables) --
+    the header rows are the maximal contiguous run of row indices starting
+    at 0 that contain at least one such cell, so a merged/multi-row header
+    is still counted correctly rather than assumed to be exactly one row.
+
+    Falls back to "row 0 is the header" (returning 1) whenever that
+    metadata is absent -- true for every hand-authored Markdown/HTML/DOCX
+    table, whose backends never run that model at all, and simply the
+    common-sense default for a table that does have at least one row.
+    Returns 0 only for a genuinely empty table (``num_rows == 0``).
+    """
+    data = item.data
+    header_rows = {cell.start_row_offset_idx for cell in data.table_cells if cell.column_header}
+    count = 0
+    while count in header_rows:
+        count += 1
+    if count == 0 and data.num_rows > 0:
+        return 1
+    return count
 
 
 def normalize(doc: DoclingDocument, doc_format: DocumentFormat) -> NormalizedDocument:
@@ -176,6 +216,7 @@ def normalize(doc: DoclingDocument, doc_format: DocumentFormat) -> NormalizedDoc
                     page_end=page_end,
                     table_rows=_table_rows(item),
                     caption=caption_by_table.get(item.self_ref),
+                    header_row_count=_table_header_row_count(item),
                 )
             )
             continue
