@@ -5,6 +5,23 @@ Regenerating a file's document content is delete-then-insert under one
 caller-held transaction (see ``documents/pipeline.py``), mirroring the
 generational pattern ``entities_repo``/``files_repo`` established in
 Phase 1/2.
+
+Search Quality Improvement Plan, Phase 3: each ``insert_section``/
+``insert_paragraph``/``insert_table`` now takes an explicit
+``search_text`` -- what actually gets written to ``document_fts``'s
+indexed body column, in place of the raw unit text these functions
+previously derived it from themselves. The real caller
+(``documents/pipeline.py``) always passes ``chunker.Chunk.search_text``
+(document title + heading path + raw text -- see ``documents/
+chunker.py``); ``search_text`` defaults to ``None`` here only so the
+project's many existing direct-insert call sites (unit tests, the
+synthetic-corpus benchmark) that don't care about this field keep their
+previous FTS body content unchanged rather than being forced to pass it.
+``embedding_text`` (``Chunk.contextual_text``) is stored verbatim on
+``document_sections`` for the same reason ``embedding_indexer.py`` needs
+it: that module reads already-persisted rows, not live ``Chunk``
+objects, so this is the one seam wide enough to carry it from chunk time
+to embed time.
 """
 
 from __future__ import annotations
@@ -38,6 +55,11 @@ class DocumentUnit:
     heading_path: list[str] = field(default_factory=list)
     page_start: int | None = None
     page_end: int | None = None
+    # This row's stored embedding input (``chunker.Chunk.contextual_text``
+    # at index time) -- "" for a row written before this field existed, or
+    # by a caller that passed no ``embedding_text``, never ``None`` so
+    # every reader (``embedding_indexer.py``) can treat it uniformly.
+    embedding_text: str = ""
 
 
 def _row_to_document(row: sqlite3.Row) -> Document:
@@ -131,14 +153,16 @@ def _insert_row(
     fts_heading: str,
     fts_body: str,
     doc_title: str,
+    embedding_text: str | None,
 ) -> None:
     conn.execute(
         """
         INSERT INTO document_sections (
             id, document_id, file_id, kind, heading_level, text,
             heading_path, parent_id, order_index, page_start, page_end,
-            table_rows, num_rows, num_cols, caption, generation, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            table_rows, num_rows, num_cols, caption, generation, created_at,
+            embedding_text
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             row_id,
@@ -158,6 +182,7 @@ def _insert_row(
             caption,
             generation,
             created_at,
+            embedding_text,
         ),
     )
     conn.execute(
@@ -167,7 +192,14 @@ def _insert_row(
     )
 
 
-def insert_section(conn: sqlite3.Connection, section: Section, *, doc_title: str) -> None:
+def insert_section(
+    conn: sqlite3.Connection,
+    section: Section,
+    *,
+    doc_title: str,
+    search_text: str | None = None,
+    embedding_text: str | None = None,
+) -> None:
     _insert_row(
         conn,
         row_id=section.id,
@@ -188,12 +220,20 @@ def insert_section(conn: sqlite3.Connection, section: Section, *, doc_title: str
         generation=section.generation,
         created_at=section.created_at,
         fts_heading=section.text,
-        fts_body="",
+        fts_body=search_text if search_text is not None else "",
         doc_title=doc_title,
+        embedding_text=embedding_text,
     )
 
 
-def insert_paragraph(conn: sqlite3.Connection, paragraph: Paragraph, *, doc_title: str) -> None:
+def insert_paragraph(
+    conn: sqlite3.Connection,
+    paragraph: Paragraph,
+    *,
+    doc_title: str,
+    search_text: str | None = None,
+    embedding_text: str | None = None,
+) -> None:
     _insert_row(
         conn,
         row_id=paragraph.id,
@@ -214,24 +254,34 @@ def insert_paragraph(conn: sqlite3.Connection, paragraph: Paragraph, *, doc_titl
         generation=paragraph.generation,
         created_at=paragraph.created_at,
         fts_heading=" > ".join(paragraph.heading_path),
-        fts_body=paragraph.text,
+        fts_body=search_text if search_text is not None else paragraph.text,
         doc_title=doc_title,
+        embedding_text=embedding_text,
     )
 
 
-def insert_table(conn: sqlite3.Connection, table: Table, *, doc_title: str) -> None:
+def insert_table(
+    conn: sqlite3.Connection,
+    table: Table,
+    *,
+    doc_title: str,
+    search_text: str | None = None,
+    embedding_text: str | None = None,
+) -> None:
     # Search Quality Improvement Plan, Phase 4: row-aware rendering
     # (``table_renderer.render_table``) replaces the previous flattened,
     # space-joined cell blob -- see that module's docstring for why
     # flattening loses row/column association ("which server has 85%
     # CPU?"). This is both the table's `text` (so it feeds
     # ``embed_touched_files`` via ``list_units_by_file`` -- the only
-    # thing an embedding subject's text can be, table or not) and its FTS
-    # `body`, exactly mirroring how `Paragraph.text` already feeds both.
-    # Heading-path/title context still reaches FTS the same way it always
-    # has -- the `fts_heading`/`doc_title` columns below -- rather than
-    # being duplicated in here; a table-only special case for that would
-    # both diverge from every other kind's own `text`/`fts_body` (always
+    # thing an embedding subject's text can be, table or not) and its
+    # default FTS `body` (overridden by an explicit `search_text`, exactly
+    # mirroring `insert_paragraph`'s own `search_text if search_text is not
+    # None else paragraph.text` fallback). Heading-path/title context
+    # still reaches FTS the same way it always has -- the
+    # `fts_heading`/`doc_title` columns below -- rather than being
+    # duplicated in here; a table-only special case for that would both
+    # diverge from every other kind's own `text`/`fts_body` (always
     # exactly its own content, no prefix) and risk cross-domain-linker
     # false positives (`knowledge/linker.py` substring-matches entity
     # names against this same `text`).
@@ -256,8 +306,9 @@ def insert_table(conn: sqlite3.Connection, table: Table, *, doc_title: str) -> N
         generation=table.generation,
         created_at=table.created_at,
         fts_heading=" > ".join(table.heading_path),
-        fts_body=rendered,
+        fts_body=search_text if search_text is not None else rendered,
         doc_title=doc_title,
+        embedding_text=embedding_text,
     )
 
 
@@ -275,6 +326,7 @@ def _row_to_unit(row: sqlite3.Row) -> DocumentUnit:
         heading_path=json.loads(row["heading_path"]) if row["heading_path"] else [],
         page_start=row["page_start"],
         page_end=row["page_end"],
+        embedding_text=row["embedding_text"] or "",
     )
 
 
