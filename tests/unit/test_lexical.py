@@ -306,6 +306,183 @@ def test_search_with_timings_respects_cache_disabled(ragpilot_home: Path, tmp_pa
         ctx.close()
 
 
+def test_build_query_plan_single_token_collapses_tiers() -> None:
+    """Phase 6: a single-word/identifier query must behave exactly like
+    today -- Tier A (phrase) and Tier D (OR fallback) collapse to the
+    same one-token expression, and Tier B/C (all-terms, prefix) simply
+    don't exist for it.
+    """
+    plan = lexical._build_query_plan("Dog")
+    assert plan is not None
+    assert plan.all_terms is None
+    assert plan.prefix is None
+    assert plan.phrase.expression == plan.fallback.expression == '"Dog"'
+    assert plan.phrase.tier == lexical.LexicalTier.PHRASE
+    assert plan.variants() == [plan.phrase, plan.fallback]
+
+
+def test_build_query_plan_multi_word_builds_distinct_ordered_tiers() -> None:
+    plan = lexical._build_query_plan("delayed settlement provider")
+    assert plan is not None
+    assert plan.phrase.expression == '"delayed settlement provider"'
+    assert plan.all_terms is not None
+    assert plan.all_terms.expression == '"delayed" AND "settlement" AND "provider"'
+    assert plan.fallback.expression == '"delayed" OR "settlement" OR "provider"'
+    # Every token here is long enough (>= 4 chars) to be worth a
+    # selective prefix fallback.
+    assert plan.prefix is not None
+    assert plan.prefix.expression == "delayed* AND settlement* AND provider*"
+    assert [v.tier for v in plan.variants()] == [
+        lexical.LexicalTier.PHRASE,
+        lexical.LexicalTier.ALL_TERMS,
+        lexical.LexicalTier.PREFIX,
+        lexical.LexicalTier.OR_FALLBACK,
+    ]
+
+
+def test_build_query_plan_skips_prefix_tier_for_only_short_tokens() -> None:
+    """Tier C is used selectively -- short tokens (the overwhelming
+    majority-noise case, e.g. "a"/"to"/"be") never get prefix-wildcarded,
+    so a query made entirely of them earns no (redundant, noisy) prefix
+    tier at all.
+    """
+    plan = lexical._build_query_plan("a to be")
+    assert plan is not None
+    assert plan.prefix is None
+
+
+def test_run_query_plan_stops_once_a_tier_has_enough_results() -> None:
+    plan = lexical._build_query_plan("delayed settlement provider")
+    assert plan is not None
+    calls: list[str] = []
+
+    def execute(expression: str) -> list[str]:
+        calls.append(expression)
+        return ["hit-1"]
+
+    tagged = lexical._run_query_plan(plan, 1, execute, lambda row: row)
+    assert calls == [plan.phrase.expression]
+    assert tagged == [("hit-1", lexical.LexicalTier.PHRASE)]
+
+
+def test_run_query_plan_falls_through_every_tier_when_short_on_results() -> None:
+    plan = lexical._build_query_plan("delayed settlement provider")
+    assert plan is not None
+    calls: list[str] = []
+
+    def execute(expression: str) -> list[str]:
+        calls.append(expression)
+        return []
+
+    tagged = lexical._run_query_plan(plan, 5, execute, lambda row: row)
+    assert calls == [v.expression for v in plan.variants()]
+    assert tagged == []
+
+
+def test_run_query_plan_dedupes_identical_expressions_for_single_token() -> None:
+    """Regression guard for the "no slowdown on single-token queries"
+    requirement: every tier collapsing to the same expression must
+    result in exactly one executed query, matching pre-Phase-6 behavior.
+    """
+    plan = lexical._build_query_plan("Dog")
+    assert plan is not None
+    calls: list[str] = []
+
+    def execute(expression: str) -> list[str]:
+        calls.append(expression)
+        return ["hit"]
+
+    tagged = lexical._run_query_plan(plan, 10, execute, lambda row: row)
+    assert calls == ['"Dog"']
+    assert tagged == [("hit", lexical.LexicalTier.PHRASE)]
+
+
+def test_multi_word_query_ranks_phrase_match_above_or_only_noise(tmp_path: Path) -> None:
+    """Phase 6's headline acceptance criterion: for a multi-word query,
+    a document only the permissive OR-fallback tier finds (today's only
+    signal) must never outrank a document the exact-phrase tier actually
+    matched, even though both still show up in the same ``RankTier.FTS``
+    bucket.
+    """
+    conn = connect(tmp_path / "knowledge.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        files_repo.insert(conn, _file("f_relevant", "/repo/docs/relevant.md", FileKind.DOCUMENT))
+        files_repo.insert(conn, _file("f_noise", "/repo/docs/noise.md", FileKind.DOCUMENT))
+        with transaction(conn):
+            documents_repo.insert_document(
+                conn,
+                Document(
+                    id="d_relevant",
+                    source_id="s1",
+                    file_id="f_relevant",
+                    format=DocumentFormat.MARKDOWN,
+                    title="Provider Guide",
+                    generation=1,
+                    created_at="now",
+                    updated_at="now",
+                ),
+            )
+            documents_repo.insert_paragraph(
+                conn,
+                Paragraph(
+                    id="p_relevant",
+                    document_id="d_relevant",
+                    file_id="f_relevant",
+                    text="The delayed settlement provider retries automatically.",
+                    order_index=0,
+                    generation=1,
+                    created_at="now",
+                ),
+                doc_title="Provider Guide",
+            )
+            documents_repo.insert_document(
+                conn,
+                Document(
+                    id="d_noise",
+                    source_id="s1",
+                    file_id="f_noise",
+                    format=DocumentFormat.MARKDOWN,
+                    title="Onboarding",
+                    generation=1,
+                    created_at="now",
+                    updated_at="now",
+                ),
+            )
+            # Only shares one of the three query tokens ("provider") --
+            # today's permissive OR-of-every-token query alone can't tell
+            # this apart from the genuinely relevant paragraph above.
+            documents_repo.insert_paragraph(
+                conn,
+                Paragraph(
+                    id="p_noise",
+                    document_id="d_noise",
+                    file_id="f_noise",
+                    text="Our new provider onboarding process starts soon.",
+                    order_index=0,
+                    generation=1,
+                    created_at="now",
+                ),
+                doc_title="Onboarding",
+            )
+
+        results = lexical._merge(
+            lexical._search_documents(
+                conn, "s1", "delayed settlement provider", 25, snippet_max_tokens=32
+            )
+        )
+        by_id = {r.id: r for r in results}
+        assert by_id["p_relevant"].tier == lexical.RankTier.FTS
+        assert by_id["p_noise"].tier == lexical.RankTier.FTS
+        assert by_id["p_relevant"].query_tier == lexical.LexicalTier.PHRASE
+        assert by_id["p_noise"].query_tier == lexical.LexicalTier.OR_FALLBACK
+
+        ids = [r.id for r in results]
+        assert ids.index("p_relevant") < ids.index("p_noise")
+    finally:
+        conn.close()
+
+
 def test_merge_deduplicates_to_best_tier(tmp_path: Path) -> None:
     conn = connect(tmp_path / "knowledge.db")
     try:
