@@ -483,6 +483,191 @@ def test_multi_word_query_ranks_phrase_match_above_or_only_noise(tmp_path: Path)
         conn.close()
 
 
+def test_title_only_match_outranks_incidental_repeated_body_match(tmp_path: Path) -> None:
+    """Search Quality Improvement Plan, Phase 7: ``document_fts``'s bm25()
+    column weights (``documents_repo._DOCUMENT_FTS_COLUMN_WEIGHTS``) make a
+    document whose title carries the query term outrank one where the same
+    term merely appears several times, incidentally, in an unrelated
+    paragraph's body -- proving the weights, not just term frequency,
+    decide the winner.
+
+    Both hits land in the same ``RankTier.FTS``/``LexicalTier.PHRASE``
+    bucket (the query is a single word, so ``_sort_key`` falls through to
+    ``fts_rank``), which is exactly what isolates the bm25 weighting
+    itself as the mechanism under test rather than the coarser RankTier
+    split ``_search_documents`` already applies for an exact full-title or
+    section-heading match.
+    """
+    conn = connect(tmp_path / "knowledge.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        files_repo.insert(conn, _file("f_title", "/repo/docs/zephyr.md", FileKind.DOCUMENT))
+        files_repo.insert(conn, _file("f_body", "/repo/docs/other.md", FileKind.DOCUMENT))
+        with transaction(conn):
+            documents_repo.insert_document(
+                conn,
+                Document(
+                    id="d_title",
+                    source_id="s1",
+                    file_id="f_title",
+                    format=DocumentFormat.MARKDOWN,
+                    title="Zephyr Deployment Guide",
+                    generation=1,
+                    created_at="now",
+                    updated_at="now",
+                ),
+            )
+            # "zephyr" never appears in this paragraph's own text -- the
+            # only reason it matches at all is the document title carried
+            # onto every section's FTS row (see ``_insert_row``'s
+            # ``doc_title`` column).
+            documents_repo.insert_paragraph(
+                conn,
+                Paragraph(
+                    id="p_title",
+                    document_id="d_title",
+                    file_id="f_title",
+                    text="Follow these steps to configure the release pipeline safely.",
+                    order_index=0,
+                    generation=1,
+                    created_at="now",
+                ),
+                doc_title="Zephyr Deployment Guide",
+            )
+            documents_repo.insert_document(
+                conn,
+                Document(
+                    id="d_body",
+                    source_id="s1",
+                    file_id="f_body",
+                    format=DocumentFormat.MARKDOWN,
+                    title="Other",
+                    generation=1,
+                    created_at="now",
+                    updated_at="now",
+                ),
+            )
+            documents_repo.insert_paragraph(
+                conn,
+                Paragraph(
+                    id="p_body",
+                    document_id="d_body",
+                    file_id="f_body",
+                    text=(
+                        "zephyr zephyr zephyr zephyr zephyr is mentioned here "
+                        "incidentally among unrelated notes about scheduling "
+                        "and logistics."
+                    ),
+                    order_index=0,
+                    generation=1,
+                    created_at="now",
+                ),
+                doc_title="Other",
+            )
+
+        results = lexical._merge(
+            lexical._search_documents(conn, "s1", "zephyr", 25, snippet_max_tokens=32)
+        )
+        by_id = {r.id: r for r in results}
+        assert by_id["p_title"].tier == lexical.RankTier.FTS
+        assert by_id["p_body"].tier == lexical.RankTier.FTS
+        assert by_id["p_title"].query_tier == lexical.LexicalTier.PHRASE
+        assert by_id["p_body"].query_tier == lexical.LexicalTier.PHRASE
+
+        ids = [r.id for r in results]
+        assert ids.index("p_title") < ids.index("p_body")
+    finally:
+        conn.close()
+
+
+def test_weighted_bm25_never_overrides_phrase_tier_over_or_fallback(tmp_path: Path) -> None:
+    """Regression guard for Phase 6 x Phase 7 composition: even when a
+    weaker-tier document's title match would score very well under the new
+    column weights, a genuine exact-phrase match must still outrank it --
+    ``_sort_key`` orders by ``LexicalTier`` (query-structure precision)
+    ahead of ``fts_rank`` (bm25 position), so the two features compose
+    rather than the stronger bm25 weight fighting its way past a weaker
+    query tier.
+    """
+    conn = connect(tmp_path / "knowledge.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        files_repo.insert(conn, _file("f_phrase", "/repo/docs/relevant.md", FileKind.DOCUMENT))
+        files_repo.insert(conn, _file("f_title_only", "/repo/docs/provider.md", FileKind.DOCUMENT))
+        with transaction(conn):
+            documents_repo.insert_document(
+                conn,
+                Document(
+                    id="d_phrase",
+                    source_id="s1",
+                    file_id="f_phrase",
+                    format=DocumentFormat.MARKDOWN,
+                    title="Random Notes",
+                    generation=1,
+                    created_at="now",
+                    updated_at="now",
+                ),
+            )
+            documents_repo.insert_paragraph(
+                conn,
+                Paragraph(
+                    id="p_phrase",
+                    document_id="d_phrase",
+                    file_id="f_phrase",
+                    text="The delayed settlement provider retries automatically.",
+                    order_index=0,
+                    generation=1,
+                    created_at="now",
+                ),
+                doc_title="Random Notes",
+            )
+            # Only earns the permissive OR-fallback tier (it shares just
+            # one of the three query tokens), but that one token sits in
+            # the heavily-weighted ``doc_title`` column, so its bm25 rank
+            # alone would beat the phrase match above without the
+            # ``LexicalTier``-before-``fts_rank`` ordering.
+            documents_repo.insert_document(
+                conn,
+                Document(
+                    id="d_title_only",
+                    source_id="s1",
+                    file_id="f_title_only",
+                    format=DocumentFormat.MARKDOWN,
+                    title="Provider Provider Provider",
+                    generation=1,
+                    created_at="now",
+                    updated_at="now",
+                ),
+            )
+            documents_repo.insert_paragraph(
+                conn,
+                Paragraph(
+                    id="p_title_only",
+                    document_id="d_title_only",
+                    file_id="f_title_only",
+                    text="Our new provider onboarding process starts soon.",
+                    order_index=0,
+                    generation=1,
+                    created_at="now",
+                ),
+                doc_title="Provider Provider Provider",
+            )
+
+        results = lexical._merge(
+            lexical._search_documents(
+                conn, "s1", "delayed settlement provider", 25, snippet_max_tokens=32
+            )
+        )
+        by_id = {r.id: r for r in results}
+        assert by_id["p_phrase"].query_tier == lexical.LexicalTier.PHRASE
+        assert by_id["p_title_only"].query_tier == lexical.LexicalTier.OR_FALLBACK
+
+        ids = [r.id for r in results]
+        assert ids.index("p_phrase") < ids.index("p_title_only")
+    finally:
+        conn.close()
+
+
 def test_merge_deduplicates_to_best_tier(tmp_path: Path) -> None:
     conn = connect(tmp_path / "knowledge.db")
     try:

@@ -34,6 +34,43 @@ from ragpilot.core.models import Document, DocumentFormat, Paragraph, Section, S
 from ragpilot.documents import table_renderer
 from ragpilot.storage.repositories import links_repo
 
+# Search Quality Improvement Plan, Phase 7: FTS5's ``bm25(table, w1, w2,
+# ...)`` takes one weight per column *in the table's ``CREATE VIRTUAL
+# TABLE`` declaration order* -- not by column name, and not skipping
+# ``UNINDEXED`` columns, which still occupy a positional slot even though
+# their weight value is ignored (they can never match, so they contribute
+# nothing regardless). ``document_fts`` is declared as
+# ``(section_id UNINDEXED, document_id UNINDEXED, heading_text, body,
+# doc_title)`` (see ``storage/schema.py``'s ``KNOWLEDGE_DB_V3``), so this
+# tuple's five positions are, in order: a placeholder for ``section_id``,
+# a placeholder for ``document_id``, then the real weights for
+# ``heading_text``, ``body``, ``doc_title``. Reordering this tuple to
+# match the *intuitive* title/heading/body reading order instead of the
+# schema's actual declaration order would silently misweight the wrong
+# column -- SQLite raises no error, it just scores on the wrong field.
+#
+# Values are the search-quality plan's benchmark-driven starting point:
+# a title or heading match is a strong, deliberate signal (a document is
+# usually *about* what its title says) and should outrank many incidental
+# body occurrences of the same term, without making body text worthless
+# (``keyword_search``/multi-word queries still depend on it). Verified
+# against ``benchmarks/search_quality`` before landing -- see
+# ``CHANGELOG.md``'s Phase 7 entry for the before/after category numbers.
+_DOCUMENT_FTS_COLUMN_WEIGHTS: tuple[float, float, float, float, float] = (
+    0.0,  # section_id (UNINDEXED, ignored -- placeholder to keep position)
+    0.0,  # document_id (UNINDEXED, ignored -- placeholder to keep position)
+    5.0,  # heading_text
+    1.0,  # body
+    8.0,  # doc_title
+)
+
+# ``bm25(document_fts, ?, ?, ?, ?, ?)`` -- built once so both ``search_fts``
+# and ``search_fts_projection`` below score identically rather than one of
+# them drifting to FTS5's flat default weighting.
+_BM25_DOCUMENT_FTS_EXPR = "bm25(document_fts, {}, {}, {}, {}, {})".format(
+    *_DOCUMENT_FTS_COLUMN_WEIGHTS
+)
+
 
 @dataclass(frozen=True)
 class DocumentUnit:
@@ -390,11 +427,11 @@ def search_fts(conn: sqlite3.Connection, query: str, *, limit: int = 25) -> list
     ``entities_repo.search_fts`` seeds Phase 2's graph traversal.
     """
     return conn.execute(
-        """
+        f"""
         SELECT document_id, section_id, heading_text, body, doc_title
         FROM document_fts
         WHERE document_fts MATCH ?
-        ORDER BY bm25(document_fts)
+        ORDER BY {_BM25_DOCUMENT_FTS_EXPR}
         LIMIT ?
         """,
         (query, limit),
@@ -465,11 +502,11 @@ def search_fts_projection(
     """
     clamped_max_tokens = max(1, min(64, snippet_max_tokens))
     rows = conn.execute(
-        """
+        f"""
         SELECT df.document_id, df.section_id, df.heading_text, df.body,
                df.doc_title, d.title AS document_title, f.path, f.mtime,
                ds.page_start, ds.page_end, ds.heading_path,
-               bm25(document_fts) AS rank,
+               {_BM25_DOCUMENT_FTS_EXPR} AS rank,
                snippet(document_fts, -1, '', '', '...', ?) AS match_snippet
         FROM document_fts df
         JOIN documents d ON d.id = df.document_id
