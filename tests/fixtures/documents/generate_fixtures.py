@@ -89,9 +89,42 @@ def _make_pdf() -> None:
     (HERE / "sample.pdf").write_bytes(pdf.encode("latin-1"))
 
 
+def _make_scanned_pdf() -> None:
+    """A minimal, hand-assembled single-page PDF with a completely empty
+    content stream -- no text, no image, nothing Docling's plain pipeline
+    (OCR off) could ever extract a character from. Stands in for a real
+    scanned/image-only PDF for Search Quality Improvement Plan Phase 5's
+    "auto" OCR-trigger golden test (``test_docling_pdf.py``): it isn't a
+    raster image of text, but it exercises the exact condition that
+    actually triggers OCR -- zero extracted text on every page -- without
+    needing a real scanner output or an image-embedding library this
+    project doesn't otherwise depend on.
+    """
+    objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /Resources << >> "
+        "/MediaBox [0 0 612 792] /Contents 4 0 R >>",
+        "<< /Length 0 >>\nstream\n\nendstream",
+    ]
+
+    pdf = "%PDF-1.4\n"
+    offsets = [0]
+    for i, obj in enumerate(objects, start=1):
+        offsets.append(len(pdf))
+        pdf += f"{i} 0 obj\n{obj}\nendobj\n"
+    xref_offset = len(pdf)
+    pdf += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n"
+    for off in offsets[1:]:
+        pdf += f"{off:010} 00000 n \n"
+    pdf += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF"
+    (HERE / "scanned.pdf").write_bytes(pdf.encode("latin-1"))
+
+
 if __name__ == "__main__":
     _make_docx()
     _make_pptx()
     _make_xlsx()
     _make_pdf()
+    _make_scanned_pdf()
     print("Fixtures written to", HERE)

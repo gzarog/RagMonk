@@ -1308,6 +1308,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     committed baseline (its two table fixtures are small enough to stay
     one chunk each, so ranking is unaffected) -- the baseline did not
     need regenerating.
+- Search Quality Improvement Plan, Phase 5: OCR auto-fallback for
+  scanned/image-only PDFs.
+  - **The problem**: `documents.ocr` (`config.py`) has existed since
+    Phase 3 but was inert -- `docling_adapter.py` forced
+    `pdf_options.do_ocr = False` unconditionally, so a scanned/image-only
+    PDF indexed with zero extracted text and no way to recover it.
+  - **`documents.ocr`: `"off"` | `"auto"` (default) | `"always"`**,
+    validated in `core.config.DocumentsConfig`. `"off"` is byte-identical
+    to every prior phase's only behavior. `"auto"` runs the plain,
+    non-OCR pipeline first and only re-runs conversion with OCR enabled
+    when that result looks too textless to be real body content.
+    `"always"` skips the detection pass entirely and always runs OCR --
+    cheaper than `"auto"` when the caller already knows it wants OCR,
+    since it never pays for two pipeline runs.
+  - **Auto-detection** (`normalizer._is_low_text_density`, a new
+    `SCANNED_CHARS_PER_PAGE_THRESHOLD = 50` constant): OCR triggers when
+    a PDF has no extracted text at all, fewer than 50 extracted
+    characters per page on average, or most pages produced no text item
+    at all. This same function now also backs `normalize`'s `is_scanned`
+    flag, replacing its previous, simpler `total_text_chars == 0` check
+    (Phase 3) -- `is_scanned` now reports "this document still looks
+    textless" against whatever document actually got normalized (OCR'd
+    or not, depending on `documents.ocr`), not just "OCR was never
+    attempted". One definition of "does this look scanned", not two.
+  - **`docling_adapter.py`**: a second, independent `DocumentConverter`
+    singleton (`_get_ocr_converter`, `do_ocr=True`) alongside the
+    existing plain one -- OCR is never toggled on the shared plain
+    converter, so a request for OCR can never change what every other
+    caller's pipeline does. `convert()`/`_convert_pdf` gained an
+    `ocr_mode` parameter (keyword-only, defaulting to `"off"` so every
+    pre-Phase-5 caller, tests included, is unaffected); real callers get
+    the configured mode via `indexing/coordinator.py` threading
+    `config.documents.ocr` through `ProcessorContext.ocr` (mirroring
+    `chunking`/`max_document_pages`) to `documents/pipeline.py`. An OCR'd
+    PDF still produces a plain `DoclingDocument`, normalized/chunked/
+    stored through the exact same downstream pipeline as any other --
+    no parallel OCR-specific code path.
+  - **Caching**: `document_conversion_cache` (`storage/schema.py`'s
+    `KNOWLEDGE_DB_V6`/`V10`) gains an `ocr_used` (`"off"`/`"on"`) column
+    that joins `content_hash` as the table's key (`KNOWLEDGE_DB_V13`,
+    additive: recreates the table under a temporary name and backfills
+    every pre-existing row as `ocr_used = 'off'`, since every row cached
+    before this phase was, unambiguously, produced by the plain
+    pipeline -- unlike `KNOWLEDGE_DB_V10`'s "bump cache_version, let old
+    rows go stale" precedent, nothing here needs to be discarded).
+    `document_conversion_cache_repo.get`/`put`/`CachedConversion` gained
+    a required `ocr_used` field/parameter. A page cached from a plain
+    conversion is never handed back for a request that actually needed
+    OCR, and vice versa; `"auto"` transparently shares `"off"`'s cache
+    entry when it doesn't trigger OCR, and `"always"`'s when it does.
+  - **OCR engine**: this project's pinned `docling` range (`>=2.40,<3`)
+    already transitively installs RapidOCR via `docling-slim[standard]`
+    (see `pyproject.toml`'s updated dependency comment) -- no new
+    dependency was added for this phase. Regardless,
+    `docling_adapter._run_ocr_conversion` degrades gracefully (catches
+    any OCR-specific failure, logs a warning, and callers fall back to
+    the plain conversion) if a given environment's OCR engine is
+    missing, broken, or can't reach its model weights -- verified with a
+    dedicated graceful-degradation test that never touches Docling's
+    real pipeline.
+  - **Tests**: `tests/unit/test_docling_adapter_ocr.py` (new, default
+    suite, no model download) covers every `"off"`/`"auto"`/`"always"`
+    branch, both cache-key-distinguishing directions, and graceful
+    degradation, entirely mocked at the `_get_converter`/
+    `_get_ocr_converter`/`_run_conversion` seam.
+    `tests/unit/test_document_normalizer.py` pins
+    `_is_low_text_density`'s threshold behavior directly plus
+    `normalize`'s `is_scanned` wiring. `tests/unit/
+    test_document_conversion_cache.py` covers `ocr_used` as a genuine
+    cache key at the storage layer. `tests/unit/test_docling_pdf.py`
+    (`docling_pdf`-marked) adds a real, end-to-end proof -- a new
+    `scanned.pdf` fixture (a hand-assembled PDF with an empty content
+    stream, standing in for a true scanned/image-only PDF without this
+    project needing an image-embedding fixture library) -- that `"auto"`
+    really detects a textless PDF and re-runs Docling's real OCR
+    pipeline (RapidOCR) against it, populating both cache rows.
 - CLI performance improvement plan, Phase 1: startup benchmark and
   heavy-import regression test.
   - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,

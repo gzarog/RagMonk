@@ -30,6 +30,17 @@ it, falling back to "row 0 is the header" otherwise -- see that
 function's docstring. ``documents/chunker.py`` uses it to repeat the
 header block at the top of every row-boundary split of an oversized
 table (``documents/table_renderer.py``).
+
+Search Quality Improvement Plan, Phase 5: ``normalize``'s ``is_scanned``
+flag and ``docling_adapter``'s auto-OCR trigger both need to answer the
+same question -- "does this PDF's extracted text look too sparse to be
+real body content" -- so they share one definition,
+``_is_low_text_density`` below, rather than drifting into two
+independently-tuned heuristics. ``docling_adapter`` calls this module's
+``normalize`` directly on its first, non-OCR conversion pass to decide
+whether to re-run with OCR (see that module's ``_should_ocr``), and the
+final document (OCR'd or not) is normalized again -- through this same
+function -- for the document that actually gets chunked/indexed.
 """
 
 from __future__ import annotations
@@ -49,6 +60,35 @@ from ragpilot.core.models import DocumentFormat
 # Furniture-like text Docling still emits as TextItem rows -- repeated per
 # page, not real body content, so excluded from the normalized unit list.
 _SKIPPED_TEXT_LABELS = {"page_header", "page_footer"}
+
+# Search Quality Improvement Plan, Phase 5: below this many extracted
+# characters per PDF page, a page's text is treated as effectively absent
+# -- either genuinely scanned/image-only, or so sparse (a stray page
+# number, a watermark) that it isn't real body content either way. A
+# plain, tunable constant rather than a config field: the plan's own
+# guidance is not to promote this into configuration until there is a
+# real reason to, per-project, to tune it.
+SCANNED_CHARS_PER_PAGE_THRESHOLD = 50
+
+
+def _is_low_text_density(
+    *, page_count: int | None, total_text_chars: int, pages_with_text: int
+) -> bool:
+    """True when a PDF's extracted text is sparse enough to look scanned/
+    image-only: no text at all, well under
+    ``SCANNED_CHARS_PER_PAGE_THRESHOLD`` characters per page on average,
+    or most pages produced no text item at all. Shared by ``normalize``'s
+    ``is_scanned`` flag and ``docling_adapter``'s auto-OCR trigger -- see
+    this module's docstring for why there is only one such check, not
+    two.
+    """
+    if not page_count:
+        return total_text_chars == 0
+    if total_text_chars == 0:
+        return True
+    if (total_text_chars / page_count) < SCANNED_CHARS_PER_PAGE_THRESHOLD:
+        return True
+    return pages_with_text * 2 < page_count
 
 
 @dataclass(frozen=True)
@@ -164,6 +204,14 @@ def normalize(doc: DoclingDocument, doc_format: DocumentFormat) -> NormalizedDoc
     # outline.
     stack: list[tuple[int, int, str]] = []
     total_text_chars = 0
+    # Page numbers (1-based, Docling's own ``prov.page_no``) that produced
+    # at least one non-empty heading/paragraph text item -- the "most
+    # pages contain no text blocks" half of ``_is_low_text_density``.
+    # Tables are deliberately not counted here, matching ``total_text_chars``
+    # above: a table with OCR'd-garbage or empty cells shouldn't count as
+    # "this page has text" any more than it already counts toward
+    # ``total_text_chars``.
+    pages_with_text: set[int] = set()
     caption_by_table, consumed_caption_refs = _caption_by_table_ref(doc)
 
     for item, _tree_level in doc.iterate_items():
@@ -199,6 +247,8 @@ def normalize(doc: DoclingDocument, doc_format: DocumentFormat) -> NormalizedDoc
             )
             stack.append((level, index, item.text))
             total_text_chars += len(item.text)
+            if item.text.strip() and page_start is not None and page_end is not None:
+                pages_with_text.update(range(page_start, page_end + 1))
             continue
 
         heading_path = tuple(title for _, _, title in stack)
@@ -225,6 +275,8 @@ def normalize(doc: DoclingDocument, doc_format: DocumentFormat) -> NormalizedDoc
         if not text:
             continue
         total_text_chars += len(text)
+        if page_start is not None and page_end is not None:
+            pages_with_text.update(range(page_start, page_end + 1))
         units.append(
             NormalizedUnit(
                 kind="paragraph",
@@ -243,12 +295,19 @@ def normalize(doc: DoclingDocument, doc_format: DocumentFormat) -> NormalizedDoc
     if title is None:
         title = next((u.text for u in units if u.kind == "heading"), None)
 
-    # Docling does not itself flag a PDF page as scanned/image-only (OCR is
-    # out of scope here regardless -- see docling_adapter.py). With OCR
-    # off, a page rendered from an image-only PDF simply yields zero text
-    # items, so "every page produced no text at all" is a reasonable,
-    # Docling-observable proxy for "this looks scanned" without running OCR.
-    is_scanned = doc_format is DocumentFormat.PDF and bool(page_count) and total_text_chars == 0
+    # Docling does not itself flag a PDF page as scanned/image-only.
+    # ``_is_low_text_density`` is the same low-density check
+    # ``docling_adapter``'s auto-OCR trigger runs on the plain (pre-OCR)
+    # conversion -- calling it again here, on whatever document actually
+    # got normalized (OCR'd or not, depending on ``documents.ocr``), means
+    # ``is_scanned`` reports "this document still looks textless" even for
+    # a document OCR was tried on and didn't help, not just "OCR was never
+    # attempted".
+    is_scanned = doc_format is DocumentFormat.PDF and bool(page_count) and _is_low_text_density(
+        page_count=page_count,
+        total_text_chars=total_text_chars,
+        pages_with_text=len(pages_with_text),
+    )
 
     return NormalizedDocument(
         title=title, page_count=page_count, is_scanned=is_scanned, units=units
