@@ -8,7 +8,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from ragpilot.retrieval import cache
+from ragmonk.retrieval import cache
 
 
 def test_bounded_cache_evicts_least_recently_used() -> None:

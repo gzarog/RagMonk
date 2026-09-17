@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ragpilot.core.models import (
+from ragmonk.core.models import (
     Document,
     DocumentFormat,
     EmbeddingSubjectType,
@@ -18,15 +18,15 @@ from ragpilot.core.models import (
     FileStatus,
     Paragraph,
 )
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import (
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import (
     documents_repo,
     embeddings_repo,
     entities_repo,
     files_repo,
     vector_items_repo,
 )
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.storage.sqlite import connect, transaction
 
 MODEL = "test-model"
 

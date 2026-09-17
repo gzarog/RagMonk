@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core import paths
-from ragpilot.ops import uninstall as uninstall_ops
-from ragpilot.service import pid
-from ragpilot.update.installer import InstallMethod
+from ragmonk.core import paths
+from ragmonk.ops import uninstall as uninstall_ops
+from ragmonk.service import pid
+from ragmonk.update.installer import InstallMethod
 
 
 class _RecordingRunner:
@@ -56,9 +56,9 @@ class TestPlanUninstall:
         _write_install_info(
             home,
             install_method="install-script",
-            repository="gzarog/Ragpilotv2",
-            install_dir="/opt/ragpilot",
-            venv_dir="/opt/ragpilot/venv",
+            repository="gzarog/RagMonk",
+            install_dir="/opt/ragmonk",
+            venv_dir="/opt/ragmonk/venv",
             bin_dir="/opt/bin",
         )
 
@@ -66,14 +66,14 @@ class TestPlanUninstall:
 
         assert plan.method is InstallMethod.INSTALL_SCRIPT
         assert plan.can_auto_remove_app is True
-        assert Path("/opt/ragpilot/venv") in plan.app_paths
-        assert Path("/opt/ragpilot/app") in plan.app_paths
+        assert Path("/opt/ragmonk/venv") in plan.app_paths
+        assert Path("/opt/ragmonk/app") in plan.app_paths
         assert any(p.parent == Path("/opt/bin") for p in plan.app_paths)
 
     def test_install_script_missing_paths_refuses_rather_than_guess(self, tmp_path: Path) -> None:
         home = tmp_path / "home"
         _write_install_info(
-            home, install_method="install-script", repository="gzarog/Ragpilotv2"
+            home, install_method="install-script", repository="gzarog/RagMonk"
         )
 
         plan = uninstall_ops.plan_uninstall(home)
@@ -84,7 +84,7 @@ class TestPlanUninstall:
     def test_pip_and_pipx_are_auto_removable_with_no_listed_paths(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from ragpilot.update import installer
+        from ragmonk.update import installer
 
         monkeypatch.setattr(installer, "_is_editable_install", lambda: False)
         monkeypatch.setattr(installer, "_is_pipx_install", lambda: False)
@@ -101,7 +101,7 @@ class TestPlanUninstall:
     def test_editable_install_refuses_with_git_hint(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from ragpilot.update import installer
+        from ragmonk.update import installer
 
         monkeypatch.setattr(installer, "_is_editable_install", lambda: True)
 
@@ -128,7 +128,7 @@ class TestRemoveApplication:
 
         assert uninstall_ops.remove_application(plan, runner=runner) is True
         argv, env = runner.calls[0]
-        assert argv[1:] == ["-m", "pip", "uninstall", "-y", "ragpilot"]
+        assert argv[1:] == ["-m", "pip", "uninstall", "-y", "ragmonk"]
         assert env is None
 
     def test_pipx_runs_pipx_uninstall(self, tmp_path: Path) -> None:
@@ -136,7 +136,7 @@ class TestRemoveApplication:
         runner = _RecordingRunner()
 
         assert uninstall_ops.remove_application(plan, runner=runner) is True
-        assert runner.calls[0][0] == ["pipx", "uninstall", "ragpilot"]
+        assert runner.calls[0][0] == ["pipx", "uninstall", "ragmonk"]
 
     def test_pip_failure_is_reported_as_false(self, tmp_path: Path) -> None:
         plan = uninstall_ops.UninstallPlan(method=InstallMethod.PIP, can_auto_remove_app=True)
@@ -159,7 +159,7 @@ class TestRemoveApplication:
         app_dir = tmp_path / "install" / "app"
         bin_dir = tmp_path / "bin"
         other_file = bin_dir / "some-other-tool"
-        launcher = bin_dir / "ragpilot"
+        launcher = bin_dir / "ragmonk"
         for d in (venv_dir, app_dir, bin_dir):
             d.mkdir(parents=True)
         (venv_dir / "marker").write_text("x")
@@ -195,7 +195,7 @@ class TestRemoveApplication:
 
         venv_dir = tmp_path / "install" / "venv"
         app_dir = tmp_path / "install" / "app"
-        launcher = tmp_path / "bin" / "ragpilot.cmd"
+        launcher = tmp_path / "bin" / "ragmonk.cmd"
         plan = uninstall_ops.UninstallPlan(
             method=InstallMethod.INSTALL_SCRIPT,
             can_auto_remove_app=True,

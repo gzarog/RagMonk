@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core.errors import SecurityViolationError
-from ragpilot.security.path_guard import PathGuard
+from ragmonk.core.errors import SecurityViolationError
+from ragmonk.security.path_guard import PathGuard
 
 
 def test_legitimate_nested_path_is_accepted(tmp_path: Path) -> None:

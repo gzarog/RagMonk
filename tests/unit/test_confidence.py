@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ragpilot.core.models import Confidence
-from ragpilot.knowledge import confidence
+from ragmonk.core.models import Confidence
+from ragmonk.knowledge import confidence
 
 
 def test_rank_orders_exact_above_high_above_medium_above_heuristic() -> None:

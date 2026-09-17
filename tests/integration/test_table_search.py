@@ -1,7 +1,7 @@
 """Search Quality Improvement Plan, Phase 4: end-to-end proof that
 row-aware table indexing (``documents/table_renderer.py``) actually fixes
 the regression flattening caused -- indexed through the real CLI
-(``ragpilot source add`` / ``ragpilot index``), queried through
+(``ragmonk source add`` / ``ragmonk index``), queried through
 ``documents_repo.search_fts`` so assertions can inspect the exact FTS
 ``body`` text a hit carries, not just whether a hit occurred.
 
@@ -27,12 +27,12 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
-from ragpilot.retrieval.lexical import _fts_query
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import documents_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.cli.main import app
+from ragmonk.core import paths
+from ragmonk.retrieval.lexical import _fts_query
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import documents_repo
+from ragmonk.storage.sqlite import connect
 
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
 
@@ -41,7 +41,7 @@ def _search_fts(conn, query: str):  # noqa: ANN001, ANN201 - test helper
     """``documents_repo.search_fts`` via the same query-sanitization
     ``retrieval/lexical.py``'s real ``search()`` applies (``_fts_query``)
     -- gets this test past raw FTS5 syntax errors on '%'/'-' exactly the
-    way production ``ragpilot search`` already does, while still
+    way production ``ragmonk search`` already does, while still
     returning full row ``body`` text (unlike a truncated match snippet)
     so assertions can inspect row/column association directly.
     """
@@ -97,7 +97,7 @@ def _write_large_table(root: Path) -> None:
 
 @pytest.fixture
 def indexed_tables(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):  # noqa: ANN201 - test fixture
     root = tmp_path / "docs_project"
     root.mkdir()
@@ -110,7 +110,7 @@ def indexed_tables(
     index_result = runner.invoke(app, ["index"])
     assert index_result.exit_code == 0, index_result.output
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         yield conn
     finally:

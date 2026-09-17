@@ -8,9 +8,9 @@ hard-gating on the blueprint's millisecond targets, which a shared CI
 runner cannot reliably meet or miss meaningfully.
 
 Corpus size defaults to ``small`` (fast enough for routine use); set
-``RAGPILOT_BENCHMARK_SIZE`` to run a larger one locally, e.g.::
+``RAGMONK_BENCHMARK_SIZE`` to run a larger one locally, e.g.::
 
-    RAGPILOT_BENCHMARK_SIZE=medium pytest -m benchmark_search -q -s
+    RAGMONK_BENCHMARK_SIZE=medium pytest -m benchmark_search -q -s
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import pytest
 from benchmarks.search import corpus, queries, runner
 from benchmarks.search.fake_embedder import fake_embed_texts
 
-from ragpilot.retrieval import embedder
+from ragmonk.retrieval import embedder
 
 
 @pytest.mark.benchmark_search
@@ -35,7 +35,7 @@ def test_benchmark_suite_runs_and_finds_known_fixtures(
     # needs to be in place before the benchmark queries run.
     monkeypatch.setattr(embedder, "embed_texts", fake_embed_texts)
 
-    size = os.environ.get("RAGPILOT_BENCHMARK_SIZE", "small")
+    size = os.environ.get("RAGMONK_BENCHMARK_SIZE", "small")
     generated = corpus.generate(tmp_path, size_name=size, seed=0)
     try:
         query_set = queries.build_queries(generated)

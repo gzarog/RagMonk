@@ -1,5 +1,5 @@
 """Golden tests: Docling conversion -> normalize -> chunk, per format,
-asserting RAGpilot's NORMALIZED output (not Docling's internal JSON) per
+asserting RagMonk's NORMALIZED output (not Docling's internal JSON) per
 the blueprint's "Docling Fixtures" guidance.
 
 Every format here (DOCX/PPTX/XLSX/HTML/Markdown/TXT/EML, plus Phase 10's
@@ -19,10 +19,10 @@ from docling_core.types.doc.base import BoundingBox, Size
 from docling_core.types.doc.common.reference import ProvenanceItem
 from docling_core.types.doc.document import DoclingDocument
 
-from ragpilot.core.models import DocumentFormat
-from ragpilot.documents import chunker, docling_adapter, normalizer
-from ragpilot.documents.metadata import extract_metadata
-from ragpilot.documents.normalizer import SCANNED_CHARS_PER_PAGE_THRESHOLD, _is_low_text_density
+from ragmonk.core.models import DocumentFormat
+from ragmonk.documents import chunker, docling_adapter, normalizer
+from ragmonk.documents.metadata import extract_metadata
+from ragmonk.documents.normalizer import SCANNED_CHARS_PER_PAGE_THRESHOLD, _is_low_text_density
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "documents"
 

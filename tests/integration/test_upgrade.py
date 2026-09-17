@@ -1,5 +1,5 @@
-"""``ragpilot upgrade``: no-op when already current, backup-first when a
-migration is pending, and reuse of ``ragpilot doctor``'s health check.
+"""``ragmonk upgrade``: no-op when already current, backup-first when a
+migration is pending, and reuse of ``ragmonk doctor``'s health check.
 """
 
 from __future__ import annotations
@@ -11,15 +11,15 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
-from ragpilot.storage import migrations as migrations_module
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.sqlite import connect
+from ragmonk.cli.main import app
+from ragmonk.core import paths
+from ragmonk.storage import migrations as migrations_module
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.sqlite import connect
 
 
 def test_upgrade_with_nothing_pending_is_a_safe_noop(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -30,7 +30,7 @@ def test_upgrade_with_nothing_pending_is_a_safe_noop(
     assert runner.invoke(app, ["source", "add", str(source_dir)]).exit_code == 0
     assert runner.invoke(app, ["index"]).exit_code == 0
 
-    before_backups = list(paths.backups_dir(ragpilot_home).glob("*.tar.gz"))
+    before_backups = list(paths.backups_dir(ragmonk_home).glob("*.tar.gz"))
 
     result = runner.invoke(app, ["upgrade", "--json"])
     assert result.exit_code == 0, result.output
@@ -42,12 +42,12 @@ def test_upgrade_with_nothing_pending_is_a_safe_noop(
     for db in payload["databases"]:
         assert db["before"] == db["after"]
 
-    after_backups = list(paths.backups_dir(ragpilot_home).glob("*.tar.gz"))
+    after_backups = list(paths.backups_dir(ragmonk_home).glob("*.tar.gz"))
     assert after_backups == before_backups
 
 
 def test_upgrade_backs_up_before_applying_a_pending_migration(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -62,7 +62,7 @@ def test_upgrade_backs_up_before_applying_a_pending_migration(
     # established pattern for exercising "a migration is pending"
     # (see tests/unit/test_migrations.py for the equivalent non-Phase-8 use
     # of this same MIGRATIONS structure).
-    sources_db_path = paths.sources_db_path(ragpilot_home)
+    sources_db_path = paths.sources_db_path(ragmonk_home)
     sources_db_path.unlink()
     for suffix in ("-wal", "-shm"):
         sources_db_path.with_name(f"sources.db{suffix}").unlink(missing_ok=True)

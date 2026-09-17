@@ -17,12 +17,12 @@ from docling_core.types.doc import DocItemLabel
 from docling_core.types.doc.document import DoclingDocument
 from docling_core.types.doc.items.table.table_data import TableCell, TableData
 
-from ragpilot.core.config import ChunkingConfig
-from ragpilot.core.models import DocumentFormat
-from ragpilot.documents import chunker, normalizer
-from ragpilot.documents.chunker import chunk_document
-from ragpilot.documents.normalizer import NormalizedDocument, NormalizedUnit
-from ragpilot.documents.tokenization import count_tokens
+from ragmonk.core.config import ChunkingConfig
+from ragmonk.core.models import DocumentFormat
+from ragmonk.documents import chunker, normalizer
+from ragmonk.documents.chunker import chunk_document
+from ragmonk.documents.normalizer import NormalizedDocument, NormalizedUnit
+from ragmonk.documents.tokenization import count_tokens
 
 
 def _heading(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ragpilot.core.models import FileKind, FileRecord, FileStatus, ScannedFile
-from ragpilot.indexing.incremental import (
+from ragmonk.core.models import FileKind, FileRecord, FileStatus, ScannedFile
+from ragmonk.indexing.incremental import (
     ChangeType,
     ReprocessDecision,
     VersionStamp,

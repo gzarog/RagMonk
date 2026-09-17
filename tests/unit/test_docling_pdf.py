@@ -40,12 +40,12 @@ from unittest.mock import patch
 
 import pytest
 
-from ragpilot.documents import chunker, docling_adapter, normalizer
-from ragpilot.documents.metadata import extract_metadata
-from ragpilot.sources.fingerprint import hash_file
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import document_conversion_cache_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.documents import chunker, docling_adapter, normalizer
+from ragmonk.documents.metadata import extract_metadata
+from ragmonk.sources.fingerprint import hash_file
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import document_conversion_cache_repo
+from ragmonk.storage.sqlite import connect
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "documents"
 

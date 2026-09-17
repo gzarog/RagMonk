@@ -5,7 +5,7 @@ supporting cases for each rule.
 
 from __future__ import annotations
 
-from ragpilot.retrieval.planner import Intent, Strategy, plan
+from ragmonk.retrieval.planner import Intent, Strategy, plan
 
 
 def test_bare_identifier_is_identifier_plus_fts() -> None:

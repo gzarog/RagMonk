@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import ragpilot.indexing.coordinator as coordinator_module
-from ragpilot.cli.main import app
-from ragpilot.core.errors import (
+import ragmonk.indexing.coordinator as coordinator_module
+from ragmonk.cli.main import app
+from ragmonk.core.errors import (
     EXIT_CONFIG_ERROR,
     EXIT_INDEXING_PARTIAL_FAILURE,
     EXIT_INVALID_ARGUMENTS,
@@ -18,23 +18,23 @@ from ragpilot.core.errors import (
 
 
 def test_missing_required_argument_is_invalid_arguments(
-    ragpilot_home: Path, runner: CliRunner
+    ragmonk_home: Path, runner: CliRunner
 ) -> None:
     result = runner.invoke(app, ["source", "add"])
     assert result.exit_code == EXIT_INVALID_ARGUMENTS
 
 
 def test_malformed_config_is_config_error(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    ragpilot_home.mkdir(parents=True, exist_ok=True)
-    (ragpilot_home / "config.yaml").write_text("runtime:\n  max_workers: \"not-an-int\"\n")
+    ragmonk_home.mkdir(parents=True, exist_ok=True)
+    (ragmonk_home / "config.yaml").write_text("runtime:\n  max_workers: \"not-an-int\"\n")
     result = runner.invoke(app, ["status", "--json"])
     assert result.exit_code == EXIT_CONFIG_ERROR
 
 
 def test_add_nonexistent_source_is_source_unavailable(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path
 ) -> None:
     runner.invoke(app, ["init"])
     result = runner.invoke(app, ["source", "add", str(tmp_path / "does-not-exist")])
@@ -42,7 +42,7 @@ def test_add_nonexistent_source_is_source_unavailable(
 
 
 def test_partial_indexing_failure_is_reported_and_does_not_crash(
-    ragpilot_home: Path,
+    ragmonk_home: Path,
     runner: CliRunner,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -91,7 +91,7 @@ def test_partial_indexing_failure_is_reported_and_does_not_crash(
 
 
 def test_doctor_reports_warning_when_source_unreachable(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Phase 7's offline-vs-deleted safety fix: an unreachable source root
     # (unmounted network share, deleted directory) must never fail

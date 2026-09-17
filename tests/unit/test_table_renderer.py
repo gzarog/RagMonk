@@ -6,7 +6,7 @@ independent of the Docling/chunker machinery that wires it in
 
 from __future__ import annotations
 
-from ragpilot.documents import table_renderer
+from ragmonk.documents import table_renderer
 
 
 def test_render_rows_keeps_each_row_on_its_own_pipe_delimited_line() -> None:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from ragpilot.watcher.local import LocalSourceWatcher
+from ragmonk.watcher.local import LocalSourceWatcher
 
 _DEBOUNCE_MS = 50
 _WAIT_TIMEOUT_SECONDS = 5.0

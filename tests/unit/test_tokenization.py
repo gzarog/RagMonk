@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ragpilot.documents.tokenization import count_tokens, split_by_token_budget, split_sentences
+from ragmonk.documents.tokenization import count_tokens, split_by_token_budget, split_sentences
 
 
 def test_count_tokens_empty_string_is_zero() -> None:

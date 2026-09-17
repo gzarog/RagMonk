@@ -4,12 +4,12 @@ import json
 import tarfile
 from pathlib import Path
 
-from ragpilot import __version__
-from ragpilot.core import paths
-from ragpilot.core.models import IndexingMode, Source, SourceType
-from ragpilot.ops.backup import MANIFEST_FORMAT_VERSION, create_backup
-from ragpilot.storage.migrations import MIGRATIONS, apply_migrations
-from ragpilot.storage.sqlite import connect
+from ragmonk import __version__
+from ragmonk.core import paths
+from ragmonk.core.models import IndexingMode, Source, SourceType
+from ragmonk.ops.backup import MANIFEST_FORMAT_VERSION, create_backup
+from ragmonk.storage.migrations import MIGRATIONS, apply_migrations
+from ragmonk.storage.sqlite import connect
 
 # The highest migration *version number*, not the count of migrations --
 # ``current_version`` (what ``create_backup`` actually records per
@@ -42,7 +42,7 @@ def test_create_backup_with_no_sources_still_backs_up_sources_db(tmp_path: Path)
 
     assert archive_path.is_file()
     assert manifest.format_version == MANIFEST_FORMAT_VERSION
-    assert manifest.ragpilot_version == __version__
+    assert manifest.ragmonk_version == __version__
     assert manifest.sources_schema_version == 2
     assert manifest.projects == {}
 

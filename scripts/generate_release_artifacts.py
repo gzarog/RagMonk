@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds RAGpilot's sdist/wheel, then generates a checksum file and a
+"""Builds RagMonk's sdist/wheel, then generates a checksum file and a
 basic dependency manifest ("SBOM") alongside them.
 
 Scope (Phase 8, priority 4 -- see CHANGELOG.md): this produces *unsigned*
@@ -105,12 +105,12 @@ def _component_for(name: str) -> dict[str, str]:
 def _generate_sbom(dist_dir: Path) -> Path:
     components = [_component_for(name) for name in sorted(_project_dependency_names())]
     manifest = {
-        "format": "ragpilot-dependency-manifest",
+        "format": "ragmonk-dependency-manifest",
         "format_note": (
             "Not CycloneDX/SPDX -- a plain, hand-rolled dependency listing. "
             "See scripts/generate_release_artifacts.py."
         ),
-        "ragpilot_version": metadata.version("ragpilot"),
+        "ragmonk_version": metadata.version("ragmonk"),
         "generated_at": datetime.now(UTC).isoformat(),
         "python_version": sys.version.split()[0],
         "components": components,

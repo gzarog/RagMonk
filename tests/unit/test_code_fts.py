@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ragpilot.core.models import Entity, EntityType, FileKind, FileRecord, FileStatus
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import entities_repo, files_repo
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.core.models import Entity, EntityType, FileKind, FileRecord, FileStatus
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import entities_repo, files_repo
+from ragmonk.storage.sqlite import connect, transaction
 
 
 def _seed_file(conn) -> None:  # noqa: ANN001 - test helper

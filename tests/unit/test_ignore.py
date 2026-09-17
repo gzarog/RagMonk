@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ragpilot.sources.ignore import IgnoreMatcher
+from ragmonk.sources.ignore import IgnoreMatcher
 
 
 def test_default_excluded_dir_is_ignored(tmp_path: Path) -> None:
@@ -29,8 +29,8 @@ def test_gitignore_patterns_are_applied(tmp_path: Path) -> None:
     assert matcher.is_ignored(tmp_path / "keep.py", is_dir=False) is False
 
 
-def test_ragpilotignore_patterns_are_applied(tmp_path: Path) -> None:
-    (tmp_path / ".ragpilotignore").write_text("secretdata/\n")
+def test_ragmonkignore_patterns_are_applied(tmp_path: Path) -> None:
+    (tmp_path / ".ragmonkignore").write_text("secretdata/\n")
     matcher = IgnoreMatcher(root=tmp_path)
     assert matcher.is_ignored(tmp_path / "secretdata", is_dir=True) is True
 

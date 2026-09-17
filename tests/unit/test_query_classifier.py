@@ -5,8 +5,8 @@ sections 6/19).
 
 from __future__ import annotations
 
-from ragpilot.retrieval import query_classifier
-from ragpilot.retrieval.lexical import RankTier, SearchResult
+from ragmonk.retrieval import query_classifier
+from ragmonk.retrieval.lexical import RankTier, SearchResult
 
 
 def _result(tier: RankTier) -> SearchResult:

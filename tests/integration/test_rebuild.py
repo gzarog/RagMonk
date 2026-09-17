@@ -1,6 +1,6 @@
-"""``ragpilot rebuild``: proves wiping a project's ``knowledge.db`` and
+"""``ragmonk rebuild``: proves wiping a project's ``knowledge.db`` and
 re-indexing from scratch reproduces the same derived state -- the
-blueprint's "source files = truth, RAGpilot DB = rebuildable derived
+blueprint's "source files = truth, RagMonk DB = rebuildable derived
 state" principle, exercised for real rather than merely asserted.
 """
 
@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
+from ragmonk.cli.main import app
+from ragmonk.core import paths
 
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
 
@@ -28,7 +28,7 @@ def _write_project(tmp_path: Path) -> Path:
 
 
 def test_rebuild_reproduces_equivalent_derived_state(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir = _write_project(tmp_path)
     monkeypatch.chdir(tmp_path)
@@ -47,7 +47,7 @@ def test_rebuild_reproduces_equivalent_derived_state(
     docs_before = json.loads(runner.invoke(app, ["docs", "--json"]).output)["data"]
 
     project_id = paths.project_id_for_path(source_dir)
-    db_path = paths.project_db_path(project_id, ragpilot_home)
+    db_path = paths.project_db_path(project_id, ragmonk_home)
     original_bytes = db_path.stat().st_size
     assert original_bytes > 0
 
@@ -92,7 +92,7 @@ def test_rebuild_reproduces_equivalent_derived_state(
 
 
 def test_rebuild_all_sources_when_no_source_given(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_a = tmp_path / "a"
     source_a.mkdir()

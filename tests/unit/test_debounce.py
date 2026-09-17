@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import time
 
-from ragpilot.watcher.debounce import Debouncer
+from ragmonk.watcher.debounce import Debouncer
 
 _QUIET_MS = 300
 

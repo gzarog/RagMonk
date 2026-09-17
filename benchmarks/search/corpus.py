@@ -17,9 +17,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ragpilot.core import paths
-from ragpilot.core.lifecycle import AppContext
-from ragpilot.core.models import (
+from ragmonk.core import paths
+from ragmonk.core.lifecycle import AppContext
+from ragmonk.core.models import (
     Document,
     DocumentFormat,
     EmbeddingSubjectType,
@@ -30,17 +30,17 @@ from ragpilot.core.models import (
     FileStatus,
     Paragraph,
 )
-from ragpilot.retrieval import ann
-from ragpilot.retrieval import embedder as _embedder
-from ragpilot.sources.registry import SourceRegistry
-from ragpilot.storage.repositories import (
+from ragmonk.retrieval import ann
+from ragmonk.retrieval import embedder as _embedder
+from ragmonk.sources.registry import SourceRegistry
+from ragmonk.storage.repositories import (
     documents_repo,
     embeddings_repo,
     entities_repo,
     files_repo,
     vector_items_repo,
 )
-from ragpilot.storage.sqlite import transaction
+from ragmonk.storage.sqlite import transaction
 
 # Blueprint section 35's suggested corpus sizes, counted in total
 # embeddable subjects (entities + document paragraphs combined) rather
@@ -209,13 +209,13 @@ def generate(
     seed: int = 0,
     source_root: Path | None = None,
 ) -> GeneratedCorpus:
-    """Builds a fresh RAGpilot project (a real ``knowledge.db``, real
+    """Builds a fresh RagMonk project (a real ``knowledge.db``, real
     project id/paths) containing ``CORPUS_SIZES[size_name]`` embeddable
     subjects, ~70% code entities / ~30% document paragraphs, spread
     across many synthetic files/documents, plus the fixed
     ``KnownFixtures`` every benchmark query targets. Also builds the
     persistent ANN index for the generated embeddings, matching what a
-    real ``ragpilot index`` run with ``search.semantic`` on would leave
+    real ``ragmonk index`` run with ``search.semantic`` on would leave
     behind.
     """
     if size_name not in CORPUS_SIZES:

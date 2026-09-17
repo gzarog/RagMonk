@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from ragpilot.cli.impact import _blast_radius
-from ragpilot.retrieval.graph import is_test_file
+from ragmonk.cli.impact import _blast_radius
+from ragmonk.retrieval.graph import is_test_file
 
 
 @pytest.mark.parametrize(

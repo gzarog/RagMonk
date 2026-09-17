@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ragpilot.core.models import (
+from ragmonk.core.models import (
     Document,
     DocumentFormat,
     FileKind,
@@ -16,9 +16,9 @@ from ragpilot.core.models import (
     Section,
     Table,
 )
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import documents_repo, files_repo
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import documents_repo, files_repo
+from ragmonk.storage.sqlite import connect, transaction
 
 
 def _seed_file(conn) -> None:  # noqa: ANN001 - test helper

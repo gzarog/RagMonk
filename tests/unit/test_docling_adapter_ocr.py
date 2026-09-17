@@ -23,10 +23,10 @@ from docling_core.types.doc.base import BoundingBox, Size
 from docling_core.types.doc.common.reference import ProvenanceItem
 from docling_core.types.doc.document import DoclingDocument
 
-from ragpilot.documents import docling_adapter
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import document_conversion_cache_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.documents import docling_adapter
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import document_conversion_cache_repo
+from ragmonk.storage.sqlite import connect
 
 _PLAIN = "plain-converter-sentinel"
 _OCR = "ocr-converter-sentinel"

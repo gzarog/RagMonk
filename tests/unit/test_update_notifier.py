@@ -9,10 +9,10 @@ from pathlib import Path
 
 from rich.console import Console
 
-from ragpilot import __version__
-from ragpilot.core.config import UpdatesConfig
-from ragpilot.update import cache, notifier
-from ragpilot.update.models import UpdateCache
+from ragmonk import __version__
+from ragmonk.core.config import UpdatesConfig
+from ragmonk.update import cache, notifier
+from ragmonk.update.models import UpdateCache
 
 _NEWER = "999.0.0"
 
@@ -62,7 +62,7 @@ def test_newer_and_unnotified_prints_and_marks_notified(tmp_path: Path) -> None:
     output = buf.getvalue()
     assert __version__ in output
     assert _NEWER in output
-    assert "ragpilot update install" in output
+    assert "ragmonk update install" in output
     result = cache.read_cache(tmp_path)
     assert result is not None
     assert result.last_notified_version == _NEWER

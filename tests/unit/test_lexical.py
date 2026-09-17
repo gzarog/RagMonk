@@ -9,9 +9,9 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from ragpilot.core.config import RagpilotConfig
-from ragpilot.core.lifecycle import AppContext
-from ragpilot.core.models import (
+from ragmonk.core.config import RagMonkConfig
+from ragmonk.core.lifecycle import AppContext
+from ragmonk.core.models import (
     Document,
     DocumentFormat,
     Entity,
@@ -21,11 +21,11 @@ from ragpilot.core.models import (
     FileStatus,
     Paragraph,
 )
-from ragpilot.retrieval import lexical
-from ragpilot.sources.registry import SourceRegistry
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import documents_repo, entities_repo, files_repo
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.retrieval import lexical
+from ragmonk.sources.registry import SourceRegistry
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import documents_repo, entities_repo, files_repo
+from ragmonk.storage.sqlite import connect, transaction
 
 
 def _file(file_id: str, path: str, kind: FileKind) -> FileRecord:
@@ -216,7 +216,7 @@ def test_path_search_matches_by_token_and_falls_back_to_substring(tmp_path: Path
     conn = connect(tmp_path / "knowledge.db")
     try:
         apply_migrations(conn, "knowledge")
-        files_repo.insert(conn, _file("f1", "src/ragpilot/retrieval/vectorstore.py", FileKind.CODE))
+        files_repo.insert(conn, _file("f1", "src/ragmonk/retrieval/vectorstore.py", FileKind.CODE))
 
         token_hits = files_repo.search_path_projection(conn, "vectorstore")
         assert [f.id for f in token_hits] == ["f1"]
@@ -228,20 +228,20 @@ def test_path_search_matches_by_token_and_falls_back_to_substring(tmp_path: Path
 
 
 def test_search_with_timings_caches_and_invalidates_on_external_write(
-    ragpilot_home: Path, tmp_path: Path
+    ragmonk_home: Path, tmp_path: Path
 ) -> None:
     """Blueprint section 23: a repeated query against an unchanged
     project is served from cache (reported as a ``cache_hit`` stage),
     and a write from a *different* connection (a reindex, in practice)
     invalidates it automatically -- no explicit cache-clear call needed.
     """
-    ctx = AppContext.bootstrap(home=ragpilot_home, cwd=tmp_path, cli_overrides={})
+    ctx = AppContext.bootstrap(home=ragmonk_home, cwd=tmp_path, cli_overrides={})
     try:
         project_root = tmp_path / "proj"
         project_root.mkdir()
         registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
         registry.add(str(project_root))
-        from ragpilot.core import paths
+        from ragmonk.core import paths
 
         project_id = paths.project_id_for_path(project_root)
         conn = ctx.project_conn(project_id)
@@ -278,17 +278,17 @@ def test_search_with_timings_caches_and_invalidates_on_external_write(
         ctx.close()
 
 
-def test_search_with_timings_respects_cache_disabled(ragpilot_home: Path, tmp_path: Path) -> None:
+def test_search_with_timings_respects_cache_disabled(ragmonk_home: Path, tmp_path: Path) -> None:
     ctx = AppContext.bootstrap(
-        home=ragpilot_home, cwd=tmp_path, cli_overrides={"search": {"cache": {"enabled": False}}}
+        home=ragmonk_home, cwd=tmp_path, cli_overrides={"search": {"cache": {"enabled": False}}}
     )
     try:
-        assert isinstance(ctx.config, RagpilotConfig)
+        assert isinstance(ctx.config, RagMonkConfig)
         project_root = tmp_path / "proj"
         project_root.mkdir()
         registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
         registry.add(str(project_root))
-        from ragpilot.core import paths
+        from ragmonk.core import paths
 
         project_id = paths.project_id_for_path(project_root)
         conn = ctx.project_conn(project_id)

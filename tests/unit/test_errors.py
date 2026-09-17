@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from ragpilot.core.errors import (
+from ragmonk.core.errors import (
     ConfigError,
     DatabaseError,
     HealthCheckError,
     IndexingPartialFailureError,
-    RagpilotError,
+    RagMonkError,
     SecurityViolationError,
     SourceUnavailableError,
     UsageError,
@@ -13,7 +13,7 @@ from ragpilot.core.errors import (
 
 
 def test_default_exit_code_is_generic_failure() -> None:
-    assert RagpilotError("boom").exit_code == 1
+    assert RagMonkError("boom").exit_code == 1
 
 
 def test_each_error_class_maps_to_its_documented_exit_code() -> None:
@@ -27,4 +27,4 @@ def test_each_error_class_maps_to_its_documented_exit_code() -> None:
 
 
 def test_exit_code_can_be_overridden_explicitly() -> None:
-    assert RagpilotError("x", exit_code=42).exit_code == 42
+    assert RagMonkError("x", exit_code=42).exit_code == 42

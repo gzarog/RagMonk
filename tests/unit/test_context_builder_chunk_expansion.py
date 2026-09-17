@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core.config import SearchContextConfig
-from ragpilot.core.models import (
+from ragmonk.core.config import SearchContextConfig
+from ragmonk.core.models import (
     Document,
     DocumentFormat,
     FileKind,
@@ -20,11 +20,11 @@ from ragpilot.core.models import (
     Paragraph,
     Section,
 )
-from ragpilot.retrieval.context_builder import expand_chunk_context
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import documents_repo
-from ragpilot.storage.repositories.files_repo import insert as insert_file
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.retrieval.context_builder import expand_chunk_context
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import documents_repo
+from ragmonk.storage.repositories.files_repo import insert as insert_file
+from ragmonk.storage.sqlite import connect, transaction
 
 _DEFAULT_CONFIG = SearchContextConfig(
     parent_heading=True, previous_chunks=1, next_chunks=1, max_tokens=1200

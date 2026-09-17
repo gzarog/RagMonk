@@ -1,6 +1,6 @@
 """End-to-end: index a small mixed code+document project via the real CLI
 (same fixture shape as ``test_retrieval_flow.py``), then call each of the
-8 ``ragpilot_*`` MCP tool functions directly -- a FastMCP tool decorator
+8 ``ragmonk_*`` MCP tool functions directly -- a FastMCP tool decorator
 leaves the underlying coroutine callable as-is (see ``mcp/tools.py``'s
 docstring), so no MCP transport/client is needed to exercise them.
 """
@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.mcp import tools
+from ragmonk.cli.main import app
+from ragmonk.mcp import tools
 
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
 
@@ -60,7 +60,7 @@ def _write_project(root: Path) -> None:
 
 @pytest.fixture
 def indexed_project(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Path:
     root = tmp_path / "project"
     _write_project(root)
@@ -74,8 +74,8 @@ def indexed_project(
     return root
 
 
-def test_ragpilot_explore(indexed_project: Path) -> None:
-    result = asyncio.run(tools.ragpilot_explore(query="what breaks if AnimalService changes?"))
+def test_ragmonk_explore(indexed_project: Path) -> None:
+    result = asyncio.run(tools.ragmonk_explore(query="what breaks if AnimalService changes?"))
 
     assert result.ok is True
     assert result.error is None
@@ -94,16 +94,16 @@ def test_ragpilot_explore(indexed_project: Path) -> None:
     assert any("Requirements/Incidents" in w for w in result.warnings)
 
 
-def test_ragpilot_explore_document_intent(indexed_project: Path) -> None:
-    result = asyncio.run(tools.ragpilot_explore(query="documents about animal service"))
+def test_ragmonk_explore_document_intent(indexed_project: Path) -> None:
+    result = asyncio.run(tools.ragmonk_explore(query="documents about animal service"))
 
     assert result.ok is True
     assert result.intent == "document"
     assert result.documents
 
 
-def test_ragpilot_search(indexed_project: Path) -> None:
-    result = asyncio.run(tools.ragpilot_search(query="AnimalService"))
+def test_ragmonk_search(indexed_project: Path) -> None:
+    result = asyncio.run(tools.ragmonk_search(query="AnimalService"))
 
     assert result.ok is True
     entity_hits = [r for r in result.results if r.kind == "entity"]
@@ -112,8 +112,8 @@ def test_ragpilot_search(indexed_project: Path) -> None:
     assert entity_hits[0].title == "services.animal_service.AnimalService"
 
 
-def test_ragpilot_symbol(indexed_project: Path) -> None:
-    result = asyncio.run(tools.ragpilot_symbol(name="AnimalService"))
+def test_ragmonk_symbol(indexed_project: Path) -> None:
+    result = asyncio.run(tools.ragmonk_symbol(name="AnimalService"))
 
     assert result.ok is True
     assert len(result.matches) == 1
@@ -121,9 +121,9 @@ def test_ragpilot_symbol(indexed_project: Path) -> None:
     assert result.matches[0].kind == "class"
 
 
-def test_ragpilot_callers(indexed_project: Path) -> None:
+def test_ragmonk_callers(indexed_project: Path) -> None:
     result = asyncio.run(
-        tools.ragpilot_callers(name="services.animal_service.AnimalService.bark_loudly")
+        tools.ragmonk_callers(name="services.animal_service.AnimalService.bark_loudly")
     )
 
     assert result.ok is True
@@ -132,15 +132,15 @@ def test_ragpilot_callers(indexed_project: Path) -> None:
     assert all(edge.relationship_type == "calls" for edge in result.edges)
 
 
-def test_ragpilot_callees(indexed_project: Path) -> None:
-    result = asyncio.run(tools.ragpilot_callees(name="consumers.dog_consumer.DogConsumer.handle"))
+def test_ragmonk_callees(indexed_project: Path) -> None:
+    result = asyncio.run(tools.ragmonk_callees(name="consumers.dog_consumer.DogConsumer.handle"))
 
     assert result.ok is True
     assert any(edge.relationship_type == "calls" for edge in result.edges)
 
 
-def test_ragpilot_impact(indexed_project: Path) -> None:
-    result = asyncio.run(tools.ragpilot_impact(name="AnimalService"))
+def test_ragmonk_impact(indexed_project: Path) -> None:
+    result = asyncio.run(tools.ragmonk_impact(name="AnimalService"))
 
     assert result.ok is True
     assert result.found is True
@@ -153,26 +153,26 @@ def test_ragpilot_impact(indexed_project: Path) -> None:
     assert result.confidence.code_references is not None
 
 
-def test_ragpilot_impact_unknown_symbol_is_found_false_not_an_error(
+def test_ragmonk_impact_unknown_symbol_is_found_false_not_an_error(
     indexed_project: Path,
 ) -> None:
-    result = asyncio.run(tools.ragpilot_impact(name="NoSuchSymbolAtAll"))
+    result = asyncio.run(tools.ragmonk_impact(name="NoSuchSymbolAtAll"))
 
     assert result.ok is True
     assert result.error is None
     assert result.found is False
 
 
-def test_ragpilot_documents(indexed_project: Path) -> None:
-    result = asyncio.run(tools.ragpilot_documents())
+def test_ragmonk_documents(indexed_project: Path) -> None:
+    result = asyncio.run(tools.ragmonk_documents())
 
     assert result.ok is True
     assert any(d.path.endswith("api.md") for d in result.documents)
     assert all(d.status == "indexed" for d in result.documents)
 
 
-def test_ragpilot_documents_unknown_source_is_a_structured_error(indexed_project: Path) -> None:
-    result = asyncio.run(tools.ragpilot_documents(source_id="src_does_not_exist"))
+def test_ragmonk_documents_unknown_source_is_a_structured_error(indexed_project: Path) -> None:
+    result = asyncio.run(tools.ragmonk_documents(source_id="src_does_not_exist"))
 
     assert result.ok is False
     assert result.error is not None
@@ -180,8 +180,8 @@ def test_ragpilot_documents_unknown_source_is_a_structured_error(indexed_project
     assert "no such source" in result.error.message
 
 
-def test_ragpilot_status(indexed_project: Path) -> None:
-    result = asyncio.run(tools.ragpilot_status())
+def test_ragmonk_status(indexed_project: Path) -> None:
+    result = asyncio.run(tools.ragmonk_status())
 
     assert result.ok is True
     assert result.totals is not None
@@ -189,12 +189,12 @@ def test_ragpilot_status(indexed_project: Path) -> None:
     assert len(result.sources) == 1
 
 
-def test_ragpilot_explore_respects_context_budget(indexed_project: Path) -> None:
+def test_ragmonk_explore_respects_context_budget(indexed_project: Path) -> None:
     unbounded = asyncio.run(
-        tools.ragpilot_explore(query="what breaks if AnimalService changes?")
+        tools.ragmonk_explore(query="what breaks if AnimalService changes?")
     )
     bounded = asyncio.run(
-        tools.ragpilot_explore(
+        tools.ragmonk_explore(
             query="what breaks if AnimalService changes?", max_chars=1, max_files=1
         )
     )
@@ -207,7 +207,7 @@ def test_ragpilot_explore_respects_context_budget(indexed_project: Path) -> None
 
 
 def test_bad_input_is_a_structured_error_not_a_crash(indexed_project: Path) -> None:
-    result = asyncio.run(tools.ragpilot_search(query="   "))
+    result = asyncio.run(tools.ragmonk_search(query="   "))
 
     assert result.ok is False
     assert result.error is not None
@@ -216,7 +216,7 @@ def test_bad_input_is_a_structured_error_not_a_crash(indexed_project: Path) -> N
 
 
 def test_unknown_symbol_is_an_empty_result_not_an_error(indexed_project: Path) -> None:
-    result = asyncio.run(tools.ragpilot_symbol(name="NoSuchSymbolAtAll"))
+    result = asyncio.run(tools.ragmonk_symbol(name="NoSuchSymbolAtAll"))
 
     assert result.ok is True
     assert result.error is None
@@ -226,9 +226,9 @@ def test_unknown_symbol_is_an_empty_result_not_an_error(indexed_project: Path) -
 def test_timeout_returns_structured_error_not_a_hang(
     indexed_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAGPILOT_MCP__REQUEST_TIMEOUT_SECONDS", "0.05")
+    monkeypatch.setenv("RAGMONK_MCP__REQUEST_TIMEOUT_SECONDS", "0.05")
 
-    from ragpilot.retrieval import lexical
+    from ragmonk.retrieval import lexical
 
     original_search = lexical.search
 
@@ -245,7 +245,7 @@ def test_timeout_returns_structured_error_not_a_hang(
         # returns, which is irrelevant to what this test checks: that the
         # tool call itself did not wait for it.
         start = time.monotonic()
-        result = await tools.ragpilot_search(query="AnimalService")
+        result = await tools.ragmonk_search(query="AnimalService")
         return result, time.monotonic() - start
 
     result, elapsed = asyncio.run(_timed_call())
@@ -259,11 +259,11 @@ def test_timeout_returns_structured_error_not_a_hang(
     assert elapsed < 0.3
 
 
-def test_ragpilot_ask_returns_the_mocked_provider_answer_with_real_evidence(
+def test_ragmonk_ask_returns_the_mocked_provider_answer_with_real_evidence(
     indexed_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from ragpilot.ai.base import AiAnswer, AiRequest, AiUsage
-    from ragpilot.cli import ask as ask_cli
+    from ragmonk.ai.base import AiAnswer, AiRequest, AiUsage
+    from ragmonk.cli import ask as ask_cli
 
     class _FakeProvider:
         def answer(self, request: AiRequest) -> AiAnswer:
@@ -278,7 +278,7 @@ def test_ragpilot_ask_returns_the_mocked_provider_answer_with_real_evidence(
     monkeypatch.setattr(ask_cli, "_build_provider", lambda ctx: _FakeProvider())
 
     result = asyncio.run(
-        tools.ragpilot_ask(question="what breaks if AnimalService changes?")
+        tools.ragmonk_ask(question="what breaks if AnimalService changes?")
     )
 
     assert result.ok is True
@@ -288,10 +288,10 @@ def test_ragpilot_ask_returns_the_mocked_provider_answer_with_real_evidence(
     assert result.evidence != []
 
 
-def test_ragpilot_ask_without_a_configured_provider_is_a_structured_error(
+def test_ragmonk_ask_without_a_configured_provider_is_a_structured_error(
     indexed_project: Path,
 ) -> None:
-    result = asyncio.run(tools.ragpilot_ask(question="what does AnimalService do?"))
+    result = asyncio.run(tools.ragmonk_ask(question="what does AnimalService do?"))
 
     assert result.ok is False
     assert result.error is not None
@@ -299,14 +299,14 @@ def test_ragpilot_ask_without_a_configured_provider_is_a_structured_error(
     assert result.answer is None
 
 
-def test_ragpilot_ask_blocked_by_privacy_flag_is_a_structured_error(
+def test_ragmonk_ask_blocked_by_privacy_flag_is_a_structured_error(
     indexed_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAGPILOT_AI__PROVIDER", "openai")
-    monkeypatch.setenv("RAGPILOT_AI__MODEL", "gpt-test")
+    monkeypatch.setenv("RAGMONK_AI__PROVIDER", "openai")
+    monkeypatch.setenv("RAGMONK_AI__MODEL", "gpt-test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
 
-    result = asyncio.run(tools.ragpilot_ask(question="what does AnimalService do?"))
+    result = asyncio.run(tools.ragmonk_ask(question="what does AnimalService do?"))
 
     assert result.ok is False
     assert result.error is not None

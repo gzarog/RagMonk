@@ -37,8 +37,8 @@ from benchmarks.search_quality.evaluator import (
 from benchmarks.search_quality.fixture_project import write_project
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core.lifecycle import AppContext
+from ragmonk.cli.main import app
+from ragmonk.core.lifecycle import AppContext
 
 # This fixture's own known-achievable baseline (see
 # ``benchmarks/search_quality/baseline_report.json``, generated from this
@@ -75,7 +75,7 @@ _MIN_RECALL_AT_5_BY_CATEGORY: dict[str, float] = {
 
 
 def _index_fixture_project(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Path:
     root = tmp_path / "project"
     write_project(root)
@@ -89,11 +89,11 @@ def _index_fixture_project(
 
 
 def test_golden_query_set_meets_quality_thresholds(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _index_fixture_project(ragpilot_home, runner, tmp_path, monkeypatch)
+    root = _index_fixture_project(ragmonk_home, runner, tmp_path, monkeypatch)
 
-    ctx = AppContext.bootstrap(home=ragpilot_home, cwd=tmp_path)
+    ctx = AppContext.bootstrap(home=ragmonk_home, cwd=tmp_path)
     try:
         report = evaluate_golden_queries(ctx, project_root=root)
         print("\n" + format_report(report))
@@ -114,14 +114,14 @@ def test_golden_query_set_meets_quality_thresholds(
 
 
 def test_golden_query_set_per_category_recall_floor(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The per-category counterpart to the overall-metrics test above:
     a category with genuinely fewer/harder queries can hide a real
     regression inside an otherwise-healthy overall average, so each
     category is also held to its own floor.
     """
-    root = _index_fixture_project(ragpilot_home, runner, tmp_path, monkeypatch)
+    root = _index_fixture_project(ragmonk_home, runner, tmp_path, monkeypatch)
 
     golden = load_golden_queries()
     categories = {item["category"] for item in golden}
@@ -130,7 +130,7 @@ def test_golden_query_set_per_category_recall_floor(
         f"{__name__}._MIN_RECALL_AT_5_BY_CATEGORY: {categories - set(_MIN_RECALL_AT_5_BY_CATEGORY)}"
     )
 
-    ctx = AppContext.bootstrap(home=ragpilot_home, cwd=tmp_path)
+    ctx = AppContext.bootstrap(home=ragmonk_home, cwd=tmp_path)
     try:
         report = evaluate_golden_queries(ctx, project_root=root, golden=golden)
         failures = [

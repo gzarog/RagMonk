@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core import lifecycle
-from ragpilot.core.lifecycle import AppContext
+from ragmonk.core import lifecycle
+from ragmonk.core.lifecycle import AppContext
 
 
 def test_bootstrap_calls_maybe_launch_background_check(
-    ragpilot_home: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[tuple[Path, object]] = []
     monkeypatch.setattr(
@@ -32,7 +32,7 @@ def test_bootstrap_calls_maybe_launch_background_check(
 
 
 def test_bootstrap_survives_background_check_raising(
-    ragpilot_home: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def _raise(home: Path, config: object) -> None:
         raise RuntimeError("boom")
@@ -43,7 +43,7 @@ def test_bootstrap_survives_background_check_raising(
         assert ctx is not None  # bootstrap() itself never raised
 
 
-def test_close_calls_maybe_notify(ragpilot_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_close_calls_maybe_notify(ragmonk_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[Path, object]] = []
     monkeypatch.setattr(
         lifecycle.update_notifier,
@@ -58,7 +58,7 @@ def test_close_calls_maybe_notify(ragpilot_home: Path, monkeypatch: pytest.Monke
 
 
 def test_close_survives_notify_raising(
-    ragpilot_home: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def _raise(home: Path, config: object) -> None:
         raise RuntimeError("boom")

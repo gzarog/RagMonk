@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from ragpilot.watcher.network import NetworkSourceWatcher, diff, fingerprint
+from ragmonk.watcher.network import NetworkSourceWatcher, diff, fingerprint
 
 
 def test_fingerprint_of_offline_root_is_empty(tmp_path: Path) -> None:

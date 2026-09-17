@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from ragpilot.core.models import (
+from ragmonk.core.models import (
     Confidence,
     CrossLink,
     Document,
@@ -21,10 +21,10 @@ from ragpilot.core.models import (
     Paragraph,
     RelationshipType,
 )
-from ragpilot.knowledge.linker import link_touched_files
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import documents_repo, entities_repo, files_repo, links_repo
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.knowledge.linker import link_touched_files
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import documents_repo, entities_repo, files_repo, links_repo
+from ragmonk.storage.sqlite import connect, transaction
 
 
 def _seed_code_file(conn, *, file_id: str = "code_f1", path: str = "/repo/pkg/dog.py") -> None:  # noqa: ANN001

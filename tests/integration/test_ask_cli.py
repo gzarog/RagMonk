@@ -1,4 +1,4 @@
-"""End-to-end ``ragpilot ask``: real retrieval (index a small mixed code+
+"""End-to-end ``ragmonk ask``: real retrieval (index a small mixed code+
 document project, run the real query planner + evidence assembly) with
 the AI provider itself mocked -- zero real network calls, per Phase 9's
 testing constraint. Also proves the clear-error paths (no provider
@@ -14,10 +14,10 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.ai.base import AiAnswer, AiProvider, AiRequest, AiUsage
-from ragpilot.cli import ask as ask_cli
-from ragpilot.cli.main import app
-from ragpilot.core.errors import (
+from ragmonk.ai.base import AiAnswer, AiProvider, AiRequest, AiUsage
+from ragmonk.cli import ask as ask_cli
+from ragmonk.cli.main import app
+from ragmonk.core.errors import (
     EXIT_CONFIG_ERROR,
     EXIT_GENERIC_FAILURE,
     EXIT_SECURITY_RESTRICTION,
@@ -63,7 +63,7 @@ def _write_project(root: Path) -> None:
 
 @pytest.fixture
 def indexed_project(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Path:
     root = tmp_path / "project"
     _write_project(root)
@@ -122,8 +122,8 @@ def test_ask_fails_clearly_when_no_provider_is_configured(
 def test_ask_fails_clearly_when_privacy_flag_blocks_a_cloud_provider(
     indexed_project: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAGPILOT_AI__PROVIDER", "openai")
-    monkeypatch.setenv("RAGPILOT_AI__MODEL", "gpt-test")
+    monkeypatch.setenv("RAGMONK_AI__PROVIDER", "openai")
+    monkeypatch.setenv("RAGMONK_AI__MODEL", "gpt-test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     # privacy.external_ai_allowed defaults to false -- deliberately not set.
 
@@ -145,7 +145,7 @@ def test_ask_maps_a_provider_failure_to_a_generic_failure_exit_code(
 def test_ask_provider_raising_ai_provider_error_directly_is_not_double_wrapped(
     indexed_project: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from ragpilot.ai.base import AiProviderError
+    from ragmonk.ai.base import AiProviderError
 
     class _RudeProvider:
         def answer(self, request: AiRequest) -> AiAnswer:

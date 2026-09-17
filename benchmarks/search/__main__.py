@@ -18,11 +18,11 @@ from pathlib import Path
 from benchmarks.search import corpus, queries, runner
 from benchmarks.search.fake_embedder import fake_embed_texts
 
-from ragpilot.retrieval import embedder
+from ragmonk.retrieval import embedder
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="RAGpilot search performance benchmark")
+    parser = argparse.ArgumentParser(description="RagMonk search performance benchmark")
     parser.add_argument(
         "--size",
         choices=sorted(corpus.CORPUS_SIZES),
@@ -36,14 +36,14 @@ def main(argv: list[str] | None = None) -> int:
         "--home",
         type=Path,
         default=None,
-        help="RAGpilot home directory (default: a temp directory)",
+        help="RagMonk home directory (default: a temp directory)",
     )
     parser.add_argument(
         "--strict", action="store_true", help="exit non-zero if any category misses its target"
     )
     args = parser.parse_args(argv)
 
-    home = args.home or Path(tempfile.mkdtemp(prefix="ragpilot-benchmark-"))
+    home = args.home or Path(tempfile.mkdtemp(prefix="ragmonk-benchmark-"))
     print(f"Generating {args.size!r} corpus under {home} ...", file=sys.stderr)
     generated = corpus.generate(home, size_name=args.size, seed=args.seed)
     # Query-time embedding must never hit the real model/network here --

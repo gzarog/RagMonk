@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core.errors import RagpilotError, SourceUnavailableError, UsageError
-from ragpilot.core.models import SourceType
-from ragpilot.service import pid
-from ragpilot.sources import registry as registry_module
-from ragpilot.sources.registry import SourceRegistry, detect_source_type, make_source_id
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import sources_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.core.errors import RagMonkError, SourceUnavailableError, UsageError
+from ragmonk.core.models import SourceType
+from ragmonk.service import pid
+from ragmonk.sources import registry as registry_module
+from ragmonk.sources.registry import SourceRegistry, detect_source_type, make_source_id
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import sources_repo
+from ragmonk.storage.sqlite import connect
 
 
 @pytest.mark.parametrize(
@@ -121,7 +121,7 @@ def test_remove_keeps_the_source_registered_when_deletion_fails(
 
     monkeypatch.setattr(registry_module.shutil, "rmtree", _raise)
 
-    with pytest.raises(RagpilotError):
+    with pytest.raises(RagMonkError):
         registry.remove(source.id)
 
     # Not partially removed: still registered, and its data untouched.
