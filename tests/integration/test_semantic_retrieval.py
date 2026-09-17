@@ -396,3 +396,102 @@ def test_hybrid_flag_merges_and_reranks_without_changing_existing_keys(
     no_flag_result = runner.invoke(app, ["search", "bark_loudly", "--json"])
     assert no_flag_result.exit_code == 0
     assert "hybrid" not in json.loads(no_flag_result.output)["data"]
+
+
+def test_reranker_disabled_by_default_leaves_hybrid_output_unchanged(
+    ragpilot_home: Path,
+    runner: CliRunner,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Search Quality Improvement Plan, Phase 11: ``search.reranker.
+    enabled`` defaults to ``false``, so ``--hybrid`` output must be
+    byte-identical to the pre-Phase-11 RRF-only ranking -- proven here by
+    making the neural pass reverse order if it ever ran (a change that
+    would be impossible to miss) and asserting the output is unaffected.
+    """
+    from ragpilot.retrieval import neural_reranker
+
+    def _reversing_score_batch(_query: str, texts: list[str]) -> list[float]:
+        return list(range(len(texts)))
+
+    monkeypatch.setattr(neural_reranker, "score_pairs", _reversing_score_batch)
+
+    root = tmp_path / "project"
+    _write_project(root)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
+    assert runner.invoke(app, ["index"]).exit_code == 0
+
+    without_patch_result = runner.invoke(app, ["search", "bark_loudly", "--hybrid", "--json"])
+    assert without_patch_result.exit_code == 0, without_patch_result.output
+    hybrid_ids = [h["id"] for h in json.loads(without_patch_result.output)["data"]["hybrid"]]
+
+    # search.reranker.enabled is unset (defaults to false) -- the stub
+    # above is never even called, so the ranking is unaffected.
+    again_result = runner.invoke(app, ["search", "bark_loudly", "--hybrid", "--json"])
+    assert again_result.exit_code == 0, again_result.output
+    again_ids = [h["id"] for h in json.loads(again_result.output)["data"]["hybrid"]]
+    assert again_ids == hybrid_ids
+
+
+def test_reranker_enabled_reorders_the_hybrid_view_and_falls_back_gracefully(
+    ragpilot_home: Path,
+    runner: CliRunner,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With ``search.reranker.enabled=true``, the neural pass actually
+    reorders ``--hybrid``'s top ``top_n`` hits (proven with a stub scorer
+    that exactly reverses RRF order, never loading a real model), and its
+    stage timing shows up under ``--explain``. A second run whose stub
+    raises ``NeuralRerankerUnavailableError`` falls back to the unpatched
+    RRF order instead of failing the search.
+    """
+    from ragpilot.retrieval import neural_reranker
+
+    root = tmp_path / "project"
+    _write_project(root)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
+    assert runner.invoke(app, ["index"]).exit_code == 0
+
+    # Established with the reranker still at its default (disabled) --
+    # this is the RRF-only order graceful fallback must reproduce, and
+    # the order the reversing stub below must visibly disturb. Real
+    # ``score_pairs`` is never called anywhere in this test.
+    baseline_result = runner.invoke(app, ["search", "bark_loudly", "--hybrid", "--json"])
+    assert baseline_result.exit_code == 0, baseline_result.output
+    baseline_ids = [h["id"] for h in json.loads(baseline_result.output)["data"]["hybrid"]]
+    assert len(baseline_ids) >= 2
+
+    monkeypatch.setenv("RAGPILOT_SEARCH__RERANKER__ENABLED", "true")
+
+    def _reversing_score_batch(_query: str, texts: list[str]) -> list[float]:
+        return list(range(len(texts)))
+
+    monkeypatch.setattr(neural_reranker, "score_pairs", _reversing_score_batch)
+    reversed_result = runner.invoke(
+        app, ["search", "bark_loudly", "--hybrid", "--json", "--explain"]
+    )
+    assert reversed_result.exit_code == 0, reversed_result.output
+    reversed_payload = json.loads(reversed_result.output)["data"]
+    reversed_ids = [h["id"] for h in reversed_payload["hybrid"]]
+    assert reversed_ids == list(reversed(baseline_ids))
+    stage_names = [s["stage"] for s in reversed_payload["explain"]["stages"]]
+    assert "neural_rerank" in stage_names
+
+    def _unavailable_score_batch(_query: str, _texts: list[str]) -> list[float]:
+        raise neural_reranker.NeuralRerankerUnavailableError("simulated: no cached weights")
+
+    monkeypatch.setattr(neural_reranker, "score_pairs", _unavailable_score_batch)
+    fallback_result = runner.invoke(app, ["search", "bark_loudly", "--hybrid", "--json"])
+    assert fallback_result.exit_code == 0, fallback_result.output
+    fallback_ids = [h["id"] for h in json.loads(fallback_result.output)["data"]["hybrid"]]
+    assert fallback_ids == baseline_ids

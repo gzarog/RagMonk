@@ -1,0 +1,17 @@
+{
+  "generated_at": "2026-09-17T07:41:53Z",
+  "mrr": {
+    "delta_pct": 3.08,
+    "meets_5pct_gate": false,
+    "rrf_only": 0.9028,
+    "rrf_plus_neural": 0.9306
+  },
+  "neural_rerank_stage_latency_ms": {
+    "warm_p50": 22.459,
+    "warm_p95": 69.722
+  },
+  "queries_evaluated": 72,
+  "schema_version": 1,
+  "top_n": 20,
+  "warm_repeats": 10
+}

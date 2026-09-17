@@ -266,6 +266,37 @@ class SearchContextConfig(BaseModel):
         return value
 
 
+class SearchRerankerConfig(BaseModel):
+    """Search Quality Improvement Plan, Phase 11 -- explicitly OPTIONAL in
+    the plan, and NOT enabled by default. An optional final neural
+    reranking pass applied to ``retrieval/reranker.py``'s already RRF-
+    fused hybrid tier, reordering only its own top ``top_n`` hits by a
+    real local cross-encoder score before the caller's own ``--limit``
+    slices the result (see ``retrieval/neural_reranker.py``'s module
+    docstring for the model, batching, caching, and graceful-fallback
+    contract).
+
+    ``enabled=False`` is a hard requirement for this phase: the plan's own
+    promotion gate (>= 5% MRR improvement AND an acceptable warm-query p95
+    latency increase) is a later decision, not this one -- see
+    CHANGELOG.md's Phase 11 entry for what was actually measured. Turning
+    this on never changes ``ragpilot search``'s default (non-``--hybrid``)
+    output at all: the neural pass only ever reorders the additive
+    ``--hybrid`` view's ranked hits, the same way ``--hybrid`` itself is
+    opt-in.
+    """
+
+    enabled: bool = False
+    top_n: int = 20
+
+    @field_validator("top_n")
+    @classmethod
+    def _validate_top_n(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("search.reranker.top_n must be >= 1")
+        return value
+
+
 class SearchConfig(BaseModel):
     lexical: bool = True
     graph: bool = True
@@ -288,6 +319,7 @@ class SearchConfig(BaseModel):
     cache: SearchCacheConfig = Field(default_factory=SearchCacheConfig)
     output: SearchOutputConfig = Field(default_factory=SearchOutputConfig)
     context: SearchContextConfig = Field(default_factory=SearchContextConfig)
+    reranker: SearchRerankerConfig = Field(default_factory=SearchRerankerConfig)
 
 
 class ContextConfig(BaseModel):
