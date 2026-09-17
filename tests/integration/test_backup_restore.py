@@ -14,9 +14,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
-from ragpilot.core.errors import EXIT_DATABASE_ERROR
+from ragmonk.cli.main import app
+from ragmonk.core import paths
+from ragmonk.core.errors import EXIT_DATABASE_ERROR
 
 
 def _write_project(tmp_path: Path) -> Path:
@@ -28,7 +28,7 @@ def _write_project(tmp_path: Path) -> Path:
 
 
 def test_backup_restore_round_trip_preserves_state(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir = _write_project(tmp_path)
     monkeypatch.chdir(tmp_path)
@@ -48,9 +48,9 @@ def test_backup_restore_round_trip_preserves_state(
     # Simulate the DB being irrecoverably lost -- source files (source_dir)
     # are left completely untouched, matching the blueprint's "source
     # files = truth" principle this whole command exists to make good on.
-    shutil.rmtree(paths.projects_dir(ragpilot_home))
+    shutil.rmtree(paths.projects_dir(ragmonk_home))
     for suffix in ("", "-wal", "-shm"):
-        p = paths.sources_db_path(ragpilot_home).with_name(f"sources.db{suffix}")
+        p = paths.sources_db_path(ragmonk_home).with_name(f"sources.db{suffix}")
         p.unlink(missing_ok=True)
 
     empty_status = json.loads(runner.invoke(app, ["status", "--json"]).output)["data"]
@@ -71,7 +71,7 @@ def test_backup_restore_round_trip_preserves_state(
 
 
 def test_restore_aborts_cleanly_on_corrupted_archive(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir = _write_project(tmp_path)
     monkeypatch.chdir(tmp_path)
@@ -89,7 +89,7 @@ def test_restore_aborts_cleanly_on_corrupted_archive(
         json.dumps(
             {
                 "format_version": 1,
-                "ragpilot_version": "0.1.0",
+                "ragmonk_version": "0.1.0",
                 "created_at": "2026-01-01T00:00:00+00:00",
                 "sources_schema_version": 2,
                 "projects": {},
@@ -112,7 +112,7 @@ def test_restore_aborts_cleanly_on_corrupted_archive(
 
 
 def test_restore_refuses_archive_missing_manifest(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path
 ) -> None:
     assert runner.invoke(app, ["init"]).exit_code == 0
 
@@ -128,7 +128,7 @@ def test_restore_refuses_archive_missing_manifest(
 
 
 def test_backup_captures_wal_buffered_writes_not_yet_checkpointed(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path
 ) -> None:
     """Proves ``ops/backup.py`` exercises SQLite's online backup API, not a
     raw file copy: a write committed only to the WAL file (never
@@ -137,7 +137,7 @@ def test_backup_captures_wal_buffered_writes_not_yet_checkpointed(
     """
     assert runner.invoke(app, ["init"]).exit_code == 0
 
-    sources_db_path = paths.sources_db_path(ragpilot_home)
+    sources_db_path = paths.sources_db_path(ragmonk_home)
     marker_conn = sqlite3.connect(str(sources_db_path), isolation_level=None)
     try:
         marker_conn.execute("PRAGMA journal_mode = WAL")

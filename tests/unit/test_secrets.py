@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ragpilot.security.secrets import is_secret_filename
+from ragmonk.security.secrets import is_secret_filename
 
 
 def test_env_file_is_secret() -> None:

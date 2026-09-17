@@ -16,11 +16,11 @@ deleted -- see each one's comment for what changed and why.
 
 from __future__ import annotations
 
-from ragpilot.retrieval import fusion
-from ragpilot.retrieval.lexical import RankTier, SearchResult
-from ragpilot.retrieval.merger import SearchCandidate, merge
-from ragpilot.retrieval.reranker import rerank
-from ragpilot.retrieval.semantic import SemanticHit
+from ragmonk.retrieval import fusion
+from ragmonk.retrieval.lexical import RankTier, SearchResult
+from ragmonk.retrieval.merger import SearchCandidate, merge
+from ragmonk.retrieval.reranker import rerank
+from ragmonk.retrieval.semantic import SemanticHit
 
 
 def _lexical(kind: str, id_: str, tier: RankTier, **kwargs: object) -> SearchResult:

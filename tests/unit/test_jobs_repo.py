@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core.models import FileKind, FileRecord, FileStatus, JobStatus
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import files_repo, jobs_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.core.models import FileKind, FileRecord, FileStatus, JobStatus
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import files_repo, jobs_repo
+from ragmonk.storage.sqlite import connect
 
 
 @pytest.fixture

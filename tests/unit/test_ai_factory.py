@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from ragpilot.ai.anthropic import AnthropicProvider
-from ragpilot.ai.base import AiNotConfiguredError, AiPrivacyBlockedError
-from ragpilot.ai.factory import create_provider
-from ragpilot.ai.ollama import OllamaProvider
-from ragpilot.ai.openai import OpenAiProvider
-from ragpilot.ai.openai_compatible import OpenAiCompatibleProvider
-from ragpilot.core.config import AiConfig, PrivacyConfig
+from ragmonk.ai.anthropic import AnthropicProvider
+from ragmonk.ai.base import AiNotConfiguredError, AiPrivacyBlockedError
+from ragmonk.ai.factory import create_provider
+from ragmonk.ai.ollama import OllamaProvider
+from ragmonk.ai.openai import OpenAiProvider
+from ragmonk.ai.openai_compatible import OpenAiCompatibleProvider
+from ragmonk.core.config import AiConfig, PrivacyConfig
 
 
 def test_no_provider_configured_raises_not_configured() -> None:

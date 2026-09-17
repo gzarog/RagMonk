@@ -4,15 +4,15 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
-from ragpilot.core.models import JobStatus
-from ragpilot.storage.repositories import jobs_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.cli.main import app
+from ragmonk.core import paths
+from ragmonk.core.models import JobStatus
+from ragmonk.storage.repositories import jobs_repo
+from ragmonk.storage.sqlite import connect
 
 
 def test_processing_job_left_by_a_crash_is_requeued_on_next_index(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -25,7 +25,7 @@ def test_processing_job_left_by_a_crash_is_requeued_on_next_index(
     assert runner.invoke(app, ["index"]).exit_code == 0
 
     project_id = paths.project_id_for_path(source_dir)
-    conn = connect(paths.project_db_path(project_id, ragpilot_home))
+    conn = connect(paths.project_db_path(project_id, ragmonk_home))
     try:
         job_id = conn.execute("SELECT id FROM index_jobs LIMIT 1").fetchone()["id"]
         conn.execute(
@@ -41,7 +41,7 @@ def test_processing_job_left_by_a_crash_is_requeued_on_next_index(
     # mid-job and was restarted.
     assert runner.invoke(app, ["index"]).exit_code == 0
 
-    conn = connect(paths.project_db_path(project_id, ragpilot_home))
+    conn = connect(paths.project_db_path(project_id, ragmonk_home))
     try:
         recovered = jobs_repo.get(conn, job_id)
         assert recovered is not None

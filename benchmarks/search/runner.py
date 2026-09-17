@@ -14,8 +14,8 @@ from benchmarks.search.corpus import GeneratedCorpus
 from benchmarks.search.queries import BenchmarkQuery, SearchMode
 from benchmarks.search.targets import LatencyTarget, target_for
 
-from ragpilot.core.lifecycle import AppContext
-from ragpilot.retrieval import lexical, merger, reranker, semantic
+from ragmonk.core.lifecycle import AppContext
+from ragmonk.retrieval import lexical, merger, reranker, semantic
 
 DEFAULT_REPEATS = 20
 

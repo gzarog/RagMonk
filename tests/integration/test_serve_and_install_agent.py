@@ -1,6 +1,6 @@
-"""``ragpilot serve --mcp`` (fast-fail paths only -- the success path
+"""``ragmonk serve --mcp`` (fast-fail paths only -- the success path
 blocks on stdio forever and is deliberately not exercised here, see
-``mcp/server.py``'s ``run_stdio`` docstring) and ``ragpilot install-agent``.
+``mcp/server.py``'s ``run_stdio`` docstring) and ``ragmonk install-agent``.
 """
 
 from __future__ import annotations
@@ -12,12 +12,12 @@ import pytest
 import typer.main
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core.errors import EXIT_CONFIG_ERROR, EXIT_INVALID_ARGUMENTS
+from ragmonk.cli.main import app
+from ragmonk.core.errors import EXIT_CONFIG_ERROR, EXIT_INVALID_ARGUMENTS
 
 
 def test_serve_without_mcp_flag_is_invalid_arguments(
-    ragpilot_home: Path, runner: CliRunner
+    ragmonk_home: Path, runner: CliRunner
 ) -> None:
     result = runner.invoke(app, ["serve"])
 
@@ -26,7 +26,7 @@ def test_serve_without_mcp_flag_is_invalid_arguments(
 
 
 def test_serve_mcp_fails_fast_when_mcp_disabled(
-    ragpilot_home: Path, runner: CliRunner
+    ragmonk_home: Path, runner: CliRunner
 ) -> None:
     assert runner.invoke(app, ["init"]).exit_code == 0
     set_result = runner.invoke(app, ["config", "set", "mcp.enabled", "false"])
@@ -40,7 +40,7 @@ def test_serve_mcp_fails_fast_when_mcp_disabled(
 
 
 def test_install_agent_prints_the_expected_mcp_client_snippet(
-    ragpilot_home: Path, runner: CliRunner
+    ragmonk_home: Path, runner: CliRunner
 ) -> None:
     result = runner.invoke(app, ["install-agent"])
 
@@ -48,8 +48,8 @@ def test_install_agent_prints_the_expected_mcp_client_snippet(
     payload = json.loads(result.stdout)
     assert payload == {
         "mcpServers": {
-            "ragpilot": {
-                "command": "ragpilot",
+            "ragmonk": {
+                "command": "ragmonk",
                 "args": ["serve", "--mcp"],
             }
         }
@@ -57,12 +57,12 @@ def test_install_agent_prints_the_expected_mcp_client_snippet(
 
 
 def test_install_agent_write_writes_exactly_that_content_and_nothing_else(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path
 ) -> None:
     sentinel = tmp_path / "untouched.json"
     sentinel.write_text('{"unrelated": true}', encoding="utf-8")
 
-    target = tmp_path / "mcp-config" / "ragpilot.json"
+    target = tmp_path / "mcp-config" / "ragmonk.json"
     result = runner.invoke(app, ["install-agent", "--write", str(target)])
 
     assert result.exit_code == 0, result.output
@@ -70,8 +70,8 @@ def test_install_agent_write_writes_exactly_that_content_and_nothing_else(
     written = json.loads(target.read_text(encoding="utf-8"))
     assert written == {
         "mcpServers": {
-            "ragpilot": {
-                "command": "ragpilot",
+            "ragmonk": {
+                "command": "ragmonk",
                 "args": ["serve", "--mcp"],
             }
         }
@@ -98,7 +98,7 @@ def _fake_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
 
 
 def test_install_agent_client_claude_code_writes_mcp_json_with_type_field(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -108,9 +108,9 @@ def test_install_agent_client_claude_code_writes_mcp_json_with_type_field(
     written = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
     assert written == {
         "mcpServers": {
-            "ragpilot": {
+            "ragmonk": {
                 "type": "stdio",
-                "command": "ragpilot",
+                "command": "ragmonk",
                 "args": ["serve", "--mcp"],
             }
         }
@@ -118,7 +118,7 @@ def test_install_agent_client_claude_code_writes_mcp_json_with_type_field(
 
 
 def test_install_agent_client_vscode_uses_servers_key(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -130,9 +130,9 @@ def test_install_agent_client_vscode_uses_servers_key(
     # place this client's schema genuinely differs from the other three.
     assert written == {
         "servers": {
-            "ragpilot": {
+            "ragmonk": {
                 "type": "stdio",
-                "command": "ragpilot",
+                "command": "ragmonk",
                 "args": ["serve", "--mcp"],
             }
         }
@@ -140,7 +140,7 @@ def test_install_agent_client_vscode_uses_servers_key(
 
 
 def test_install_agent_client_cursor_has_no_type_field(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -149,12 +149,12 @@ def test_install_agent_client_cursor_has_no_type_field(
     assert result.exit_code == 0, result.output
     written = json.loads((tmp_path / ".cursor" / "mcp.json").read_text(encoding="utf-8"))
     assert written == {
-        "mcpServers": {"ragpilot": {"command": "ragpilot", "args": ["serve", "--mcp"]}}
+        "mcpServers": {"ragmonk": {"command": "ragmonk", "args": ["serve", "--mcp"]}}
     }
 
 
 def test_install_agent_client_json_merge_preserves_other_servers(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     cursor_config = tmp_path / ".cursor" / "mcp.json"
@@ -169,11 +169,11 @@ def test_install_agent_client_json_merge_preserves_other_servers(
     assert result.exit_code == 0, result.output
     written = json.loads(cursor_config.read_text(encoding="utf-8"))
     assert written["mcpServers"]["other-tool"] == {"command": "other", "args": ["run"]}
-    assert written["mcpServers"]["ragpilot"] == {"command": "ragpilot", "args": ["serve", "--mcp"]}
+    assert written["mcpServers"]["ragmonk"] == {"command": "ragmonk", "args": ["serve", "--mcp"]}
 
 
 def test_install_agent_client_json_rerun_is_idempotent(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     assert runner.invoke(app, ["install-agent", "--client", "claude-code"]).exit_code == 0
@@ -185,7 +185,7 @@ def test_install_agent_client_json_rerun_is_idempotent(
 
 
 def test_install_agent_client_codex_writes_toml(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     home = tmp_path / "home"
     home.mkdir()
@@ -195,13 +195,13 @@ def test_install_agent_client_codex_writes_toml(
 
     assert result.exit_code == 0, result.output
     written = (home / ".codex" / "config.toml").read_text(encoding="utf-8")
-    assert '[mcp_servers.ragpilot]' in written
-    assert 'command = "ragpilot"' in written
+    assert '[mcp_servers.ragmonk]' in written
+    assert 'command = "ragmonk"' in written
     assert 'args = ["serve", "--mcp"]' in written
 
 
 def test_install_agent_client_codex_merge_preserves_other_tables(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     home = tmp_path / "home"
     home.mkdir()
@@ -217,31 +217,31 @@ def test_install_agent_client_codex_merge_preserves_other_tables(
     assert result.exit_code == 0, result.output
     written = config_path.read_text(encoding="utf-8")
     assert 'command = "other"' in written
-    assert "[mcp_servers.ragpilot]" in written
+    assert "[mcp_servers.ragmonk]" in written
 
 
 def test_install_agent_client_codex_never_corrupts_a_conflicting_entry(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     home = tmp_path / "home"
     home.mkdir()
     _fake_home(monkeypatch, home)
     config_path = home / ".codex" / "config.toml"
     config_path.parent.mkdir(parents=True)
-    original = '[mcp_servers.ragpilot]\ncommand = "custom-wrapper"\nargs = ["--special"]\n'
+    original = '[mcp_servers.ragmonk]\ncommand = "custom-wrapper"\nargs = ["--special"]\n'
     config_path.write_text(original, encoding="utf-8")
 
     result = runner.invoke(app, ["install-agent", "--client", "codex"])
 
     assert result.exit_code == 0, result.output
     assert "skipped" in result.output
-    # A duplicate [mcp_servers.ragpilot] table is invalid TOML -- appending
+    # A duplicate [mcp_servers.ragmonk] table is invalid TOML -- appending
     # unconditionally would have corrupted the file. Nothing must change.
     assert config_path.read_text(encoding="utf-8") == original
 
 
 def test_install_agent_client_all_configures_every_client(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     home = tmp_path / "home"
     home.mkdir()
@@ -258,7 +258,7 @@ def test_install_agent_client_all_configures_every_client(
 
 
 def test_install_agent_client_and_write_are_mutually_exclusive(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path
 ) -> None:
     result = runner.invoke(
         app, ["install-agent", "--client", "claude-code", "--write", str(tmp_path / "x.json")]
@@ -268,7 +268,7 @@ def test_install_agent_client_and_write_are_mutually_exclusive(
     assert "mutually exclusive" in result.output
 
 
-def test_serve_help_documents_the_mcp_flag(ragpilot_home: Path, runner: CliRunner) -> None:
+def test_serve_help_documents_the_mcp_flag(ragmonk_home: Path, runner: CliRunner) -> None:
     result = runner.invoke(app, ["serve", "--help"])
     assert result.exit_code == 0
 

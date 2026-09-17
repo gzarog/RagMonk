@@ -4,10 +4,10 @@ each of the three budget knobs enforced independently.
 
 from __future__ import annotations
 
-from ragpilot.core.config import ContextConfig
-from ragpilot.core.models import Confidence
-from ragpilot.knowledge.evidence import Evidence, EvidenceLocation
-from ragpilot.retrieval.context_builder import EvidenceItem, GraphPath, build_context
+from ragmonk.core.config import ContextConfig
+from ragmonk.core.models import Confidence
+from ragmonk.knowledge.evidence import Evidence, EvidenceLocation
+from ragmonk.retrieval.context_builder import EvidenceItem, GraphPath, build_context
 
 
 def _item(

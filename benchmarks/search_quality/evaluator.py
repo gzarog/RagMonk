@@ -17,8 +17,8 @@ from typing import Any
 import yaml
 from benchmarks.search.quality import ndcg_at_k, recall_at_k, reciprocal_rank, result_key
 
-from ragpilot.core.lifecycle import AppContext
-from ragpilot.retrieval import lexical
+from ragmonk.core.lifecycle import AppContext
+from ragmonk.retrieval import lexical
 
 GOLDEN_QUERIES_PATH = (
     Path(__file__).resolve().parents[1] / "search" / "golden_queries.yaml"

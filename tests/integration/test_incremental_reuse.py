@@ -17,13 +17,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
-from ragpilot.documents import chunker as chunker_module
-from ragpilot.documents.chunker import Chunk
-from ragpilot.retrieval import embedder
-from ragpilot.storage.repositories import documents_repo, embeddings_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.cli.main import app
+from ragmonk.core import paths
+from ragmonk.documents import chunker as chunker_module
+from ragmonk.documents.chunker import Chunk
+from ragmonk.retrieval import embedder
+from ragmonk.storage.repositories import documents_repo, embeddings_repo
+from ragmonk.storage.sqlite import connect
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "documents"
 
@@ -75,20 +75,20 @@ def _init_and_add_source(
 
 
 def test_path_only_change_reuses_chunks_and_embeddings(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "project"
     root.mkdir()
     shutil.copy(FIXTURES / "simple.md", root / "simple.md")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     _init_and_add_source(runner, tmp_path, root)
     first = runner.invoke(app, ["index"])
     assert first.exit_code == 0, first.output
     assert "embedded=0" not in first.output
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         file_id = _file_id(conn, str(root / "simple.md"))
         before_sections = _sections(conn, file_id)
@@ -113,7 +113,7 @@ def test_path_only_change_reuses_chunks_and_embeddings(
     assert "indexed=0" in second.output
     assert "embedded=0" in second.output
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         moved_file_id = _file_id(conn, str(root / "renamed.md"))
         assert moved_file_id == file_id
@@ -135,18 +135,18 @@ def test_path_only_change_reuses_chunks_and_embeddings(
 
 
 def test_chunker_version_bump_rebuilds_and_serves_the_new_derivation(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "project"
     root.mkdir()
     shutil.copy(FIXTURES / "simple.md", root / "simple.md")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     _init_and_add_source(runner, tmp_path, root)
     assert runner.invoke(app, ["index"]).exit_code == 0
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         file_id = _file_id(conn, str(root / "simple.md"))
         before_sections = _sections(conn, file_id)
@@ -180,7 +180,7 @@ def test_chunker_version_bump_rebuilds_and_serves_the_new_derivation(
     assert "embedded=" in second.output
     assert "embedded=0" not in second.output
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         after_sections = _sections(conn, file_id)
         after_texts = {text for _id, _gen, text in after_sections}
@@ -207,19 +207,19 @@ def test_chunker_version_bump_rebuilds_and_serves_the_new_derivation(
 
 
 def test_embedding_model_id_bump_rebuilds_only_vectors(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "project"
     root.mkdir()
     shutil.copy(FIXTURES / "simple.md", root / "simple.md")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     _init_and_add_source(runner, tmp_path, root)
     assert runner.invoke(app, ["index"]).exit_code == 0
 
     original_model_id = embedder.EMBEDDING_MODEL_ID
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         file_id = _file_id(conn, str(root / "simple.md"))
         before_sections = _sections(conn, file_id)
@@ -244,7 +244,7 @@ def test_embedding_model_id_bump_rebuilds_only_vectors(
     # But the embedding step did run and recompute vectors.
     assert "embedded=0" not in second.output
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         after_sections = _sections(conn, file_id)
         assert after_sections == before_sections  # chunks/FTS untouched
@@ -271,18 +271,18 @@ def test_embedding_model_id_bump_rebuilds_only_vectors(
 
 
 def test_no_version_change_and_unchanged_content_rebuilds_nothing(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "project"
     root.mkdir()
     shutil.copy(FIXTURES / "simple.md", root / "simple.md")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     _init_and_add_source(runner, tmp_path, root)
     assert runner.invoke(app, ["index"]).exit_code == 0
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         file_id = _file_id(conn, str(root / "simple.md"))
         before_sections = _sections(conn, file_id)
@@ -305,7 +305,7 @@ def test_no_version_change_and_unchanged_content_rebuilds_nothing(
     assert "indexed=0" in second.output
     assert "embedded=0" in second.output
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         after_sections = _sections(conn, file_id)
         assert after_sections == before_sections

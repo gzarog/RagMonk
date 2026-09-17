@@ -1,4 +1,4 @@
-# RAGpilot search quality baseline (Phase 0)
+# RagMonk search quality baseline (Phase 0)
 
 Generated: 2026-09-17T11:48:47Z
 

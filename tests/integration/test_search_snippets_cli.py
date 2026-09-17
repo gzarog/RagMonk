@@ -1,4 +1,4 @@
-"""``ragpilot search``'s snippet-block default output, its explicit
+"""``ragmonk search``'s snippet-block default output, its explicit
 ``--snippets``/``--table`` overrides, and ``search.output.fallback``'s
 config-driven default/per-hit-degradation chain -- end to end via the
 real CLI, extending ``test_retrieval_flow.py``'s fixture-project pattern.
@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
+from ragmonk.cli.main import app
 
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
 
@@ -61,7 +61,7 @@ def _write_project(root: Path) -> None:
 
 @pytest.fixture
 def indexed_project(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> CliRunner:
     root = tmp_path / "project"
     _write_project(root)

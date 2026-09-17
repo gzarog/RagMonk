@@ -1,6 +1,6 @@
 """Subprocess wall-clock measurement for ``benchmarks/cli_startup``.
 
-Each command is measured as a fresh ``python -m ragpilot.cli.main ...``
+Each command is measured as a fresh ``python -m ragmonk.cli.main ...``
 process -- a real interpreter start, real module import, real Typer
 dispatch -- rather than an in-process call, since in-process timing would
 not capture the cost this benchmark exists to catch (import-time work
@@ -54,7 +54,7 @@ def _now_ms() -> float:
 def _invoke(cli_args: list[str], *, env: dict[str, str]) -> float:
     started = _now_ms()
     subprocess.run(
-        [sys.executable, "-m", "ragpilot.cli.main", *cli_args],
+        [sys.executable, "-m", "ragmonk.cli.main", *cli_args],
         capture_output=True,
         env=env,
         check=False,
@@ -66,12 +66,12 @@ def measure(
     label: str, cli_args: list[str], *, home: Path, repeats: int = DEFAULT_REPEATS
 ) -> StartupResult:
     """Runs ``cli_args`` once (cold) then ``repeats`` more times (warm),
-    each invocation isolated to ``home`` -- see the ``ragpilot_home``
-    pytest fixture's own rationale for why real ``~/.ragpilot`` must never
+    each invocation isolated to ``home`` -- see the ``ragmonk_home``
+    pytest fixture's own rationale for why real ``~/.ragmonk`` must never
     be touched by a test or benchmark run.
     """
     target = TARGETS[label]
-    env = {**os.environ, "RAGPILOT_HOME": str(home)}
+    env = {**os.environ, "RAGMONK_HOME": str(home)}
     cold_ms = _invoke(cli_args, env=env)
     samples = sorted(_invoke(cli_args, env=env) for _ in range(repeats))
     return StartupResult(

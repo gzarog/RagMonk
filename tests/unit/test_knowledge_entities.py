@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ragpilot.core.models import (
+from ragmonk.core.models import (
     Document,
     DocumentFormat,
     Entity,
@@ -13,10 +13,10 @@ from ragpilot.core.models import (
     FileRecord,
     FileStatus,
 )
-from ragpilot.knowledge import entities as knowledge_entities
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import documents_repo, entities_repo, files_repo
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.knowledge import entities as knowledge_entities
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import documents_repo, entities_repo, files_repo
+from ragmonk.storage.sqlite import connect, transaction
 
 
 def _seed(conn) -> None:  # noqa: ANN001 - test helper

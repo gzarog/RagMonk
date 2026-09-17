@@ -7,7 +7,7 @@ for those integration-level behaviors.
 
 from __future__ import annotations
 
-from ragpilot.retrieval import fusion
+from ragmonk.retrieval import fusion
 
 
 def test_rrf_k_default_is_the_plans_starting_point() -> None:

@@ -1,5 +1,5 @@
-"""``ragpilot uninstall`` -- real Typer CLI dispatch against a real,
-``ragpilot_home``-isolated directory. This whole test suite always runs
+"""``ragmonk uninstall`` -- real Typer CLI dispatch against a real,
+``ragmonk_home``-isolated directory. This whole test suite always runs
 against an editable install (``pip install -e ".[dev]"``, both locally
 and in CI -- see CONTRIBUTING.md), so ``detect_install_method`` reliably
 reports ``"editable"`` here; the per-method dispatch itself is covered
@@ -14,49 +14,49 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.ops import uninstall as uninstall_ops
+from ragmonk.cli.main import app
+from ragmonk.ops import uninstall as uninstall_ops
 
 
 def test_declining_confirmation_removes_nothing(
-    ragpilot_home: Path, runner: CliRunner
+    ragmonk_home: Path, runner: CliRunner
 ) -> None:
     result = runner.invoke(app, ["init"])
     assert result.exit_code == 0, result.output
-    assert ragpilot_home.is_dir()
+    assert ragmonk_home.is_dir()
 
     result = runner.invoke(app, ["uninstall"], input="n\n")
 
     assert result.exit_code == 0, result.output
     assert "Aborted" in result.output
-    assert ragpilot_home.is_dir()
-    assert (ragpilot_home / "sources.db").is_file()
+    assert ragmonk_home.is_dir()
+    assert (ragmonk_home / "sources.db").is_file()
 
 
 def test_yes_purges_data_and_reports_manual_app_removal(
-    ragpilot_home: Path, runner: CliRunner
+    ragmonk_home: Path, runner: CliRunner
 ) -> None:
     assert runner.invoke(app, ["init"]).exit_code == 0
 
     result = runner.invoke(app, ["uninstall", "--yes"])
 
     assert result.exit_code == 0, result.output
-    assert not ragpilot_home.exists()
+    assert not ragmonk_home.exists()
     assert "source checkout" in result.output  # editable-install manual instructions
 
 
-def test_keep_data_leaves_home_untouched(ragpilot_home: Path, runner: CliRunner) -> None:
+def test_keep_data_leaves_home_untouched(ragmonk_home: Path, runner: CliRunner) -> None:
     assert runner.invoke(app, ["init"]).exit_code == 0
 
     result = runner.invoke(app, ["uninstall", "--keep-data", "--yes"])
 
     assert result.exit_code == 0, result.output
-    assert ragpilot_home.is_dir()
-    assert (ragpilot_home / "sources.db").is_file()
+    assert ragmonk_home.is_dir()
+    assert (ragmonk_home / "sources.db").is_file()
 
 
 def test_json_output_reports_the_plan_and_outcome(
-    ragpilot_home: Path, runner: CliRunner
+    ragmonk_home: Path, runner: CliRunner
 ) -> None:
     assert runner.invoke(app, ["init"]).exit_code == 0
 
@@ -71,9 +71,9 @@ def test_json_output_reports_the_plan_and_outcome(
 
 
 def test_uninstall_with_no_prior_home_reports_nothing_to_purge(
-    ragpilot_home: Path, runner: CliRunner
+    ragmonk_home: Path, runner: CliRunner
 ) -> None:
-    assert not ragpilot_home.exists()
+    assert not ragmonk_home.exists()
 
     result = runner.invoke(app, ["uninstall", "--yes", "--json"])
 
@@ -84,7 +84,7 @@ def test_uninstall_with_no_prior_home_reports_nothing_to_purge(
 
 @pytest.mark.parametrize("flag", ["--yes", "-y"])
 def test_both_yes_spellings_skip_the_prompt(
-    ragpilot_home: Path, runner: CliRunner, flag: str
+    ragmonk_home: Path, runner: CliRunner, flag: str
 ) -> None:
     assert runner.invoke(app, ["init"]).exit_code == 0
 
@@ -95,10 +95,10 @@ def test_both_yes_spellings_skip_the_prompt(
 
 
 def test_app_removal_runs_before_the_data_purge(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # install.sh/install.ps1's default layout nests the venv *inside*
-    # RAGPILOT_HOME -- purging data before removing the application would
+    # RAGMONK_HOME -- purging data before removing the application would
     # delete the very interpreter a pip/pipx uninstall needs (see
     # ops/uninstall.py's remove_application docstring). Order, not
     # outcome, is what this test guards.

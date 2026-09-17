@@ -45,11 +45,11 @@ from benchmarks.search_quality.evaluator import evaluate_golden_queries, load_go
 from benchmarks.search_quality.fixture_project import write_project
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
-from ragpilot.core.lifecycle import AppContext
-from ragpilot.retrieval import embedder
-from ragpilot.storage.repositories import (
+from ragmonk.cli.main import app
+from ragmonk.core import paths
+from ragmonk.core.lifecycle import AppContext
+from ragmonk.retrieval import embedder
+from ragmonk.storage.repositories import (
     documents_repo,
     embeddings_repo,
     entities_repo,
@@ -73,7 +73,7 @@ def _timed_cli(runner: CliRunner, args: list[str]) -> tuple[int, float]:
     result = runner.invoke(app, args)
     elapsed_ms = (time.perf_counter() - started) * 1000
     if result.exit_code != 0:
-        raise RuntimeError(f"`ragpilot {' '.join(args)}` failed: {result.output}")
+        raise RuntimeError(f"`ragmonk {' '.join(args)}` failed: {result.output}")
     return result.exit_code, elapsed_ms
 
 
@@ -87,9 +87,9 @@ class _IndexedProject:
 def _index_fresh_project(
     base: Path, *, name: str, populate: Any, semantic: bool = False
 ) -> tuple[_IndexedProject, float]:
-    """Bootstraps a brand new ``RAGPILOT_HOME``/source root under
+    """Bootstraps a brand new ``RAGMONK_HOME``/source root under
     ``base``, populates it via ``populate(root)``, and times one
-    ``ragpilot index`` run. Each project gets its own home directory so
+    ``ragmonk index`` run. Each project gets its own home directory so
     "indexing time by file type" measurements never share a knowledge.db
     (and its cold caches) with each other.
     """
@@ -97,13 +97,13 @@ def _index_fresh_project(
     root = base / f"{name}_project"
     populate(root)
 
-    previous_home = os.environ.get("RAGPILOT_HOME")
-    previous_semantic = os.environ.get("RAGPILOT_SEARCH__SEMANTIC")
-    os.environ["RAGPILOT_HOME"] = str(home)
+    previous_home = os.environ.get("RAGMONK_HOME")
+    previous_semantic = os.environ.get("RAGMONK_SEARCH__SEMANTIC")
+    os.environ["RAGMONK_HOME"] = str(home)
     if semantic:
-        os.environ["RAGPILOT_SEARCH__SEMANTIC"] = "true"
-    elif "RAGPILOT_SEARCH__SEMANTIC" in os.environ:
-        del os.environ["RAGPILOT_SEARCH__SEMANTIC"]
+        os.environ["RAGMONK_SEARCH__SEMANTIC"] = "true"
+    elif "RAGMONK_SEARCH__SEMANTIC" in os.environ:
+        del os.environ["RAGMONK_SEARCH__SEMANTIC"]
     try:
         runner = CliRunner()
         _timed_cli(runner, ["init"])
@@ -111,13 +111,13 @@ def _index_fresh_project(
         _, elapsed_ms = _timed_cli(runner, ["index"])
     finally:
         if previous_home is None:
-            os.environ.pop("RAGPILOT_HOME", None)
+            os.environ.pop("RAGMONK_HOME", None)
         else:
-            os.environ["RAGPILOT_HOME"] = previous_home
+            os.environ["RAGMONK_HOME"] = previous_home
         if previous_semantic is None:
-            os.environ.pop("RAGPILOT_SEARCH__SEMANTIC", None)
+            os.environ.pop("RAGMONK_SEARCH__SEMANTIC", None)
         else:
-            os.environ["RAGPILOT_SEARCH__SEMANTIC"] = previous_semantic
+            os.environ["RAGMONK_SEARCH__SEMANTIC"] = previous_semantic
 
     project_id = paths.project_id_for_path(root)
     return _IndexedProject(home=home, root=root, project_id=project_id), elapsed_ms
@@ -151,7 +151,7 @@ def _quality_section(base: Path) -> dict[str, Any]:
 
 
 def _indexing_section(base: Path) -> dict[str, Any]:
-    # search.semantic=True (the "mixed" project below) makes `ragpilot
+    # search.semantic=True (the "mixed" project below) makes `ragmonk
     # index` compute real embeddings -- must never hit the real model/
     # network here, same rule `benchmarks/search`'s own latency suite
     # follows (see fake_embedder.py's module docstring).
@@ -168,16 +168,16 @@ def _indexing_section(base: Path) -> dict[str, Any]:
             base, name="mixed", populate=write_project, semantic=True
         )
 
-        previous_home = os.environ.get("RAGPILOT_HOME")
-        os.environ["RAGPILOT_HOME"] = str(mixed_project.home)
+        previous_home = os.environ.get("RAGMONK_HOME")
+        os.environ["RAGMONK_HOME"] = str(mixed_project.home)
         try:
             runner = CliRunner()
             _, reindex_ms = _timed_cli(runner, ["index"])
         finally:
             if previous_home is None:
-                os.environ.pop("RAGPILOT_HOME", None)
+                os.environ.pop("RAGMONK_HOME", None)
             else:
-                os.environ["RAGPILOT_HOME"] = previous_home
+                os.environ["RAGMONK_HOME"] = previous_home
     finally:
         embedder.embed_texts = real_embed_texts
 
@@ -279,7 +279,7 @@ def _cold_warm_semantic_section(base: Path, *, repeats: int) -> dict[str, Any]:
     embedder.embed_texts = fake_embed_texts
     generated = bench_corpus.generate(base / "cold_warm", size_name=DEFAULT_CORPUS_SIZE, seed=1)
     try:
-        from ragpilot.retrieval import semantic as semantic_module
+        from ragmonk.retrieval import semantic as semantic_module
 
         query = generated.known.document_title.lower()
 
@@ -326,7 +326,7 @@ def generate_report(
     corpus_size: str = DEFAULT_CORPUS_SIZE,
     latency_repeats: int = DEFAULT_LATENCY_REPEATS,
 ) -> dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix="ragpilot-search-quality-baseline-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="ragmonk-search-quality-baseline-") as tmp:
         base = Path(tmp)
         quality = _quality_section(base)
         indexing = _indexing_section(base)
@@ -350,7 +350,7 @@ def format_summary(report: dict[str, Any]) -> str:
     cold_warm = report["cold_warm_semantic_search"]
 
     lines = [
-        "# RAGpilot search quality baseline (Phase 0)",
+        "# RagMonk search quality baseline (Phase 0)",
         "",
         f"Generated: {report['generated_at']}",
         "",
@@ -419,7 +419,7 @@ def format_summary(report: dict[str, Any]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="RAGpilot search quality baseline report")
+    parser = argparse.ArgumentParser(description="RagMonk search quality baseline report")
     parser.add_argument(
         "--size", default=DEFAULT_CORPUS_SIZE, choices=sorted(bench_corpus.CORPUS_SIZES)
     )

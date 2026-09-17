@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from ragpilot.code import framework_rules
-from ragpilot.code.extractor import ExtractedDecorator
-from ragpilot.core.models import Confidence, RelationshipType
+from ragmonk.code import framework_rules
+from ragmonk.code.extractor import ExtractedDecorator
+from ragmonk.core.models import Confidence, RelationshipType
 
 
 def test_python_flask_route_decorator_is_heuristic() -> None:

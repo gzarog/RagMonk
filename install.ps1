@@ -1,6 +1,6 @@
-# Installs the RAGpilot CLI: downloads the source for $env:RAGPILOT_REF
+# Installs the RagMonk CLI: downloads the source for $env:RAGMONK_REF
 # (default: main), creates an isolated virtual environment, installs the
-# package into it, and puts a `ragpilot` launcher on a per-user bin
+# package into it, and puts a `ragmonk` launcher on a per-user bin
 # directory added to the user's PATH.
 #
 # Requires Python 3.12+ already on PATH -- this script does not install
@@ -8,17 +8,17 @@
 
 $ErrorActionPreference = "Stop"
 
-$Repo = "gzarog/Ragpilotv2"
-$Ref = if ($env:RAGPILOT_REF) { $env:RAGPILOT_REF } else { "main" }
-$InstallDir = if ($env:RAGPILOT_INSTALL_DIR) { $env:RAGPILOT_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "RAGpilot" }
+$Repo = "gzarog/RagMonk"
+$Ref = if ($env:RAGMONK_REF) { $env:RAGMONK_REF } else { "main" }
+$InstallDir = if ($env:RAGMONK_INSTALL_DIR) { $env:RAGMONK_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "RagMonk" }
 $AppDir = Join-Path $InstallDir "app"
 $VenvDir = Join-Path $InstallDir "venv"
-$BinDir = if ($env:RAGPILOT_BIN_DIR) { $env:RAGPILOT_BIN_DIR } else { Join-Path $InstallDir "bin" }
-# Same default as ragpilot's own core/paths.py::runtime_dir() on Windows --
-# RAGPILOT_INSTALL_DIR/RAGPILOT_HOME happen to share a default today, but
+$BinDir = if ($env:RAGMONK_BIN_DIR) { $env:RAGMONK_BIN_DIR } else { Join-Path $InstallDir "bin" }
+# Same default as ragmonk's own core/paths.py::runtime_dir() on Windows --
+# RAGMONK_INSTALL_DIR/RAGMONK_HOME happen to share a default today, but
 # are independent overrides, so this is computed the same way rather than
 # assumed equal to InstallDir above.
-$RagpilotHome = if ($env:RAGPILOT_HOME) { $env:RAGPILOT_HOME } else { Join-Path $env:LOCALAPPDATA "RAGpilot" }
+$RagMonkHome = if ($env:RAGMONK_HOME) { $env:RAGMONK_HOME } else { Join-Path $env:LOCALAPPDATA "RagMonk" }
 
 function Find-Python {
     # Each candidate is a hashtable { Exe; Args } rather than a flat array --
@@ -50,14 +50,14 @@ function Find-Python {
 
 $Python = Find-Python
 if (-not $Python) {
-    Write-Error "RAGpilot requires Python 3.12+, but no suitable interpreter was found on PATH.`nInstall Python 3.12 or newer (https://www.python.org/downloads/) and re-run this script."
+    Write-Error "RagMonk requires Python 3.12+, but no suitable interpreter was found on PATH.`nInstall Python 3.12 or newer (https://www.python.org/downloads/) and re-run this script."
     exit 1
 }
 $pythonVersion = & $Python.Exe @($Python.Args) --version
 Write-Host "Using $pythonVersion at $($Python.Exe) $($Python.Args -join ' ')"
 
-Write-Host "Downloading RAGpilot ($Ref)..."
-$ZipPath = Join-Path ([System.IO.Path]::GetTempPath()) "ragpilot-$([guid]::NewGuid()).zip"
+Write-Host "Downloading RagMonk ($Ref)..."
+$ZipPath = Join-Path ([System.IO.Path]::GetTempPath()) "ragmonk-$([guid]::NewGuid()).zip"
 $DownloadUrl = "https://github.com/$Repo/archive/refs/heads/$Ref.zip"
 # GitHub's archive/codeload endpoint can briefly 404 a branch that was just
 # pushed (its zipball cache lags the push by a few seconds) -- retry a
@@ -78,7 +78,7 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     }
 }
 
-$ExtractRoot = Join-Path ([System.IO.Path]::GetTempPath()) "ragpilot-extract-$([guid]::NewGuid())"
+$ExtractRoot = Join-Path ([System.IO.Path]::GetTempPath()) "ragmonk-extract-$([guid]::NewGuid())"
 Expand-Archive -Path $ZipPath -DestinationPath $ExtractRoot -Force
 Remove-Item -Force $ZipPath
 
@@ -120,12 +120,12 @@ Write-Host "Creating virtual environment at $VenvDir..."
 # Any existing venv is renamed out of the way first, rather than deleted,
 # and the new one is then built fresh directly at $VenvDir -- never at a
 # temporary path later swapped in. Two Windows constraints rule out the
-# alternatives: `ragpilot update install` re-runs this exact script from
-# inside the currently-running $VenvDir\Scripts\ragpilot.exe, and deleting
+# alternatives: `ragmonk update install` re-runs this exact script from
+# inside the currently-running $VenvDir\Scripts\ragmonk.exe, and deleting
 # or overwriting that file while its own process is executing fails with
 # a sharing violation ("[WinError 32] ... being used by another
 # process") -- but pip's own generated console-script launchers (like
-# that ragpilot.exe) embed the venv's exact interpreter *path* at install
+# that ragmonk.exe) embed the venv's exact interpreter *path* at install
 # time, so a venv built elsewhere and then renamed into place afterward
 # ends up with launchers pointing at a path that no longer exists --
 # renaming the *old* venv out from under the running process, before
@@ -145,7 +145,7 @@ if (Test-Path $VenvDir) { Rename-Item -Path $VenvDir -NewName (Split-Path $VenvD
 & $Python.Exe @($Python.Args) -m venv $VenvDir
 
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
-Write-Host "Installing RAGpilot (this downloads its dependencies, including torch -- may take a few minutes)..."
+Write-Host "Installing RagMonk (this downloads its dependencies, including torch -- may take a few minutes)..."
 & $VenvPython -m pip install --quiet --upgrade pip
 # Purge pip's cache before the real install: an entry written by whatever
 # pip version was previously on this machine can fail to deserialize under
@@ -176,10 +176,10 @@ try {
 Remove-Item -Recurse -Force $VenvDirOld -ErrorAction SilentlyContinue
 
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-$LauncherPath = Join-Path $BinDir "ragpilot.cmd"
-$VenvRagpilot = Join-Path $VenvDir "Scripts\ragpilot.exe"
-"@echo off`r`n`"$VenvRagpilot`" %*" | Set-Content -Path $LauncherPath -Encoding ASCII
-Write-Host "RAGpilot installed: $LauncherPath"
+$LauncherPath = Join-Path $BinDir "ragmonk.cmd"
+$VenvRagMonk = Join-Path $VenvDir "Scripts\ragmonk.exe"
+"@echo off`r`n`"$VenvRagMonk`" %*" | Set-Content -Path $LauncherPath -Encoding ASCII
+Write-Host "RagMonk installed: $LauncherPath"
 
 $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 if (";$UserPath;" -notlike "*;$BinDir;*") {
@@ -190,11 +190,11 @@ if (";$UserPath;" -notlike "*;$BinDir;*") {
 }
 
 
-# Lets `ragpilot update install` (update/installer.py) detect that this is
+# Lets `ragmonk update install` (update/installer.py) detect that this is
 # an install-script install and where to re-run this same script, rather
 # than guessing from the running interpreter's own path -- see this
 # file's own record of itself as the one thing that can't guess itself.
-New-Item -ItemType Directory -Force -Path $RagpilotHome | Out-Null
+New-Item -ItemType Directory -Force -Path $RagMonkHome | Out-Null
 $InstallInfo = [ordered]@{
     install_method = "install-script"
     repository     = $Repo
@@ -202,7 +202,7 @@ $InstallInfo = [ordered]@{
     venv_dir       = $VenvDir
     bin_dir        = $BinDir
 }
-$InstallInfo | ConvertTo-Json | Set-Content -Path (Join-Path $RagpilotHome "install_info.json") -Encoding UTF8
+$InstallInfo | ConvertTo-Json | Set-Content -Path (Join-Path $RagMonkHome "install_info.json") -Encoding UTF8
 
 Write-Host ""
-Write-Host "Run 'ragpilot version' to verify, then 'ragpilot init' to get started."
+Write-Host "Run 'ragmonk version' to verify, then 'ragmonk init' to get started."

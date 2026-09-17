@@ -1,7 +1,7 @@
 """Phase 7's central safety property: a source root that becomes
 temporarily inaccessible (an unmounted network drive, a permissions
 error, a deleted directory) must never be misread as "every file in it
-was deleted". ``ragpilot index`` alone -- no watcher/daemon running --
+was deleted". ``ragmonk index`` alone -- no watcher/daemon running --
 must flip the source OFFLINE and leave every existing entity/file
 untouched, then flip back to ACTIVE and reconcile for real once the root
 is reachable again.
@@ -16,10 +16,10 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
-from ragpilot.storage.repositories import files_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.cli.main import app
+from ragmonk.core import paths
+from ragmonk.storage.repositories import files_repo
+from ragmonk.storage.sqlite import connect
 
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
 
@@ -51,7 +51,7 @@ def _source_status(runner: CliRunner, source_id: str) -> str:
 
 
 def test_index_never_deletes_knowledge_when_source_root_goes_offline(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -64,7 +64,7 @@ def test_index_never_deletes_knowledge_when_source_root_goes_offline(
 
     assert runner.invoke(app, ["index"]).exit_code == 0
     assert _source_status(runner, source_id) == "active"
-    files_before = _file_count(ragpilot_home, source_dir, source_id)
+    files_before = _file_count(ragmonk_home, source_dir, source_id)
     assert files_before == 2
 
     # Simulate the root going offline (an unmounted network share, a
@@ -79,7 +79,7 @@ def test_index_never_deletes_knowledge_when_source_root_goes_offline(
     assert _source_status(runner, source_id) == "offline"
     # The critical assertion: nothing was deleted just because the root
     # could not be listed this run.
-    assert _file_count(ragpilot_home, source_dir, source_id) == files_before
+    assert _file_count(ragmonk_home, source_dir, source_id) == files_before
 
     info = runner.invoke(app, ["source", "info", source_id])
     payload = json.loads(info.stdout)
@@ -100,11 +100,11 @@ def test_index_never_deletes_knowledge_when_source_root_goes_offline(
     result = runner.invoke(app, ["index"])
     assert result.exit_code == 0, result.output
     assert _source_status(runner, source_id) == "active"
-    assert _file_count(ragpilot_home, source_dir, source_id) == 2
+    assert _file_count(ragmonk_home, source_dir, source_id) == 2
 
 
 def test_status_is_offline_only_while_root_is_unreachable(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -127,7 +127,7 @@ def test_status_is_offline_only_while_root_is_unreachable(
 
 
 def test_source_list_and_doctor_surface_offline_status(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()

@@ -1,4 +1,4 @@
-"""``ragpilot status --json``'s Phase 8 metrics block: real counts against
+"""``ragmonk status --json``'s Phase 8 metrics block: real counts against
 a known small indexed project, not just "doesn't crash".
 """
 
@@ -10,12 +10,12 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
+from ragmonk.cli.main import app
+from ragmonk.core import paths
 
 
 def test_status_metrics_reflect_known_project(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -50,14 +50,14 @@ def test_status_metrics_reflect_known_project(
     assert totals_metrics["documents_processed"] == 1
     assert totals_metrics["index_queue_depth"] == 0
 
-    expected_bytes = paths.sources_db_path(ragpilot_home).stat().st_size
+    expected_bytes = paths.sources_db_path(ragmonk_home).stat().st_size
     project_id = paths.project_id_for_path(source_dir)
-    expected_bytes += paths.project_db_path(project_id, ragpilot_home).stat().st_size
+    expected_bytes += paths.project_db_path(project_id, ragmonk_home).stat().st_size
     assert totals_metrics["database_size_bytes"] == expected_bytes
 
 
 def test_status_metrics_zero_for_project_with_no_documents_or_calls(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()

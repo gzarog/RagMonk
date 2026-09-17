@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ragpilot.code.resolver import resolve_reference
-from ragpilot.core.models import Confidence, Entity, EntityType
+from ragmonk.code.resolver import resolve_reference
+from ragmonk.core.models import Confidence, Entity, EntityType
 
 
 def _entity(entity_id: str, name: str, qualified_name: str, *, file_id: str = "f1") -> Entity:

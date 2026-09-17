@@ -1,7 +1,7 @@
 """End-to-end: index a small mixed code+document project (extending the
 Phase 4 cross-domain-linking fixture with a caller and a test-named
-caller), then verify ``ragpilot search``, ``ragpilot impact`` and
-``ragpilot explore`` (incl. ``--json``) via the real CLI.
+caller), then verify ``ragmonk search``, ``ragmonk impact`` and
+``ragmonk explore`` (incl. ``--json``) via the real CLI.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
+from ragmonk.cli.main import app
 
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
 
@@ -65,7 +65,7 @@ def _write_project(root: Path) -> None:
 
 
 def test_search_impact_and_explore_end_to_end(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
 ) -> None:
     root = tmp_path / "project"
     _write_project(root)

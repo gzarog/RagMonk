@@ -15,9 +15,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import ragpilot.indexing.coordinator as coordinator_module
-from ragpilot.cli.main import app
-from ragpilot.core.errors import EXIT_INDEXING_PARTIAL_FAILURE
+import ragmonk.indexing.coordinator as coordinator_module
+from ragmonk.cli.main import app
+from ragmonk.core.errors import EXIT_INDEXING_PARTIAL_FAILURE
 
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
 
@@ -71,7 +71,7 @@ def _force_permanent_failure(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_index_multi_language_project_isolates_broken_file(
-    ragpilot_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(sample_project.parent)
 
@@ -90,7 +90,7 @@ def test_index_multi_language_project_isolates_broken_file(
 
 
 def test_symbol_lookup_json(
-    ragpilot_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(sample_project.parent)
     runner.invoke(app, ["init"])
@@ -108,7 +108,7 @@ def test_symbol_lookup_json(
 
 
 def test_callers_callees_references_json(
-    ragpilot_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(sample_project.parent)
     runner.invoke(app, ["init"])
@@ -147,7 +147,7 @@ def test_callers_callees_references_json(
 
 
 def test_javascript_same_file_call_is_exact_confidence(
-    ragpilot_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(sample_project.parent)
     runner.invoke(app, ["init"])
@@ -162,13 +162,13 @@ def test_javascript_same_file_call_is_exact_confidence(
 
 
 def test_tree_sitter_parse_exception_is_isolated_not_crashing(
-    ragpilot_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A parse call that itself raises (not just a recoverable syntax
     error) must be caught by the coordinator like any other processor
-    exception, isolated to that one file, and not crash ``ragpilot index``.
+    exception, isolated to that one file, and not crash ``ragmonk index``.
     """
-    import ragpilot.code.processor as processor_module
+    import ragmonk.code.processor as processor_module
 
     original_parse = processor_module.parse
 
@@ -196,7 +196,7 @@ def test_tree_sitter_parse_exception_is_isolated_not_crashing(
 
 
 def test_unknown_symbol_returns_empty_without_error(
-    ragpilot_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, sample_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(sample_project.parent)
     runner.invoke(app, ["init"])
@@ -209,7 +209,7 @@ def test_unknown_symbol_returns_empty_without_error(
 
 
 def test_callers_found_even_when_definition_indexed_after_the_call_site(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A caller processed before its target's defining file exists gets a
     ``target_symbol``-only (unresolved) relationship -- see
@@ -250,7 +250,7 @@ def test_callers_found_even_when_definition_indexed_after_the_call_site(
 
 
 def test_callers_found_by_qualified_name_when_unresolved_row_stored_bare(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Same scenario as above, but querying ``callers`` by the target's
     fully-qualified name rather than its bare name. An unresolved

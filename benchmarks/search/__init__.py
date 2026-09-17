@@ -1,7 +1,7 @@
 """Search performance benchmarks (blueprint section 35).
 
 Builds synthetic corpora directly through the storage repositories
-(``ragpilot.storage.repositories.*``), bypassing Tree-sitter/Docling
+(``ragmonk.storage.repositories.*``), bypassing Tree-sitter/Docling
 parsing entirely -- the point is to measure the *retrieval* layer at
 scale, not indexing throughput, which already has its own coverage
 elsewhere. See ``corpus.py`` for corpus generation, ``queries.py`` for

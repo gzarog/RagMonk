@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from ragpilot.retrieval.vectorstore import cosine_similarity, top_k
+from ragmonk.retrieval.vectorstore import cosine_similarity, top_k
 
 
 def test_cosine_similarity_identical_vectors_is_one() -> None:

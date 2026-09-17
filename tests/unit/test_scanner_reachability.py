@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.sources.scanner import check_root_accessible
+from ragmonk.sources.scanner import check_root_accessible
 
 
 def test_accessible_root_returns_none(tmp_path: Path) -> None:

@@ -5,7 +5,7 @@ per-provider.
 
 from __future__ import annotations
 
-from ragpilot.ai.base import AiRequest, build_messages, build_prompt
+from ragmonk.ai.base import AiRequest, build_messages, build_prompt
 
 
 def _request(**overrides: object) -> AiRequest:

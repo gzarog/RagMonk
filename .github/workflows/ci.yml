@@ -6,6 +6,21 @@ on:
     branches: [main]
 
 jobs:
+  # Fast, dependency-free gate: fail the build if any old pre-rename
+  # product identifier survives outside the narrow historical/clean-break
+  # allowlist (see scripts/check_branding.py). Needs only Python + git, so
+  # it skips the heavy torch/docling install the other jobs pay.
+  branding-audit:
+    name: Branding audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check for disallowed old identifiers
+        run: python scripts/check_branding.py
+
   lint-and-typecheck:
     name: Lint & type-check
     runs-on: ubuntu-latest
@@ -45,7 +60,7 @@ jobs:
       - name: Ruff
         run: ruff check .
       - name: Mypy
-        run: mypy src/ragpilot
+        run: mypy src/ragmonk
 
   test:
     name: Test (${{ matrix.os }})
@@ -104,7 +119,7 @@ jobs:
         run: pytest -m docling_pdf -q
 
   # Optional, non-blocking: spawns and signals a real, detached
-  # `ragpilot daemon` process (Phase 7). Kept separate from `test` above
+  # `ragmonk daemon` process (Phase 7). Kept separate from `test` above
   # so process-startup/signal-delivery timing on a given runner never
   # gates a merge -- the daemon loop itself is already covered by `test`
   # above via direct, process-free unit/integration tests. See
@@ -244,7 +259,7 @@ jobs:
 
   # Optional, non-blocking: runs install.sh/install.ps1 exactly as a real
   # user would (curl/irm into a shell), pointed at *this* branch/commit via
-  # RAGPILOT_REF, and verifies the resulting `ragpilot` launcher actually
+  # RAGMONK_REF, and verifies the resulting `ragmonk` launcher actually
   # works. Non-blocking because it repeats the same heavy dependency
   # download (torch, docling) as the jobs above, on top of a real network
   # fetch of the branch tarball/zipball from GitHub -- see CONTRIBUTING.md
@@ -264,21 +279,21 @@ jobs:
           python-version: "3.12"
       - name: Run install.sh against this branch
         env:
-          RAGPILOT_REF: ${{ github.head_ref || github.ref_name }}
-          RAGPILOT_INSTALL_DIR: ${{ runner.temp }}/ragpilot-install
-          RAGPILOT_BIN_DIR: ${{ runner.temp }}/ragpilot-bin
-          RAGPILOT_HOME: ${{ runner.temp }}/ragpilot-home
+          RAGMONK_REF: ${{ github.head_ref || github.ref_name }}
+          RAGMONK_INSTALL_DIR: ${{ runner.temp }}/ragmonk-install
+          RAGMONK_BIN_DIR: ${{ runner.temp }}/ragmonk-bin
+          RAGMONK_HOME: ${{ runner.temp }}/ragmonk-home
         run: sh ./install.sh
       - name: Verify the installed CLI works
         env:
-          RAGPILOT_HOME: ${{ runner.temp }}/ragpilot-home
+          RAGMONK_HOME: ${{ runner.temp }}/ragmonk-home
         run: |
-          "${{ runner.temp }}/ragpilot-bin/ragpilot" version
-          "${{ runner.temp }}/ragpilot-bin/ragpilot" doctor
+          "${{ runner.temp }}/ragmonk-bin/ragmonk" version
+          "${{ runner.temp }}/ragmonk-bin/ragmonk" doctor
       - name: Verify install-script metadata was written (update/installer.py detection)
         run: |
-          test -f "${{ runner.temp }}/ragpilot-home/install_info.json"
-          grep -q '"install_method": "install-script"' "${{ runner.temp }}/ragpilot-home/install_info.json"
+          test -f "${{ runner.temp }}/ragmonk-home/install_info.json"
+          grep -q '"install_method": "install-script"' "${{ runner.temp }}/ragmonk-home/install_info.json"
 
   install-script-tests-windows:
     name: Install script (windows-latest)
@@ -291,26 +306,26 @@ jobs:
           python-version: "3.12"
       - name: Run install.ps1 against this branch
         env:
-          RAGPILOT_REF: ${{ github.head_ref || github.ref_name }}
-          RAGPILOT_INSTALL_DIR: ${{ runner.temp }}\ragpilot-install
-          RAGPILOT_BIN_DIR: ${{ runner.temp }}\ragpilot-bin
-          RAGPILOT_HOME: ${{ runner.temp }}\ragpilot-home
+          RAGMONK_REF: ${{ github.head_ref || github.ref_name }}
+          RAGMONK_INSTALL_DIR: ${{ runner.temp }}\ragmonk-install
+          RAGMONK_BIN_DIR: ${{ runner.temp }}\ragmonk-bin
+          RAGMONK_HOME: ${{ runner.temp }}\ragmonk-home
         run: ./install.ps1
       - name: Verify the installed CLI works
         env:
-          RAGPILOT_HOME: ${{ runner.temp }}\ragpilot-home
+          RAGMONK_HOME: ${{ runner.temp }}\ragmonk-home
         run: |
-          & "${{ runner.temp }}\ragpilot-bin\ragpilot.cmd" version
-          & "${{ runner.temp }}\ragpilot-bin\ragpilot.cmd" doctor
+          & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" version
+          & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" doctor
       - name: Verify install-script metadata was written (update/installer.py detection)
         run: |
-          $infoPath = "${{ runner.temp }}\ragpilot-home\install_info.json"
+          $infoPath = "${{ runner.temp }}\ragmonk-home\install_info.json"
           if (-not (Test-Path $infoPath)) { throw "missing $infoPath" }
           $info = Get-Content $infoPath -Raw | ConvertFrom-Json
           if ($info.install_method -ne "install-script") { throw "unexpected install_method: $($info.install_method)" }
-      # Regression test for the Windows self-upgrade bug `ragpilot update
+      # Regression test for the Windows self-upgrade bug `ragmonk update
       # install` hits: it re-runs this same install.ps1 from inside the
-      # currently-running venv\Scripts\ragpilot.exe. `ragpilot daemon
+      # currently-running venv\Scripts\ragmonk.exe. `ragmonk daemon
       # start` spawns a real, detached background process from that exact
       # venv (python.exe, per service loop `cli/daemon.py`'s `_spawn`)
       # and waits for it to report healthy before returning -- a
@@ -324,21 +339,21 @@ jobs:
       # swap in install.ps1 doesn't need the venv's files to be free.
       - name: Re-run install.ps1 while a real background process holds the venv open (self-upgrade simulation)
         env:
-          RAGPILOT_REF: ${{ github.head_ref || github.ref_name }}
-          RAGPILOT_INSTALL_DIR: ${{ runner.temp }}\ragpilot-install
-          RAGPILOT_BIN_DIR: ${{ runner.temp }}\ragpilot-bin
-          RAGPILOT_HOME: ${{ runner.temp }}\ragpilot-home
+          RAGMONK_REF: ${{ github.head_ref || github.ref_name }}
+          RAGMONK_INSTALL_DIR: ${{ runner.temp }}\ragmonk-install
+          RAGMONK_BIN_DIR: ${{ runner.temp }}\ragmonk-bin
+          RAGMONK_HOME: ${{ runner.temp }}\ragmonk-home
         run: |
-          & "${{ runner.temp }}\ragpilot-bin\ragpilot.cmd" daemon start
+          & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" daemon start
           if ($LASTEXITCODE -ne 0) { throw "daemon start failed" }
           try {
               ./install.ps1
           } finally {
-              & "${{ runner.temp }}\ragpilot-bin\ragpilot.cmd" daemon stop
+              & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" daemon stop
           }
       - name: Verify the installed CLI still works after the locked re-run
         env:
-          RAGPILOT_HOME: ${{ runner.temp }}\ragpilot-home
+          RAGMONK_HOME: ${{ runner.temp }}\ragmonk-home
         run: |
-          & "${{ runner.temp }}\ragpilot-bin\ragpilot.cmd" version
-          & "${{ runner.temp }}\ragpilot-bin\ragpilot.cmd" doctor
+          & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" version
+          & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" doctor

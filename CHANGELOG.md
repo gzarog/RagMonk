@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0]
+
+### Changed
+
+- **Renamed the entire application from Ragpilot/RAGpilot to RagMonk as a
+  clean break.** This is a new application identity, not a compatibility
+  upgrade.
+  - Python distribution and package: `ragpilot` -> `ragmonk`
+    (source tree moved from `src/ragpilot` to `src/ragmonk`).
+  - CLI executable: `ragpilot` -> `ragmonk`.
+  - Environment-variable prefix: `RAGPILOT_*` -> `RAGMONK_*`
+    (e.g. `RAGPILOT_HOME` -> `RAGMONK_HOME`).
+  - Runtime home: `~/.ragpilot` / `%LOCALAPPDATA%\RAGpilot` ->
+    `~/.ragmonk` / `%LOCALAPPDATA%\RagMonk`.
+  - Project configuration: `.ragpilot.yaml` -> `.ragmonk.yaml`;
+    per-source ignore file `.ragpilotignore` -> `.ragmonkignore`.
+  - MCP server/client key `ragpilot` -> `ragmonk`; all MCP tools
+    renamed from `ragpilot_*` to `ragmonk_*`.
+  - Installers, updater, and release automation now use the
+    `gzarog/RagMonk` repository and produce `ragmonk-<version>-*`
+    artifacts, a `ragmonk-release-artifacts` CI bundle, and a
+    `ragmonk-dependency-manifest` SBOM with a `ragmonk_version` field.
+  - `RagpilotConfig`/`RagpilotError` -> `RagMonkConfig`/`RagMonkError`;
+    daemon thread names, logger names, and process labels use `ragmonk`.
+
+### Removed
+
+- **No backward compatibility.** There is intentionally no `ragpilot` CLI
+  alias, no `ragpilot` import shim, no `RAGPILOT_*` environment-variable
+  fallback, no `.ragpilot.yaml` fallback, and no migration from
+  `~/.ragpilot` or `%LOCALAPPDATA%\RAGpilot`. Existing Ragpilot databases,
+  indexes, embeddings, caches, backups, and install metadata are neither
+  read nor migrated, and are never deleted automatically.
+
+### Migration
+
+RagMonk starts with an empty knowledge base. A former Ragpilot user must
+reinstall RagMonk, re-register source folders, and rebuild the index:
+
+```bash
+ragmonk init
+ragmonk source add /path/to/source
+ragmonk index
+```
+
+Old Ragpilot data is left untouched; optional manual cleanup is documented
+in `README.md`.
+
+### Added
+
+- `scripts/check_branding.py`, run in CI, fails the build if any old
+  pre-rename product identifier survives outside the narrow historical /
+  clean-break allowlist.
+- `.github/workflows/main-release.yml` now recognizes a controlled
+  `[release minor]` merge marker that bumps the minor version (advancing
+  `v0.1.x` directly to `v0.2.0`) instead of the default patch bump, and
+  refuses to overwrite an existing tag.
+
 ## [Unreleased]
 
 ### Added

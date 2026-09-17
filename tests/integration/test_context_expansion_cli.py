@@ -1,4 +1,4 @@
-"""``ragpilot search``'s Phase 9 context expansion end to end: a real
+"""``ragmonk search``'s Phase 9 context expansion end to end: a real
 indexed multi-paragraph document, searched for a mid-document term, whose
 JSON ``context`` carries the expected neighboring paragraph text -- and
 proof that expansion never changes ranking order, only what is attached
@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
+from ragmonk.cli.main import app
 
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
 
@@ -47,7 +47,7 @@ def _write_project(root: Path) -> None:
 
 @pytest.fixture
 def indexed_project(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> CliRunner:
     root = tmp_path / "project"
     _write_project(root)

@@ -9,7 +9,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from ragpilot.update import checker
+from ragmonk.update import checker
 
 
 def _client(handler: httpx.MockTransport) -> httpx.Client:
@@ -24,7 +24,7 @@ def test_fetch_latest_release_returns_normalized_version_on_success() -> None:
             200,
             json={
                 "tag_name": "v0.1.8",
-                "html_url": "https://github.com/gzarog/Ragpilotv2/releases/tag/v0.1.8",
+                "html_url": "https://github.com/gzarog/RagMonk/releases/tag/v0.1.8",
             },
         )
 
@@ -37,10 +37,10 @@ def test_fetch_latest_release_returns_normalized_version_on_success() -> None:
 
 def test_fetch_latest_release_rejects_a_non_semver_tag() -> None:
     # Real-world case: this repository's current release is tagged
-    # "ragpilot_0_1_0", not a "v*.*.*" tag -- must be rejected, not
+    # "ragmonk_0_1_0", not a "v*.*.*" tag -- must be rejected, not
     # silently accepted as an unparseable "latest version".
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"tag_name": "ragpilot_0_1_0", "html_url": "..."})
+        return httpx.Response(200, json={"tag_name": "ragmonk_0_1_0", "html_url": "..."})
 
     with pytest.raises(checker.UpdateCheckError, match="not a valid"):
         checker.fetch_latest_release(http_client=_client(httpx.MockTransport(handler)))
@@ -80,5 +80,5 @@ def test_fetch_latest_release_raises_when_tag_name_missing() -> None:
 
 def test_only_this_repository_is_queried() -> None:
     assert checker.GITHUB_OWNER == "gzarog"
-    assert checker.GITHUB_REPO == "Ragpilotv2"
-    assert checker._RELEASES_LATEST_URL.startswith("https://api.github.com/repos/gzarog/Ragpilotv2/")
+    assert checker.GITHUB_REPO == "RagMonk"
+    assert checker._RELEASES_LATEST_URL.startswith("https://api.github.com/repos/gzarog/RagMonk/")

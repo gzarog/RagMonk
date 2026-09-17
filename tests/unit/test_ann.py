@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core.models import EmbeddingSubjectType
-from ragpilot.retrieval import ann
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import embeddings_repo, vector_items_repo
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.core.models import EmbeddingSubjectType
+from ragmonk.retrieval import ann
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import embeddings_repo, vector_items_repo
+from ragmonk.storage.sqlite import connect, transaction
 
 MODEL = "test-model"
 

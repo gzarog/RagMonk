@@ -1,7 +1,7 @@
 """``service.daemon.Daemon``: watcher-triggered indexing, periodic
 reconciliation as a safety net independent of watcher events, and
 graceful shutdown mid-pass. Drives ``Daemon`` directly (not through
-``ragpilot watch``'s real-signal, real-subprocess entrypoint -- see
+``ragmonk watch``'s real-signal, real-subprocess entrypoint -- see
 ``cli/watch.py``'s docstring) so every test here stays fast and
 deterministic.
 """
@@ -11,13 +11,13 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-import ragpilot.indexing.coordinator as coordinator_module
-from ragpilot.core import paths
-from ragpilot.core.lifecycle import AppContext, RunLock
-from ragpilot.core.models import FileStatus
-from ragpilot.service.daemon import Daemon
-from ragpilot.sources.registry import SourceRegistry
-from ragpilot.storage.repositories import files_repo, jobs_repo
+import ragmonk.indexing.coordinator as coordinator_module
+from ragmonk.core import paths
+from ragmonk.core.lifecycle import AppContext, RunLock
+from ragmonk.core.models import FileStatus
+from ragmonk.service.daemon import Daemon
+from ragmonk.sources.registry import SourceRegistry
+from ragmonk.storage.repositories import files_repo, jobs_repo
 
 _WAIT_TIMEOUT_SECONDS = 8.0
 _POLL_SECONDS = 0.1
@@ -38,7 +38,7 @@ def _indexed_paths(ctx: AppContext, source_dir: Path, source_id: str) -> set[str
 
 
 def test_daemon_indexes_a_file_created_after_start_via_watcher(
-    ragpilot_home: Path, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, tmp_path: Path, monkeypatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -67,7 +67,7 @@ def test_daemon_indexes_a_file_created_after_start_via_watcher(
 
 
 def test_reconciliation_catches_a_change_the_watcher_missed(
-    ragpilot_home: Path, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, tmp_path: Path, monkeypatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -103,7 +103,7 @@ def test_reconciliation_catches_a_change_the_watcher_missed(
 
 
 def test_graceful_shutdown_finishes_in_flight_pass_and_releases_lock(
-    ragpilot_home: Path, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, tmp_path: Path, monkeypatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -148,6 +148,6 @@ def test_graceful_shutdown_finishes_in_flight_pass_and_releases_lock(
 
     # The per-pass RunLock must have been released cleanly: a fresh
     # acquire from a brand-new lock handle must not block.
-    lock = RunLock(paths.locks_dir(ragpilot_home) / "index.lock")
+    lock = RunLock(paths.locks_dir(ragmonk_home) / "index.lock")
     lock.acquire()
     lock.release()

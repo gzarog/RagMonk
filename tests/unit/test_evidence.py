@@ -5,7 +5,7 @@ sourced (cross-domain) relationship.
 
 from __future__ import annotations
 
-from ragpilot.core.models import (
+from ragmonk.core.models import (
     Confidence,
     CrossLink,
     Entity,
@@ -14,8 +14,8 @@ from ragpilot.core.models import (
     RelationshipType,
     SectionKind,
 )
-from ragpilot.knowledge import evidence
-from ragpilot.storage.repositories.documents_repo import DocumentUnit
+from ragmonk.knowledge import evidence
+from ragmonk.storage.repositories.documents_repo import DocumentUnit
 
 _EVIDENCE_KEYS = {"source", "path", "location", "entity", "relationship", "confidence"}
 _LOCATION_KEYS = {"line_start", "line_end", "page", "section"}
