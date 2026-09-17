@@ -527,6 +527,15 @@ class DocumentSearchRow:
     snippet: str | None = None
     heading: str | None = None
     fts_rank: int = 0
+    # Search Quality Improvement Plan, Phase 8: the raw ``bm25()`` value
+    # FTS5 already computes for ``ORDER BY`` (lower/more negative is a
+    # better match) -- ``fts_rank`` above only ever kept this query's
+    # relative *position*, discarding the magnitude; ``retrieval/
+    # merger.py`` now carries this through onto ``SearchCandidate.
+    # bm25_score`` so it survives hybrid fusion as its own signal instead
+    # of being silently dropped. ``None`` for a row this query plan never
+    # produced (e.g. an exact-title hit with no FTS row at all).
+    bm25_score: float | None = None
     page_start: int | None = None
     page_end: int | None = None
     heading_path: list[str] = field(default_factory=list)
@@ -607,6 +616,7 @@ def search_fts_projection(
                 snippet=match_snippet or (body or heading)[:280] or None,
                 heading=heading or None,
                 fts_rank=rank,
+                bm25_score=row["rank"],
                 page_start=row["page_start"],
                 page_end=row["page_end"],
                 heading_path=json.loads(row["heading_path"]) if row["heading_path"] else [],

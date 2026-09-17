@@ -1492,6 +1492,129 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `keyword_search`/every other category shows no regression.
     `tests/integration/test_search_quality.py`'s blocking floors still
     pass.
+- Search Quality Improvement Plan, Phase 8: real Reciprocal Rank Fusion
+  for the hybrid tier -- **deliberately reverses this project's own
+  previous, documented design**, per explicit user direction, the same
+  way Phase 1B's PR described its own reversal.
+  - **The previous design, and why it's being reversed now**:
+    `retrieval/reranker.py`'s module docstring used to state the reason
+    it rejected RRF outright: a candidate found only via semantic search
+    sorted into its own tier strictly below *every* lexical tier
+    (`_SEMANTIC_ONLY_TIER`), and a candidate found by both kept its
+    lexical tier as the sole primary signal, semantic score folded in
+    only as a same-tier tie-breaker -- "never let semantic similarity
+    silently upgrade an exact lexical tier." That rule is now too broad:
+    it also blocked a strong semantic match from ever beating a weak,
+    non-exact lexical hit (`RankTier.FTS`/`RankTier.PATH`), which is
+    exactly the case this phase exists to fix. The exact-match guarantee
+    itself is kept, narrowed to a new, explicit pinned tier (below).
+  - **New `retrieval/fusion.py`**: the RRF math and this phase's
+    candidate budgets, kept independent of `SearchCandidate` (and so of
+    `merger.py`) to avoid a circular import and to stay trivially
+    unit-testable against plain integers/floats. `RRF_K = 60` (the
+    plan's suggested starting point, a named constant rather than
+    scattered magic numbers) backs `rrf_score(lexical_rank,
+    semantic_rank, *, k=RRF_K)`: `1/(k+lexical_rank) + 1/(k+
+    semantic_rank)`, each term included only when that rank is known --
+    a candidate found by only one signal still gets a valid score from
+    that term alone, never dropped or penalized for lacking the other.
+    Also home to the plan's candidate-budget constants:
+    `MAX_LEXICAL_CANDIDATES`/`MAX_SEMANTIC_CANDIDATES` (50 each) and
+    `MAX_FUSION_CANDIDATES` (100).
+  - **`retrieval/merger.py`**: `SearchCandidate` grows `lexical_rank`,
+    `semantic_rank`, `bm25_score`, `exact_match`, and `rrf_score` --
+    additive fields alongside the existing `lexical_tier`/
+    `semantic_score`/etc., nothing renamed or repurposed. `merge` now
+    assigns `lexical_rank`/`semantic_rank` as each candidate's 1-based
+    position within its own signal's (budget-capped) result list --
+    `lexical_results` trusted in caller-given order (re-deriving
+    `lexical.py`'s own multi-key tie-break chain here would duplicate
+    logic that module's docstring already warns against), `semantic_hits`
+    defensively re-sorted by score descending first so a caller's input
+    order can never silently invert semantic ranks. `exact_match` is
+    `True` exactly for the **pinned tier**: `RankTier.EXACT_SYMBOL`/
+    `QUALIFIED_SYMBOL`/`ALIAS_SYMBOL`/`TITLE_OR_HEADING` (an exact
+    document title or heading match) -- precisely the tiers the plan's
+    own "preserve exact-match safety" language points at, and precisely
+    what `tests/integration/test_search_quality.py`'s
+    `exact_symbol_lookup`/`exact_title_lookup`/`exact_heading_lookup`
+    floors already pin. `RankTier.FTS`/`RankTier.PATH` are **not**
+    pinned -- they now fuse.
+  - **`retrieval/repositories/documents_repo.py` /
+    `entities_repo.py`**: `DocumentSearchRow`/`EntitySearchRow` (and
+    `lexical.SearchResult`) grow a `bm25_score` field carrying the raw
+    `bm25()` value FTS5 already computes for `ORDER BY` -- previously
+    computed and then immediately discarded in favor of an ordinal
+    `fts_rank` (`enumerate(rows)`). No query/scoring change: same
+    `bm25(document_fts, ...)`/`bm25(code_fts)` expressions, just no
+    longer thrown away, so it survives onto `SearchCandidate.bm25_score`
+    as its own preserved signal (never consumed by `_sort_key` anywhere
+    -- informational only, part of Phase 8's "preserve every signal
+    separately, never overwrite" candidate shape).
+  - **`retrieval/reranker.py`**: `rerank` now splits candidates into the
+    pinned tier (sorted by the exact same tie-break chain as before --
+    unconditionally first, untouched by fusion) and the hybrid tier
+    (`RankTier.FTS`/`PATH`/semantic-only), which is ordered by
+    `fusion.rrf_score` descending, capped at
+    `fusion.MAX_FUSION_CANDIDATES`, with the same lower-priority
+    tie-breakers as a last resort for an exact score tie. A hybrid-tier
+    hit's `tier_label` is now `"hybrid"` (replacing the previous
+    per-origin `"fts"`/`"path"`/`"semantic_only"` labels for that group,
+    since they are no longer strictly tiered against each other) --
+    pinned-tier labels (`"exact_symbol"` etc.) are unchanged.
+    `RankedHit.to_dict()` gains an `rrf_score` key (rounded, `None` for
+    pinned candidates, which are never fused).
+  - **Tests**: new `tests/unit/test_fusion.py` (the RRF formula in
+    isolation: both/either/neither rank present, custom `k`, monotonic
+    rank ordering, "found by both beats found by one"). `tests/unit/
+    test_merger_and_reranker.py` gains coverage for rank/budget
+    bookkeeping, the pinned/hybrid split, and a hand-computed RRF
+    example. **Deliberately changed, not silently deleted**:
+    `test_rerank_never_lets_semantic_outrank_a_lexical_tier` (asserted
+    the exact old behavior this phase reverses, using `RankTier.PATH` --
+    not a pinned tier) is replaced by
+    `test_pinned_tier_always_outranks_hybrid_tier_regardless_of_semantic_score`
+    (same intent, now against an actually-pinned `RankTier.EXACT_SYMBOL`
+    candidate, which still always wins) and
+    `test_hybrid_tier_lets_a_strong_semantic_match_outrank_a_weak_lexical_match`
+    (the new behavior: a lexical hit at rank 50 of 50 loses to a
+    semantic-only hit at rank 1, by real RRF arithmetic, not a
+    coincidental tie-break). `tests/integration/
+    test_semantic_retrieval.py`'s `test_hybrid_flag_merges_and_reranks_
+    without_changing_existing_keys` needed no assertion changes (its
+    query's top hit is an exact symbol match, so it lands in the pinned
+    tier either way) -- only its docstring was corrected to stop
+    implying lexical tiers always outrank semantic ones in general.
+  - **Candidate budgets**: reuses existing config surfaces for what
+    actually gets fetched from the DB/ANN index (`--limit`,
+    `SearchConfig.semantic_top_k`) rather than adding a parallel,
+    redundant set of knobs; `fusion.py`'s
+    `MAX_LEXICAL_CANDIDATES`/`MAX_SEMANTIC_CANDIDATES`/
+    `MAX_FUSION_CANDIDATES` are enforced as upper-bound caps inside
+    `merger.merge`/`reranker.rerank` on top of whatever a caller passes
+    in, exercised directly by feeding oversized candidate lists in the
+    new unit tests.
+  - **Verified against `benchmarks/search_quality/baseline_report.json`
+    (not regenerated -- every number is byte-identical)**: this
+    benchmark's golden-query evaluator (`benchmarks/search_quality/
+    evaluator.py`) calls `retrieval/lexical.search` directly and always
+    has (see its own module docstring: "Deliberately lexical-only... 
+    semantic/hybrid search has its own separate, already-covered
+    contract") -- it never exercises `merger.py`/`reranker.py`/
+    `fusion.py` at all, so a change confined to the hybrid ranking path
+    cannot move its numbers, and none did:
+    `exact_symbol_lookup`/`exact_title_lookup`/`exact_heading_lookup`
+    stay at a perfect 1.0 across every metric, and `semantic_document`
+    (already at a perfect Recall@5 = 1.0 on this fixture even
+    lexical-only, by that category's own design -- see `golden_queries.
+    yaml`'s header) is unchanged too. The phase's actual hybrid-tier
+    reordering is verified instead by the new fusion/merger/reranker
+    unit tests (a hand-computed reversal example) and the existing
+    `--hybrid` integration coverage. The synthetic-corpus latency
+    section's `hybrid` mode *does* exercise this path
+    (`benchmarks/search/runner.py`) and stayed within measurement noise
+    (p50 15.652ms -> 15.9ms, p95 16.176ms -> 16.745ms) -- pure rank
+    arithmetic over already-computed lists, as expected.
 - Search Quality Improvement Plan, Phase 9: matched-chunk context
   expansion (nearest parent heading, previous/next sibling chunks).
   - **The problem**: a document search hit's `snippet` is a single
