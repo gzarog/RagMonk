@@ -1,13 +1,13 @@
 {
   "cold_warm_semantic_search": {
     "cold_hits": 20,
-    "cold_ms": 4.978,
+    "cold_ms": 3.875,
     "note": "'Cold' is the first semantic_search call in this process (loads the persistent ANN index from disk); 'warm' repeats the same query against the process-cached in-memory index (see retrieval/ann.py's get_cached_backend).",
     "warm_hits": 20,
-    "warm_p50_ms": 1.482,
-    "warm_p95_ms": 1.644
+    "warm_p50_ms": 1.097,
+    "warm_p95_ms": 1.196
   },
-  "generated_at": "2026-09-15T09:11:20Z",
+  "generated_at": "2026-09-17T11:48:47Z",
   "golden_query_quality": {
     "by_category": {
       "code_to_document": {
@@ -136,7 +136,7 @@
   "indexing": {
     "document_count": 3,
     "embedding_count": 26,
-    "full_index_time_ms": 145.548,
+    "full_index_time_ms": 201.366,
     "generated_chunk_count": {
       "code_entities": 10,
       "document_sections": 16,
@@ -148,12 +148,12 @@
       "total": 26
     },
     "indexing_time_ms_by_file_type": {
-      "code": 53.189,
-      "document": 109.404
+      "code": 42.81,
+      "document": 99.746
     },
-    "knowledge_db_size_bytes": 331776,
+    "knowledge_db_size_bytes": 335872,
     "note": "Measured against the small, hand-written fixture project (a handful of files) -- real, honestly-obtained numbers, but indicative of pipeline correctness/overhead only, not representative of large-corpus performance. See the latency section for synthetic-corpus numbers.",
-    "reindex_time_ms_unchanged": 72.767,
+    "reindex_time_ms_unchanged": 54.024,
     "vector_count": 26,
     "vector_index_size_bytes": 7388
   },
@@ -162,65 +162,65 @@
       "alias": {
         "meets_target": true,
         "mode": "lexical",
-        "p50_ms": 0.95,
-        "p95_ms": 1.068
+        "p50_ms": 0.689,
+        "p95_ms": 0.754
       },
       "conceptual": {
         "meets_target": true,
         "mode": "semantic",
-        "p50_ms": 1.477,
-        "p95_ms": 1.546
+        "p50_ms": 1.024,
+        "p95_ms": 1.094
       },
       "exact_symbol": {
         "meets_target": true,
         "mode": "lexical",
-        "p50_ms": 0.484,
-        "p95_ms": 0.545
+        "p50_ms": 0.312,
+        "p95_ms": 0.403
       },
       "file_path": {
         "meets_target": true,
         "mode": "lexical",
-        "p50_ms": 0.468,
-        "p95_ms": 0.552
+        "p50_ms": 0.307,
+        "p95_ms": 0.466
       },
       "hybrid": {
         "meets_target": true,
         "mode": "hybrid",
-        "p50_ms": 15.652,
-        "p95_ms": 16.176
+        "p50_ms": 12.941,
+        "p95_ms": 14.031
       },
       "multi_keyword": {
         "meets_target": true,
         "mode": "lexical",
-        "p50_ms": 2.297,
-        "p95_ms": 3.329
+        "p50_ms": 1.642,
+        "p95_ms": 1.711
       },
       "qualified_symbol": {
         "meets_target": true,
         "mode": "lexical",
-        "p50_ms": 1.268,
-        "p95_ms": 1.417
+        "p50_ms": 0.988,
+        "p95_ms": 1.041
       },
       "single_keyword": {
         "meets_target": true,
         "mode": "lexical",
-        "p50_ms": 8.509,
-        "p95_ms": 9.006
+        "p50_ms": 7.024,
+        "p95_ms": 7.398
       }
     },
     "corpus_size": "small",
     "hybrid": {
-      "p50_ms": 15.652,
-      "p95_ms": 16.176
+      "p50_ms": 12.941,
+      "p95_ms": 14.031
     },
     "lexical": {
-      "p50_ms": 2.329,
-      "p95_ms": 9.006
+      "p50_ms": 1.827,
+      "p95_ms": 7.398
     },
     "repeats": 20,
     "semantic": {
-      "p50_ms": 1.477,
-      "p95_ms": 1.546
+      "p50_ms": 1.024,
+      "p95_ms": 1.094
     }
   },
   "schema_version": 1

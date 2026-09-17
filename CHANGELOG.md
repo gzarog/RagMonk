@@ -2443,3 +2443,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     could plausibly show a different delta, which is exactly why the
     plan reserves default-on as a separate, later decision rather than
     deciding it here.
+
+- Search Quality Improvement Plan, Phase 14 (final): full-plan benchmark,
+  release-gate scoring, and the canonical baseline regeneration this phase
+  is specifically meant to produce -- see
+  `benchmarks/search_quality/PHASE_14_FINAL_REPORT.md` for the complete
+  comparison table, per-gate numbers, and a Phase 0-13 recap.
+  - **True Phase 0 baseline recovered from git history**
+    (`git show ce7ecbe:benchmarks/search_quality/baseline_report.json`) --
+    the committed `baseline_report.json`/`.md` had stayed at Phase 6's
+    snapshot since Phase 6 landed (Phases 7-12 confirmed quality-neutral
+    against it), which is *not* the plan's actual Phase 0 starting point.
+    Both are now recorded side by side in the new final report so later
+    readers don't have to dig through git history to find Phase 0's real
+    numbers again.
+  - **Release gates, measured**: overall Recall@1 +10.34%, MRR +5.69%
+    (target +8%, **short**), NDCG@10 +3.68%; `table_question` reached a
+    perfect 1.0 across every metric; every exact-match category
+    (`exact_title_lookup`/`exact_heading_lookup`/`exact_symbol_lookup`/
+    `file_path_lookup`) stayed byte-identical -- no regression.
+    `semantic_document` Recall@5 was already at its ceiling (1.0) in the
+    Phase 0 baseline, so the plan's "+10%" gate has no numerical headroom
+    to satisfy on this fixture (reported as a numeric FAIL with that
+    explanation, not rounded up). Warm hybrid search and re-index-vs-
+    full-index both PASS with real before/after numbers, including a new
+    medium-scale (50k-subject) direct Phase-0-vs-Final comparison run for
+    this phase specifically (`multi_keyword` lexical: 127.8 ms -> 7.7 ms
+    p50, a ~16x win from Phase 6/7's tiered lexical plan + weighted BM25;
+    `single_keyword`/`hybrid` already missed their strict targets at
+    Phase 0 -- a pre-existing, not newly introduced, characteristic of
+    this shared/virtualized benchmark hardware).
+  - **No tuning constants changed**: `RRF_K=60` (Phase 8), the BM25
+    heading/body/title column weights `(5.0, 1.0, 8.0)` (Phase 7),
+    chunking's `max_tokens=350`/`overlap_tokens=40` (Phase 2), and the
+    reranker's `enabled=false` default (Phase 11) were all reviewed and
+    confirmed still measurement-justified as-is; every phase already
+    benchmarked its own change against its predecessor before landing, and
+    the two gate shortfalls above trace to this fixture's fixed, partly
+    ceiling-limited 72-query set rather than to any single mistunable
+    constant, so no constant was adjusted just to move an aggregate number.
+  - **Canonical `benchmarks/search_quality/baseline_report.json`/`.md`
+    regenerated** against this phase's own HEAD (superseding the Phase-6
+    snapshot that had been committed since Phase 6) -- quality numbers came
+    back byte-identical to the superseded snapshot (re-confirming Phases
+    7-12's quality-neutrality claim, now verified directly against Phase 12
+    HEAD rather than taken on faith); only latency/size numbers, which
+    carry expected run-to-run hardware noise, changed.
+  - **Scanned-PDF/OCR retrieval coverage** (Phase 5's target) and a
+    PDF-specific re-index measurement (the release gate's literal wording)
+    are both noted as genuine benchmark-fixture measurement gaps rather
+    than fabricated numbers -- the fixture has no scanned-PDF/image golden
+    query and no benchmark isolates PDF re-indexing from the rest of the
+    mixed fixture project.

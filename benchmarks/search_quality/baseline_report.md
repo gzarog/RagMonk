@@ -1,6 +1,6 @@
 # RAGpilot search quality baseline (Phase 0)
 
-Generated: 2026-09-15T09:11:20Z
+Generated: 2026-09-17T11:48:47Z
 
 ## Golden-query quality (overall)
 
@@ -31,23 +31,23 @@ Generated: 2026-09-15T09:11:20Z
 
 Corpus size: small, repeats: 20
 
-- lexical: p50=2.329 ms, p95=9.006 ms
-- semantic: p50=1.477 ms, p95=1.546 ms
-- hybrid: p50=15.652 ms, p95=16.176 ms
+- lexical: p50=1.827 ms, p95=7.398 ms
+- semantic: p50=1.024 ms, p95=1.094 ms
+- hybrid: p50=12.941 ms, p95=14.031 ms
 
 ## Cold vs warm semantic search
 
-- Cold (first call, loads ANN index from disk): 4.978 ms
-- Warm p50: 1.482 ms, p95: 1.644 ms
+- Cold (first call, loads ANN index from disk): 3.875 ms
+- Warm p50: 1.097 ms, p95: 1.196 ms
 
 ## Indexing / storage
 
-- Indexing time by file type: code=53.189 ms, document=109.404 ms
-- Full index time (mixed project): 145.548 ms
-- Re-index time (no changes): 72.767 ms
+- Indexing time by file type: code=42.81 ms, document=99.746 ms
+- Full index time (mixed project): 201.366 ms
+- Re-index time (no changes): 54.024 ms
 - Generated chunk count: 26 (entities=10, document_sections=16)
 - Vector count: 26
-- Knowledge DB size: 331776 bytes
+- Knowledge DB size: 335872 bytes
 - Vector index size: 7388 bytes
 
 > Measured against the small, hand-written fixture project (a handful of files) -- real, honestly-obtained numbers, but indicative of pipeline correctness/overhead only, not representative of large-corpus performance. See the latency section for synthetic-corpus numbers.
