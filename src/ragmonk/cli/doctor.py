@@ -129,7 +129,68 @@ def run_checks(ctx: AppContext) -> list[CheckSection]:
     if ctx.config.search.semantic:
         sections.append(CheckSection("Semantic", [_semantic_check(ctx, sources)]))
 
+    sections.append(_ai_section(ctx))
+
     return sections
+
+
+def _ai_section(ctx: AppContext) -> CheckSection:
+    """Subscription plan, Phase 4: report the configured AI provider, the
+    privacy posture, and -- for a subscription provider -- whether its
+    optional runtime/SDK is even detectable, plus any credential env var
+    that could shadow the intended sign-in. Deliberately offline and
+    secret-free: it never contacts a provider, starts a runtime, or prints
+    a token. A misconfiguration here is at most a WARN (the user's own
+    choice to fix), never a FAIL that would make ``doctor`` non-zero.
+    """
+    from ragmonk.ai import registry
+
+    provider = ctx.config.ai.provider
+    allowed = ctx.config.privacy.external_ai_allowed
+    checks = [
+        CheckResult("provider", "ok", f"provider={provider}, external_ai_allowed={allowed}")
+    ]
+    cap = registry.get_capability(provider)
+    if cap is not None and cap.subscription:
+        if cap.cloud_egress and not allowed:
+            checks.append(
+                CheckResult(
+                    "privacy",
+                    "warn",
+                    f"{provider} is a cloud provider but privacy.external_ai_allowed=false; "
+                    "set it true to use it",
+                )
+            )
+        checks.append(_subscription_runtime_check(provider))
+    return CheckSection("AI", checks)
+
+
+def _subscription_runtime_check(provider: str) -> CheckResult:
+    if provider == "codex":
+        found = shutil.which("codex")
+        if found:
+            return CheckResult("runtime", "ok", "codex runtime found on PATH")
+        return CheckResult(
+            "runtime", "warn", "codex runtime not found on PATH; run 'ragmonk ai login codex' setup"
+        )
+    if provider == "github_copilot":
+        import importlib.util
+
+        from ragmonk.ai import github_copilot
+
+        spec = importlib.util.find_spec(github_copilot._SDK_IMPORT_NAME)
+        conflicting = github_copilot.has_conflicting_env()
+        if spec is None:
+            detail = "Copilot SDK not installed (pip install 'ragmonk[copilot]')"
+            status: Status = "warn"
+        elif conflicting:
+            detail = f"SDK present; note env vars that may shadow sign-in: {', '.join(conflicting)}"
+            status = "warn"
+        else:
+            detail = "Copilot SDK present"
+            status = "ok"
+        return CheckResult("runtime", status, detail)
+    return CheckResult("runtime", "ok", f"{provider} runtime check not applicable")
 
 
 def _semantic_check(ctx: AppContext, sources: list[Any]) -> CheckResult:
