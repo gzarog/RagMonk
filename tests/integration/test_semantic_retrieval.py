@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,8 @@ from ragpilot.core import paths
 from ragpilot.retrieval import embedder
 from ragpilot.storage.repositories import embeddings_repo
 from ragpilot.storage.sqlite import connect
+
+FIXTURES = Path(__file__).parent.parent / "fixtures" / "documents"
 
 
 def _fake_embed_texts(texts: list[str]) -> list[list[float]]:
@@ -148,6 +151,53 @@ def test_semantic_enabled_computes_embeddings_and_surfaces_semantic_results(
         e for e in explore_payload["evidence"] if e["source"].startswith("semantic:")
     ]
     assert all(e["confidence"] == "heuristic" for e in semantic_evidence)
+
+
+def test_semantic_search_surfaces_phase_10_document_formats(
+    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Search Quality Improvement Plan, Phase 10's new formats flow through
+    semantic search exactly like every earlier format: their real,
+    Docling-extracted paragraph/table text gets embedded and stored, and
+    is findable as a semantic hit. One representative per backend family
+    is enough here -- ODT (rule-based text backend) and CSV (table
+    backend) -- since ``embedding_indexer.py`` itself has no per-format
+    branching to distinguish (see ``tests/unit/test_embedding_indexer.py``
+    for that seam directly); the conversion/normalization/chunking layer
+    each format goes through first is already proven per-format in
+    ``test_document_normalizer.py``.
+    """
+    root = tmp_path / "project"
+    root.mkdir()
+    shutil.copy(FIXTURES / "document.odt", root / "document.odt")
+    shutil.copy(FIXTURES / "simple.csv", root / "simple.csv")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
+    index_result = runner.invoke(app, ["index"])
+    assert index_result.exit_code == 0, index_result.output
+    assert "embedded=0" not in index_result.output
+
+    project_id = paths.project_id_for_path(root)
+    conn = connect(paths.project_db_path(project_id, ragpilot_home))
+    try:
+        assert embeddings_repo.count_all(conn) > 0
+    finally:
+        conn.close()
+
+    # The exact indexed paragraph text as the query -> a perfect match
+    # under the fake hash-based embedder, so it's guaranteed to surface
+    # as a semantic hit -- same technique the DOCX/PPTX-era tests above
+    # use.
+    search_result = runner.invoke(
+        app, ["search", "Paragraph in section one.", "--json"]
+    )
+    assert search_result.exit_code == 0, search_result.output
+    payload = json.loads(search_result.output)["data"]
+    assert payload["semantic"]["available"] is True
+    assert payload["semantic"]["results"] != []
 
 
 def test_semantic_enabled_degrades_gracefully_when_embeddings_are_cleared(

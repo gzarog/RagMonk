@@ -115,6 +115,127 @@ def test_docs_cli_and_fts_reflect_indexed_documents(
         conn.close()
 
 
+def test_phase_10_formats_index_and_are_fts_searchable(
+    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Search Quality Improvement Plan, Phase 10: CSV/ODT/ODS/ODP/EPUB
+    convert, normalize, chunk, and store correctly end-to-end, and their
+    real extracted content is findable through the same FTS path every
+    earlier format already uses.
+    """
+    root = tmp_path / "docs_project"
+    root.mkdir()
+    names = ("simple.csv", "document.odt", "spreadsheet.ods", "presentation.odp", "sample.epub")
+    for name in names:
+        shutil.copy(FIXTURES / name, root / name)
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    _add_source(runner, root)
+    index_result = runner.invoke(app, ["index"])
+    assert index_result.exit_code == 0, index_result.output
+
+    docs_result = runner.invoke(app, ["docs", "--json"])
+    assert docs_result.exit_code == 0, docs_result.output
+    rows = json.loads(docs_result.output)["data"]["documents"]
+    assert len(rows) == 5
+    by_format = {row["format"] for row in rows}
+    assert by_format == {"csv", "odt", "ods", "odp", "epub"}
+    assert all(row["status"] == "indexed" for row in rows)
+
+    odt_row = next(row for row in rows if row["format"] == "odt")
+    assert odt_row["title"] == "Doc Title"
+    assert odt_row["section_count"] == 2
+    assert odt_row["paragraph_count"] == 2
+
+    conn = _knowledge_conn(ragpilot_home, root)
+    try:
+        # CSV/ODS both store the same table -- content the FTS index has
+        # to find regardless of which spreadsheet-like format it came
+        # from.
+        alpha_hits = documents_repo.search_fts(conn, "alpha")
+        assert len(alpha_hits) >= 2
+        # ODT's paragraph text.
+        assert documents_repo.search_fts(conn, "Paragraph in section one")
+        # EPUB's chapter heading and body.
+        assert documents_repo.search_fts(conn, "Chapter One")
+        assert documents_repo.search_fts(conn, "sample EPUB book")
+        # ODP's slide title.
+        assert documents_repo.search_fts(conn, "Presentation Title")
+    finally:
+        conn.close()
+
+
+def test_image_ocr_disabled_by_default_indexes_without_derived_content(
+    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``documents.image_ocr`` defaults to ``False`` -- an image-kind file
+    is still indexed (as a file record) but never actually OCR'd, exactly
+    like an unsupported document extension. See
+    ``test_docling_pdf.py::test_image_ocr_enabled_extracts_real_text_via_ocr``
+    for the opt-in, real-OCR counterpart.
+    """
+    root = tmp_path / "docs_project"
+    root.mkdir()
+    shutil.copy(FIXTURES / "sample_ocr.png", root / "sample_ocr.png")
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    _add_source(runner, root)
+    index_result = runner.invoke(app, ["index"])
+    assert index_result.exit_code == 0, index_result.output
+
+    docs_result = runner.invoke(app, ["docs", "--json"])
+    rows = json.loads(docs_result.output)["data"]["documents"]
+    assert len(rows) == 1
+    assert rows[0]["status"] == "indexed"
+    assert rows[0]["format"] is None
+
+    conn = _knowledge_conn(ragpilot_home, root)
+    try:
+        assert documents_repo.count_all(conn) == 0
+    finally:
+        conn.close()
+
+
+@pytest.mark.docling_pdf
+def test_image_ocr_enabled_indexes_real_ocr_text_end_to_end(
+    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The opt-in counterpart to
+    ``test_image_ocr_disabled_by_default_indexes_without_derived_content``:
+    with ``documents.image_ocr`` on, the real OCR engine actually runs
+    (network + model download on first use, same shape as
+    ``docling_pdf``'s own PDF model download -- see that marker's
+    ``test_docling_pdf.py`` docstring), and the recovered text is stored
+    and FTS-searchable through the exact same path every other format
+    uses.
+    """
+    monkeypatch.setenv("RAGPILOT_DOCUMENTS__IMAGE_OCR", "true")
+    root = tmp_path / "docs_project"
+    root.mkdir()
+    shutil.copy(FIXTURES / "sample_ocr.png", root / "sample_ocr.png")
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    _add_source(runner, root)
+    index_result = runner.invoke(app, ["index"])
+    assert index_result.exit_code == 0, index_result.output
+
+    docs_result = runner.invoke(app, ["docs", "--json"])
+    rows = json.loads(docs_result.output)["data"]["documents"]
+    assert len(rows) == 1
+    assert rows[0]["status"] == "indexed"
+    assert rows[0]["format"] == "image"
+
+    conn = _knowledge_conn(ragpilot_home, root)
+    try:
+        assert documents_repo.search_fts(conn, "Sample Image Title")
+        assert documents_repo.search_fts(conn, "OCR body text")
+    finally:
+        conn.close()
+
+
 def test_indexed_paragraph_stores_contextualized_embedding_text(
     ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

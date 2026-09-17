@@ -22,6 +22,14 @@ condition that triggers OCR, without this project needing an
 image-embedding fixture library it otherwise has no use for). Every other
 "auto"/"always"/cache-mode-distinguishing behavior is covered, mocked and
 model-download-free, in ``test_docling_adapter_ocr.py``.
+
+Search Quality Improvement Plan, Phase 10: also proves real, genuine OCR
+text extraction from a raw image (``sample_ocr.png``) via
+``documents.image_ocr`` -- the same real OCR engine/model weights as
+Phase 5's PDF OCR (RapidOCR, downloaded from ModelScope rather than
+Hugging Face, but the same "real network + model download on first use"
+shape this marker already exists for), so it reuses this marker rather
+than introducing a new one.
 """
 
 from __future__ import annotations
@@ -271,3 +279,27 @@ def test_auto_mode_runs_real_ocr_on_a_textless_pdf(tmp_path: Path) -> None:
         assert ocr_cached is not None
     finally:
         conn.close()
+
+
+def test_image_ocr_enabled_extracts_real_text_via_ocr() -> None:
+    """End-to-end proof (real Docling image pipeline, real OCR engine)
+    that a raw image -- which has no embedded text layer at all, unlike
+    PDF -- genuinely round-trips real, rendered-not-embedded text through
+    OCR. ``sample_ocr.png`` (see ``generate_fixtures.py``'s
+    ``_make_ocr_image``) draws its words as pixels with Pillow, so
+    finding them back here proves RapidOCR actually read the image
+    rather than a fixture that happens to carry the text as data.
+    """
+    path = FIXTURES / "sample_ocr.png"
+    doc_format = docling_adapter.detect_format(path)
+    assert doc_format.value == "image"
+
+    conversion = docling_adapter.convert(path)
+    normalized = normalizer.normalize(conversion.document, doc_format)
+    chunks = chunker.chunk_document(normalized)
+    meta = extract_metadata(conversion.document, normalized, doc_format, path)
+
+    assert meta.format.value == "image"
+    all_text = " ".join(c.text for c in chunks)
+    assert "Sample Image Title" in all_text
+    assert "OCR body text line here" in all_text

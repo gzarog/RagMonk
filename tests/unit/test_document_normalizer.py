@@ -2,9 +2,12 @@
 asserting RAGpilot's NORMALIZED output (not Docling's internal JSON) per
 the blueprint's "Docling Fixtures" guidance.
 
-Every format here (DOCX/PPTX/XLSX/HTML/Markdown/TXT/EML) is converted by
-Docling's rule-based backends -- no layout/table-structure model download,
-so none of these need the ``docling_pdf`` marker.
+Every format here (DOCX/PPTX/XLSX/HTML/Markdown/TXT/EML, plus Phase 10's
+CSV/ODT/ODS/ODP/EPUB) is converted by Docling's rule-based backends -- no
+layout/table-structure model download, so none of these need the
+``docling_pdf`` marker. Image OCR (also Phase 10) is the one Phase 10
+addition that genuinely does need that marker -- see
+``test_docling_pdf.py``.
 """
 
 from __future__ import annotations
@@ -131,6 +134,73 @@ def test_xlsx_is_a_single_table_with_no_heading() -> None:
         ("beta", "2"),
     )
     assert chunks[0].parent_index is None
+
+
+# Search Quality Improvement Plan, Phase 10: CSV/ODT/ODS/ODP/EPUB are all
+# converted by Docling's own rule-based backends too (no layout/table-
+# structure model, no LibreOffice) -- see docling_adapter.py's module
+# docstring for what was verified and why these five specifically.
+
+
+def test_csv_is_a_single_table_with_no_heading() -> None:
+    _, _, chunks, meta = _convert("simple.csv")
+    assert meta.format.value == "csv"
+    assert len(chunks) == 1
+    assert chunks[0].kind == "table"
+    assert chunks[0].table_rows == (
+        ("Name", "Value"),
+        ("alpha", "1"),
+        ("beta", "2"),
+    )
+
+
+def test_odt_heading_levels_and_paragraphs() -> None:
+    _, _, chunks, meta = _convert("document.odt")
+    assert meta.title == "Doc Title"
+    kinds = [c.kind for c in chunks]
+    assert kinds == ["heading", "paragraph", "heading", "paragraph"]
+    # ODF has no distinct "title" style the way DOCX does -- both
+    # headings come back as plain, leveled ``SectionHeaderItem``s (odfdo's
+    # ``Header(1, ...)``/``Header(2, ...)`` map straight to Docling's own
+    # heading levels), so ``meta.title`` above (Phase 3's "first
+    # level-0-or-first-heading" fallback -- see normalizer.normalize)
+    # rather than ``heading_level`` is what proves title extraction here.
+    assert chunks[0].heading_level == 1
+    assert chunks[1].text == "Intro paragraph text."
+    assert chunks[2].text == "Section One"
+    assert chunks[2].heading_path == ("Doc Title",)
+    assert chunks[3].text == "Paragraph in section one."
+    assert chunks[3].heading_path == ("Doc Title", "Section One")
+
+
+def test_ods_is_a_single_table_with_no_heading() -> None:
+    _, _, chunks, meta = _convert("spreadsheet.ods")
+    assert meta.format.value == "ods"
+    assert len(chunks) == 1
+    assert chunks[0].kind == "table"
+    assert chunks[0].table_rows == (
+        ("Name", "Value"),
+        ("alpha", "1"),
+        ("beta", "2"),
+    )
+
+
+def test_odp_title_and_bullet() -> None:
+    _, _, chunks, meta = _convert("presentation.odp")
+    assert meta.format.value == "odp"
+    assert meta.title == "Presentation Title"
+    assert chunks[0].kind == "heading"
+    assert chunks[0].text == "Presentation Title"
+    assert chunks[1].text == "First bullet point"
+
+
+def test_epub_chapter_heading_and_paragraph() -> None:
+    _, _, chunks, meta = _convert("sample.epub")
+    assert meta.format.value == "epub"
+    assert meta.title == "Chapter One"
+    assert chunks[0].kind == "heading"
+    assert chunks[0].text == "Chapter One"
+    assert chunks[1].text == "This is the first paragraph of the sample EPUB book."
 
 
 def test_unsupported_extension_raises_before_any_conversion(tmp_path: Path) -> None:

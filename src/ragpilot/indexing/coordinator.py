@@ -73,6 +73,13 @@ class ProcessorContext:
     # preserving every pre-Phase-5 caller's exact behavior rather than
     # silently opting them into OCR.
     ocr: str | None = None
+    # ``config.documents.image_ocr`` -- Search Quality Improvement Plan,
+    # Phase 10's opt-in switch for real text extraction from a raw image
+    # (see ``core/config.py``'s ``DocumentsConfig.image_ocr`` and
+    # ``documents/pipeline.py``). ``None`` (a coordinator-external
+    # ``ProcessorContext``, e.g. a test) means "disabled", matching
+    # ``image_ocr``'s own config default.
+    image_ocr: bool | None = None
     # The generation this run's derived rows should be tagged with --
     # always files.generation + 1, matching the bump files_repo.mark_indexed
     # applies right after a processor returns successfully. Writing this
@@ -279,6 +286,7 @@ class IndexCoordinator:
                 max_document_pages=self._config.documents.max_pages,
                 chunking=self._config.documents.chunking,
                 ocr=self._config.documents.ocr,
+                image_ocr=self._config.documents.image_ocr,
             )
             started = time.monotonic()
             try:

@@ -249,11 +249,28 @@ class CrossLink(BaseModel):
 
 
 class DocumentFormat(StrEnum):
-    """Phase 3's supported document formats. Deliberately narrower than
-    ``sources.detector.DOCUMENT_EXTENSIONS`` -- legacy binary Office
-    formats, OpenDocument, RTF, CSV and reStructuredText are classified as
-    ``FileKind.DOCUMENT`` for routing but are not converted yet (see
-    ``documents/docling_adapter.py``'s ``UnsupportedDocumentFormatError``).
+    """Every document format ``docling_adapter.convert`` genuinely
+    converts. Still narrower than ``sources.detector.DOCUMENT_EXTENSIONS``
+    -- legacy binary Office formats (``.doc``/``.ppt``/``.xls``) and RTF
+    are classified as ``FileKind.DOCUMENT`` for routing but are not
+    converted, because Docling's own backends for them require a working
+    LibreOffice (``soffice``) subprocess with no pure-Python fallback --
+    a system dependency this project deliberately does not add (see
+    ``documents/docling_adapter.py``'s module docstring, "Search Quality
+    Improvement Plan, Phase 10"). Outlook ``.msg`` is deferred for a
+    different reason -- see that same docstring.
+
+    Phase 10 additions: ``CSV``/``ODT``/``ODS``/``ODP``/``EPUB`` are
+    genuinely converted by Docling's own rule-based (non-LibreOffice)
+    backends -- ``ODT``/``ODS``/``ODP`` need the ``odfdo`` library, this
+    phase's one new dependency (see ``pyproject.toml``'s comment; it is
+    pure Python and needs nothing beyond the already-required ``lxml``).
+    ``IMAGE`` (``.png``/``.jpg``/``.jpeg``/``.tif``/``.tiff``) is
+    genuinely convertible too, but only *with* OCR -- an image has no
+    embedded text layer to fall back to the way a PDF does -- so it is
+    gated behind ``documents.image_ocr`` (default off, since every image
+    then pays for a real OCR pass) rather than being unconditionally
+    supported like the others.
     """
 
     PDF = "pdf"
@@ -264,6 +281,12 @@ class DocumentFormat(StrEnum):
     MARKDOWN = "markdown"
     TXT = "txt"
     EML = "eml"
+    CSV = "csv"
+    ODT = "odt"
+    ODS = "ods"
+    ODP = "odp"
+    EPUB = "epub"
+    IMAGE = "image"
 
 
 class SectionKind(StrEnum):

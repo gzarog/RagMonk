@@ -36,11 +36,21 @@ excluded from the default run (`pyproject.toml`'s `addopts` runs
 pytest -m docling_pdf -q
 ```
 
-Every other Phase 3 format (DOCX, PPTX, XLSX, HTML, Markdown, TXT, EML) is
+Every other Phase 3 format (DOCX, PPTX, XLSX, HTML, Markdown, TXT, EML),
+plus Search Quality Improvement Plan Phase 10's CSV/ODT/ODS/ODP/EPUB, is
 converted by Docling's rule-based backends and never touches that
 download path, so those tests run in the default suite like everything
 else. CI runs `docling_pdf` tests too, but in a separate,
 non-blocking (`continue-on-error`) job -- see `.github/workflows/ci.yml`.
+
+Phase 10's one exception is raw images (`.png`/`.jpg`/`.jpeg`/`.tif`/
+`.tiff`, gated behind the opt-in `documents.image_ocr` config field):
+real text extraction from an image always means a real OCR pass (no
+embedded text layer to fall back to the way PDF has), so it reuses this
+same marker rather than introducing a new one -- see
+`test_docling_pdf.py::test_image_ocr_enabled_extracts_real_text_via_ocr`
+and `test_document_indexing.py::
+test_image_ocr_enabled_indexes_real_ocr_text_end_to_end`.
 
 #### What `docling_pdf` actually proves for PDF
 

@@ -133,6 +133,19 @@ class DocumentsConfig(BaseModel):
     ocr: str = "auto"
     max_pages: int = 1000
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
+    # Search Quality Improvement Plan, Phase 10: a raw image
+    # (.png/.jpg/.jpeg/.tif/.tiff) has no embedded text layer at all, so
+    # -- unlike PDF's "off"/"auto"/"always" -- there is no cheap,
+    # non-OCR pass to try first, or to fall back to when OCR doesn't
+    # help: real extraction always means a full OCR pass per image. That
+    # is meaningfully heavier than every other format this project
+    # converts (rule-based, no ML inference), so it defaults to
+    # disabled -- an image-kind file is still indexed (as a file record)
+    # with no derived document content, exactly like an unsupported
+    # extension, until a project opts in. See docling_adapter.py's
+    # module docstring for why this reuses the same OCR engine Phase 5
+    # already wired up for scanned PDFs.
+    image_ocr: bool = False
 
     @field_validator("ocr")
     @classmethod
