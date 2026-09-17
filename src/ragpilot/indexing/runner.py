@@ -43,9 +43,21 @@ def build_processor_registry(config: RagpilotConfig) -> ProcessorRegistry:
     # in Docling, which itself pulls in torch -- a cost a `version`/`status`/
     # `search` invocation that never touches this registry must not pay.
     if config.documents.enabled:
-        from ragpilot.documents.pipeline import document_processor
+        from ragpilot.documents.pipeline import document_processor, document_version_stamp
 
-        registry.register(FileKind.DOCUMENT, document_processor)
+        registry.register(
+            FileKind.DOCUMENT, document_processor, version_provider=document_version_stamp
+        )
+    # code_processor deliberately registers no version_provider (Search
+    # Quality Improvement Plan, Phase 12): unlike the document pipeline, a
+    # code file has no separate "chunker"/"parser" axis distinct from its
+    # own content -- Tree-sitter reparses the whole file from source
+    # (code/parser.py) on every CHANGED file already, so entities/
+    # relationships/code_fts are always current the moment content_hash
+    # changes, with nothing left for a version stamp to catch. Its
+    # embeddings still get a narrower rebuild when only the model changes
+    # (see indexing/embedding_indexer.py's CODE_EMBEDDING_TEXT_VERSION),
+    # just not driven through IndexCoordinator's version-comparison path.
     return registry
 
 
@@ -126,11 +138,21 @@ def run_source_pass(
     # ``torch``/``transformers`` lazily, inside the function this branch
     # is the sole caller of, so leaving ``search.semantic`` off also means
     # those heavy libraries are never actually loaded into the process.
+    # Search Quality Improvement Plan, Phase 12: embeddings_stale_*_file_ids
+    # (content unchanged, but the stored embedding version stamp is --
+    # see IndexCoordinator._version_reprocess_decision) are unioned in
+    # here, not into `result.touched_*_file_ids` themselves -- the linking
+    # pass just above stays scoped to genuinely touched files only, since
+    # relinking a file whose entities/document sections never changed
+    # would be pure waste.
+    embed_code_file_ids = [*result.touched_code_file_ids, *result.embeddings_stale_code_file_ids]
+    embed_document_file_ids = [
+        *result.touched_document_file_ids,
+        *result.embeddings_stale_document_file_ids,
+    ]
     embedded = 0
-    if ctx.config.search.semantic and (
-        result.touched_code_file_ids or result.touched_document_file_ids
-    ):
-        touched_file_ids = [*result.touched_code_file_ids, *result.touched_document_file_ids]
+    if ctx.config.search.semantic and (embed_code_file_ids or embed_document_file_ids):
+        touched_file_ids = [*embed_code_file_ids, *embed_document_file_ids]
         # Captured *before* the transaction below deletes-and-reinserts
         # vector_items for these files: the ANN index has no way to
         # discover on its own which ids just went stale, so this is the
@@ -141,8 +163,8 @@ def run_source_pass(
             embedded = embed_touched_files(
                 conn,
                 source_id=source.id,
-                touched_code_file_ids=result.touched_code_file_ids,
-                touched_document_file_ids=result.touched_document_file_ids,
+                touched_code_file_ids=embed_code_file_ids,
+                touched_document_file_ids=embed_document_file_ids,
             )
         if embedded:
             # Deliberately outside the transaction above: the ANN index

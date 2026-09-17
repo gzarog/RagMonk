@@ -45,6 +45,7 @@ MIGRATIONS: dict[DatabaseKind, tuple[Migration, ...]] = {
         Migration(11, "raw_search_embedding_text", schema.KNOWLEDGE_DB_V11),
         Migration(12, "table_caption_column", schema.KNOWLEDGE_DB_V12),
         Migration(13, "pdf_conversion_cache_ocr_key", schema.KNOWLEDGE_DB_V13),
+        Migration(14, "file_reuse_identity_stamps", schema.KNOWLEDGE_DB_V14),
     ),
 }
 

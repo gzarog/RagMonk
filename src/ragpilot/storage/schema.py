@@ -580,3 +580,34 @@ KNOWLEDGE_DB_V13: tuple[str, ...] = (
     """,
     "DROP TABLE document_conversion_cache_pre_ocr",
 )
+
+# Search Quality Improvement Plan, Phase 12: three new nullable stamps on
+# ``files`` recording which *versions* of the chunker and the embedding
+# step produced this file's currently-stored ``document_sections``/
+# ``entities``/``embeddings`` rows -- alongside the already-existing
+# ``parser_version`` column (``KNOWLEDGE_DB_V1``), which this phase starts
+# actually writing meaningfully for the first time (see
+# ``documents/docling_adapter.py``'s ``PARSER_VERSION``). Together the
+# four form the composite reuse identity ``indexing/incremental.
+# decide_reprocessing`` compares against the current code's own version
+# constants: a mismatch on ``parser_version``/``chunker_version`` means
+# "the parsed document or its chunk boundaries could differ now" (a full
+# rebuild -- chunks, FTS, and the embeddings derived from them, since
+# embeddings depend on chunk boundaries); a mismatch on
+# ``embedding_model_id``/``embedding_text_version`` alone means "only the
+# vectors could differ now" (a narrower, vectors-only rebuild that leaves
+# ``document_sections``/``document_fts`` untouched).
+#
+# Additive, nullable, no backfill -- exactly ``KNOWLEDGE_DB_V7``'s/
+# ``KNOWLEDGE_DB_V11``'s precedent: a file indexed before this migration
+# simply has all three ``NULL`` until it is next reprocessed for an
+# unrelated reason (content change), at which point it is stamped for
+# good. Deliberately NOT treated as "stale" by comparison alone --
+# ``decide_reprocessing`` never forces a rebuild just because a stamp is
+# ``NULL`` -- so adding this tracking infrastructure does not, by itself,
+# force a full reindex of every already-indexed project.
+KNOWLEDGE_DB_V14: tuple[str, ...] = (
+    "ALTER TABLE files ADD COLUMN chunker_version TEXT",
+    "ALTER TABLE files ADD COLUMN embedding_model_id TEXT",
+    "ALTER TABLE files ADD COLUMN embedding_text_version TEXT",
+)

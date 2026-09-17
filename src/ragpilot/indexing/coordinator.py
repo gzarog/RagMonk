@@ -4,6 +4,16 @@ The processor registry is the extension point later phases hook into:
 Phase 2/3 register real code/document processors keyed by ``FileKind``;
 Phase 1 ships only the default "raw" processor, which just records file
 metadata and marks the file INDEXED (or SKIPPED_LIMIT if oversized).
+
+Search Quality Improvement Plan, Phase 12: a scanned file no longer only
+gets NEW/CHANGED/UNCHANGED from content-hash comparison alone (see
+``indexing/incremental.py``). ``_reconcile_renames`` first folds a moved/
+renamed file back onto its existing row (by content hash) so it reads as
+UNCHANGED rather than delete+recreate-as-new; then, for a file that is
+genuinely UNCHANGED, ``_version_reprocess_decision`` checks whether the
+*code* that derives its chunks/embeddings has moved on since it was last
+processed, upgrading it to a full reprocess or a narrower embeddings-only
+one as needed (``ReprocessDecision``).
 """
 
 from __future__ import annotations
@@ -18,9 +28,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ragpilot.core.config import ChunkingConfig, RagpilotConfig
-from ragpilot.core.models import FileKind, FileRecord, FileStatus
+from ragpilot.core.models import FileKind, FileRecord, FileStatus, ScannedFile
 from ragpilot.indexing import retry
-from ragpilot.indexing.incremental import ChangeType, classify_change, find_deleted
+from ragpilot.indexing.incremental import (
+    ChangeType,
+    ReprocessDecision,
+    VersionStamp,
+    classify_change,
+    decide_reprocessing,
+    find_deleted,
+)
 from ragpilot.security.path_guard import PathGuard
 from ragpilot.sources import detector
 from ragpilot.sources.fingerprint import hash_file
@@ -97,6 +114,12 @@ class ProcessingOutcome:
 
 
 ProcessorFunc = Callable[[ProcessorContext], ProcessingOutcome]
+# Search Quality Improvement Plan, Phase 12: a kind's *current* composite
+# reuse identity, called fresh every time it's needed (never cached) so a
+# live version-constant change (a real code change, or a test's
+# monkeypatch) is always seen -- see ``VersionStamp``'s and
+# ``decide_reprocessing``'s docstrings in ``indexing/incremental.py``.
+VersionProviderFunc = Callable[[], VersionStamp]
 
 
 def raw_processor(ctx: ProcessorContext) -> ProcessingOutcome:
@@ -108,12 +131,32 @@ def raw_processor(ctx: ProcessorContext) -> ProcessingOutcome:
 class ProcessorRegistry:
     def __init__(self) -> None:
         self._processors: dict[FileKind, ProcessorFunc] = {}
+        self._version_providers: dict[FileKind, VersionProviderFunc] = {}
 
-    def register(self, kind: FileKind, processor: ProcessorFunc) -> None:
+    def register(
+        self,
+        kind: FileKind,
+        processor: ProcessorFunc,
+        *,
+        version_provider: VersionProviderFunc | None = None,
+    ) -> None:
         self._processors[kind] = processor
+        if version_provider is not None:
+            self._version_providers[kind] = version_provider
 
     def get(self, kind: FileKind) -> ProcessorFunc:
         return self._processors.get(kind, raw_processor)
+
+    def get_version_provider(self, kind: FileKind) -> VersionProviderFunc | None:
+        """``None`` for any kind whose registered processor has no
+        version-tracked derivation of its own (the default raw processor,
+        or a real processor -- e.g. today's ``code_processor`` -- that
+        simply hasn't opted in yet). A file of such a kind is never
+        subject to Phase 12's version-triggered reprocessing:
+        ``IndexCoordinator`` falls back to pure content-hash reuse for it,
+        exactly today's pre-Phase-12 behavior.
+        """
+        return self._version_providers.get(kind)
 
 
 def default_registry() -> ProcessorRegistry:
@@ -130,6 +173,13 @@ class IndexRunResult:
     changed: int = 0
     unchanged: int = 0
     deleted: int = 0
+    # Search Quality Improvement Plan, Phase 12: a scanned file with no
+    # exact path match that was matched back to an existing file record by
+    # content hash instead (see ``_reconcile_renames``) -- its row was
+    # updated in place (same id, new path), never deleted+recreated, so it
+    # is counted separately from both ``new`` and ``deleted`` rather than
+    # inflating either.
+    moved: int = 0
     indexed: int = 0
     skipped_limit: int = 0
     failed: int = 0
@@ -142,6 +192,20 @@ class IndexRunResult:
     # neither is included here.
     touched_code_file_ids: list[str] = field(default_factory=list)
     touched_document_file_ids: list[str] = field(default_factory=list)
+    # Search Quality Improvement Plan, Phase 12: files whose *content* is
+    # unchanged (never queued, never reprocessed structurally -- unlike
+    # touched_*_file_ids above) but whose stored embedding_model_id/
+    # embedding_text_version stamp is stale, e.g. the configured embedding
+    # model changed since this file was last embedded
+    # (``decide_reprocessing`` returned ``EMBEDDINGS_ONLY``). Kept
+    # separate from touched_*_file_ids rather than merged into them:
+    # ``indexing/runner.py``'s cross-domain linking pass is scoped to
+    # touched_*_file_ids only, since a file whose entities/document
+    # sections never changed has nothing new to link -- relinking it would
+    # be pure waste. The embedding step, the one place these are actually
+    # read, unions both lists (see ``indexing/runner.py``).
+    embeddings_stale_code_file_ids: list[str] = field(default_factory=list)
+    embeddings_stale_document_file_ids: list[str] = field(default_factory=list)
     # Set when the source root itself could not be listed this run (see
     # ``sources.scanner.check_root_accessible``) -- every other field
     # above is left at its zero value, since no scan was attempted at
@@ -170,6 +234,92 @@ class IndexCoordinator:
         self._exclude = exclude_patterns
         self._config = config
         self._processors = processors or default_registry()
+
+    def _reconcile_renames(
+        self,
+        result: IndexRunResult,
+        scanned: list[ScannedFile],
+        existing_by_path: dict[str, FileRecord],
+        algorithm: str,
+    ) -> dict[str, str]:
+        """Detects a same-source path change (move/rename) by content
+        hash and reassigns the existing file row's path in place --
+        keeping its id, and therefore every derived document_sections/
+        entities/embeddings row intact -- rather than the delete-then-
+        insert-as-new a plain path mismatch would otherwise cause
+        (``find_deleted`` would drop the old path as deleted, the new
+        path would classify ``NEW``, and every derived row would be
+        rebuilt from scratch for no reason: the content never changed).
+
+        Only a scanned path with *no* exact existing-path match is a
+        rename candidate, and only when its content hash matches exactly
+        one file that's about to look deleted (a path present in
+        ``existing_by_path`` but absent from this scan) *and* that file
+        was classified the same ``FileKind`` its new path would be --
+        an ambiguous match (0 or 2+ candidates sharing that hash, or a
+        kind change) is left alone rather than guessed at, falling back
+        to today's delete+recreate. This mirrors, at the downstream
+        chunk/embedding level, the reuse the content-hash-keyed
+        ``document_conversion_cache`` (Phase 1B) already gives the raw
+        PDF conversion step for a moved/renamed file.
+
+        Mutates ``existing_by_path`` in place for every rename it
+        performs, and returns every rename candidate's freshly computed
+        content hash keyed by its scanned path -- callers reuse this
+        instead of hashing the same file twice.
+        """
+        scanned_paths = {sf.path for sf in scanned}
+        missing_by_hash: dict[str, list[FileRecord]] = {}
+        for path, rec in existing_by_path.items():
+            if path not in scanned_paths and rec.content_hash is not None:
+                missing_by_hash.setdefault(rec.content_hash, []).append(rec)
+
+        precomputed: dict[str, str] = {}
+        if not missing_by_hash:
+            return precomputed
+
+        now = _now()
+        for sf in scanned:
+            if sf.path in existing_by_path:
+                continue
+            content_hash = hash_file(Path(sf.path), algorithm)
+            precomputed[sf.path] = content_hash
+            candidates = missing_by_hash.get(content_hash, [])
+            if len(candidates) != 1:
+                continue
+            old = candidates[0]
+            if old.kind is not detector.classify(Path(sf.path)):
+                continue
+            candidates.pop()
+            files_repo.rename(
+                self._conn, old.id, new_path=sf.path, size=sf.size, mtime=sf.mtime, updated_at=now
+            )
+            del existing_by_path[old.path]
+            existing_by_path[sf.path] = old.model_copy(
+                update={"path": sf.path, "size": sf.size, "mtime": sf.mtime, "updated_at": now}
+            )
+            result.moved += 1
+        return precomputed
+
+    def _version_reprocess_decision(
+        self, prev: FileRecord, kind: FileKind
+    ) -> ReprocessDecision:
+        """``ReprocessDecision.NONE`` whenever ``kind`` has no registered
+        version provider (see ``ProcessorRegistry.get_version_provider``)
+        -- today, every kind except ``FileKind.DOCUMENT`` -- preserving
+        pure content-hash reuse for those exactly as before Phase 12.
+        """
+        provider = self._processors.get_version_provider(kind)
+        if provider is None:
+            return ReprocessDecision.NONE
+        current = provider()
+        existing_versions = VersionStamp(
+            parser_version=prev.parser_version,
+            chunker_version=prev.chunker_version,
+            embedding_model_id=prev.embedding_model_id,
+            embedding_text_version=prev.embedding_text_version,
+        )
+        return decide_reprocessing(existing_versions, current)
 
     def run(self) -> IndexRunResult:
         result = IndexRunResult()
@@ -206,21 +356,50 @@ class IndexCoordinator:
         existing = files_repo.list_by_source(self._conn, self._source_id)
         existing_by_path = {rec.path: rec for rec in existing}
 
+        algorithm = self._config.indexing.hash_algorithm
+        # Search Quality Improvement Plan, Phase 12: reassigns a moved/
+        # renamed file's existing row in place (mutating existing_by_path
+        # to match) *before* find_deleted runs, so its old path is never
+        # seen as deleted and its new path is never seen as new -- see
+        # ``_reconcile_renames``'s own docstring. Every path it resolves
+        # this way also gets its content hash precomputed, reused by
+        # classify_change below instead of hashing the same file twice.
+        precomputed_hashes = self._reconcile_renames(result, scanned, existing_by_path, algorithm)
+
         for rec in find_deleted(existing_by_path, scanned):
             files_repo.delete(self._conn, rec.id)
             result.deleted += 1
 
         max_size_bytes = self._config.indexing.max_file_size_mb * 1024 * 1024
-        algorithm = self._config.indexing.hash_algorithm
 
         for sf in scanned:
             prev = existing_by_path.get(sf.path)
             kind = detector.classify(Path(sf.path))
 
-            def _lazy_hash(path: str = sf.path, algo: str = algorithm) -> str:
-                return hash_file(Path(path), algo)
+            cached_hash = precomputed_hashes.get(sf.path)
+
+            def _lazy_hash(
+                path: str = sf.path, algo: str = algorithm, cached: str | None = cached_hash
+            ) -> str:
+                return cached if cached is not None else hash_file(Path(path), algo)
 
             change, content_hash = classify_change(prev, sf.size, sf.mtime, _lazy_hash)
+
+            if change is ChangeType.UNCHANGED and prev is not None:
+                reprocess = self._version_reprocess_decision(prev, kind)
+                if reprocess is ReprocessDecision.EMBEDDINGS_ONLY:
+                    result.unchanged += 1
+                    if kind is FileKind.CODE:
+                        result.embeddings_stale_code_file_ids.append(prev.id)
+                    else:
+                        result.embeddings_stale_document_file_ids.append(prev.id)
+                    continue
+                if reprocess is ReprocessDecision.FULL:
+                    # Content itself never changed, but the stored parser/
+                    # chunker version stamp no longer matches current
+                    # code -- forces exactly the same full reprocess a
+                    # genuinely CHANGED file gets (see decide_reprocessing).
+                    change = ChangeType.CHANGED
 
             if change is ChangeType.UNCHANGED:
                 result.unchanged += 1
@@ -336,6 +515,18 @@ class IndexCoordinator:
                         attempt=attempt,
                     )
             else:
+                # Search Quality Improvement Plan, Phase 12: stamp the
+                # version-set that just produced this file's derived rows
+                # -- but only when the processor actually produced any
+                # (SKIPPED_LIMIT means it didn't touch document_sections/
+                # entities at all, so stamping a version here would claim
+                # a rebuild that never happened).
+                provider = self._processors.get_version_provider(file.kind)
+                versions = (
+                    provider()
+                    if provider is not None and outcome.status is not FileStatus.SKIPPED_LIMIT
+                    else None
+                )
                 files_repo.mark_indexed(
                     self._conn,
                     file.id,
@@ -344,6 +535,8 @@ class IndexCoordinator:
                     content_hash=file.content_hash,
                     status=outcome.status,
                     indexed_at=_now(),
+                    parser_version=versions.parser_version if versions else None,
+                    chunker_version=versions.chunker_version if versions else None,
                 )
                 jobs_repo.complete(self._conn, job.id)
                 duration_ms = round((time.monotonic() - started) * 1000, 2)

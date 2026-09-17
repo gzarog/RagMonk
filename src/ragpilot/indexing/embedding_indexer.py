@@ -18,6 +18,20 @@ Gated entirely behind ``search.semantic`` by its one caller
 (``indexing/runner.py``): enabling that config is the single switch that
 turns on both computing embeddings here and using them in
 ``retrieval/semantic.py``, never one without the other.
+
+Search Quality Improvement Plan, Phase 12: ``touched_*_file_ids`` is no
+longer only "files the processor queue actually reprocessed this run" --
+``indexing/runner.py`` unions in ``embeddings_stale_*_file_ids`` too, a
+file whose content never changed but whose stored embedding version stamp
+(``files.embedding_model_id``/``embedding_text_version``) no longer
+matches current code (``indexing/incremental.decide_reprocessing``). Such
+a file is embedded here exactly like a freshly-touched one -- this
+function itself does not distinguish the two -- while ``document_sections``
+/``entities``/FTS are never rebuilt for it, since nothing about how they
+were derived changed. This does not remove the tradeoff two paragraphs up
+(a file whose embedding stamp was never populated at all -- e.g. any file
+indexed while ``search.semantic`` was off -- stays untracked, not stale,
+until something else touches it).
 """
 
 from __future__ import annotations
@@ -25,6 +39,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from ragpilot.core.models import EmbeddingSubjectType, Entity
 from ragpilot.retrieval import embedder
@@ -32,11 +47,24 @@ from ragpilot.storage.repositories import (
     documents_repo,
     embeddings_repo,
     entities_repo,
+    files_repo,
     vector_items_repo,
 )
 from ragpilot.telemetry.logging import get_logger, log_event
 
 _logger = get_logger("embeddings")
+
+# Search Quality Improvement Plan, Phase 12: the version of ``_entity_text``
+# below -- this module's own text-assembly step for a code entity, the
+# code-kind counterpart of ``documents/chunker.py``'s
+# ``EMBEDDING_TEXT_VERSION`` for a document chunk's ``contextual_text``.
+# Not imported from ``documents/chunker.py`` for a document-kind file's
+# stamp either, for the same reason that module is imported lazily below:
+# ``documents/chunker.py`` transitively pulls in ``docling_core`` (via
+# ``documents/normalizer.py``), a cost this module -- imported
+# unconditionally by ``indexing/runner.py`` -- must not impose on every
+# ``ragpilot index`` run regardless of whether documents are even enabled.
+CODE_EMBEDDING_TEXT_VERSION = "1"
 
 
 def _entity_text(entity: Entity) -> str:
@@ -102,13 +130,40 @@ def embed_touched_files(
         )
         return 0
 
-    touched_files = set(touched_code_file_ids) | set(touched_document_file_ids)
+    # Lazy: documents/chunker.py transitively imports docling_core -- see
+    # CODE_EMBEDDING_TEXT_VERSION's docstring above for why that cost must
+    # only be paid once embeddings are actually about to be computed, not
+    # at this module's own import time.
+    from ragpilot.documents.chunker import (
+        EMBEDDING_TEXT_VERSION as _document_embedding_text_version,
+    )
+
+    now = datetime.now(UTC).isoformat()
+    document_touched = set(touched_document_file_ids)
+    touched_files = set(touched_code_file_ids) | document_touched
     for file_id in touched_files:
         embeddings_repo.delete_by_file(conn, file_id)
         # Mirrors embeddings_repo.delete_by_file: vector_items is the ANN
         # index's own id-mapping table (blueprint section 13), regenerated
         # in lockstep with embeddings so the two never drift apart.
         vector_items_repo.delete_by_file(conn, file_id)
+        # Search Quality Improvement Plan, Phase 12: stamp this file's
+        # embedding reuse identity now that its vectors are genuinely
+        # about to be (re)computed below -- never speculatively before
+        # this point, so a failed/skipped embedding step (see the
+        # EmbeddingModelUnavailableError branch above) never claims a
+        # rebuild that didn't happen.
+        files_repo.update_embedding_version(
+            conn,
+            file_id,
+            embedding_model_id=embedder.EMBEDDING_MODEL_ID,
+            embedding_text_version=(
+                _document_embedding_text_version
+                if file_id in document_touched
+                else CODE_EMBEDDING_TEXT_VERSION
+            ),
+            updated_at=now,
+        )
 
     for (subject_type, subject_id, file_id, _text), vector in zip(subjects, vectors, strict=True):
         embeddings_repo.insert(

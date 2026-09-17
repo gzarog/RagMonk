@@ -22,6 +22,9 @@ def _row_to_file(row: sqlite3.Row) -> FileRecord:
         status=FileStatus(row["status"]),
         generation=row["generation"],
         parser_version=row["parser_version"],
+        chunker_version=row["chunker_version"],
+        embedding_model_id=row["embedding_model_id"],
+        embedding_text_version=row["embedding_text_version"],
         last_indexed_at=row["last_indexed_at"],
         last_error=row["last_error"],
         created_at=row["created_at"],
@@ -113,9 +116,10 @@ def insert(conn: sqlite3.Connection, file: FileRecord) -> None:
             """
             INSERT INTO files (
                 id, source_id, path, kind, size, mtime, content_hash, status,
-                generation, parser_version, last_indexed_at, last_error,
+                generation, parser_version, chunker_version, embedding_model_id,
+                embedding_text_version, last_indexed_at, last_error,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 file.id,
@@ -128,6 +132,9 @@ def insert(conn: sqlite3.Connection, file: FileRecord) -> None:
                 file.status.value,
                 file.generation,
                 file.parser_version,
+                file.chunker_version,
+                file.embedding_model_id,
+                file.embedding_text_version,
                 file.last_indexed_at,
                 file.last_error,
                 file.created_at,
@@ -159,12 +166,22 @@ def mark_indexed(
     content_hash: str | None,
     status: FileStatus,
     indexed_at: str,
+    parser_version: str | None = None,
+    chunker_version: str | None = None,
 ) -> None:
     """Atomically advances a file to its next generation.
 
     Phase 1 has no derived-entity tables yet, so "delete old generation,
     insert new" collapses to a single row update -- but it still runs
     inside one transaction so readers never observe a half-updated file.
+
+    ``parser_version``/``chunker_version`` (Search Quality Improvement
+    Plan, Phase 12) stamp the reuse identity that actually just produced
+    this file's derived rows -- passed by ``IndexCoordinator`` from the
+    registered processor's version provider (``None`` for a kind with no
+    provider, e.g. code files, or the default raw processor). ``COALESCE``
+    leaves the stored value untouched when the caller has nothing to
+    stamp, rather than clobbering a real value with ``NULL``.
     """
     with transaction(conn):
         conn.execute(
@@ -172,10 +189,89 @@ def mark_indexed(
             UPDATE files
             SET size = ?, mtime = ?, content_hash = ?, status = ?,
                 generation = generation + 1, last_indexed_at = ?,
-                last_error = NULL, updated_at = ?
+                last_error = NULL, updated_at = ?,
+                parser_version = COALESCE(?, parser_version),
+                chunker_version = COALESCE(?, chunker_version)
             WHERE id = ?
             """,
-            (size, mtime, content_hash, status.value, indexed_at, indexed_at, file_id),
+            (
+                size,
+                mtime,
+                content_hash,
+                status.value,
+                indexed_at,
+                indexed_at,
+                parser_version,
+                chunker_version,
+                file_id,
+            ),
+        )
+
+
+def update_embedding_version(
+    conn: sqlite3.Connection,
+    file_id: str,
+    *,
+    embedding_model_id: str,
+    embedding_text_version: str,
+    updated_at: str,
+) -> None:
+    """Stamps the embedding half of a file's reuse identity (Search
+    Quality Improvement Plan, Phase 12) -- called by
+    ``indexing/embedding_indexer.py`` right after a file's vectors are
+    actually (re)computed, never speculatively: an embedding step that
+    raised/skipped (e.g. ``EmbeddingModelUnavailableError``) must leave
+    the previous stamp exactly as it was, so a later run still sees it as
+    stale and retries rather than silently accepting a skipped rebuild as
+    "done".
+
+    Always run inside the same caller-held transaction as the
+    ``embeddings``/``vector_items`` writes it accompanies -- mirrors
+    ``embeddings_repo.delete_by_file``/``insert``, never wrapping its own
+    transaction, since ``embed_touched_files`` (this function's one
+    caller) is itself always invoked from inside one already.
+    """
+    conn.execute(
+        "UPDATE files SET embedding_model_id = ?, embedding_text_version = ?, "
+        "updated_at = ? WHERE id = ?",
+        (embedding_model_id, embedding_text_version, updated_at, file_id),
+    )
+
+
+def rename(
+    conn: sqlite3.Connection,
+    file_id: str,
+    *,
+    new_path: str,
+    size: int,
+    mtime: float,
+    updated_at: str,
+) -> None:
+    """Reassigns an existing file's path in place -- a detected move/
+    rename (see ``indexing/coordinator.py``'s ``_reconcile_renames``) --
+    rather than the delete-then-reinsert-as-new a plain path mismatch
+    would otherwise cause.
+
+    Every derived row (``document_sections``/``entities``/``embeddings``/
+    ``cross_links``) keys off this file's stable ``id``, never its path,
+    so keeping the same ``id`` here is what makes chunk/embedding reuse
+    for a moved file automatic: nothing downstream needs to know it
+    moved. ``content_hash``/``parser_version``/``chunker_version``/
+    ``embedding_model_id``/``embedding_text_version`` are deliberately
+    left untouched -- a path change alone never invalidates any of them.
+    """
+    with transaction(conn):
+        conn.execute(
+            "UPDATE files SET path = ?, size = ?, mtime = ?, updated_at = ? WHERE id = ?",
+            (new_path, size, mtime, updated_at, file_id),
+        )
+        # DELETE + INSERT, not UPDATE, mirroring insert()/delete()'s own
+        # path_fts writes -- the safest, most consistent way to change an
+        # fts5 row's indexed content.
+        conn.execute("DELETE FROM path_fts WHERE file_id = ?", (file_id,))
+        conn.execute(
+            "INSERT INTO path_fts (file_id, path) VALUES (?, ?)",
+            (file_id, new_path),
         )
 
 

@@ -75,6 +75,28 @@ from ragpilot.documents import table_renderer
 from ragpilot.documents.normalizer import NormalizedDocument, NormalizedUnit
 from ragpilot.documents.tokenization import count_tokens, split_by_token_budget
 
+# Search Quality Improvement Plan, Phase 12: two independent version axes
+# of this module's reuse identity (``indexing/incremental.VersionStamp``),
+# stamped onto a file's ``files.chunker_version``/``files.
+# embedding_text_version`` columns whenever it is (re)processed and
+# compared against these live constants on every later index run --
+# see ``documents/pipeline.py``'s ``document_version_stamp``.
+#
+# Kept separate rather than one combined constant because they gate
+# genuinely different rebuild scopes (``indexing/incremental.
+# decide_reprocessing``): bumping ``CHUNKER_VERSION`` means chunk
+# boundaries/``search_text`` themselves could differ, forcing a full
+# rebuild (chunks + FTS + the embeddings derived from them); bumping
+# ``EMBEDDING_TEXT_VERSION`` alone means only ``_contextual_text``'s
+# breadcrumb-assembly format changed, which never touches a chunk's
+# boundaries, ``text``, or ``search_text`` -- so it only needs the
+# narrower "recompute vectors" rebuild, exactly like an embedding-model
+# change. Both start at "1", their current (unchanged) behavior: this
+# phase adds the tracking, it does not change how either is assembled --
+# bump one only when its own assembly logic actually changes.
+CHUNKER_VERSION = "1"
+EMBEDDING_TEXT_VERSION = "1"
+
 
 @dataclass(frozen=True)
 class Chunk:
