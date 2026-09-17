@@ -114,6 +114,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Subscription plan, Phase 3: the official GitHub Copilot Python SDK, an
+# OPTIONAL runtime for the beta ``github_copilot`` provider. It is not a
+# default dependency -- RagMonk indexes and retrieves without it, and the
+# adapter reports a clear "runtime unavailable" error when it is absent, so
+# only a user who opts into that provider installs it
+# (``pip install "ragmonk[copilot]"``). The exact distribution name/version
+# range must be confirmed against the pinned SDK before this provider
+# leaves beta (see docs/providers/subscription-integration-note.md).
+copilot = [
+    "github-copilot-sdk>=0.1,<1",
+]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
