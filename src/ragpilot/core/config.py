@@ -219,6 +219,40 @@ class SearchOutputConfig(BaseModel):
         return value
 
 
+class SearchContextConfig(BaseModel):
+    """Search Quality Improvement Plan, Phase 9: how much surrounding
+    context a matched paragraph/table chunk is expanded with (nearest
+    parent heading, previous/next sibling chunks under that same
+    heading) -- a presentation step applied strictly *after* a hit is
+    already selected and ranked, never a ranking input (see
+    ``retrieval/context_builder.py::expand_chunk_context``).
+
+    ``previous_chunks``/``next_chunks`` at ``0`` (and ``parent_heading``
+    at ``False``) disable that piece outright rather than needing a
+    caller to special-case "no expansion" -- the same budget/lookup code
+    path runs either way, it just has nothing to fetch.
+    """
+
+    parent_heading: bool = True
+    previous_chunks: int = 1
+    next_chunks: int = 1
+    max_tokens: int = 1200
+
+    @field_validator("previous_chunks", "next_chunks")
+    @classmethod
+    def _validate_non_negative(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("search.context.previous_chunks/next_chunks must be >= 0")
+        return value
+
+    @field_validator("max_tokens")
+    @classmethod
+    def _validate_max_tokens(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("search.context.max_tokens must be > 0")
+        return value
+
+
 class SearchConfig(BaseModel):
     lexical: bool = True
     graph: bool = True
@@ -240,6 +274,7 @@ class SearchConfig(BaseModel):
     vector: SearchVectorConfig = Field(default_factory=SearchVectorConfig)
     cache: SearchCacheConfig = Field(default_factory=SearchCacheConfig)
     output: SearchOutputConfig = Field(default_factory=SearchOutputConfig)
+    context: SearchContextConfig = Field(default_factory=SearchContextConfig)
 
 
 class ContextConfig(BaseModel):

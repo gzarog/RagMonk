@@ -372,6 +372,80 @@ def get_unit(conn: sqlite3.Connection, unit_id: str) -> DocumentUnit | None:
     return _row_to_unit(row) if row is not None else None
 
 
+@dataclass(slots=True, frozen=True)
+class ChunkNeighbors:
+    """Search Quality Improvement Plan, Phase 9: the units immediately
+    surrounding a matched chunk -- its nearest enclosing heading and its
+    previous/next siblings under that same heading, each nearest-first
+    (``previous[-1]``/``next[0]`` are the immediately adjacent chunks).
+    A missing piece (no parent, first/last sibling) comes back as
+    ``None``/``[]`` rather than an error -- see ``get_chunk_neighbors``.
+    """
+
+    parent_heading: DocumentUnit | None
+    previous: list[DocumentUnit]
+    next: list[DocumentUnit]
+
+
+def get_chunk_neighbors(
+    conn: sqlite3.Connection,
+    unit_id: str,
+    *,
+    previous_chunks: int = 0,
+    next_chunks: int = 0,
+    include_parent_heading: bool = True,
+) -> ChunkNeighbors:
+    """Context-expansion lookup for ``retrieval/context_builder.py``
+    (blueprint Phase 9): reuses ``parent_id``/``order_index`` exactly as
+    stored by ``documents/pipeline.py`` rather than adding any new
+    column -- a chunk's siblings are every ``document_sections`` row
+    sharing its ``parent_id`` (``IS`` handles the top-level ``NULL``
+    case, where ``=`` would silently match nothing), and its nearest
+    heading is simply the row its own ``parent_id`` points at (every
+    ``parent_id`` a chunk carries is a ``HEADING`` row's id -- see
+    ``documents/chunker.py``'s ``parent_index`` docstring).
+
+    An unknown ``unit_id`` (already deleted, or from a different
+    project's DB) degrades to the same all-empty result as a chunk with
+    no neighbors, since a context-expansion lookup is never the thing
+    that should turn an otherwise-successful search into an error.
+    """
+    self_row = conn.execute(
+        "SELECT parent_id, order_index FROM document_sections WHERE id = ?", (unit_id,)
+    ).fetchone()
+    if self_row is None:
+        return ChunkNeighbors(parent_heading=None, previous=[], next=[])
+
+    parent_id = self_row["parent_id"]
+    order_index = self_row["order_index"]
+
+    parent_heading = (
+        get_unit(conn, parent_id)
+        if include_parent_heading and parent_id is not None
+        else None
+    )
+
+    previous: list[DocumentUnit] = []
+    if previous_chunks > 0:
+        rows = conn.execute(
+            "SELECT * FROM document_sections WHERE parent_id IS ? AND order_index < ? "
+            "ORDER BY order_index DESC LIMIT ?",
+            (parent_id, order_index, previous_chunks),
+        ).fetchall()
+        previous = [_row_to_unit(row) for row in reversed(rows)]
+
+    next_units: list[DocumentUnit] = []
+    if next_chunks > 0:
+        rows = conn.execute(
+            "SELECT * FROM document_sections WHERE parent_id IS ? AND order_index > ? "
+            "ORDER BY order_index ASC LIMIT ?",
+            (parent_id, order_index, next_chunks),
+        ).fetchall()
+        next_units = [_row_to_unit(row) for row in rows]
+
+    return ChunkNeighbors(parent_heading=parent_heading, previous=previous, next=next_units)
+
+
 def list_units_by_file(conn: sqlite3.Connection, file_id: str) -> list[DocumentUnit]:
     rows = conn.execute(
         "SELECT * FROM document_sections WHERE file_id = ? ORDER BY order_index", (file_id,)
