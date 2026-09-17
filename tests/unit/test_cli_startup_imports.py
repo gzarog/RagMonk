@@ -38,6 +38,10 @@ HEAVY_MODULES = (
     "usearch",
     "openai",
     "anthropic",
+    # Exact Tokenizer plan, Phase 1: the exact tokenizer runtime loads
+    # only when a document is actually chunked. A lightweight command must
+    # never pull in ``tokenizers`` (nor initialize the bundled tokenizer).
+    "tokenizers",
 )
 
 LIGHTWEIGHT_INVOCATIONS = (

@@ -1,0 +1,8 @@
+# Bundled tokenizer assets (Exact Tokenizer plan, Phase 1) are verified
+# byte-for-byte against a SHA-256 manifest at load time
+# (ragmonk.tokenization.model_tokenizer). They MUST be checked out
+# exactly as committed on every platform -- git's autocrlf line-ending
+# conversion on Windows would rewrite the JSON/text files with CRLF,
+# changing their bytes and failing the integrity check. Marking them
+# binary disables any end-of-line normalization or diffing.
+src/ragmonk/tokenization/assets/** binary
