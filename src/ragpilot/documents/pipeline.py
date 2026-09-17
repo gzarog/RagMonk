@@ -43,11 +43,26 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
     try:
         doc_format = docling_adapter.detect_format(ctx.path)
     except UnsupportedDocumentFormatError:
-        # A document extension Phase 3 intentionally does not convert yet
-        # (legacy .doc/.ppt/.xls, OpenDocument, .rtf, .csv, .rst -- see
-        # docling_adapter.EXTENSION_TO_FORMAT) -- index the file with no
-        # derived document content rather than failing the run, mirroring
-        # code/processor.py's "recognized extension, no grammar" fallback.
+        # A document extension this project intentionally does not
+        # convert (legacy .doc/.ppt/.xls, .rtf, .rst, Outlook .msg -- see
+        # docling_adapter.py's module docstring for why each one
+        # specifically) -- index the file with no derived document
+        # content rather than failing the run, mirroring
+        # code/processor.py's "recognized extension, no grammar"
+        # fallback.
+        with transaction(ctx.conn):
+            documents_repo.delete_by_file(ctx.conn, ctx.file_id)
+        return ProcessingOutcome(status=FileStatus.INDEXED)
+
+    if doc_format in docling_adapter.FORMATS_REQUIRING_IMAGE_OCR and not ctx.image_ocr:
+        # Search Quality Improvement Plan, Phase 10: a raw image is
+        # *detected* unconditionally (see sources/detector.py) but only
+        # actually converted when a project has opted into
+        # documents.image_ocr -- real extraction always means a full OCR
+        # pass (see docling_adapter.py's docstring), so an image-heavy
+        # source doesn't silently make every index run much slower
+        # unless a project explicitly asks for that. Same "recognized,
+        # no derived content" fallback as an unsupported extension.
         with transaction(ctx.conn):
             documents_repo.delete_by_file(ctx.conn, ctx.file_id)
         return ProcessingOutcome(status=FileStatus.INDEXED)

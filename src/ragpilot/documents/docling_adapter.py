@@ -77,6 +77,89 @@ conversion -- whenever OCR genuinely can't run in a given environment
 engine installed"; ``_run_ocr_conversion`` additionally covers any other
 OCR-specific failure, e.g. a blocked model-weight download) so a missing
 or broken OCR engine never fails the whole file.
+
+Search Quality Improvement Plan, Phase 10: five more formats join
+``EXTENSION_TO_FORMAT`` -- CSV, ODT/ODS/ODP, EPUB -- all genuinely
+converted by Docling's own rule-based backends, verified by reading the
+*installed* Docling version's actual backend modules rather than
+assuming the plan's tier list holds:
+
+- CSV/EPUB need nothing new (``docling.backend.csv_backend`` is stdlib
+  ``csv``; ``docling.backend.epub_backend`` is stdlib ``zipfile`` +
+  the already-required ``defusedxml``).
+- ODT/ODS/ODP need ``odfdo`` (``docling.backend.opendocument_backend``
+  imports it behind the same guarded-import-degrades-to-ImportError
+  pattern ``mailparser``/``python-oxmsg`` use for EML/MSG) -- unlike
+  RapidOCR/mailparser/oxmsg, this is genuinely *not* pulled in
+  transitively by plain ``docling`` at this pinned range's current
+  resolution, so it is this phase's one new, explicit dependency (see
+  ``pyproject.toml``). It earns the exception to this project's
+  "avoid heavy new dependencies" policy the OCR/VLM/ASR/XBRL extras and
+  LibreOffice (below) don't: pure Python, its only import is the
+  already-required ``lxml``, no ML weights, no subprocess, no system
+  binary -- the same weight class as the dev-only ``python-docx``/
+  ``python-pptx``/``openpyxl`` already used to generate this project's
+  own DOCX/PPTX/XLSX fixtures, just needed at runtime instead of only
+  for tests.
+
+Three formats this phase's plan expected to be free turned out, on
+reading the installed Docling version's actual backend source, to
+require a working LibreOffice (``soffice``) subprocess with **no**
+pure-Python fallback: legacy ``.doc``/``.ppt``/``.xls`` (already true
+before this phase, per ``UnsupportedDocumentFormatError``'s docstring)
+and, newly discovered, ``.rtf`` too --
+``docling.backend.msword_backend.MsWordDocumentBackend.__init__``
+unconditionally calls ``convert_to_modern_format`` (which shells out to
+``soffice --convert-to``) for ``InputFormat.DOC`` *and*
+``InputFormat.RTF`` alike, and ``docling.backend.msexcel_backend``/
+``mspowerpoint_backend`` do the same for XLS/PPT. This project's
+explicit policy is to never add a LibreOffice dependency (see this
+phase's plan and ``UnsupportedDocumentFormatError``'s docstring), so
+none of these four are wired into ``EXTENSION_TO_FORMAT`` -- they stay
+exactly as before, detected as ``FileKind.DOCUMENT`` but converted by
+nothing, indexed with no derived content. This was also confirmed
+empirically, not just by reading source: even in a development sandbox
+where a ``soffice`` binary happened to be installed, headless
+``--convert-to`` invocations failed outright (on *any* input, not just
+RTF), underlining exactly why this project treats LibreOffice as an
+unreliable environment dependency to avoid rather than one more format
+to wire up.
+
+Outlook ``.msg`` is deferred for a different, non-technical reason: both
+``mail-parser`` and ``python-oxmsg`` (Docling's own guarded-import deps
+for ``InputFormat.EMAIL``, which already covers ``.eml``) are already
+transitively installed, so ``.msg`` would need zero new code or
+dependencies. But a ``.msg`` is a real Outlook-authored OLE2/CFBF
+(MAPI) binary structure -- unlike every other fixture in this module
+(including the hand-assembled minimal PDFs in
+``tests/fixtures/documents/generate_fixtures.py``, which only need to
+be well-formed enough for a *parser*, not authored by real Office
+software), there is no writer library available here and no network
+access in this environment to fetch a genuine sample, so a hand-rolled
+``.msg`` risks either failing to parse (proving nothing) or silently
+round-tripping empty text -- exactly what this plan's acceptance
+criteria forbids claiming as "supported". Left for a future phase with
+either a real sample fixture or a ``.msg``-writing dependency.
+
+Raw images (``.png``/``.jpg``/``.jpeg``/``.tif``/``.tiff``,
+``InputFormat.IMAGE``) are genuinely convertible, confirmed end-to-end
+against real extracted OCR text -- but only *with* OCR: an image has no
+embedded text layer, so unlike PDF there is no cheap non-OCR pass to
+try first. Docling's own default ``ImageFormatOption`` already sets
+``do_ocr=True`` (distinct from this module's PDF ``FormatOption``,
+which explicitly forces ``do_ocr=False``), so simply adding
+``InputFormat.IMAGE`` to ``_get_converter()``'s ``allowed_formats``
+(already built generically from ``_format_to_input_format()``, no
+image-specific converter needed) is enough to make ``convert()`` OCR
+every image it's asked to convert -- no separate image pipeline to
+maintain alongside PDF's OCR one. Because that means *every* image
+conversion now pays for a real OCR pass (the same RapidOCR engine
+Phase 5 confirmed ships transitively, just invoked here without PDF's
+"auto" text-density pre-check to skip it when unneeded), this is gated
+behind ``documents.image_ocr`` (default off) rather than being
+unconditionally on like CSV/ODT/ODS/ODP/EPUB -- see
+``documents/pipeline.py`` for where that gate is applied, and
+``core/config.py``'s ``DocumentsConfig.image_ocr`` docstring.
 """
 
 from __future__ import annotations
@@ -108,10 +191,12 @@ if TYPE_CHECKING:
     from docling.document_converter import DocumentConverter
     from docling_core.types.doc.document import DoclingDocument
 
-# Phase 3's supported extensions. Anything else that ``sources.detector``
-# still classifies as ``FileKind.DOCUMENT`` (legacy .doc/.ppt/.xls,
-# OpenDocument, .rtf, .csv, .rst) is deliberately out of scope -- see
-# ``UnsupportedDocumentFormatError``.
+# Phase 3's original extensions, plus Phase 10's genuine additions (see
+# this module's docstring). Anything else that ``sources.detector`` still
+# classifies as ``FileKind.DOCUMENT`` -- legacy .doc/.ppt/.xls, .rtf,
+# .rst, and Outlook .msg -- is deliberately out of scope; see
+# ``UnsupportedDocumentFormatError`` and this module's docstring for why
+# each one specifically.
 EXTENSION_TO_FORMAT: dict[str, DocumentFormat] = {
     ".pdf": DocumentFormat.PDF,
     ".docx": DocumentFormat.DOCX,
@@ -123,7 +208,25 @@ EXTENSION_TO_FORMAT: dict[str, DocumentFormat] = {
     ".markdown": DocumentFormat.MARKDOWN,
     ".txt": DocumentFormat.TXT,
     ".eml": DocumentFormat.EML,
+    ".csv": DocumentFormat.CSV,
+    ".odt": DocumentFormat.ODT,
+    ".ods": DocumentFormat.ODS,
+    ".odp": DocumentFormat.ODP,
+    ".epub": DocumentFormat.EPUB,
+    ".png": DocumentFormat.IMAGE,
+    ".jpg": DocumentFormat.IMAGE,
+    ".jpeg": DocumentFormat.IMAGE,
+    ".tif": DocumentFormat.IMAGE,
+    ".tiff": DocumentFormat.IMAGE,
 }
+
+# Real extraction from ``DocumentFormat.IMAGE`` requires OCR (see this
+# module's docstring) -- ``documents/pipeline.py`` checks membership here
+# against ``config.documents.image_ocr`` before ever calling ``convert()``
+# for an image, so a project that hasn't opted in gets the same "detected,
+# no derived content" fallback as a genuinely unsupported extension rather
+# than an unexpectedly slow/OCR-heavy index run.
+FORMATS_REQUIRING_IMAGE_OCR: frozenset[DocumentFormat] = frozenset({DocumentFormat.IMAGE})
 
 _format_to_input_format_cache: dict[DocumentFormat, InputFormat] | None = None
 
@@ -150,6 +253,15 @@ def _format_to_input_format() -> dict[DocumentFormat, InputFormat]:
             DocumentFormat.MARKDOWN: InputFormat.MD,
             DocumentFormat.TXT: InputFormat.MD,
             DocumentFormat.EML: InputFormat.EMAIL,
+            DocumentFormat.CSV: InputFormat.CSV,
+            DocumentFormat.ODT: InputFormat.ODT,
+            DocumentFormat.ODS: InputFormat.ODS,
+            DocumentFormat.ODP: InputFormat.ODP,
+            DocumentFormat.EPUB: InputFormat.EPUB,
+            # Docling's own default ``ImageFormatOption`` already sets
+            # ``do_ocr=True`` -- see this module's docstring for why no
+            # separate image converter/pipeline is needed here.
+            DocumentFormat.IMAGE: InputFormat.IMAGE,
         }
     return _format_to_input_format_cache
 
@@ -208,8 +320,12 @@ def detect_format(path: Path) -> DocumentFormat:
     if fmt is None:
         raise UnsupportedDocumentFormatError(
             f"{path}: unsupported document extension "
-            f"'{path.suffix or '<none>'}' (Phase 3 supports PDF, DOCX, "
-            "PPTX, XLSX, HTML, Markdown, TXT, EML)"
+            f"'{path.suffix or '<none>'}' (supports PDF, DOCX, PPTX, "
+            "XLSX, HTML, Markdown, TXT, EML, CSV, ODT, ODS, ODP, EPUB, "
+            "and images with documents.image_ocr enabled -- see "
+            "docling_adapter.py's module docstring for what's "
+            "deliberately still out of scope: legacy .doc/.ppt/.xls, "
+            ".rtf, and Outlook .msg)"
         )
     return fmt
 

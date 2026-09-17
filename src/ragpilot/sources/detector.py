@@ -24,6 +24,16 @@ DOCUMENT_EXTENSIONS: frozenset[str] = frozenset(
         ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx",
         ".md", ".markdown", ".txt", ".rst", ".csv", ".html", ".htm",
         ".odt", ".rtf",
+        # Search Quality Improvement Plan, Phase 10: genuinely converted
+        # (see documents/docling_adapter.py's EXTENSION_TO_FORMAT) --
+        # .ods/.odp join .odt, .epub is new, and the image extensions are
+        # detected unconditionally even though real extraction from them
+        # additionally requires documents.image_ocr to be enabled (see
+        # that module's docstring) -- detection and "will actually be
+        # converted" are already two different questions for every format
+        # in this set, same as .doc/.ppt/.xls/.rtf above.
+        ".ods", ".odp", ".epub",
+        ".png", ".jpg", ".jpeg", ".tif", ".tiff",
     }
 )
 

@@ -1615,6 +1615,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (`benchmarks/search/runner.py`) and stayed within measurement noise
     (p50 15.652ms -> 15.9ms, p95 16.176ms -> 16.745ms) -- pure rank
     arithmetic over already-computed lists, as expected.
+- Search Quality Improvement Plan, Phase 10: five more document formats
+  genuinely convert, index, and are lexically/semantically searchable --
+  CSV, ODT, ODS, ODP, EPUB -- each verified end-to-end against real
+  extracted content (never an empty-text round-trip), plus opt-in OCR
+  support for raw images. Several formats the plan expected to be free
+  turned out, on reading the *installed* Docling version's actual backend
+  source (not just assuming its tier list), to require a dependency this
+  project deliberately avoids -- deferred honestly rather than partially
+  wired and claimed as supported.
+  - **Genuinely supported, with fixture + indexing + lexical + semantic
+    coverage for each**: `DocumentFormat` (`core/models.py`) and
+    `docling_adapter.EXTENSION_TO_FORMAT`/`_format_to_input_format`
+    (`documents/docling_adapter.py`) grow `CSV`/`ODT`/`ODS`/`ODP`/`EPUB`,
+    each converted by one of Docling's own rule-based backends (no
+    layout/table-structure model, no LibreOffice) -- `sources/detector.py`
+    `DOCUMENT_EXTENSIONS` grows `.ods`/`.odp`/`.epub` (`.csv`/`.odt` were
+    already detected, just not converted). New fixtures under
+    `tests/fixtures/documents/` (`simple.csv` hand-written like
+    `simple.md`/`simple.txt`; `document.odt`/`spreadsheet.ods`/
+    `presentation.odp` built with `odfdo` and `sample.epub` hand-
+    assembled as a minimal ZIP+XHTML archive, both via new functions in
+    `generate_fixtures.py`), new golden normalization tests in
+    `tests/unit/test_document_normalizer.py`, a new indexing+FTS
+    integration test (`test_phase_10_formats_index_and_are_fts_
+    searchable` in `tests/integration/test_document_indexing.py`), and a
+    new semantic-search integration test
+    (`test_semantic_search_surfaces_phase_10_document_formats` in
+    `tests/integration/test_semantic_retrieval.py`, using the existing
+    fake-hash-embedder convention -- no real model load needed).
+  - **New dependency: `odfdo`** (`pyproject.toml`). Docling's ODT/ODS/ODP
+    backend imports it behind a guarded try/except exactly like
+    `mailparser`/`python-oxmsg` do for EML/MSG -- but unlike those (and
+    unlike RapidOCR for OCR), `odfdo` is genuinely *not* pulled in
+    transitively by plain `docling` at this pinned range's current
+    resolution, so it's this phase's one explicit new dependency. It
+    earns an exception to this project's stated "avoid heavy/optional
+    Docling extras" policy: pure Python, its only import is the
+    already-required `lxml`, no ML weights, no subprocess, no system
+    binary -- the same weight class as the dev-only `python-docx`/
+    `python-pptx`/`openpyxl` this project already accepts for DOCX/
+    PPTX/XLSX fixture generation, just needed at runtime here (to
+    actually convert a project's real `.odt`/`.ods`/`.odp` files, not
+    only to build test fixtures).
+  - **Raw images, opt-in via new `documents.image_ocr` config field**
+    (`core/config.py`, default `False`): `.png`/`.jpg`/`.jpeg`/`.tif`/
+    `.tiff` are genuinely convertible -- verified end-to-end against real
+    OCR'd text, using the same RapidOCR engine Phase 5 already confirmed
+    ships transitively -- but an image has no embedded text layer at
+    all, so real extraction always means a full OCR pass with no cheap
+    non-OCR path to try first the way PDF has. `sources/detector.py`
+    detects these extensions unconditionally; `documents/pipeline.py`
+    only actually converts them when `documents.image_ocr` is enabled,
+    falling back to the same "detected, no derived content" behavior as
+    an unsupported extension otherwise, so an image-heavy source doesn't
+    silently make every index run much slower unless a project opts in.
+    New fixture `tests/fixtures/documents/sample_ocr.png` (Pillow-
+    rendered text, real pixels -- not embedded-as-data), a new
+    `docling_pdf`-marked golden test
+    (`test_image_ocr_enabled_extracts_real_text_via_ocr` in
+    `tests/unit/test_docling_pdf.py` -- reuses that marker rather than
+    adding a new one, since OCR is the same "real network + model
+    download on first use" shape PDF's own model already needs, just
+    from ModelScope instead of Hugging Face), and two new integration
+    tests in `tests/integration/test_document_indexing.py`: the default-
+    off fallback path (default suite) and the opt-in real-OCR path
+    (`docling_pdf`-marked).
+  - **Deferred, with the specific reason for each** (`docling_adapter.py`'s
+    module docstring has the full detail):
+    - **`.rtf`** -- the plan expected this to be free (Tier 1), but
+      reading the installed Docling version's actual
+      `msword_backend.py` shows `MsWordDocumentBackend.__init__`
+      unconditionally shells out to LibreOffice (`soffice --convert-to`)
+      for `InputFormat.RTF`, exactly like legacy `.doc`. No pure-Python
+      fallback exists. This project's explicit policy is to never add a
+      LibreOffice dependency, so `.rtf` stays exactly as before:
+      detected, not converted.
+    - **Legacy `.doc`/`.ppt`/`.xls`** -- confirmed (not just assumed)
+      to have the same mandatory-LibreOffice requirement, reading
+      `msword_backend.py`/`mspowerpoint_backend.py`/`msexcel_backend.py`
+      directly. Empirically reinforced, not just reasoned about: even in
+      a development sandbox where a `soffice` binary happened to be
+      present, headless `--convert-to` invocations failed outright on
+      every input tried (RTF and plain text alike) -- underlining
+      exactly why this project treats LibreOffice as an environment
+      dependency to avoid rather than one more format to wire up.
+    - **Outlook `.msg`** -- deferred for a different, non-technical
+      reason: Docling's `EmailDocumentBackend` and its guarded-import
+      deps (`mail-parser`, `python-oxmsg`) are already transitively
+      installed, so `.msg` would need zero new code or dependencies.
+      But authoring a genuine, valid `.msg` fixture requires a real
+      Outlook-produced OLE2/CFBF (MAPI) binary structure -- there is no
+      writer library available here and no network access in this
+      environment to fetch a real sample, so a hand-rolled fixture risks
+      either failing to parse (proving nothing) or silently round-
+      tripping empty text, which this plan's acceptance criteria
+      explicitly forbids claiming as "supported". Left for a future
+      phase with a real sample fixture or a `.msg`-writing dependency.
+  - **`indexing/coordinator.py`**: `ProcessorContext` grows `image_ocr:
+    bool | None`, threaded from `config.documents.image_ocr` exactly
+    like `ocr`/`chunking`/`max_document_pages` already are.
 - CLI performance improvement plan, Phase 1: startup benchmark and
   heavy-import regression test.
   - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,
