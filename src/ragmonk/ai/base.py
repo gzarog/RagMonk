@@ -30,6 +30,8 @@ class AiNotConfiguredError(ConfigError):
     reuses ``ConfigError``'s exit code (3) rather than a new one.
     """
 
+    reason_code = "not_configured"
+
 
 class AiPrivacyBlockedError(SecurityViolationError):
     """A provider that would send data to a network endpoint outside
@@ -37,6 +39,8 @@ class AiPrivacyBlockedError(SecurityViolationError):
     ``False`` (the default) -- see ``ai/factory.py`` for exactly which
     providers/hosts this applies to, including the Ollama exemption.
     """
+
+    reason_code = "privacy_blocked"
 
 
 class AiProviderError(RagMonkError):
@@ -49,6 +53,89 @@ class AiProviderError(RagMonkError):
     """
 
     exit_code = EXIT_GENERIC_FAILURE
+    reason_code = "provider_error"
+
+
+# --- Subscription-provider lifecycle errors (subscription plan, Phase 1) ---
+#
+# Each carries a stable, machine-readable ``reason_code`` so ``cli/ai.py``
+# can report the failure distinctly in ``--json`` output without inventing
+# a new exit code per case: the CLI keeps this project's existing
+# exit-code conventions (a config problem is still exit 3, a policy block
+# is still exit 8, a runtime failure is still exit 1) while the
+# ``reason_code`` disambiguates *which* of those a caller hit. See the
+# error taxonomy in ``docs/providers/subscription-integration-note.md``.
+
+
+class AiAuthenticationRequiredError(ConfigError):
+    """A subscription provider was used with no usable sign-in. Not a bug
+    and not a network failure -- the user must complete the provider's own
+    official login (``ragmonk ai login <provider>``) first. Reuses
+    ``ConfigError``'s exit code (3), same family as ``AiNotConfiguredError``.
+    """
+
+    reason_code = "authentication_required"
+
+
+class AiRuntimeUnavailableError(ConfigError):
+    """The subscription provider's required runtime/SDK is not installed
+    (or not importable) on this machine, so RagMonk cannot even attempt a
+    request. A setup/config problem (exit 3), reported *before* any child
+    process is created.
+    """
+
+    reason_code = "runtime_unavailable"
+
+
+class AiUnsupportedVersionError(ConfigError):
+    """The installed runtime/SDK is outside RagMonk's tested version range
+    for that provider. Treated as a configuration problem (exit 3) rather
+    than a runtime failure: the fix is to install a supported version, not
+    to retry.
+    """
+
+    reason_code = "unsupported_version"
+
+
+class AiPolicyBlockedError(SecurityViolationError):
+    """The provider (or its workspace/organization), or RagMonk's own
+    ``privacy.external_ai_allowed`` policy, refused the request. Shares
+    ``AiPrivacyBlockedError``'s exit code (8) because it is the same kind
+    of "blocked on purpose, not broken" outcome -- distinguished from the
+    privacy-flag block only by its ``reason_code`` for machine-readable
+    output.
+    """
+
+    reason_code = "policy_blocked"
+
+
+class AiQuotaExhaustedError(AiProviderError):
+    """The account's subscription allowance is spent. A runtime failure
+    (exit 1) like any other provider call failure, but reported distinctly
+    so a user knows to wait/upgrade rather than debug their setup. Never
+    silently retried against a billable API key.
+    """
+
+    reason_code = "quota_exhausted"
+
+
+class AiInvalidResponseError(AiProviderError):
+    """The runtime produced output RagMonk cannot trust as a final answer:
+    malformed JSON, a wrong/unknown request id, a partial/streamed event
+    presented as final, or oversized output. Never surfaced to the user as
+    a successful answer.
+    """
+
+    reason_code = "invalid_response"
+
+
+class AiTimeoutError(AiProviderError):
+    """The runtime did not return a final answer within the configured
+    deadline. The in-flight call is cancelled and its child process is
+    torn down before this is raised.
+    """
+
+    reason_code = "timeout"
 
 
 @dataclass(frozen=True)

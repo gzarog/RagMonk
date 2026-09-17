@@ -9,7 +9,11 @@ from __future__ import annotations
 import pytest
 
 from ragmonk.ai.anthropic import AnthropicProvider
-from ragmonk.ai.base import AiNotConfiguredError, AiPrivacyBlockedError
+from ragmonk.ai.base import (
+    AiNotConfiguredError,
+    AiPrivacyBlockedError,
+    AiRuntimeUnavailableError,
+)
 from ragmonk.ai.factory import create_provider
 from ragmonk.ai.ollama import OllamaProvider
 from ragmonk.ai.openai import OpenAiProvider
@@ -150,3 +154,38 @@ def test_ollama_remote_base_url_with_privacy_allowed_builds_a_provider() -> None
         privacy=PrivacyConfig(external_ai_allowed=True),
     )
     assert isinstance(provider, OllamaProvider)
+
+
+def test_codex_without_privacy_flag_is_blocked_before_runtime_lookup() -> None:
+    """A subscription provider must hit the privacy gate first -- the block
+    is raised before its (absent, in Phase 1) adapter is even imported.
+    """
+    with pytest.raises(AiPrivacyBlockedError):
+        create_provider(
+            ai=AiConfig(provider="codex"),
+            privacy=PrivacyConfig(external_ai_allowed=False),
+        )
+
+
+def test_codex_with_privacy_allowed_reports_runtime_unavailable_in_phase_1() -> None:
+    with pytest.raises(AiRuntimeUnavailableError):
+        create_provider(
+            ai=AiConfig(provider="codex"),
+            privacy=PrivacyConfig(external_ai_allowed=True),
+        )
+
+
+def test_github_copilot_without_privacy_flag_is_blocked() -> None:
+    with pytest.raises(AiPrivacyBlockedError):
+        create_provider(
+            ai=AiConfig(provider="github_copilot"),
+            privacy=PrivacyConfig(external_ai_allowed=False),
+        )
+
+
+def test_github_copilot_with_privacy_allowed_reports_runtime_unavailable_in_phase_1() -> None:
+    with pytest.raises(AiRuntimeUnavailableError):
+        create_provider(
+            ai=AiConfig(provider="github_copilot"),
+            privacy=PrivacyConfig(external_ai_allowed=True),
+        )
