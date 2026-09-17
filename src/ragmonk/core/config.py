@@ -351,6 +351,54 @@ class PrivacyConfig(BaseModel):
     external_ai_allowed: bool = False
 
 
+class CodexAiConfig(BaseModel):
+    """Subscription plan, Phase 1: settings for the ``codex`` provider
+    (ChatGPT via the official Codex runtime). Deliberately holds **no**
+    credential -- account sign-in is delegated entirely to the runtime
+    (``ragmonk ai login codex``), never stored in this plain-text config.
+    ``auth_mode`` is fixed to ``"chatgpt"`` for now; it exists as a typed,
+    validated field so the intended mode is explicit and a future mode can
+    be added without a config migration. There is deliberately no
+    ``api_key``/executable-path field here: a project-controlled config
+    must never be able to select an arbitrary binary to run.
+    """
+
+    auth_mode: str = "chatgpt"
+
+    @field_validator("auth_mode")
+    @classmethod
+    def _validate_auth_mode(cls, value: str) -> str:
+        allowed = {"chatgpt"}
+        if value not in allowed:
+            raise ValueError(
+                f"unknown ai.codex.auth_mode {value!r}; expected one of {sorted(allowed)}"
+            )
+        return value
+
+
+class GithubCopilotAiConfig(BaseModel):
+    """Subscription plan, Phase 1: settings for the ``github_copilot``
+    provider. Like ``CodexAiConfig``, stores no credential -- it relies on
+    the signed-in Copilot CLI credentials the official SDK reads, never a
+    token in this file, and never ``GH_TOKEN``/``GITHUB_TOKEN`` picked up
+    by accident (the adapter verifies the effective mode). ``auth_mode`` is
+    validated but currently only ``"signed_in_user"`` is supported.
+    """
+
+    auth_mode: str = "signed_in_user"
+
+    @field_validator("auth_mode")
+    @classmethod
+    def _validate_auth_mode(cls, value: str) -> str:
+        allowed = {"signed_in_user"}
+        if value not in allowed:
+            raise ValueError(
+                f"unknown ai.github_copilot.auth_mode {value!r}; "
+                f"expected one of {sorted(allowed)}"
+            )
+        return value
+
+
 class AiConfig(BaseModel):
     """Phase 9's ``ragmonk ask`` provider selection. ``provider="none"``
     (the default) means no provider is configured at all -- ``ragmonk
@@ -362,12 +410,23 @@ class AiConfig(BaseModel):
     the blueprint, and it keeps a credential out of ``config.yaml``/
     ``.ragmonk.yaml``, both of which are plain, unencrypted files a
     backup/restore or a careless ``git add`` could otherwise leak.
+
+    Subscription plan, Phase 1: adds ``codex`` and ``github_copilot`` as
+    selectable providers, each with its own typed, credential-free
+    sub-config. ``provider`` is intentionally *not* validated to a closed
+    set here (``ai/factory.py`` raises a clear ``AiNotConfiguredError`` for
+    an unknown one at call time) -- the same lazy, call-time validation the
+    existing providers already rely on.
     """
 
-    provider: str = "none"  # "none" | "openai" | "anthropic" | "ollama" | "openai_compatible"
+    # "none" | "openai" | "anthropic" | "ollama" | "openai_compatible"
+    # | "codex" | "github_copilot"
+    provider: str = "none"
     model: str = ""
     base_url: str | None = None
     timeout_seconds: float = 60.0
+    codex: CodexAiConfig = Field(default_factory=CodexAiConfig)
+    github_copilot: GithubCopilotAiConfig = Field(default_factory=GithubCopilotAiConfig)
 
 
 class TelemetryConfig(BaseModel):

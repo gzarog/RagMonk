@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from ragmonk.ai import registry
 from ragmonk.ai.base import AiNotConfiguredError, AiPrivacyBlockedError, AiProvider
 from ragmonk.core.config import AiConfig, PrivacyConfig
 
@@ -133,7 +134,53 @@ def create_provider(
             http_client=http_client,
         )
 
+    if provider in registry.SUBSCRIPTION_PROVIDERS:
+        return _create_subscription_provider(provider, ai=ai, privacy=privacy)
+
     raise AiNotConfiguredError(
         f"unknown ai.provider={ai.provider!r}; expected one of "
-        "openai, anthropic, ollama, openai_compatible"
+        "openai, anthropic, ollama, openai_compatible, codex, github_copilot"
     )
+
+
+def _create_subscription_provider(
+    provider: str, *, ai: AiConfig, privacy: PrivacyConfig
+) -> AiProvider:
+    """Build the ``AiProvider`` for a subscription provider (``codex``,
+    ``github_copilot``).
+
+    The privacy gate is applied *first* -- before the adapter module is
+    even imported, let alone before it starts any child process -- so
+    ``privacy.external_ai_allowed=false`` blocks a cloud subscription
+    provider at exactly the same point it blocks every other cloud
+    provider (release gate 3). The adapter module is then imported lazily
+    (keeping its runtime/SDK off the import path for every other provider)
+    and asked for a provider via its ``create_ai_provider`` contract. When
+    that module or its runtime is not installed -- the Phase 1 state, where
+    no adapter ships yet -- this surfaces a clear ``AiRuntimeUnavailableError``
+    rather than a bare ``ImportError``.
+    """
+    import importlib
+
+    from ragmonk.ai.base import AiRuntimeUnavailableError
+
+    cap = registry.get_capability(provider)
+    label = cap.display_name if cap is not None else provider
+    _require_external_ai_allowed(privacy, label=provider)
+
+    module_path = registry.RUNTIME_MODULES.get(provider)
+    if module_path is None:  # pragma: no cover - guarded by SUBSCRIPTION_PROVIDERS
+        raise AiRuntimeUnavailableError(f"no adapter is registered for provider {provider!r}")
+    try:
+        module = importlib.import_module(module_path)
+    except ImportError as exc:
+        raise AiRuntimeUnavailableError(
+            f"the {label} runtime is not available: {exc}. "
+            "Install the required runtime/SDK to use this provider (see docs/providers)."
+        ) from exc
+    builder = getattr(module, "create_ai_provider", None)
+    if builder is None:
+        raise AiRuntimeUnavailableError(
+            f"the {label} adapter does not provide an answer provider yet"
+        )
+    return builder(ai=ai, privacy=privacy)

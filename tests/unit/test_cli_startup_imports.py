@@ -45,6 +45,10 @@ LIGHTWEIGHT_INVOCATIONS = (
     ["--help"],
     ["config", "--help"],
     ["search", "--help"],
+    # Subscription plan, Phase 1: `ai --help` and listing providers must
+    # not start a runtime or load a provider SDK either.
+    ["ai", "--help"],
+    ["ai", "providers"],
 )
 
 

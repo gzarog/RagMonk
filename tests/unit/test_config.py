@@ -284,3 +284,32 @@ def test_documents_ocr_env_var_override(tmp_path: Path) -> None:
     cwd = tmp_path / "cwd"
     config = load_config(home=home, cwd=cwd, environ={"RAGMONK_DOCUMENTS__OCR": "always"})
     assert config.documents.ocr == "always"
+
+
+def test_ai_defaults_include_credential_free_subscription_subconfigs() -> None:
+    config = RagMonkConfig()
+    assert config.ai.provider == "none"
+    assert config.ai.codex.auth_mode == "chatgpt"
+    assert config.ai.github_copilot.auth_mode == "signed_in_user"
+    # No credential/executable field ever exists on a subscription subconfig.
+    assert set(config.ai.codex.model_dump()) == {"auth_mode"}
+    assert set(config.ai.github_copilot.model_dump()) == {"auth_mode"}
+
+
+def test_ai_codex_auth_mode_rejects_unknown_value() -> None:
+    with pytest.raises(ValueError, match="unknown ai.codex.auth_mode"):
+        RagMonkConfig.model_validate({"ai": {"codex": {"auth_mode": "api_key"}}})
+
+
+def test_ai_github_copilot_auth_mode_rejects_unknown_value() -> None:
+    with pytest.raises(ValueError, match="unknown ai.github_copilot.auth_mode"):
+        RagMonkConfig.model_validate({"ai": {"github_copilot": {"auth_mode": "token"}}})
+
+
+def test_ai_provider_is_not_validated_to_a_closed_set_at_load_time(tmp_path: Path) -> None:
+    # An unknown provider is rejected at call time by ai/factory.py, not by
+    # config validation -- the same lazy contract the existing providers use.
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    config = load_config(home=home, cwd=cwd, environ={"RAGMONK_AI__PROVIDER": "codex"})
+    assert config.ai.provider == "codex"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 from ragmonk.cli import (
+    ai,
     ask,
     backup,
     callees,
@@ -44,6 +45,7 @@ app = typer.Typer(
 
 app.add_typer(source.app, name="source")
 app.add_typer(config_cmd.app, name="config")
+app.add_typer(ai.app, name="ai")
 app.add_typer(link.app, name="link")
 app.add_typer(daemon.app, name="daemon")
 app.add_typer(vectors.app, name="vectors")
