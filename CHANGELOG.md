@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1]
+
+Exact Tokenizer work, Phase 2: **exact, payload-aware paragraph budgeting**.
+
+### Changed
+
+- The document chunker (`documents/chunker.py`) now budgets every chunk
+  against the **exact** embedding tokenizer and against the **full
+  contextual payload** the embedder actually sees -- document title,
+  section/heading breadcrumb, separators, body, and the model's special
+  tokens -- not just the raw body. The guaranteed invariant for every
+  embeddable chunk is `exact_tokens(contextual_text, with special tokens)
+  <= max_tokens - safety_tokens`, so no normal embedding payload relies on
+  the model silently truncating an over-long input.
+- `documents/tokenization.py` no longer estimates: `count_tokens` and
+  `split_by_token_budget` delegate to the exact tokenizer (the old
+  `_PIECE_RE` / `_CHARS_PER_TOKEN` estimator is removed). Sentence-first
+  splitting is retained, with an exact sub-word fallback for a single word
+  that alone exceeds the budget.
+- Long contextual headers are reduced deterministically when they would
+  starve the body budget: keep the deepest/current heading, then the
+  title, dropping oldest intermediate ancestors first, and only
+  token-truncating an individually oversized heading/title as a last
+  resort. The evidence body is never truncated to keep a breadcrumb.
+
+### Configuration
+
+- `documents.chunking.max_tokens` now defaults to `auto` (resolves to the
+  embedding model's real maximum sequence length, 256) and represents the
+  full model input ceiling. An explicit integer above the model limit is
+  rejected (it would permit silent truncation).
+- New `documents.chunking.safety_tokens` (default 4): a reserve kept below
+  the model limit. `min_tokens`/`overlap_tokens` are now exact token
+  counts.
+
+### Notes
+
+- The chunker exposes an optional `ChunkingDiagnostics` accumulator
+  (chunks split by budget, contextual headers reduced, oversized table
+  rows, max observed payload) that `doctor`/`status` will surface in a
+  later phase.
+- `chunker_version`/`embedding_text_version` advance to `2`, so existing
+  derived indexes rebuild their chunks/vectors from source on the next
+  index run.
+
 ## [0.3.0]
 
 Start of the **Exact Tokenizer** work: RagMonk is moving from an

@@ -11,13 +11,14 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ragmonk.core import paths
 from ragmonk.core.errors import ConfigError
+from ragmonk.tokenization.model_identity import MAX_SEQUENCE_TOKENS
 
 _ENV_PREFIX = "RAGMONK_"
 
@@ -51,27 +52,39 @@ class IndexingConfig(BaseModel):
 
 
 class ChunkingConfig(BaseModel):
-    """Search Quality Improvement Plan, Phase 2: token-aware, hierarchy-
-    aware chunk boundaries (``documents/chunker.py``), replacing the
-    previous pure character-count paragraph grouping.
+    """Exact Tokenizer plan, Phase 2: token-aware, hierarchy-aware chunk
+    boundaries (``documents/chunker.py``), budgeted against the *exact*
+    tokenizer of the embedding model (``ragmonk.tokenization``) rather
+    than the earlier approximate estimator.
 
     ``strategy`` is validated but only ``"hybrid"`` (token-budget packing
     that respects heading/table boundaries -- see that module) is
     implemented so far; the field exists now so a future strategy can be
-    added without another config migration. ``min_tokens``/``overlap_tokens``
-    are soft targets ``merge_peers``/splitting aim for, not hard floors --
-    ``max_tokens`` is the one hard ceiling every non-atomic chunk must
-    respect. A table too large for one chunk is split at row boundaries
-    instead (Search Quality Improvement Plan, Phase 4); the one remaining
-    atomic exception is a single table row that alone still exceeds
-    ``max_tokens`` -- see ``chunker.chunk_document``'s docstring and
-    ``documents/table_renderer.split_data_rows``.
+    added without another config migration.
+
+    ``max_tokens`` is now the model's total input ceiling (including its
+    special tokens and the contextual header), not just the body length.
+    It defaults to ``"auto"``, which resolves to the pinned embedding
+    model's real maximum sequence length (``MAX_SEQUENCE_TOKENS`` -- 256
+    for all-MiniLM-L6-v2). An explicit integer is accepted but may never
+    exceed that model limit (a larger value would let a chunk be silently
+    truncated at embedding time, exactly what this plan removes).
+    ``safety_tokens`` is a reserve kept below the model limit so the final
+    payload validation has headroom. ``min_tokens``/``overlap_tokens`` are
+    soft targets ``merge_peers``/splitting aim for, in *exact* body
+    tokens; ``max_tokens`` (minus ``safety_tokens``) is the one hard
+    ceiling every non-atomic chunk's full contextual payload must respect.
+    A table too large for one chunk is split at row boundaries instead;
+    the one remaining atomic exception is a single table cell that alone
+    still exceeds the budget -- see ``chunker.chunk_document``'s docstring
+    and ``documents/table_renderer``.
     """
 
     strategy: str = "hybrid"
-    max_tokens: int = 350
+    max_tokens: int | Literal["auto"] = "auto"
     min_tokens: int = 60
     overlap_tokens: int = 40
+    safety_tokens: int = 4
     merge_peers: bool = True
 
     @field_validator("strategy")
@@ -86,9 +99,22 @@ class ChunkingConfig(BaseModel):
 
     @field_validator("max_tokens")
     @classmethod
-    def _validate_max_tokens(cls, value: int) -> int:
+    def _validate_max_tokens(cls, value: int | str) -> int | str:
+        if value == "auto":
+            return value
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(
+                "documents.chunking.max_tokens must be the string 'auto' or an integer"
+            )
         if value < 16:
             raise ValueError("documents.chunking.max_tokens must be at least 16")
+        if value > MAX_SEQUENCE_TOKENS:
+            raise ValueError(
+                f"documents.chunking.max_tokens ({value}) exceeds the embedding model's "
+                f"maximum sequence length ({MAX_SEQUENCE_TOKENS}); a larger value would "
+                f"let chunks be silently truncated at embedding time. Use 'auto' or a "
+                f"value <= {MAX_SEQUENCE_TOKENS}."
+            )
         return value
 
     @field_validator("min_tokens")
@@ -105,15 +131,36 @@ class ChunkingConfig(BaseModel):
             raise ValueError("documents.chunking.overlap_tokens must not be negative")
         return value
 
+    @field_validator("safety_tokens")
+    @classmethod
+    def _validate_safety_tokens(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("documents.chunking.safety_tokens must not be negative")
+        return value
+
+    @property
+    def resolved_max_tokens(self) -> int:
+        """The concrete model input ceiling, resolving ``"auto"`` to the
+        pinned embedding model's ``MAX_SEQUENCE_TOKENS``.
+        """
+        if self.max_tokens == "auto":
+            return MAX_SEQUENCE_TOKENS
+        return self.max_tokens
+
     @model_validator(mode="after")
     def _validate_relative_bounds(self) -> ChunkingConfig:
-        if self.min_tokens > self.max_tokens:
+        resolved = self.resolved_max_tokens
+        if self.min_tokens > resolved:
             raise ValueError(
                 "documents.chunking.min_tokens must not exceed documents.chunking.max_tokens"
             )
-        if self.overlap_tokens >= self.max_tokens:
+        if self.overlap_tokens >= resolved:
             raise ValueError(
                 "documents.chunking.overlap_tokens must be less than documents.chunking.max_tokens"
+            )
+        if self.safety_tokens >= resolved:
+            raise ValueError(
+                "documents.chunking.safety_tokens must be less than documents.chunking.max_tokens"
             )
         return self
 

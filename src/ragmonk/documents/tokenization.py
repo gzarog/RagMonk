@@ -1,74 +1,36 @@
-"""Approximate, dependency-free token counting for chunk-boundary decisions.
+"""Exact token counting and token-budget splitting for chunk boundaries.
 
-``chunker.py`` needs real token counts to honor ``max_tokens``/
-``min_tokens``/``overlap_tokens`` -- a flat ``len(text)`` proxy (the
-previous ``DEFAULT_MAX_CHUNK_CHARS`` behavior) systematically over-packs
-punctuation-heavy text and under-packs long-word text relative to what an
-actual subword tokenizer would count.
+Exact Tokenizer plan, Phase 2: this module used to estimate token counts
+with a regex + ~4-characters-per-token heuristic. It now delegates to the
+real, pinned tokenizer of the embedding model
+(``ragmonk.tokenization.model_tokenizer.get_model_tokenizer``) so every
+count here is exactly what the embedder will see -- no more silent
+over/under-counting of Greek, code, URLs, or punctuation-heavy text. The
+tokenizer loads bundled, offline assets (no network), lazily on first use.
 
-The obvious "just reuse the embedding model's tokenizer" choice
-(``retrieval/embedder.py``'s ``sentence-transformers/all-MiniLM-L6-v2``
-WordPiece tokenizer, loaded via ``transformers.AutoTokenizer.
-from_pretrained``) was deliberately rejected for two independent reasons,
-either one alone sufficient:
-
-1. **Network/offline-test contract.** Loading it downloads and caches
-   model files from Hugging Face on first use -- the exact real-network
-   dependency ``CONTRIBUTING.md``'s ``embedding_model`` marker exists to
-   keep *out* of the default test suite (see ``retrieval/embedder.py``'s
-   own docstring: "Everything else... is tested with precomputed/fake
-   vectors... runs in the default suite"). This phase's own test list
-   (long-paragraph splitting, exact token-limit enforcement, etc.) has to
-   run in that same default, offline, deterministic suite.
-2. **Degrade-gracefully guarantee.** Chunking has to keep working when
-   the embedding model is entirely unavailable (``EmbeddingModelUnavailable
-   Error``, FTS-only indexing with ``search.semantic`` off) -- making
-   chunk *boundaries* themselves depend on that model being loadable
-   would regress that guarantee for every document, not just semantic
-   search.
-
-So this module is a small, self-contained word/punctuation tokenizer
-instead: it pre-tokenizes the same way most subword tokenizers' own
-pre-tokenizer step does (runs of word characters vs. individual
-punctuation/symbol characters), then estimates each word-piece's subword
-count from its length -- ~4 characters per token is the commonly cited
-average for English BPE/WordPiece vocabularies, this project's own
-embedding model's included. It will not match ``AutoTokenizer(...)
-.encode()`` exactly, but it tracks real token-shaped units (words,
-numbers, punctuation) rather than a raw character count, is fully
-deterministic, adds no dependency, and never touches the network.
+``count_tokens`` reports *body* tokens (no model special tokens); the
+chunker adds the special-token and contextual-header cost separately when
+it budgets the full embedding payload (see ``documents/chunker.py``). The
+WordPiece tokenizer pre-splits on whitespace, so counts are additive
+across whitespace-joined segments and inter-piece separators
+(spaces/newlines) cost zero tokens -- the budgeting in ``chunker.py``
+relies on both properties.
 """
 
 from __future__ import annotations
 
 import re
 
-# A run of "word" characters (letters/digits/underscore, Unicode-aware via
-# \w) is one piece; any other non-space character (punctuation, symbols,
-# CJK handled per-character by \w already) is its own piece -- mirrors the
-# split most BPE/WordPiece pre-tokenizers apply before subword merging.
-_PIECE_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
-
-# Commonly cited average English subword length (OpenAI's own tiktoken
-# guidance, and in the same range as this project's embedding model's
-# WordPiece vocabulary) -- used to turn a word-piece's character length
-# into an estimated subword-token count.
-_CHARS_PER_TOKEN = 4
+from ragmonk.tokenization.model_tokenizer import get_model_tokenizer
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 
-def _piece_token_count(piece: str) -> int:
-    if piece[0].isalnum() or piece[0] == "_":
-        return -(-len(piece) // _CHARS_PER_TOKEN)  # ceil division, min 1 for non-empty piece
-    return 1  # a lone punctuation/symbol character is always exactly one token
-
-
 def count_tokens(text: str) -> int:
-    """Estimated subword-token count of ``text`` -- see module docstring."""
+    """Exact body-token count of ``text`` (no model special tokens)."""
     if not text:
         return 0
-    return sum(_piece_token_count(p) for p in _PIECE_RE.findall(text))
+    return get_model_tokenizer().count(text, add_special_tokens=False)
 
 
 def split_sentences(text: str) -> list[str]:
@@ -85,32 +47,41 @@ def split_sentences(text: str) -> list[str]:
 
 
 def split_by_token_budget(text: str, max_tokens: int) -> list[str]:
-    """Splits ``text`` into pieces that each fit within ``max_tokens``,
-    preferring sentence boundaries and falling back to word boundaries for
-    any single sentence that alone exceeds the budget -- never a raw
-    mid-word character cut. Adjacent small sentences are re-packed
-    together up to ``max_tokens`` so an over-long paragraph doesn't
-    degrade into one chunk per sentence when several short ones would
-    still fit the budget together.
+    """Splits ``text`` into pieces that each fit within ``max_tokens``
+    exact body tokens, preferring sentence boundaries, then word
+    boundaries, and finally the tokenizer's own sub-word offsets for a
+    single word that alone exceeds the budget -- never a raw mid-character
+    cut. Adjacent small sentences are re-packed together up to
+    ``max_tokens`` so an over-long paragraph doesn't degrade into one
+    chunk per sentence when several short ones would still fit together.
 
     Returns ``[text]`` unchanged if it already fits; never returns an
     empty list for non-empty input.
     """
     if not text:
         return []
-    if count_tokens(text) <= max_tokens:
+    tokenizer = get_model_tokenizer()
+    if tokenizer.count(text, add_special_tokens=False) <= max_tokens:
         return [text]
 
     pieces: list[str] = []
     for sentence in split_sentences(text):
-        if count_tokens(sentence) <= max_tokens:
+        if tokenizer.count(sentence, add_special_tokens=False) <= max_tokens:
             pieces.append(sentence)
             continue
-        words = sentence.split()
+        # Sentence alone exceeds the budget: pack its words (WordPiece is
+        # additive across whitespace, so summed word counts are exact),
+        # and sub-word-split any single word that itself overflows.
         buf: list[str] = []
         buf_tokens = 0
-        for word in words:
-            word_tokens = count_tokens(word)
+        for word in sentence.split():
+            word_tokens = tokenizer.count(word, add_special_tokens=False)
+            if word_tokens > max_tokens:
+                if buf:
+                    pieces.append(" ".join(buf))
+                    buf, buf_tokens = [], 0
+                pieces.extend(tokenizer.split(word, max_tokens))
+                continue
             if buf and buf_tokens + word_tokens > max_tokens:
                 pieces.append(" ".join(buf))
                 buf, buf_tokens = [], 0
@@ -123,11 +94,12 @@ def split_by_token_budget(text: str, max_tokens: int) -> list[str]:
 
 
 def _repack(pieces: list[str], max_tokens: int) -> list[str]:
+    tokenizer = get_model_tokenizer()
     packed: list[str] = []
     buf: list[str] = []
     buf_tokens = 0
     for piece in pieces:
-        piece_tokens = count_tokens(piece)
+        piece_tokens = tokenizer.count(piece, add_special_tokens=False)
         if buf and buf_tokens + piece_tokens > max_tokens:
             packed.append(" ".join(buf))
             buf, buf_tokens = [], 0

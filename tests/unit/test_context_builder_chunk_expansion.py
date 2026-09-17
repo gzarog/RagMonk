@@ -212,13 +212,13 @@ def test_tight_budget_trims_siblings_but_keeps_the_matched_chunk(conn) -> None: 
 
 
 def test_budget_between_extremes_keeps_parent_and_previous_drops_next(conn) -> None:  # noqa: ANN001
-    # matched=13, "Results"=2, "First paragraph text."=7, "Third
-    # paragraph text."=7 tokens (see the module's own count_tokens) --
-    # a budget of 22 fits matched+parent+previous (13+2+7=22) but not
-    # +next (29), so next is what gets trimmed, never the matched chunk
-    # or the (higher-priority) parent heading.
+    # Exact tokenizer counts: matched=9, "Results"=1, "First paragraph
+    # text."=4, "Third paragraph text."=4 -- a budget of 14 fits
+    # matched+parent+previous (9+1+4=14) but not +next (18), so next is
+    # what gets trimmed, never the matched chunk or the (higher-priority)
+    # parent heading.
     config = SearchContextConfig(
-        parent_heading=True, previous_chunks=1, next_chunks=1, max_tokens=22
+        parent_heading=True, previous_chunks=1, next_chunks=1, max_tokens=14
     )
 
     result = expand_chunk_context(conn, "p2", config=config)
