@@ -375,14 +375,20 @@ class _RunBudgeter:
         )
 
 
-def _record_payload(
-    tokenizer: ModelTokenizer, contextual_text: str, diagnostics: ChunkingDiagnostics | None
+def _record_max_payload(
+    tokenizer: ModelTokenizer, chunks: list[Chunk], diagnostics: ChunkingDiagnostics | None
 ) -> None:
-    if diagnostics is None:
+    """Records the largest emitted contextual payload (with special tokens).
+
+    Done as a final pass over the *emitted* chunks so an intermediate
+    whole-table chunk that was built only to test its size (and then
+    discarded in favor of row/cell segments) never inflates the maximum.
+    """
+    if diagnostics is None or not chunks:
         return
-    size = tokenizer.count(contextual_text, add_special_tokens=True)
-    if size > diagnostics.max_payload_tokens:
-        diagnostics.max_payload_tokens = size
+    largest = max(tokenizer.count(c.contextual_text, add_special_tokens=True) for c in chunks)
+    if largest > diagnostics.max_payload_tokens:
+        diagnostics.max_payload_tokens = largest
 
 
 def _table_chunk(
@@ -391,8 +397,10 @@ def _table_chunk(
     parent_index: int | None,
     make_contextual: _MakeContextual,
     doc_title: str,
+    caption: str | None = None,
 ) -> Chunk:
-    rendered = table_renderer.render_table(rows, caption=unit.caption)
+    effective_caption = unit.caption if caption is None else caption
+    rendered = table_renderer.render_table(rows, caption=effective_caption)
     return Chunk(
         kind="table",
         text="",
@@ -402,7 +410,7 @@ def _table_chunk(
         page_start=unit.page_start,
         page_end=unit.page_end,
         table_rows=rows,
-        caption=unit.caption,
+        caption=effective_caption,
         contextual_text=make_contextual(unit.heading_path, rendered, "table"),
         search_text=_search_text(doc_title, unit.heading_path, rendered),
         token_count=count_tokens(rendered),
@@ -422,8 +430,14 @@ def _table_chunks(
     header rows repeated at the top of each. The split threshold is this
     table's exact body budget (payload ceiling minus special tokens minus
     its fitted contextual header), so a table chunk's full embedding
-    payload respects the model limit. The one remaining atomic exception
-    -- a single row that alone exceeds the budget -- is handled in Phase 3.
+    payload respects the model limit.
+
+    Exact Tokenizer plan, Phase 3: a single data row that alone exceeds
+    the budget is no longer kept whole (which could still overflow the
+    model). It is segmented at cell boundaries, and a single cell that
+    still overflows is token-split -- every child segment repeats the
+    relevant column header(s) and a ``Row N`` provenance marker, so no
+    table embedding payload exceeds the model limit.
     """
     rows = unit.table_rows or ()
     header, _ = budgeter.fit_header(doc_title, unit.heading_path)
@@ -434,28 +448,59 @@ def _table_chunks(
 
     header_rows = rows[: unit.header_row_count]
     data_rows = rows[unit.header_row_count :]
+    base_caption = unit.caption or ""
     groups = table_renderer.split_data_rows(
         data_rows,
         header_rows=header_rows,
         max_tokens=budget.body_max,
-        fixed_overhead=unit.caption or "",
+        fixed_overhead=base_caption,
     )
-    if len(groups) <= 1:
+    if not groups:
+        # No data rows to split (header/caption alone drives the size).
         return [whole]
 
-    if diagnostics is not None:
-        diagnostics.oversized_table_rows += 1
+    result: list[Chunk] = []
+    data_row_offset = 0
+    for group in groups:
+        seg_rows = header_rows + tuple(tuple(r) for r in group)
+        chunk = _table_chunk(unit, seg_rows, parent_index, make_contextual, doc_title)
+        if chunk.token_count <= budget.body_max:
+            result.append(chunk)
+            data_row_offset += len(group)
+            continue
 
-    return [
-        _table_chunk(
-            unit,
-            header_rows + tuple(tuple(row) for row in group),
-            parent_index,
-            make_contextual,
-            doc_title,
-        )
-        for group in groups
-    ]
+        # A single row that still overflows: segment it at cell (then
+        # token) boundaries, tagging each child with its 1-based data-row
+        # number so provenance survives.
+        row = tuple(group[0])
+        row_number = data_row_offset + 1
+        data_row_offset += len(group)
+        seg_caption = f"{base_caption}\nRow {row_number}" if base_caption else f"Row {row_number}"
+        if diagnostics is not None:
+            diagnostics.oversized_table_rows += 1
+            for col in range(len(row)):
+                single = table_renderer.render_table(
+                    (tuple(hr[col] for hr in header_rows), (row[col],)), caption=seg_caption
+                )
+                if count_tokens(single) > budget.body_max:
+                    diagnostics.oversized_table_cells += 1
+        for header_slice, data_slice in table_renderer.segment_oversized_row(
+            row,
+            header_rows=header_rows,
+            max_tokens=budget.body_max,
+            fixed_overhead=seg_caption,
+        ):
+            result.append(
+                _table_chunk(
+                    unit,
+                    (*header_slice, data_slice),
+                    parent_index,
+                    make_contextual,
+                    doc_title,
+                    caption=seg_caption,
+                )
+            )
+    return result
 
 
 def chunk_document(
@@ -490,9 +535,7 @@ def chunk_document(
         header, reduced = budgeter.fit_header(doc_title, heading_path)
         if reduced:
             note_reduction(kind)
-        contextual = _contextual_text(header, body)
-        _record_payload(tokenizer, contextual, diagnostics)
-        return contextual
+        return _contextual_text(header, body)
 
     def finalize_group(
         group: list[_Piece], heading_path: tuple[str, ...], parent_index: int | None
@@ -572,4 +615,5 @@ def chunk_document(
         old_heading_to_new[old_index] = new_index
 
     flush_pending()
+    _record_max_payload(tokenizer, chunks, diagnostics)
     return chunks
