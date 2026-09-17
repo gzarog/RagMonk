@@ -180,6 +180,32 @@ from ragpilot.telemetry.logging import get_logger, log_event
 
 _logger = get_logger("docling_adapter")
 
+# Search Quality Improvement Plan, Phase 12: this module's own axis of the
+# document pipeline's reuse identity (``indexing/incremental.
+# VersionStamp``), stamped onto ``files.parser_version`` -- an existing
+# column (``KNOWLEDGE_DB_V1``) this phase starts actually writing
+# meaningfully for the first time; see ``storage/repositories/
+# files_repo.py``'s ``mark_indexed``.
+#
+# Deliberately NOT aliased to ``_CACHE_VERSION`` below, even though both
+# currently guard "did the way this module produces a document change":
+# ``files.parser_version`` has defaulted to ``"1"`` for every file row
+# ever written, including every document already indexed before this
+# phase shipped, while ``_CACHE_VERSION`` is already at ``2`` (bumped for
+# Phase 1B's cache-format change, unrelated to this). Starting
+# ``PARSER_VERSION`` at ``"1"`` -- matching that pre-existing default --
+# means adding this tracking is a true no-op for already-indexed content;
+# aliasing it to ``_CACHE_VERSION`` instead would have made every such
+# document look stale and force a full reindex the moment this phase
+# shipped, exactly what it must not do. The two may still move together
+# in practice (a change big enough to bump one is often big enough to
+# bump the other), but nothing enforces that coupling -- bump each only
+# when its own thing actually changes: ``_CACHE_VERSION`` when
+# ``serialized_document``'s meaning changes, ``PARSER_VERSION`` when this
+# module's own conversion/normalization output could differ for the same
+# input.
+PARSER_VERSION = "1"
+
 # CLI performance improvement plan, Phase 2: Docling (which itself pulls in
 # torch for its layout/table-structure models) must never load just from
 # `import ragpilot.documents.docling_adapter` -- only when a function here

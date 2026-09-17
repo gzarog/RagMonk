@@ -25,6 +25,8 @@ from ragpilot.documents.chunker import Chunk
 from ragpilot.documents.docling_adapter import UnsupportedDocumentFormatError
 from ragpilot.documents.metadata import extract_metadata
 from ragpilot.indexing.coordinator import ProcessingOutcome, ProcessorContext
+from ragpilot.indexing.incremental import VersionStamp
+from ragpilot.retrieval import embedder
 from ragpilot.sources.fingerprint import hash_file
 from ragpilot.storage.repositories import documents_repo
 from ragpilot.storage.sqlite import transaction
@@ -32,6 +34,26 @@ from ragpilot.storage.sqlite import transaction
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def document_version_stamp() -> VersionStamp:
+    """The document pipeline's current composite reuse identity (Search
+    Quality Improvement Plan, Phase 12) -- ``IndexCoordinator`` compares
+    this against a file's stored stamp (``indexing/incremental.
+    decide_reprocessing``) to decide whether an unchanged-content
+    document file still needs reprocessing.
+
+    Reads each module's constant live (never cached) via plain attribute
+    access, so a test's monkeypatch of e.g. ``chunker.CHUNKER_VERSION`` or
+    ``embedder.EMBEDDING_MODEL_ID`` takes effect on this function's very
+    next call, exactly as if that version had genuinely changed.
+    """
+    return VersionStamp(
+        parser_version=docling_adapter.PARSER_VERSION,
+        chunker_version=chunker.CHUNKER_VERSION,
+        embedding_model_id=embedder.EMBEDDING_MODEL_ID,
+        embedding_text_version=chunker.EMBEDDING_TEXT_VERSION,
+    )
 
 
 def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:

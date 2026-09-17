@@ -1779,6 +1779,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`indexing/coordinator.py`**: `ProcessorContext` grows `image_ocr:
     bool | None`, threaded from `config.documents.image_ocr` exactly
     like `ocr`/`chunking`/`max_document_pages` already are.
+
+- Search Quality Improvement Plan, Phase 12: version-aware incremental
+  reuse -- derived processing (chunks, FTS, embeddings) now keys off a
+  composite reuse identity (`content_hash` + `parser_version` +
+  `chunker_version` + `embedding_model_id` + `embedding_text_version`),
+  not `content_hash` alone, so a chunking/embedding-assembly/parser or
+  embedding-model change is never silently left unreflected in already-
+  indexed content just because the underlying bytes didn't change.
+  Rebuild work is minimized without risking stale search data: a moved/
+  renamed file reuses its parsed document, chunks, and embeddings
+  outright; a full derivation-logic change rebuilds chunks/FTS/
+  embeddings; an embedding-model-only change rebuilds vectors alone,
+  leaving `document_sections`/`document_fts` untouched.
+  - **New version constants** (all introduced at their current value --
+    this phase adds tracking, it does not change any derivation's actual
+    behavior): `documents/docling_adapter.py`'s `PARSER_VERSION`
+    (deliberately independent of the existing `_CACHE_VERSION`, which
+    guards the PDF conversion cache's own row format -- see that
+    constant's docstring for why aliasing them would have forced a full
+    reindex of every already-indexed document the moment this phase
+    shipped), `documents/chunker.py`'s `CHUNKER_VERSION` (chunk
+    boundaries/`search_text`) and `EMBEDDING_TEXT_VERSION`
+    (`_contextual_text`'s breadcrumb assembly, versioned separately since
+    it gates a narrower rebuild), and `indexing/embedding_indexer.py`'s
+    `CODE_EMBEDDING_TEXT_VERSION` (the code-entity counterpart of
+    `EMBEDDING_TEXT_VERSION`, for `_entity_text`).
+  - **New nullable, no-backfill `files` columns** (`storage/schema.py`
+    `KNOWLEDGE_DB_V14`, migration 14): `chunker_version`,
+    `embedding_model_id`, `embedding_text_version`, alongside the
+    already-existing `parser_version` column (Phase 1), which this phase
+    starts actually writing meaningfully for the first time. A `NULL`
+    stamp (every file indexed before this migration) is never itself
+    treated as stale -- only a stamp that is both known and disagrees
+    with current code forces a rebuild (`indexing/incremental.
+    decide_reprocessing`'s `_stale` helper) -- so shipping this tracking
+    infrastructure does not, by itself, force a full reindex of any
+    already-indexed project.
+  - **`indexing/incremental.py`** grows `VersionStamp`, `ReprocessDecision`
+    (`NONE`/`FULL`/`EMBEDDINGS_ONLY`), and `decide_reprocessing`, layered
+    on top of the existing content-hash `classify_change`/`find_deleted`.
+  - **`indexing/coordinator.py`**: `ProcessorRegistry.register` grows an
+    optional `version_provider` callable per `FileKind` (only
+    `FileKind.DOCUMENT` registers one, via `documents/pipeline.py`'s new
+    `document_version_stamp` -- `FileKind.CODE` deliberately does not,
+    since Tree-sitter already reparses a changed code file from scratch
+    with nothing left for a chunker-style version axis to catch). A new
+    `_reconcile_renames` step, run before `find_deleted`, matches a
+    scanned path with no exact existing-path match back to an existing
+    file record by content hash (only when the match is unambiguous and
+    the detected `FileKind` agrees), reassigning that row's path in place
+    (`files_repo.rename`) instead of the delete-then-insert-as-new a
+    plain path mismatch previously caused -- the actual mechanism that
+    makes a moved/renamed file's chunks/embeddings reusable, distinct
+    from (and downstream of) the Phase 1B PDF-conversion-cache reuse a
+    moved file already got. A new `_version_reprocess_decision`, applied
+    to a content-`UNCHANGED` file, upgrades it to a full reprocess
+    (`ReprocessDecision.FULL`) or records it for a narrower rebuild
+    (`ReprocessDecision.EMBEDDINGS_ONLY`, via new `IndexRunResult`
+    fields `embeddings_stale_code_file_ids`/
+    `embeddings_stale_document_file_ids`, kept separate from
+    `touched_*_file_ids` so Phase 4's cross-domain linking pass stays
+    scoped to genuinely touched files only). `IndexRunResult` also grows
+    `moved` (surfaced in `ragpilot index`'s summary line).
+  - **`indexing/embedding_indexer.py`**: `embed_touched_files` now unions
+    `embeddings_stale_*_file_ids` into its touched-files scope (wired in
+    `indexing/runner.py`) and stamps `files.embedding_model_id`/
+    `embedding_text_version` right after a file's vectors are genuinely
+    (re)computed -- never speculatively, so a skipped/failed embedding
+    step (e.g. `EmbeddingModelUnavailableError`) never claims a rebuild
+    that didn't happen.
+  - **`storage/repositories/files_repo.py`**: `mark_indexed` grows
+    optional `parser_version`/`chunker_version` parameters (`COALESCE`d
+    against the existing value, so a processor with no version provider
+    never clobbers a real stamp with `NULL`); new `update_embedding_version`
+    and `rename` functions.
+  - New tests: `tests/unit/test_incremental.py` (`decide_reprocessing`
+    scenarios), `tests/unit/test_files_repo.py`, `tests/unit/
+    test_index_coordinator_rename.py`, extended `tests/unit/
+    test_embedding_indexer.py`, and a new end-to-end integration suite
+    `tests/integration/test_incremental_reuse.py` proving, through the
+    real CLI, that: a path-only change reuses chunks/embeddings
+    byte-for-byte; a `chunker_version` bump rebuilds chunks/FTS/
+    embeddings *and* the old chunk text is no longer findable while the
+    new derivation is; an `embedding_model_id` bump rebuilds vectors only
+    (chunks/FTS untouched, old model's vectors gone, new model's vectors
+    present and different); and unchanged content with no version change
+    rebuilds nothing at all (not even a `files.updated_at` bump).
+
 - CLI performance improvement plan, Phase 1: startup benchmark and
   heavy-import regression test.
   - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,

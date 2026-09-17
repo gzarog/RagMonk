@@ -93,6 +93,14 @@ class FileRecord(BaseModel):
     status: FileStatus
     generation: int = 0
     parser_version: str = "1"
+    # Search Quality Improvement Plan, Phase 12: the rest of this file's
+    # composite reuse identity, alongside `content_hash`/`parser_version`
+    # above -- see `storage/schema.py`'s `KNOWLEDGE_DB_V14` for why all
+    # three are nullable with no backfill, and `indexing/incremental.
+    # decide_reprocessing` for how they gate reprocessing.
+    chunker_version: str | None = None
+    embedding_model_id: str | None = None
+    embedding_text_version: str | None = None
     last_indexed_at: str | None = None
     last_error: str | None = None
     created_at: str
