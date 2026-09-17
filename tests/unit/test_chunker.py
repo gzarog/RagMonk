@@ -372,28 +372,40 @@ def test_large_table_splits_by_row_boundaries_and_repeats_header_row() -> None:
     assert last_row_chunk is not tables[0]
 
 
-def test_table_row_too_large_alone_stays_atomic_within_its_own_chunk() -> None:
-    # The one remaining atomic exception (row-scoped, not whole-table
-    # scoped, since Phase 4): a single data row that alone -- with its
-    # header repeated -- still exceeds max_tokens has no meaningful
-    # sub-row unit to cut at, so it is kept whole.
+def test_table_oversized_single_cell_is_token_segmented_with_provenance() -> None:
+    # Exact Tokenizer plan, Phase 3: a single data row whose one cell
+    # alone exceeds the budget is no longer kept whole (which could still
+    # overflow the model). It is token-split into fragments, each repeating
+    # the column header and a "Row N" provenance marker, and each fitting
+    # the exact payload budget.
+    from ragmonk.tokenization.model_tokenizer import get_model_tokenizer
+
     big_cell = " ".join(f"cell{i:04d}" for i in range(100))
     table_unit = _table_unit((("Header",), (big_cell,)))
-    config = ChunkingConfig(max_tokens=20, min_tokens=1, overlap_tokens=0, merge_peers=True)
+    config = ChunkingConfig(max_tokens=48, min_tokens=1, overlap_tokens=0, safety_tokens=0)
     units = [_heading("H1"), table_unit]
 
     chunks = chunk_document(_doc(units), config=config)
     tables = [c for c in chunks if c.kind == "table"]
-    assert len(tables) == 1
-    assert tables[0].token_count > config.max_tokens
-    assert tables[0].table_rows == (("Header",), (big_cell,))
+    tok = get_model_tokenizer()
+    bound = config.resolved_max_tokens - config.safety_tokens
+
+    assert len(tables) > 1  # the oversized row was segmented
+    for table_chunk in tables:
+        assert tok.count(table_chunk.contextual_text, add_special_tokens=True) <= bound
+        assert "Header" in table_chunk.contextual_text  # column name preserved
+        assert "Row 1" in table_chunk.contextual_text  # row provenance preserved
 
 
 def test_table_caption_repeated_in_every_split_chunk() -> None:
     header = ("Server", "CPU")
     data_rows = tuple((f"srv{i:02d}", "40%") for i in range(20))
     table_unit = _table_unit((header, *data_rows), caption="Table 1: Fleet status.")
-    config = ChunkingConfig(max_tokens=20, min_tokens=1, overlap_tokens=0, merge_peers=True)
+    # Body budget ~18 (24 - safety 0 - special 2 - "Section: H1" 4): a
+    # single "Server | CPU / srvNN | 40%" + caption row (15 tokens) fits,
+    # so rows split at row boundaries -- not cell-segmented -- and the
+    # caption is repeated verbatim on every chunk.
+    config = ChunkingConfig(max_tokens=24, min_tokens=1, overlap_tokens=0, safety_tokens=0)
     units = [_heading("H1"), table_unit]
 
     chunks = chunk_document(_doc(units), config=config)

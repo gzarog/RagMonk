@@ -131,3 +131,73 @@ def split_data_rows(
     if current:
         groups.append(current)
     return groups
+
+
+def _slice_row(row: Sequence[str], cols: Sequence[int]) -> tuple[str, ...]:
+    return tuple(row[c] for c in cols)
+
+
+def segment_oversized_row(
+    row: Sequence[str],
+    *,
+    header_rows: Sequence[Sequence[str]],
+    max_tokens: int,
+    fixed_overhead: str = "",
+    count_tokens: Callable[[str], int] = _count_tokens,
+    split_cell: Callable[[str, int], list[str]] | None = None,
+) -> list[tuple[tuple[tuple[str, ...], ...], tuple[str, ...]]]:
+    """Exact Tokenizer plan, Phase 3: splits a single oversized data row --
+    one that, even alone with the repeated header and ``fixed_overhead``,
+    exceeds ``max_tokens`` -- into cell-boundary segments that each fit.
+
+    Consecutive columns are greedily grouped so that each segment,
+    rendered as its sliced header rows plus the sliced data row (plus
+    ``fixed_overhead``), fits ``max_tokens``. A single column whose cell
+    alone still overflows is token-split (via ``split_cell``) into
+    fragments, each emitted as a one-column segment repeating that
+    column's header -- so every child segment retains its column name(s)
+    and (via the caller's ``fixed_overhead``) the row/table provenance.
+
+    Returns a list of ``(sliced_header_rows, sliced_data_row)`` pairs, each
+    a valid mini-table the caller can render/store like any other table
+    chunk. Column order and coverage are preserved: concatenating the
+    segments' columns reproduces the original row.
+    """
+    if split_cell is None:
+        from ragmonk.tokenization.model_tokenizer import get_model_tokenizer
+
+        split_cell = lambda text, budget: get_model_tokenizer().split(text, budget)  # noqa: E731
+
+    n = len(row)
+    if n == 0:
+        return [((), ())]
+
+    def fits(cols: Sequence[int]) -> bool:
+        hs = [_slice_row(hr, cols) for hr in header_rows]
+        ds = _slice_row(row, cols)
+        parts = [p for p in (fixed_overhead, render_rows(hs), render_rows([ds])) if p]
+        return count_tokens("\n\n".join(parts)) <= max_tokens
+
+    segments: list[tuple[tuple[tuple[str, ...], ...], tuple[str, ...]]] = []
+    i = 0
+    while i < n:
+        if not fits([i]):
+            # Single column too large on its own -> token-split its cell,
+            # repeating that one column's header on every fragment.
+            header_slice = tuple(_slice_row(hr, (i,)) for hr in header_rows)
+            overhead_parts = [p for p in (fixed_overhead, render_rows(header_slice)) if p]
+            overhead = count_tokens("\n\n".join(overhead_parts)) if overhead_parts else 0
+            frag_budget = max(1, max_tokens - overhead)
+            for fragment in split_cell(row[i], frag_budget):
+                segments.append((header_slice, (fragment,)))
+            i += 1
+            continue
+        # Grow a consecutive-column group greedily.
+        j = i + 1
+        while j < n and fits(range(i, j + 1)):
+            j += 1
+        cols = range(i, j)
+        header_slice = tuple(_slice_row(hr, cols) for hr in header_rows)
+        segments.append((header_slice, _slice_row(row, cols)))
+        i = j
+    return segments

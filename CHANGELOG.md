@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2]
+
+Exact Tokenizer work, Phase 3: **exact table budgeting**.
+
+### Changed
+
+- Table chunks are now budgeted against the exact contextual payload
+  (caption + repeated header + row text + contextual breadcrumb + special
+  tokens), split at row boundaries when the whole table overflows.
+- The previous "oversized single row kept whole" exception -- which could
+  still produce an embedding payload beyond the model limit -- is removed.
+  A single data row that alone exceeds the budget is now segmented at
+  **cell boundaries**, and a single cell that still overflows is
+  **token-split** into fragments. Every child segment repeats the relevant
+  column header(s) and a `Row N` provenance marker, so no table embedding
+  payload exceeds the model limit and row/column/table provenance is
+  preserved (`documents/table_renderer.segment_oversized_row`).
+- `ChunkingDiagnostics` now records `oversized_table_rows` and
+  `oversized_table_cells`; `max_payload_tokens` is measured over the
+  emitted chunks only.
+
 ## [0.3.1]
 
 Exact Tokenizer work, Phase 2: **exact, payload-aware paragraph budgeting**.
