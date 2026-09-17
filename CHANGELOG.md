@@ -2159,3 +2159,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   table would be invalid TOML and corrupt the file. Re-running is always
   safe: a matching entry is reported as already configured, not
   duplicated. `--client` and `--write` are mutually exclusive.
+
+- Search Quality Improvement Plan, Phase 11: an optional final neural
+  reranking pass over `retrieval/reranker.py`'s already RRF-fused hybrid
+  tier -- **explicitly OPTIONAL in the plan, shipped `enabled: false`
+  by default, and staying that way after this change** (promotion to
+  default-on is a later decision the plan reserves for itself, not this
+  one -- see the measured numbers below for why).
+  - **New `retrieval/neural_reranker.py`**: loads `cross-encoder/ms-marco-
+    MiniLM-L-6-v2` through plain `transformers`
+    (`AutoModelForSequenceClassification`, one relevance logit per
+    `(query, passage)` pair) rather than adding a new dependency --
+    exactly the same "direct `transformers` call, no `sentence-
+    transformers` package" reasoning `retrieval/embedder.py` already
+    documents, reused for the same underlying `torch`/`transformers`
+    stack. `cross-encoder/ms-marco-MiniLM-L-6-v2` is the standard,
+    Apache-2.0-licensed, ~90 MB 6-layer MiniLM cross-encoder trained for
+    exactly this task (MS MARCO passage relevance ranking). The model
+    handle is loaded at most once per process and cached (`_handle`,
+    module-level, lock-guarded -- the same pattern `embedder.py` uses),
+    and `score_pairs` batches every candidate in one call per
+    `_BATCH_SIZE` (16) rather than one model call per candidate.
+  - **`rerank_hits(query, hits, *, top_n, score_batch=None)`**: reorders
+    only `hits[:top_n]` by cross-encoder score descending, leaving
+    `hits[top_n:]` untouched in its existing RRF order -- never applied
+    to the whole candidate pool. Falls back to the input list unchanged
+    (logging, never raising) whenever the model can't be loaded
+    (`NeuralRerankerUnavailableError` -- missing `transformers`/`torch`,
+    no network and no cached weights, a corrupt cache, or any other HF
+    Hub/local-load failure) or the scorer returns a mismatched count --
+    an optional reranking pass can never turn into a hard search
+    failure. `score_batch` defaults to the real `score_pairs`, resolved
+    dynamically inside the call (not as a bound default argument) so a
+    test's monkeypatch of `neural_reranker.score_pairs` reaches every
+    caller that omits it, `cli/search.py` included.
+  - **`core/config.py`**: new `search.reranker` (`SearchRerankerConfig`):
+    `enabled` (default `false`), `top_n` (default `20`, must be `>= 1`).
+  - **`cli/search.py`**: within the already-additive `--hybrid` view
+    only (never the default, non-`--hybrid` search path) -- when
+    `search.reranker.enabled` is `false` (the default), the exact same
+    `reranker.rerank(candidates, limit=limit)` call as before Phase 11
+    runs, byte-identical output, and `retrieval/neural_reranker.py` is
+    never even imported-from-use (no model load, no added latency).
+    When enabled, RRF fusion is asked for `max(limit, top_n)` hits so
+    the neural pass has its full configured pool to rescore, then the
+    combined list is sliced back down to `limit` -- matching the plan's
+    own flow (`FTS top 50 + HNSW top 50 -> RRF -> top 20 -> optional
+    neural reranker -> top 10`). A new `neural_rerank` stage timing is
+    added to `--explain`'s output only in that same enabled path.
+  - **Tests**: `tests/unit/test_neural_reranker.py` covers config-free
+    logic entirely with a stub `score_batch` in the default suite --
+    no-op cases (`top_n<=0`, fewer than two hits), batching (only the
+    top-N prefix is ever sent to the scorer), ordering (stable for tied
+    scores), query/snippet-vs-title text selection, and both graceful-
+    fallback paths (`NeuralRerankerUnavailableError`, a mismatched score
+    count) -- plus two `@pytest.mark.reranker_model`-marked tests
+    (real model, excluded from the default run) confirming it actually
+    ranks a relevant passage above an irrelevant one.
+    `tests/integration/test_semantic_retrieval.py` gains CLI-level
+    coverage: `search.reranker.enabled=false` (the default) leaves
+    `--hybrid` output unaffected even when a monkeypatched
+    `neural_reranker.score_pairs` would visibly reorder it if it ever
+    ran; enabled, a stub reverser visibly reorders `--hybrid`'s output
+    and the `neural_rerank` stage appears under `--explain`; a second,
+    unavailable stub falls back to the exact pre-Phase-11 RRF order.
+  - **New `reranker_model` pytest marker** (`pyproject.toml`'s
+    `addopts`/`markers`, `CONTRIBUTING.md`, a new non-blocking
+    `reranker-model-tests` CI job mirroring `embedding-model-tests`):
+    kept separate from the existing `embedding_model` marker since the
+    two load independent models behind independent config flags.
+  - **Measured, not assumed, against this project's own promotion
+    gate** (`>= 5% MRR improvement AND an acceptable warm p95 latency
+    increase`): `benchmarks/search_quality/evaluator.py`'s existing
+    golden-query harness is lexical-only by its own documented design
+    (confirmed in Phase 8's entry above) and never exercises `merger.py`/
+    `reranker.py`, so it cannot see this phase's effect at all. New
+    `benchmarks/search_quality/reranker_evaluation.py`
+    (`python -m benchmarks.search_quality.reranker_evaluation`) instead
+    runs the full 72-query golden set through the real hybrid pipeline
+    (real `sentence-transformers/all-MiniLM-L6-v2` embeddings + real
+    `cross-encoder/ms-marco-MiniLM-L-6-v2` reranking, both actually
+    downloaded and run in this sandbox -- network and Hugging Face Hub
+    access were both available here) twice: once through RRF fusion
+    alone, once with the neural pass applied on top of the identical
+    RRF-fused candidate pool, and reports MRR (`benchmarks/search/
+    quality.py`'s `reciprocal_rank`) and the neural pass's own warm
+    (post-model-load) stage latency for both arms. Result, committed as
+    `benchmarks/search_quality/reranker_evaluation.json`: MRR
+    0.9028 -> 0.9306 (**+3.08%, below the 5% gate**), warm stage latency
+    p50 22.5 ms / p95 69.7 ms per query. **Conclusion: on this fixture,
+    Phase 11 does not clear its own promotion bar, so `enabled: false`
+    is not just this PR's default -- it is the honest, currently-correct
+    answer.** This is a genuine measurement on a small (72-query, 6-file)
+    fixture, not a claim about every corpus; a larger/harder golden set
+    could plausibly show a different delta, which is exactly why the
+    plan reserves default-on as a separate, later decision rather than
+    deciding it here.
