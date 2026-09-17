@@ -152,4 +152,25 @@ Everything above works fully offline with no LLM. Two opt-in extras layer on top
 - **Semantic search** (`ragmonk config set search.semantic true`): local sentence embeddings (no network once the model is cached) surface similarity-based results as their own clearly lower-confidence tier, never mixed into exact/graph matches. Backed by a persistent local ANN index (`usearch` HNSW by default, auto-falling back to a pure-Python scan only if the `usearch` package itself can't load) for large knowledge bases, updated incrementally as you index and kept warm in memory across repeated queries.
 - **`ragmonk ask "QUESTION"`**: runs the same deterministic retrieval as `explore`, then hands the question and that evidence to a configured LLM provider (OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint) for a synthesized, evidence-grounded answer. Cloud providers require explicitly opting in (`privacy.external_ai_allowed: true`); a local Ollama endpoint is exempt only when it actually resolves to loopback.
 
+### Optional: subscription AI providers (beta)
+Instead of an API key, `ragmonk ask` can use an eligible **existing AI subscription** through the provider's own official runtime — no key management, but still cloud inference that consumes your account's allowance (not offline or unlimited). Indexing and retrieval remain fully local; this needs no reindexing.
+
+- **`codex`** (beta): ChatGPT via the official Codex runtime.
+- **`github_copilot`** (beta): GitHub Copilot via its official Python SDK (`pip install "ragmonk[copilot]"`).
+
+Manage them with the `ragmonk ai` command group:
+
+```sh
+ragmonk ai providers                 # list providers and their capabilities
+ragmonk ai login codex               # sign in through the provider's own flow
+ragmonk ai status codex              # connection state (no secrets printed)
+ragmonk ai models codex              # models the signed-in account offers
+ragmonk config set privacy.external_ai_allowed true
+ragmonk config set ai.provider codex
+ragmonk ask "Explain the settlement flow and cite the source files"
+ragmonk ai logout codex
+```
+
+RagMonk never asks for a password, copies browser cookies, stores a token in config, or silently falls back to a billable API key: sign-in is delegated to the provider's runtime, and a subscription request fails clearly when sign-in is needed. Answers run in an isolated, tools-disabled session so retrieved evidence can't drive the runtime. These adapters are **beta** and gated behind version/isolation checks; see [`docs/providers/`](docs/providers/) for setup, limitations, tested versions, the MCP-client alternative, and how each release gate is met.
+
 See `CHANGELOG.md` for a detailed history of what shipped, `CONTRIBUTING.md` for development setup, and `SECURITY.md` for the security policy.
