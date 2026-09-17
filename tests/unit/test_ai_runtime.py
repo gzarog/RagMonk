@@ -83,9 +83,14 @@ def test_bridge_close_is_idempotent_and_safe_when_never_started() -> None:
     bridge.close()  # no error on second close
 
 
-def test_resolve_runtime_reports_unavailable_for_codex_in_phase_1() -> None:
-    with pytest.raises(AiRuntimeUnavailableError):
-        resolve_runtime("codex", ai=AiConfig())
+def test_resolve_runtime_builds_the_codex_runtime() -> None:
+    # Phase 2 ships the codex adapter, so resolution succeeds (construction
+    # only -- the child process is not spawned until an operation runs).
+    runtime = resolve_runtime("codex", ai=AiConfig())
+    try:
+        assert runtime.provider_id == "codex"
+    finally:
+        runtime.close()
 
 
 def test_resolve_runtime_rejects_a_non_subscription_provider() -> None:

@@ -167,12 +167,18 @@ def test_codex_without_privacy_flag_is_blocked_before_runtime_lookup() -> None:
         )
 
 
-def test_codex_with_privacy_allowed_reports_runtime_unavailable_in_phase_1() -> None:
-    with pytest.raises(AiRuntimeUnavailableError):
-        create_provider(
-            ai=AiConfig(provider="codex"),
-            privacy=PrivacyConfig(external_ai_allowed=True),
-        )
+def test_codex_with_privacy_allowed_builds_a_provider() -> None:
+    """Phase 2 ships the codex adapter: past the privacy gate the factory
+    returns a provider. Actually contacting the (absent) runtime fails
+    only when ``answer`` is called, not at construction time.
+    """
+    from ragmonk.ai.codex import CodexProvider
+
+    provider = create_provider(
+        ai=AiConfig(provider="codex"),
+        privacy=PrivacyConfig(external_ai_allowed=True),
+    )
+    assert isinstance(provider, CodexProvider)
 
 
 def test_github_copilot_without_privacy_flag_is_blocked() -> None:
