@@ -5,6 +5,19 @@ venv with the ``dev`` extras installed (python-docx/python-pptx/openpyxl --
 all dev/test-only, see pyproject.toml). Not imported by the test suite
 itself; the fixtures it writes are committed so tests don't depend on
 these libraries' exact output being stable across versions.
+
+Search Quality Improvement Plan, Phase 10: ``_make_odt``/``_make_ods``/
+``_make_odp`` use ``odfdo`` -- unlike python-docx/python-pptx/openpyxl
+above, this is a genuine *runtime* dependency now (Docling's own ODT/ODS/
+ODP backend needs it to convert a project's real files, not just to
+generate these fixtures -- see ``documents/docling_adapter.py``'s module
+docstring and ``pyproject.toml``'s dependency comment), so it's already
+installed in every dev venv rather than needing a separate dev-only
+entry. ``_make_epub`` needs nothing beyond the standard library
+(``zipfile``): an EPUB is just a ZIP of XHTML, so it's hand-assembled the
+same deliberate way ``_make_pdf``/``_make_scanned_pdf`` below are.
+``_make_ocr_image`` needs Pillow, already a transitive dependency via
+Docling's own image backend.
 """
 
 from __future__ import annotations
@@ -121,10 +134,150 @@ def _make_scanned_pdf() -> None:
     (HERE / "scanned.pdf").write_bytes(pdf.encode("latin-1"))
 
 
+def _make_odt() -> None:
+    from odfdo import Document, Header, Paragraph
+
+    doc = Document("text")
+    doc.body.append(Header(1, "Doc Title"))
+    doc.body.append(Paragraph("Intro paragraph text."))
+    doc.body.append(Header(2, "Section One"))
+    doc.body.append(Paragraph("Paragraph in section one."))
+    doc.save(HERE / "document.odt")
+
+
+def _make_ods() -> None:
+    from odfdo import Document, Table
+
+    doc = Document("spreadsheet")
+    table = Table("Sheet1")
+    table.set_values([["Name", "Value"], ["alpha", 1], ["beta", 2]])
+    doc.body.append(table)
+    doc.save(HERE / "spreadsheet.ods")
+
+
+def _make_odp() -> None:
+    from odfdo import Document, DrawPage, Frame
+
+    doc = Document("presentation")
+    page = DrawPage(name="Slide 1")
+    page.append(
+        Frame.text_frame(
+            "Presentation Title", presentation_class="title", size=("20cm", "2cm")
+        )
+    )
+    page.append(
+        Frame.text_frame(
+            "First bullet point", presentation_class="outline", size=("20cm", "10cm")
+        )
+    )
+    doc.body.append(page)
+    doc.save(HERE / "presentation.odp")
+
+
+def _make_epub() -> None:
+    """Hand-assembled the same deliberate way ``_make_pdf`` is: an EPUB is
+    just a ZIP archive of a ``container.xml`` pointer, an OPF manifest/
+    spine, and XHTML content files -- no ``ebooklib``-style dependency
+    needed to build one, matching what Docling's own
+    ``EpubDocumentBackend`` (stdlib ``zipfile`` + ``defusedxml``) expects
+    to read.
+    """
+    import zipfile
+
+    container_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<container version="1.0" '
+        'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n'
+        "  <rootfiles>\n"
+        '    <rootfile full-path="content.opf" '
+        'media-type="application/oebps-package+xml"/>\n'
+        "  </rootfiles>\n"
+        "</container>\n"
+    )
+    content_opf = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<package xmlns="http://www.idpf.org/2007/opf" '
+        'unique-identifier="bookid" version="2.0">\n'
+        '  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
+        "    <dc:title>Sample Book</dc:title>\n"
+        '    <dc:identifier id="bookid">urn:uuid:sample-book-0001</dc:identifier>\n'
+        "    <dc:language>en</dc:language>\n"
+        "  </metadata>\n"
+        "  <manifest>\n"
+        '    <item id="chapter1" href="chapter1.xhtml" '
+        'media-type="application/xhtml+xml"/>\n'
+        '    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n'
+        "  </manifest>\n"
+        '  <spine toc="ncx">\n'
+        '    <itemref idref="chapter1"/>\n'
+        "  </spine>\n"
+        "</package>\n"
+    )
+    toc_ncx = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n'
+        '  <head><meta name="dtb:uid" content="urn:uuid:sample-book-0001"/></head>\n'
+        "  <docTitle><text>Sample Book</text></docTitle>\n"
+        "  <navMap>\n"
+        '    <navPoint id="navpoint-1" playOrder="1">\n'
+        "      <navLabel><text>Chapter One</text></navLabel>\n"
+        '      <content src="chapter1.xhtml"/>\n'
+        "    </navPoint>\n"
+        "  </navMap>\n"
+        "</ncx>\n"
+    )
+    chapter1 = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<html xmlns="http://www.w3.org/1999/xhtml">\n'
+        "<head><title>Chapter One</title></head>\n"
+        "<body>\n"
+        "<h1>Chapter One</h1>\n"
+        "<p>This is the first paragraph of the sample EPUB book.</p>\n"
+        "</body>\n"
+        "</html>\n"
+    )
+    with zipfile.ZipFile(HERE / "sample.epub", "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("META-INF/container.xml", container_xml)
+        zf.writestr("content.opf", content_opf)
+        zf.writestr("toc.ncx", toc_ncx)
+        zf.writestr("chapter1.xhtml", chapter1)
+
+
+def _make_ocr_image() -> None:
+    """A small PNG with real, rendered (not embedded-as-text) words --
+    the only way to prove OCR extraction genuinely reads pixels rather
+    than round-tripping empty text (see ``documents/docling_adapter.py``'s
+    module docstring on why images need OCR at all). Falls back to
+    Pillow's bundled bitmap font when no system TrueType font is found,
+    since a CI runner's available fonts aren't guaranteed -- RapidOCR
+    reads either just fine at this size/weight.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (600, 200), color="white")
+    draw = ImageDraw.Draw(image)
+    font: ImageFont.ImageFont | ImageFont.FreeTypeFont
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28
+        )
+    except OSError:
+        font = ImageFont.load_default()
+    draw.text((20, 30), "Sample Image Title", fill="black", font=font)
+    draw.text((20, 90), "OCR body text line here.", fill="black", font=font)
+    image.save(HERE / "sample_ocr.png")
+
+
 if __name__ == "__main__":
     _make_docx()
     _make_pptx()
     _make_xlsx()
     _make_pdf()
     _make_scanned_pdf()
+    _make_odt()
+    _make_ods()
+    _make_odp()
+    _make_epub()
+    _make_ocr_image()
     print("Fixtures written to", HERE)

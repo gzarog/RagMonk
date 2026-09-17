@@ -34,6 +34,20 @@ dependencies = [
     # path still degrades gracefully (skips OCR, keeps the plain
     # conversion) if a future resolution ever lacks a usable OCR engine.
     "docling>=2.40,<3",
+    # Search Quality Improvement Plan, Phase 10: Docling's own ODT/ODS/ODP
+    # backend (documents/docling_adapter.py) imports this behind a guarded
+    # try/except -- unlike RapidOCR (Phase 5) and mail-parser/python-oxmsg
+    # (EML/MSG), it is genuinely *not* pulled in transitively by plain
+    # "docling" at this pinned range's current resolution, so it is added
+    # explicitly here. It earns an exception to this project's stated
+    # "avoid heavy/optional Docling extras" policy above: pure Python,
+    # its own only dependency is the already-required "lxml" (plus
+    # typing-extensions, already required transitively) -- no ML model
+    # weights, no subprocess, no system binary. Same weight class as the
+    # dev-only python-docx/python-pptx/openpyxl below, just needed at
+    # runtime (to actually convert a project's .odt/.ods/.odp files, not
+    # only to generate test fixtures).
+    "odfdo>=3.1,<4",
     # Official MCP Python SDK. Pinned below 2.x: the 2.x line renamed
     # ``mcp.server.fastmcp.FastMCP`` to ``mcp.server.mcpserver.MCPServer``
     # and reshuffled several APIs (see its own import-time migration
