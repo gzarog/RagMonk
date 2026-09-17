@@ -17,6 +17,7 @@ from ragpilot.retrieval import (
     context_builder,
     lexical,
     merger,
+    neural_reranker,
     query_classifier,
     reranker,
     semantic,
@@ -259,7 +260,33 @@ def search(
         if hybrid:
             semantic_hits = list(semantic_result.results) if semantic_result else []
             candidates = merger.merge(results, semantic_hits)
-            ranked_hits = reranker.rerank(candidates, limit=limit)
+            reranker_config = search_config.reranker
+
+            # Search Quality Improvement Plan, Phase 11 (optional, off by
+            # default -- see SearchRerankerConfig's docstring): when
+            # enabled, RRF fusion is asked for at least ``top_n`` hits
+            # (never fewer than the caller's own ``limit``) so the neural
+            # pass has its full configured pool to rescore, then the
+            # combined list is sliced back down to ``limit`` afterward.
+            # Disabled (the default), this is exactly the pre-Phase-11
+            # call -- same arguments, same result, zero added latency.
+            if reranker_config.enabled:
+                pool_limit = max(limit, reranker_config.top_n)
+                ranked_hits = reranker.rerank(candidates, limit=pool_limit)
+                started = time.perf_counter()
+                ranked_hits = neural_reranker.rerank_hits(
+                    query, ranked_hits, top_n=reranker_config.top_n
+                )
+                timings.append(
+                    lexical.StageTiming(
+                        name="neural_rerank",
+                        hits=min(len(ranked_hits), reranker_config.top_n),
+                        duration_ms=(time.perf_counter() - started) * 1000,
+                    )
+                )
+                ranked_hits = ranked_hits[:limit]
+            else:
+                ranked_hits = reranker.rerank(candidates, limit=limit)
 
         # Precedence: an explicit flag always wins over
         # ``search.output.fallback``'s configured default (``fallback[0]``,

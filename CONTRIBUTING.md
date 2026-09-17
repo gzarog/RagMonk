@@ -136,6 +136,28 @@ default suite. CI runs `embedding_model` tests too, in the same style as
 `docling_pdf`: a separate, non-blocking (`continue-on-error`) job -- see
 `.github/workflows/ci.yml`.
 
+### The `reranker_model` marker
+
+Search Quality Improvement Plan, Phase 11's optional (`search.reranker.
+enabled`, `false` by default) neural reranking pass
+(`retrieval/neural_reranker.py`) loads a real `cross-encoder/ms-marco-
+MiniLM-L-6-v2` model via `transformers`, which downloads and caches its
+weights from Hugging Face on first use -- the same real-network-dependency
+shape as `embedding_model`, kept as its own marker rather than reused
+since the two load independent models behind independent config flags.
+Tests that actually load the model are marked `@pytest.mark.reranker_model`
+and excluded from the default run:
+
+```bash
+pytest -m reranker_model -q
+```
+
+Everything else -- config gating, top-N selection, batching, ordering, and
+the graceful-fallback path when the model can't be loaded -- is tested
+with a stub scorer and runs in the default suite. CI runs `reranker_model`
+tests too, in the same non-blocking style as `embedding_model` -- see
+`.github/workflows/ci.yml`.
+
 ### The `benchmark_search` marker and `benchmarks/search/`
 
 The search performance redesign's benchmark suite (`benchmarks/search/`,

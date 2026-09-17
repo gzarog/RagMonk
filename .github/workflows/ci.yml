@@ -160,6 +160,36 @@ jobs:
       - name: Pytest (embedding_model)
         run: pytest -m embedding_model -q
 
+  # Optional, non-blocking: actually loads Phase 11's real local
+  # cross-encoder reranker model (Hugging Face weight download included).
+  # Kept separate from `test` above for the same reason as
+  # `embedding-model-tests`: a slow/unavailable model download never
+  # gates a merge. Phase 11 itself is optional and off by default
+  # (search.reranker.enabled=false) -- see CONTRIBUTING.md for the same
+  # command run locally.
+  reranker-model-tests:
+    name: Reranker model tests (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install CPU-only torch (Linux runners pull CUDA by default)
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - name: Install project
+        run: pip install -e ".[dev]"
+      - name: Cache reranker model weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: reranker-model-hf-${{ runner.os }}
+      - name: Pytest (reranker_model)
+        run: pytest -m reranker_model -q
+
   # Optional, non-blocking: generates a synthetic search corpus and
   # measures real query latency (benchmarks/search/), printing a report.
   # Non-blocking because its numbers are only meaningful on real,

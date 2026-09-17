@@ -68,6 +68,11 @@ dependencies = [
     # footprint; `sentence-transformers` itself would additionally pull
     # in scikit-learn/scipy/Pillow/tqdm for what is, for one fixed model,
     # ~15 lines of mean-pooling. See retrieval/embedder.py's docstring.
+    # Search Quality Improvement Plan, Phase 11 (optional, off by default)
+    # reuses this same dependency for its cross-encoder reranker
+    # (retrieval/neural_reranker.py, AutoModelForSequenceClassification) --
+    # no new package, same "already-present, just one more fixed model"
+    # rationale.
     "transformers>=4.40",
     # Phase 9: real OpenAI/Anthropic API clients (ai/openai.py,
     # ai/anthropic.py). Pinned below each SDK's newer major version:
@@ -208,11 +213,12 @@ pythonpath = ["."]
 # diagnostic, not a correctness test, and its numbers are only
 # meaningful on real, unshared hardware (see benchmarks/search/
 # targets.py), so it is excluded from the default run the same way.
-addopts = "-ra -m 'not docling_pdf and not daemon_subprocess and not embedding_model and not benchmark_search and not cli_startup_benchmark'"
+addopts = "-ra -m 'not docling_pdf and not daemon_subprocess and not embedding_model and not reranker_model and not benchmark_search and not cli_startup_benchmark'"
 markers = [
     "docling_pdf: exercises Docling's real PDF conversion pipeline (network + model download on first run); excluded from the default run, see CONTRIBUTING.md",
     "daemon_subprocess: spawns and signals a real detached `ragpilot daemon` process; excluded from the default run, see CONTRIBUTING.md",
     "embedding_model: loads the real local embedding model (network + weight download on first run); excluded from the default run, see CONTRIBUTING.md",
+    "reranker_model: loads the real local cross-encoder reranker model (network + weight download on first run); excluded from the default run, see CONTRIBUTING.md",
     "benchmark_search: measures search latency against a synthetic corpus (benchmarks/search/); excluded from the default run, see CONTRIBUTING.md",
     "cli_startup_benchmark: measures CLI subprocess startup latency (benchmarks/cli_startup/); excluded from the default run, see CONTRIBUTING.md",
 ]
