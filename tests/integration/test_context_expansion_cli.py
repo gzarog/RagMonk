@@ -53,17 +53,20 @@ def indexed_project(
     _write_project(root)
     monkeypatch.chdir(tmp_path)
     assert runner.invoke(app, ["init"]).exit_code == 0
-    # Each "## Startup" paragraph is well under the default 350-token
-    # chunk budget, so they would otherwise all pack into one chunk
+    # Each "## Startup" paragraph is well under the default chunk budget,
+    # so they would otherwise all pack into one chunk
     # (``documents/chunker.py``'s greedy packing) and this fixture would
-    # have no real sibling chunks to expand into -- a small max_tokens
-    # (just above the largest single paragraph, ~35 tokens) forces each
-    # paragraph to become its own chunk without splitting any of them
-    # mid-sentence.
+    # have no real sibling chunks to expand into. The largest paragraph is
+    # 27 exact tokens; a body budget between that and the smallest
+    # paragraph-pair sum (43) forces each paragraph into its own chunk
+    # without splitting any mid-sentence. With safety_tokens=0 and the
+    # contextual header/special tokens, max_tokens=48 lands the body
+    # budget in that window.
     for key, value in (
         ("documents.chunking.min_tokens", "1"),
         ("documents.chunking.overlap_tokens", "0"),
-        ("documents.chunking.max_tokens", "40"),
+        ("documents.chunking.safety_tokens", "0"),
+        ("documents.chunking.max_tokens", "48"),
     ):
         set_result = runner.invoke(app, ["config", "set", key, value])
         assert set_result.exit_code == 0, set_result.output

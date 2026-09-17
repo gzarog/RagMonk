@@ -193,9 +193,13 @@ def test_documents_chunking_defaults(tmp_path: Path) -> None:
     cwd = tmp_path / "cwd"
     config = load_config(home=home, cwd=cwd, environ={})
     assert config.documents.chunking.strategy == "hybrid"
-    assert config.documents.chunking.max_tokens == 350
+    # Exact Tokenizer plan, Phase 2: max_tokens defaults to "auto",
+    # resolving to the pinned embedding model's real sequence limit (256).
+    assert config.documents.chunking.max_tokens == "auto"
+    assert config.documents.chunking.resolved_max_tokens == 256
     assert config.documents.chunking.min_tokens == 60
     assert config.documents.chunking.overlap_tokens == 40
+    assert config.documents.chunking.safety_tokens == 4
     assert config.documents.chunking.merge_peers is True
 
 
@@ -204,10 +208,11 @@ def test_documents_chunking_configurable_via_user_config(tmp_path: Path) -> None
     cwd = tmp_path / "cwd"
     _write_yaml(
         home / "config.yaml",
-        {"documents": {"chunking": {"max_tokens": 500, "merge_peers": False}}},
+        {"documents": {"chunking": {"max_tokens": 200, "merge_peers": False}}},
     )
     config = load_config(home=home, cwd=cwd, environ={})
-    assert config.documents.chunking.max_tokens == 500
+    assert config.documents.chunking.max_tokens == 200
+    assert config.documents.chunking.resolved_max_tokens == 200
     assert config.documents.chunking.merge_peers is False
     # Untouched siblings keep their defaults.
     assert config.documents.chunking.min_tokens == 60
@@ -232,14 +237,14 @@ def test_documents_chunking_rejects_unknown_strategy() -> None:
 def test_documents_chunking_rejects_min_tokens_above_max_tokens() -> None:
     with pytest.raises(ValueError, match="min_tokens must not exceed"):
         RagMonkConfig.model_validate(
-            {"documents": {"chunking": {"min_tokens": 400, "max_tokens": 350}}}
+            {"documents": {"chunking": {"min_tokens": 200, "max_tokens": 120}}}
         )
 
 
 def test_documents_chunking_rejects_overlap_tokens_at_or_above_max_tokens() -> None:
     with pytest.raises(ValueError, match="overlap_tokens must be less than"):
         RagMonkConfig.model_validate(
-            {"documents": {"chunking": {"overlap_tokens": 350, "max_tokens": 350}}}
+            {"documents": {"chunking": {"overlap_tokens": 120, "max_tokens": 120}}}
         )
 
 
@@ -248,9 +253,36 @@ def test_documents_chunking_rejects_max_tokens_too_small() -> None:
         RagMonkConfig.model_validate({"documents": {"chunking": {"max_tokens": 4}}})
 
 
+def test_documents_chunking_rejects_max_tokens_above_model_limit() -> None:
+    # Exact Tokenizer plan, Phase 2: an explicit ceiling above the model's
+    # real sequence length would allow silent embedding-time truncation.
+    with pytest.raises(ValueError, match="exceeds the embedding model"):
+        RagMonkConfig.model_validate({"documents": {"chunking": {"max_tokens": 500}}})
+
+
+def test_documents_chunking_accepts_auto_and_in_range_int() -> None:
+    assert (
+        RagMonkConfig.model_validate(
+            {"documents": {"chunking": {"max_tokens": "auto"}}}
+        ).documents.chunking.resolved_max_tokens
+        == 256
+    )
+    assert (
+        RagMonkConfig.model_validate(
+            {"documents": {"chunking": {"max_tokens": 256}}}
+        ).documents.chunking.max_tokens
+        == 256
+    )
+
+
 def test_documents_chunking_rejects_negative_overlap_tokens() -> None:
     with pytest.raises(ValueError, match="must not be negative"):
         RagMonkConfig.model_validate({"documents": {"chunking": {"overlap_tokens": -1}}})
+
+
+def test_documents_chunking_rejects_negative_safety_tokens() -> None:
+    with pytest.raises(ValueError, match="safety_tokens must not be negative"):
+        RagMonkConfig.model_validate({"documents": {"chunking": {"safety_tokens": -1}}})
 
 
 def test_documents_ocr_defaults_to_auto(tmp_path: Path) -> None:

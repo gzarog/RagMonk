@@ -4,7 +4,8 @@ chunk boundaries.
 Most tests here build a synthetic ``NormalizedDocument``/``NormalizedUnit``
 list directly (bypassing Docling entirely) -- fast, deterministic, and
 lets each test control token counts precisely via short, predictable
-words (every 4-character word is exactly one estimated token; see
+words that are each a single WordPiece token of the exact embedding
+tokenizer (see ``tests/unit/test_model_tokenizer.py`` and
 ``documents/tokenization.py``). ``test_document_normalizer.py`` already
 covers the Docling-conversion -> normalize -> chunk golden path per
 format; this file is about the packing/splitting/merging algorithm
@@ -188,27 +189,39 @@ def test_no_non_table_chunk_exceeds_max_tokens() -> None:
 
 
 def _four_token_units() -> list[NormalizedUnit]:
-    # Every word is exactly 4 characters == exactly one estimated token
-    # each (see tokenization.py's _CHARS_PER_TOKEN), so each unit below is
-    # exactly 4 tokens and every count in this test is hand-verifiable.
+    # Every word below is a verified *single* WordPiece token of the exact
+    # embedding tokenizer (see test_model_tokenizer.py), so each unit is
+    # exactly 4 body tokens and every count in these tests is
+    # hand-verifiable. WordPiece pre-splits on whitespace, so a
+    # space-joined line's token count is the sum of its words'.
     texts = [
-        "aaaa bbbb cccc dddd",
-        "MARK ffff gggg hhhh",
-        "iiii jjjj kkkk llll",
-        "mmmm nnnn oooo pppp",
-        "qqqq rrrr ssss tttt",
+        "the cat dog run",
+        "owl map car box",  # "owl" is the marker word (was "MARK")
+        "pen cup hat bag",
+        "red big sky sea",
+        "top bed cow pig",
     ]
     return [_paragraph(t, heading_path=("H1",), parent_index=0) for t in texts]
+
+
+# Exact Tokenizer plan, Phase 2: max_tokens is now the *full payload*
+# ceiling (model special tokens + contextual header + body). With
+# safety_tokens=0, the "Section: H1" header (4 tokens) and the 2 special
+# tokens, a body budget of 16 needs max_tokens = 16 + 2 + 4 = 22.
+_BODY16_MAX_TOKENS = 22
 
 
 def test_merge_peers_rebalances_an_undersized_trailing_chunk() -> None:
     # Greedy packing alone (no merge_peers) produces [A+B+C+D (16 tok),
     # E (4 tok, < min_tokens=8)] -- the second group can never simply be
     # concatenated onto the first (that's exactly why the packer split
-    # there: 16 + 4 = 20 > max_tokens=16). merge_peers instead rebalances
+    # there: 16 + 4 = 20 > body budget 16). merge_peers instead rebalances
     # the pair's combined 20 tokens into two even 8/12 halves, both
-    # clearing min_tokens=8 without either exceeding max_tokens=16.
-    config = ChunkingConfig(max_tokens=16, min_tokens=8, overlap_tokens=0, merge_peers=True)
+    # clearing min_tokens=8 without either exceeding the 16-token body
+    # budget.
+    config = ChunkingConfig(
+        max_tokens=_BODY16_MAX_TOKENS, min_tokens=8, overlap_tokens=0, safety_tokens=0
+    )
     units = [_heading("H1"), *_four_token_units()]
 
     chunks = chunk_document(_doc(units), config=config)
@@ -217,15 +230,20 @@ def test_merge_peers_rebalances_an_undersized_trailing_chunk() -> None:
     assert len(body_chunks) == 2
     assert body_chunks[0].token_count == 8
     assert body_chunks[1].token_count == 12
-    assert "aaaa" in body_chunks[0].text and "MARK" in body_chunks[0].text
-    assert "iiii" in body_chunks[1].text and "qqqq" in body_chunks[1].text
+    assert "the" in body_chunks[0].text and "owl" in body_chunks[0].text
+    assert "pen" in body_chunks[1].text and "top" in body_chunks[1].text
     for c in body_chunks:
         assert c.token_count >= config.min_tokens
-        assert c.token_count <= config.max_tokens
 
 
 def test_merge_peers_disabled_keeps_the_undersized_chunk_standalone() -> None:
-    config = ChunkingConfig(max_tokens=16, min_tokens=8, overlap_tokens=0, merge_peers=False)
+    config = ChunkingConfig(
+        max_tokens=_BODY16_MAX_TOKENS,
+        min_tokens=8,
+        overlap_tokens=0,
+        safety_tokens=0,
+        merge_peers=False,
+    )
     units = [_heading("H1"), *_four_token_units()]
 
     chunks = chunk_document(_doc(units), config=config)
@@ -242,20 +260,24 @@ def test_merge_peers_disabled_keeps_the_undersized_chunk_standalone() -> None:
 
 
 def test_overlap_applies_within_a_section_but_never_crosses_a_heading() -> None:
-    # 8 distinct 4-char words per unit == exactly 8 tokens each.
+    # 8 verified single-token words per unit == exactly 8 body tokens each.
     unit_a = _paragraph(
-        "wwww xxxx yyyy zzzz qqqq rrrr ssss tttt", heading_path=("H1",), parent_index=0
+        "the cat dog run sun map car box", heading_path=("H1",), parent_index=0
     )
     unit_b = _paragraph(
-        "MARK uuuu vvvv oooo pppp aaaa bbbb cccc", heading_path=("H1",), parent_index=0
+        "owl cup hat bag red big sky sea", heading_path=("H1",), parent_index=0
     )
     unit_c = _paragraph(
-        "nnnn mmmm llll kkkk jjjj iiii hhhh gggg", heading_path=("H1",), parent_index=0
+        "ant bed cow pig fox log mud net", heading_path=("H1",), parent_index=0
     )
     unit_d = _paragraph(
-        "abcd efgh ijkl mnop qrst uvwx yzab cdef", heading_path=("H2",), parent_index=4
+        "jar key top oak the cat dog run", heading_path=("H2",), parent_index=4
     )
-    config = ChunkingConfig(max_tokens=20, min_tokens=1, overlap_tokens=10, merge_peers=True)
+    # Body budget 20 under the "Section: H1" header (4 tok) + 2 special
+    # tokens, with safety_tokens=0: max_tokens = 20 + 2 + 4 = 26.
+    config = ChunkingConfig(
+        max_tokens=26, min_tokens=1, overlap_tokens=10, safety_tokens=0
+    )
     units = [_heading("H1"), unit_a, unit_b, unit_c, _heading("H2"), unit_d]
 
     chunks = chunk_document(_doc(units), config=config)
@@ -263,19 +285,19 @@ def test_overlap_applies_within_a_section_but_never_crosses_a_heading() -> None:
     h2_body = [c for c in chunks if c.kind == "paragraph" and c.heading_path == ("H2",)]
 
     assert len(h1_body) == 2
-    # unit_b ("MARK...") is short enough to seed the second H1 chunk's
+    # unit_b ("owl...") is short enough to seed the second H1 chunk's
     # overlap, so it legitimately appears in both.
-    assert "MARK" in h1_body[0].text
-    assert "MARK" in h1_body[1].text
-    assert "nnnn" in h1_body[1].text
+    assert "owl" in h1_body[0].text
+    assert "owl" in h1_body[1].text
+    assert "ant" in h1_body[1].text
     for c in h1_body:
-        assert c.token_count <= config.max_tokens
+        assert c.token_count <= 20  # the body budget under this header
 
     # H2's own chunk must never carry H1's overlap tail across the
     # heading boundary -- each flush_pending() run is independent.
     assert len(h2_body) == 1
-    assert "MARK" not in h2_body[0].text
-    assert "abcd" in h2_body[0].text
+    assert "owl" not in h2_body[0].text
+    assert "jar" in h2_body[0].text
 
 
 # ---------------------------------------------------------------------------
@@ -585,4 +607,4 @@ def test_heading_chunks_search_text_includes_ancestor_heading_path() -> None:
 def test_chunk_document_uses_default_config_when_none_passed() -> None:
     units = [_heading("H1"), _paragraph("short body text.", heading_path=("H1",), parent_index=0)]
     chunks = chunk_document(_doc(units))
-    assert chunks[1].token_count <= ChunkingConfig().max_tokens
+    assert chunks[1].token_count <= ChunkingConfig().resolved_max_tokens
