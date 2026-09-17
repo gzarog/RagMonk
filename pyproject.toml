@@ -15,6 +15,15 @@ dependencies = [
     "typer>=0.12",
     "rich>=13",
     "pyyaml>=6",
+    # Exact Tokenizer plan, Phase 1: the Rust ``tokenizers`` library is a
+    # DIRECT, first-party dependency -- ``ragmonk.tokenization.model_tokenizer``
+    # loads the bundled ``tokenizer.json`` through it to count exact tokens
+    # for chunk budgeting. Although docling/transformers already pull
+    # ``tokenizers`` in transitively, the plan requires a declared, tested
+    # range here rather than relying on that transitive edge (so a future
+    # docling that drops or re-pins it can't silently break chunking). It
+    # loads local files only -- no network, no torch, no transformers.
+    "tokenizers>=0.19,<1",
     "tree-sitter>=0.24,<0.27",
     "tree-sitter-language-pack>=1.17,<2",
     # Plain "docling" only -- its VLM/ASR/XBRL extras (ocrmac,
@@ -144,6 +153,13 @@ ragmonk = "ragmonk.cli.main:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ragmonk"]
+# Exact Tokenizer plan, Phase 1: the bundled tokenizer assets are
+# non-Python data files under the package. They are git-tracked so
+# hatchling's default VCS-based file selection already ships them, but
+# they are declared here explicitly too -- indexing hard-fails without
+# them (see ragmonk.tokenization.model_tokenizer), so their packaging is
+# not something to leave to an implicit default.
+artifacts = ["src/ragmonk/tokenization/assets/**/*"]
 
 # CLI performance improvement plan, Phase 6: one source of truth for the
 # version -- an immutable git tag (v0.1.8, ...) -- instead of a value

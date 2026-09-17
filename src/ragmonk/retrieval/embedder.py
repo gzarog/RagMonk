@@ -34,7 +34,12 @@ import threading
 from collections.abc import Sequence
 from typing import Any
 
-EMBEDDING_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
+# One source of truth for the model identity: imported, never re-declared,
+# so the embedder and the exact tokenizer (``ragmonk.tokenization``) can
+# never drift onto two different models. See
+# ``tokenization/model_identity.py`` and the Exact Tokenizer plan.
+from ragmonk.tokenization.model_identity import EMBEDDING_MODEL_ID
+
 EMBEDDING_DIM = 384
 
 _MAX_TOKENS = 256

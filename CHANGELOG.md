@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0]
+
+Start of the **Exact Tokenizer** work: RagMonk is moving from an
+approximate ~4-characters-per-token estimator to the real tokenizer of
+its embedding model (`sentence-transformers/all-MiniLM-L6-v2`), so every
+embedding payload can be budgeted against the model's true input limit.
+This ships across several releases (0.3.x); each is independently
+testable, and the clean-break index rejection is deliberately staged for
+a later release.
+
+### Added
+
+- **Pinned, bundled, offline exact tokenizer** (`ragmonk.tokenization`).
+  A new `ModelTokenizer` service loads the real WordPiece tokenizer for
+  the embedding model from tokenizer assets bundled inside the package at
+  a pinned Hugging Face revision
+  (`1110a243fdf4706b3f48f1d95db1a4f5529b4d41`). It:
+  - counts exact tokens (with or without the model's `[CLS]`/`[SEP]`
+    special tokens) and splits text at exact sub-word boundaries;
+  - loads lazily on first use and is cached once per process;
+  - reads only bundled files -- it never contacts Hugging Face during
+    indexing;
+  - verifies every bundled asset against a SHA-256 manifest on load and
+    fails loudly (no silent fallback to the old estimator) if an asset is
+    missing or modified.
+- `tokenizers` is now a direct, version-pinned dependency (it loads local
+  files only -- no network, no `torch`, no `transformers`).
+- One source of truth for the embedding-model / tokenizer identity
+  (`ragmonk.tokenization.model_identity`); `retrieval/embedder.py` now
+  imports `EMBEDDING_MODEL_ID` from it so the embedder and tokenizer can
+  never drift onto two different models.
+- `scripts/refresh_tokenizer_assets.py`, a maintainer tool to re-download
+  and re-hash the bundled assets when the pinned revision changes.
+
+### Notes
+
+- Exact-tokenizer tests run in the **default** (offline) test suite --
+  the bundled assets need no network or model-weight download.
+- Lightweight CLI commands (`--help`, `version`, ...) still never import
+  or initialize the tokenizer; the startup-import regression test now
+  guards `tokenizers` too.
+
 ## [0.2.0]
 
 ### Changed
