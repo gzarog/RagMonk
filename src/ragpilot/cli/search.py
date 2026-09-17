@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import time
 from pathlib import Path
 from typing import Annotated
@@ -9,8 +10,18 @@ from typing import Annotated
 import typer
 from rich.table import Table
 
+from ragpilot.code.graph import all_project_connections
+from ragpilot.core.config import SearchConfig
 from ragpilot.core.lifecycle import AppContext
-from ragpilot.retrieval import lexical, merger, query_classifier, reranker, semantic
+from ragpilot.retrieval import (
+    context_builder,
+    lexical,
+    merger,
+    query_classifier,
+    reranker,
+    semantic,
+)
+from ragpilot.retrieval.context_builder import ExpandedChunkContext
 from ragpilot.retrieval.lexical import SearchResult
 
 from ._common import cli_command, console, print_json
@@ -32,7 +43,31 @@ def _format_label(path: str) -> str:
     return suffix or "FILE"
 
 
-def _print_document_snippet(result: SearchResult, *, fallback_modes: list[str]) -> None:
+def _print_expanded_context(expanded: ExpandedChunkContext) -> None:
+    """Renders a matched chunk's expanded context (Search Quality
+    Improvement Plan, Phase 9) as its own labelled block, underneath the
+    ``Match:`` block -- kept structurally separate (its own heading,
+    ``[heading]``/``[previous]``/``[next]`` tags per piece) so it never
+    reads as more matched text, only as context around it.
+    """
+    if not (expanded.parent_heading or expanded.previous or expanded.next):
+        return
+    console.print("Expanded context:")
+    if expanded.parent_heading:
+        console.print(f"[heading] {expanded.parent_heading.text}")
+    for piece in expanded.previous:
+        console.print(f"[previous] {piece.text}")
+    for piece in expanded.next:
+        console.print(f"[next] {piece.text}")
+    console.print("")
+
+
+def _print_document_snippet(
+    result: SearchResult,
+    *,
+    fallback_modes: list[str],
+    expanded: ExpandedChunkContext | None = None,
+) -> None:
     """Renders one document hit as a match-centered block:
 
     ```
@@ -67,6 +102,8 @@ def _print_document_snippet(result: SearchResult, *, fallback_modes: list[str]) 
             console.print(f"Section: {location['section']}")
         console.print("Match:")
         console.print(result.snippet)
+        if expanded is not None:
+            _print_expanded_context(expanded)
         console.print("")
         return
 
@@ -77,14 +114,59 @@ def _print_document_snippet(result: SearchResult, *, fallback_modes: list[str]) 
         console.print(result.path)
 
 
-def _print_snippets_mode(results: list[SearchResult], *, fallback: list[str]) -> None:
+def _print_snippets_mode(
+    results: list[SearchResult],
+    *,
+    fallback: list[str],
+    expanded_context: dict[str, ExpandedChunkContext],
+) -> None:
     other_hits = [r for r in results if r.kind != "document"]
     doc_hits = [r for r in results if r.kind == "document"]
     if other_hits:
         console.print(_hits_table(other_hits))
     fallback_after_snippets = [mode for mode in fallback if mode != "snippets"]
     for result in doc_hits:
-        _print_document_snippet(result, fallback_modes=fallback_after_snippets)
+        _print_document_snippet(
+            result,
+            fallback_modes=fallback_after_snippets,
+            expanded=expanded_context.get(result.id),
+        )
+
+
+def _expand_document_contexts(
+    ctx: AppContext, results: list[SearchResult], search_config: SearchConfig
+) -> dict[str, ExpandedChunkContext]:
+    """Search Quality Improvement Plan, Phase 9: expands every document-
+    kind hit's matched chunk with its parent heading/sibling chunks,
+    strictly after ``results`` is already ranked and sliced to
+    ``--limit`` -- this never touches ranking, only what gets shown
+    alongside an already-selected hit.
+
+    Skipped entirely (no connections opened, no lookups run) when
+    ``search.context`` is fully off (``parent_heading`` false and both
+    sibling counts zero) or there are no document hits, so a caller that
+    never wants this pays nothing extra for it -- see
+    ``SearchContextConfig``'s docstring.
+    """
+    context_cfg = search_config.context
+    if not (context_cfg.parent_heading or context_cfg.previous_chunks or context_cfg.next_chunks):
+        return {}
+    doc_hits = [r for r in results if r.kind == "document"]
+    if not doc_hits:
+        return {}
+
+    conns: dict[str, sqlite3.Connection] = {
+        source_id: conn for source_id, _source_path, conn in all_project_connections(ctx)
+    }
+    expanded: dict[str, ExpandedChunkContext] = {}
+    for result in doc_hits:
+        conn = conns.get(result.source_id)
+        if conn is None:
+            continue
+        piece = context_builder.expand_chunk_context(conn, result.id, config=context_cfg)
+        if piece is not None:
+            expanded[result.id] = piece
+    return expanded
 
 
 def _print_files_mode(results: list[SearchResult]) -> None:
@@ -194,10 +276,25 @@ def search(
         else:
             effective_mode = search_config.output.fallback[0]
 
+        # Search Quality Improvement Plan, Phase 9: only "json"/"snippets"
+        # ever render a matched chunk's expanded context, so "table"/
+        # "files" mode never pays for the extra per-hit DB lookups --
+        # see ``_expand_document_contexts``'s docstring.
+        expanded_context: dict[str, ExpandedChunkContext] = {}
+        if effective_mode in ("json", "snippets"):
+            expanded_context = _expand_document_contexts(ctx, results, search_config)
+
         if effective_mode == "json":
+            result_dicts = []
+            for r in results:
+                r_dict = r.to_dict()
+                expanded = expanded_context.get(r.id)
+                if expanded is not None:
+                    r_dict["context"] = expanded.to_dict()
+                result_dicts.append(r_dict)
             payload: dict[str, object] = {
                 "query": query,
-                "results": [r.to_dict() for r in results],
+                "results": result_dicts,
             }
             if semantic_result is not None:
                 payload["semantic"] = {
@@ -225,7 +322,9 @@ def search(
         elif effective_mode == "files":
             _print_files_mode(results)
         else:
-            _print_snippets_mode(results, fallback=search_config.output.fallback)
+            _print_snippets_mode(
+                results, fallback=search_config.output.fallback, expanded_context=expanded_context
+            )
 
         if semantic_result is not None:
             if semantic_result.results:

@@ -1492,6 +1492,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `keyword_search`/every other category shows no regression.
     `tests/integration/test_search_quality.py`'s blocking floors still
     pass.
+- Search Quality Improvement Plan, Phase 9: matched-chunk context
+  expansion (nearest parent heading, previous/next sibling chunks).
+  - **The problem**: a document search hit's `snippet` is a single
+    FTS5-extracted excerpt of the one matched paragraph/table chunk --
+    a reader often needs the heading it falls under, or the sentence
+    just before/after it, to actually interpret the hit, and had no way
+    to get that without a separate lookup.
+  - **Strictly post-ranking**: expansion only ever runs on a chunk a
+    ranker has *already* selected and positioned -- it has no way to
+    change what was found or its order, only what gets shown alongside
+    it. Verified against `benchmarks/search_quality/baseline_report.json`:
+    every golden-query metric, overall and per-category, is byte-identical
+    with expansion on vs. off.
+  - **`storage/repositories/documents_repo.py`**: new
+    `get_chunk_neighbors` reuses the existing `parent_id`/`order_index`
+    columns rather than adding any new storage -- a chunk's nearest
+    heading is simply the row its own `parent_id` points at (every
+    `parent_id` a non-heading chunk carries is a `HEADING` row's id --
+    see `documents/chunker.py`), and its siblings are every row sharing
+    that same `parent_id`, ordered by `order_index` (`IS` instead of `=`
+    so the top-level, `parent_id IS NULL` case matches correctly). A
+    chunk with no previous/next sibling, or no parent, degrades to an
+    empty list/`None` rather than an error.
+  - **`retrieval/context_builder.py`**: new `expand_chunk_context`
+    returns an `ExpandedChunkContext` with `matched` (the actual hit,
+    fetched by its own id so it's the full stored chunk, not just an FTS
+    snippet) structurally separate from `parent_heading`/`previous`/
+    `next` -- a consumer (CLI, MCP) can never mistake surrounding context
+    for the match itself, only ordering or a flat list could have implied
+    that distinction. Budget (`SearchContextConfig.max_tokens`, reusing
+    `documents/tokenization.count_tokens`) is spent in priority order --
+    the matched chunk's own text always counts but is never dropped for
+    it; then the parent heading; then previous/next siblings nearest-
+    to-farthest per side, so the first piece that would overflow is
+    dropped along with everything farther from the match on that side,
+    keeping what's shown a contiguous window rather than an arbitrary
+    subset. Every drop is reported in `truncated`/`truncation_reasons`,
+    never silent.
+  - **`core/config.py`**: new `search.context` (`SearchContextConfig`):
+    `parent_heading` (default `true`), `previous_chunks`/`next_chunks`
+    (default `1` each), `max_tokens` (default `1200`). Setting
+    `parent_heading: false` and both sibling counts to `0` disables
+    expansion outright through the same code path (nothing to fetch),
+    rather than needing a caller to special-case "off".
+  - **`cli/search.py`**: `--json`/the default snippet-block view now
+    attach this chunk's expansion (a `context` key on `--json`'s document
+    hits; an `Expanded context:` block with `[heading]`/`[previous]`/
+    `[next]`-tagged lines under `Match:` otherwise) -- computed only for
+    "json"/"snippets" mode and only when `search.context` isn't fully
+    off, so "table"/"files" mode, or an all-zero config, pays nothing
+    extra for the per-hit DB lookups.
+  - New `tests/unit/test_documents_repo_context.py` (the repository
+    lookup: mid-document/first/last chunk, multiple requested siblings
+    against a document with fewer, each config knob off, an unknown
+    chunk id), `tests/unit/test_context_builder_chunk_expansion.py`
+    (`expand_chunk_context`: the same toggles, plus budget trimming --
+    a tight budget that keeps only the matched chunk, and a budget sized
+    to keep the parent heading and nearest sibling but drop the farther
+    one), and a new `tests/integration/test_context_expansion_cli.py`
+    indexing a real small multi-paragraph Markdown document end to end
+    and confirming the expected neighboring paragraph text actually
+    appears in a mid-document hit's expanded context, that expansion is
+    absent when every knob is off, and that ranking order is identical
+    with expansion on vs. off for the same query.
 - CLI performance improvement plan, Phase 1: startup benchmark and
   heavy-import regression test.
   - **Benchmark suite** (new top-level `benchmarks/cli_startup/` package,

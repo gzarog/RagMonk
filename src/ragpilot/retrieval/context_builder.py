@@ -11,12 +11,16 @@ makes it trivially unit-testable without a database.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import sqlite3
+from dataclasses import dataclass, field
 from typing import Any
 
-from ragpilot.core.config import ContextConfig
+from ragpilot.core.config import ContextConfig, SearchContextConfig
+from ragpilot.documents.tokenization import count_tokens
 from ragpilot.knowledge import confidence as confidence_rank
 from ragpilot.knowledge.evidence import Evidence
+from ragpilot.storage.repositories import documents_repo
+from ragpilot.storage.repositories.documents_repo import DocumentUnit
 
 _LocationKey = tuple[str, Any, Any, Any, Any]
 
@@ -183,4 +187,160 @@ def build_context(
         total_chars=total_chars,
         file_count=len(included_files),
         graph_node_count=len(nodes),
+    )
+
+
+@dataclass(frozen=True)
+class ChunkContextPiece:
+    """One chunk rendered for display -- either the matched hit itself or
+    a piece of its surrounding context (Search Quality Improvement Plan,
+    Phase 9). Carrying ``kind`` ("heading"/"paragraph"/"table") lets a
+    consumer distinguish a heading from body text without re-deriving it
+    from ``heading_path``.
+    """
+
+    id: str
+    kind: str
+    text: str
+    heading_path: list[str] = field(default_factory=list)
+    page_start: int | None = None
+    page_end: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "kind": self.kind,
+            "text": self.text,
+            "heading_path": self.heading_path,
+            "page_start": self.page_start,
+            "page_end": self.page_end,
+        }
+
+
+def _to_piece(unit: DocumentUnit) -> ChunkContextPiece:
+    return ChunkContextPiece(
+        id=unit.id,
+        kind=unit.kind.value,
+        text=unit.text,
+        heading_path=unit.heading_path,
+        page_start=unit.page_start,
+        page_end=unit.page_end,
+    )
+
+
+@dataclass(frozen=True)
+class ExpandedChunkContext:
+    """A matched chunk plus its expanded context, kept as two structurally
+    distinct fields (blueprint Phase 9's "clearly distinguish the matched
+    chunk from surrounding context") rather than one flattened list a
+    consumer would have to inspect to tell apart -- ``matched`` is always
+    exactly the hit that was ranked; everything else is presentation
+    dressing added after ranking finished, never a ranking input.
+    """
+
+    matched: ChunkContextPiece
+    parent_heading: ChunkContextPiece | None
+    previous: list[ChunkContextPiece]
+    next: list[ChunkContextPiece]
+    truncated: bool
+    truncation_reasons: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "matched": self.matched.to_dict(),
+            "parent_heading": self.parent_heading.to_dict() if self.parent_heading else None,
+            "previous": [piece.to_dict() for piece in self.previous],
+            "next": [piece.to_dict() for piece in self.next],
+            "truncated": self.truncated,
+            "truncation_reasons": self.truncation_reasons,
+        }
+
+
+def expand_chunk_context(
+    conn: sqlite3.Connection,
+    unit_id: str,
+    *,
+    config: SearchContextConfig,
+) -> ExpandedChunkContext | None:
+    """Attaches a matched chunk's nearest parent heading and previous/next
+    sibling chunks (Search Quality Improvement Plan, Phase 9), strictly as
+    a post-ranking presentation step: this is only ever called with a
+    chunk a ranker has *already* selected, on results already sorted and
+    sliced to ``--limit`` -- it has no way to change what was selected or
+    its position, only what gets shown alongside it.
+
+    Returns ``None`` when ``unit_id`` doesn't resolve to a stored chunk
+    (an entity/path hit, or a document-title hit with no pinned section --
+    see ``lexical.search_title_projection``) rather than raising, since a
+    caller iterating mixed search-result kinds shouldn't have to
+    pre-filter down to "document hits with a real section id" itself.
+
+    The matched chunk's own text always counts toward ``config.max_tokens``
+    but is never dropped for it -- it is the one piece of evidence
+    provenance can never lose (blueprint requirement). Budget is then
+    spent, in priority order, on the parent heading and then previous/next
+    siblings nearest-first per side; the first piece that would overflow
+    the budget is dropped along with everything farther from the match on
+    that same side, so what is shown is always a contiguous window around
+    the hit, never a random subset.
+    """
+    matched_unit = documents_repo.get_unit(conn, unit_id)
+    if matched_unit is None:
+        return None
+
+    matched_piece = _to_piece(matched_unit)
+    budget = config.max_tokens
+    used = count_tokens(matched_piece.text)
+    reasons: list[str] = []
+
+    neighbors = documents_repo.get_chunk_neighbors(
+        conn,
+        unit_id,
+        previous_chunks=config.previous_chunks,
+        next_chunks=config.next_chunks,
+        include_parent_heading=config.parent_heading,
+    )
+
+    parent_piece: ChunkContextPiece | None = None
+    if neighbors.parent_heading is not None:
+        candidate = _to_piece(neighbors.parent_heading)
+        cost = count_tokens(candidate.text)
+        if used + cost <= budget:
+            parent_piece = candidate
+            used += cost
+        else:
+            reasons.append(f"parent heading dropped: max_tokens={budget} reached")
+
+    def _take_within_budget(nearest_first: list[DocumentUnit]) -> list[DocumentUnit]:
+        # Walks nearest-to-farthest so the first overflow drops that
+        # sibling *and* every farther one after it (never tried) --
+        # what's kept is always a contiguous window against the match,
+        # not an arbitrary subset.
+        nonlocal used
+        taken: list[DocumentUnit] = []
+        for unit in nearest_first:
+            cost = count_tokens(unit.text)
+            if used + cost > budget:
+                reasons.append(f"sibling chunk dropped: max_tokens={budget} reached")
+                break
+            taken.append(unit)
+            used += cost
+        return taken
+
+    # ``neighbors.previous``/``.next`` are already chronological
+    # (oldest-to-newest); the budget walk needs nearest-first, so
+    # ``previous`` is reversed going in and reversed back on the way out.
+    previous_nearest_first = list(reversed(neighbors.previous))
+    previous_pieces = [
+        _to_piece(unit) for unit in reversed(_take_within_budget(previous_nearest_first))
+    ]
+    next_pieces = [_to_piece(unit) for unit in _take_within_budget(neighbors.next)]
+
+    return ExpandedChunkContext(
+        matched=matched_piece,
+        parent_heading=parent_piece,
+        previous=previous_pieces,
+        next=next_pieces,
+        truncated=bool(reasons),
+        truncation_reasons=reasons,
     )
