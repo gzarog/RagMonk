@@ -105,6 +105,13 @@ class SearchResult:
     query_tier: LexicalTier = LexicalTier.PHRASE
     entity_kind_rank: int = 99
     mtime: float = 0.0
+    # Search Quality Improvement Plan, Phase 8: the raw ``bm25()`` value
+    # behind ``fts_rank``'s ordinal, carried through so ``retrieval/
+    # merger.py`` can preserve it on ``SearchCandidate.bm25_score`` --
+    # never used by this module's own ``_sort_key`` (``fts_rank``/
+    # ``query_tier`` already tier this correctly), so it plays no part in
+    # plain lexical ranking, only in the hybrid RRF path.
+    bm25_score: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -382,6 +389,7 @@ def _search_entities(
                     query_tier=query_tier,
                     entity_kind_rank=_ENTITY_KIND_RANK.get(row.kind, 99),
                     mtime=row.mtime,
+                    bm25_score=row.bm25_score,
                 )
             )
     return results
@@ -439,6 +447,7 @@ def _search_documents(
                 fts_rank=row.fts_rank,
                 query_tier=query_tier,
                 mtime=row.mtime,
+                bm25_score=row.bm25_score,
             )
         )
     return results

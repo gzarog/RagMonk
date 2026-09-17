@@ -315,8 +315,12 @@ def test_hybrid_flag_merges_and_reranks_without_changing_existing_keys(
 ) -> None:
     """Blueprint sections 21/22: ``--hybrid`` adds a merged, reranked
     view alongside (never instead of) the existing ``results``/
-    ``semantic`` keys, with lexical tiers always outranking semantic-only
-    hits.
+    ``semantic`` keys. This query's own top hit is an exact symbol match
+    (``bark_loudly`` is a real method name), so it lands in Phase 8's
+    pinned tier and stays first regardless of fusion -- see
+    ``tests/unit/test_merger_and_reranker.py`` for RRF's actual hybrid-
+    tier reordering (semantic can now outrank a weak, non-pinned lexical
+    hit there).
     """
     root = tmp_path / "project"
     _write_project(root)

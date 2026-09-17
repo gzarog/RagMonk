@@ -57,6 +57,11 @@ class EntitySearchRow:
     path: str
     mtime: float
     fts_rank: int = 0
+    # Search Quality Improvement Plan, Phase 8: the raw ``bm25()`` value
+    # (lower/more negative is a better match), preserved alongside
+    # ``fts_rank``'s ordinal position -- see ``DocumentSearchRow.
+    # bm25_score``'s docstring for why the two are kept separate.
+    bm25_score: float | None = None
 
 
 def _row_to_entity(row: sqlite3.Row) -> Entity:
@@ -211,7 +216,9 @@ def search_fts(conn: sqlite3.Connection, query: str, *, limit: int = 25) -> list
     return [_row_to_entity(row) for row in rows]
 
 
-def _row_to_search_row(row: sqlite3.Row, *, fts_rank: int = 0) -> EntitySearchRow:
+def _row_to_search_row(
+    row: sqlite3.Row, *, fts_rank: int = 0, bm25_score: float | None = None
+) -> EntitySearchRow:
     return EntitySearchRow(
         id=row["id"],
         name=row["name"],
@@ -223,6 +230,7 @@ def _row_to_search_row(row: sqlite3.Row, *, fts_rank: int = 0) -> EntitySearchRo
         path=row["path"],
         mtime=row["mtime"],
         fts_rank=fts_rank,
+        bm25_score=bm25_score,
     )
 
 
@@ -278,4 +286,7 @@ def search_fts_projection(
         """,
         (query, limit),
     ).fetchall()
-    return [_row_to_search_row(row, fts_rank=rank) for rank, row in enumerate(rows)]
+    return [
+        _row_to_search_row(row, fts_rank=rank, bm25_score=row["rank"])
+        for rank, row in enumerate(rows)
+    ]
