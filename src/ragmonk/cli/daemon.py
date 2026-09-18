@@ -44,7 +44,6 @@ def _launch_dashboard(port: int = 8765) -> None:
     if sys.platform == "win32":
         kwargs["creationflags"] = (
             subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-            | subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
             | subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
         )
     else:
@@ -82,24 +81,14 @@ def _spawn(home: Path) -> int:
     log_file = log_path.open("a", encoding="utf-8")
     kwargs: dict[str, Any] = {}
     if sys.platform == "win32":
-        # No process-group/session concept to detach with on Windows --
-        # CREATE_NEW_PROCESS_GROUP is the equivalent for the "a Ctrl+C to
-        # this CLI's console doesn't reach the child" half.
-        #
-        # For "no console window", DETACHED_PROCESS alone is not enough:
-        # Microsoft's own docs describe it as "no console handle set",
-        # but in practice CreateProcess can still allocate a new console
-        # for a console-subsystem child (python.exe is one) under
-        # DETACHED_PROCESS, producing exactly the visible extra window
-        # reported live -- `ragmonk daemon start` popping open a second
-        # terminal window instead of returning silently to the caller's
-        # own console. CREATE_NO_WINDOW is the flag whose specific job is
-        # suppressing window creation for a console-subsystem process;
-        # combined with the two above, the child is both detached and
-        # genuinely invisible.
+        # CREATE_NEW_PROCESS_GROUP isolates the child from Ctrl+C sent
+        # to the parent's console group. CREATE_NO_WINDOW suppresses
+        # window creation for console-subsystem children (python.exe).
+        # DETACHED_PROCESS is intentionally omitted: on Windows 11 it
+        # overrides CREATE_NO_WINDOW and causes CreateProcess to
+        # allocate a visible console window for the child.
         kwargs["creationflags"] = (
             subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-            | subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
             | subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
         )
     else:
