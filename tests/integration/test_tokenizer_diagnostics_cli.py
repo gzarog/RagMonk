@@ -49,7 +49,9 @@ def indexed(
 ) -> CliRunner:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
-    (source_dir / "manual.md").write_text(_MIXED_DOC)
+    # UTF-8 explicitly: the corpus contains Greek, and Windows' default
+    # cp1252 encoding cannot encode it.
+    (source_dir / "manual.md").write_text(_MIXED_DOC, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(source_dir)]).exit_code == 0
