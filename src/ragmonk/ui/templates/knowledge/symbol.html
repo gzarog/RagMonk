@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Symbol{% endblock %}
+{% block content %}
+<div class="spread">
+  <h1 style="margin:0">{{ name or "Symbol" }}</h1>
+  <a href="/knowledge" class="btn small">← Knowledge</a>
+</div>
+
+<div class="panel">
+  {% for r in ["callers", "callees", "references", "impact"] %}
+  <a class="btn small {{ 'primary' if relation == r else '' }}" href="/knowledge/symbol?name={{ name }}&relation={{ r }}">{{ r|capitalize }}</a>
+  {% endfor %}
+</div>
+
+{% if data is none %}
+<div class="panel"><p class="muted">Enter a symbol name to inspect.</p></div>
+{% elif relation == "impact" %}
+  {% if not data.found %}
+  <div class="panel"><p class="muted">No symbol found for “{{ name }}”.</p></div>
+  {% else %}
+  <div class="grid">
+    <div class="stat"><div class="num">{{ data.callers|length }}</div><div class="label">Callers</div></div>
+    <div class="stat"><div class="num">{{ data.callees|length }}</div><div class="label">Callees</div></div>
+    <div class="stat"><div class="num">{{ data.tests|length }}</div><div class="label">Tests</div></div>
+    <div class="stat"><div class="num">{{ data.blast_radius_score }}</div><div class="label">Blast radius</div></div>
+  </div>
+  <div class="panel">
+    <h2 style="margin-top:0">Callers</h2>
+    <ul class="mono">{% for c in data.callers %}<li>{{ c }}</li>{% else %}<li class="muted">none</li>{% endfor %}</ul>
+    <h2>Callees</h2>
+    <ul class="mono">{% for c in data.callees %}<li>{{ c }}</li>{% else %}<li class="muted">none</li>{% endfor %}</ul>
+    <h2>Tests</h2>
+    <ul class="mono">{% for c in data.tests %}<li>{{ c }}</li>{% else %}<li class="muted">none</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+{% else %}
+  <div class="panel">
+    <h2 style="margin-top:0">Matches</h2>
+    {% if data.matches %}
+    <ul class="mono">{% for m in data.matches %}<li>{{ m.qualified_name or m.name or m }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted">No matching symbols.</p>{% endif %}
+    <h2>Edges ({{ relation }})</h2>
+    {% if data.edges %}
+    <table>
+      <thead><tr><th>From</th><th>Relationship</th><th>To</th></tr></thead>
+      <tbody>
+        {% for e in data.edges %}
+        <tr>
+          <td class="mono">{{ e.from_qualified_name or e.get("from", "") }}</td>
+          <td>{{ e.relationship_type or e.get("relationship", "") }}</td>
+          <td class="mono">{{ e.to_qualified_name or e.get("to", "") }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No {{ relation }} found.</p>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

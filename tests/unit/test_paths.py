@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core import paths
+from ragmonk.core import paths
 
 
-def test_runtime_dir_respects_ragpilot_home(
+def test_runtime_dir_respects_ragmonk_home(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAGPILOT_HOME", str(tmp_path / "custom"))
+    monkeypatch.setenv("RAGMONK_HOME", str(tmp_path / "custom"))
     assert paths.runtime_dir() == tmp_path / "custom"
 
 
@@ -45,7 +45,7 @@ def test_windows_runtime_dir_uses_localappdata(
     still Linux, so this only proves the path-construction logic, not real
     filesystem behavior under Windows.
     """
-    monkeypatch.delenv("RAGPILOT_HOME", raising=False)
+    monkeypatch.delenv("RAGMONK_HOME", raising=False)
     monkeypatch.setattr(paths.sys, "platform", "win32")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
-    assert paths.runtime_dir() == tmp_path / "AppData" / "Local" / "RAGpilot"
+    assert paths.runtime_dir() == tmp_path / "AppData" / "Local" / "RagMonk"

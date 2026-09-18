@@ -6,19 +6,19 @@ from __future__ import annotations
 
 import asyncio
 
-from ragpilot import __version__
-from ragpilot.mcp.server import build_server
+from ragmonk import __version__
+from ragmonk.mcp.server import build_server
 
 EXPECTED_TOOL_NAMES = {
-    "ragpilot_explore",
-    "ragpilot_search",
-    "ragpilot_symbol",
-    "ragpilot_callers",
-    "ragpilot_callees",
-    "ragpilot_impact",
-    "ragpilot_documents",
-    "ragpilot_status",
-    "ragpilot_ask",
+    "ragmonk_explore",
+    "ragmonk_search",
+    "ragmonk_symbol",
+    "ragmonk_callers",
+    "ragmonk_callees",
+    "ragmonk_impact",
+    "ragmonk_documents",
+    "ragmonk_status",
+    "ragmonk_ask",
 }
 
 
@@ -36,7 +36,7 @@ def test_build_server_carries_version_and_readonly_annotations() -> None:
 
     assert __version__ in server.name
     assert server.instructions is not None
-    assert "ragpilot_explore" in server.instructions
+    assert "ragmonk_explore" in server.instructions
 
     tool_list = asyncio.run(server.list_tools())
     for tool in tool_list:
@@ -48,7 +48,7 @@ def test_build_server_carries_version_and_readonly_annotations() -> None:
 def test_explore_is_marked_as_the_primary_tool_in_its_description() -> None:
     server = build_server()
     tool_list = asyncio.run(server.list_tools())
-    explore = next(t for t in tool_list if t.name == "ragpilot_explore")
+    explore = next(t for t in tool_list if t.name == "ragmonk_explore")
 
     assert explore.description is not None
     assert "primary" in explore.description.lower()
@@ -59,10 +59,10 @@ def test_ask_is_the_one_open_world_tool() -> None:
     tool_list = asyncio.run(server.list_tools())
     by_name = {tool.name: tool for tool in tool_list}
 
-    assert by_name["ragpilot_ask"].annotations is not None
-    assert by_name["ragpilot_ask"].annotations.openWorldHint is True
+    assert by_name["ragmonk_ask"].annotations is not None
+    assert by_name["ragmonk_ask"].annotations.openWorldHint is True
     for name, tool in by_name.items():
-        if name == "ragpilot_ask":
+        if name == "ragmonk_ask":
             continue
         assert tool.annotations is not None
         assert tool.annotations.openWorldHint is False

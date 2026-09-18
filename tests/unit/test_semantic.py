@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core import paths
-from ragpilot.core.config import SearchConfig
-from ragpilot.core.lifecycle import AppContext
-from ragpilot.core.models import (
+from ragmonk.core import paths
+from ragmonk.core.config import SearchConfig
+from ragmonk.core.lifecycle import AppContext
+from ragmonk.core.models import (
     EmbeddingSubjectType,
     Entity,
     EntityType,
@@ -24,22 +24,22 @@ from ragpilot.core.models import (
     FileRecord,
     FileStatus,
 )
-from ragpilot.retrieval import embedder
-from ragpilot.retrieval.semantic import semantic_search
-from ragpilot.sources.registry import SourceRegistry
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import (
+from ragmonk.retrieval import embedder
+from ragmonk.retrieval.semantic import semantic_search
+from ragmonk.sources.registry import SourceRegistry
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import (
     embeddings_repo,
     entities_repo,
     files_repo,
     vector_items_repo,
 )
-from ragpilot.storage.sqlite import transaction
+from ragmonk.storage.sqlite import transaction
 
 
 @pytest.fixture
-def ctx(ragpilot_home: Path, tmp_path: Path) -> AppContext:
-    context = AppContext.bootstrap(home=ragpilot_home, cwd=tmp_path)
+def ctx(ragmonk_home: Path, tmp_path: Path) -> AppContext:
+    context = AppContext.bootstrap(home=ragmonk_home, cwd=tmp_path)
     yield context
     context.close()
 

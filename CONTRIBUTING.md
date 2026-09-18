@@ -1,8 +1,8 @@
-# Contributing to RAGpilot
+# Contributing to RagMonk
 
 ## Development setup
 
-RAGpilot targets Python 3.12+.
+RagMonk targets Python 3.12+.
 
 ```bash
 python3.12 -m venv .venv
@@ -18,7 +18,7 @@ This installs the package in editable mode plus the dev toolchain
 ```bash
 pytest -q                 # tests
 ruff check .               # lint
-mypy src/ragpilot           # type-check
+mypy src/ragmonk           # type-check
 ```
 
 All three must pass before opening a pull request; CI runs the same checks
@@ -91,7 +91,7 @@ which runs in the default suite.
 
 ### The `daemon_subprocess` marker
 
-`ragpilot daemon start`/`stop` spawn and signal a real, detached OS
+`ragmonk daemon start`/`stop` spawn and signal a real, detached OS
 process (Phase 7). That is slower and more platform-fragile than
 anything else in the suite (process startup time, signal delivery, PID
 reuse), so tests that actually spawn a process are marked
@@ -182,7 +182,7 @@ scale) are opt-in, both for the pytest coverage and the standalone
 script:
 
 ```bash
-RAGPILOT_BENCHMARK_SIZE=medium pytest -m benchmark_search -q -s
+RAGMONK_BENCHMARK_SIZE=medium pytest -m benchmark_search -q -s
 python -m benchmarks.search --size large --strict
 ```
 
@@ -260,18 +260,18 @@ given run.
 
 `install.sh` and `install.ps1` at the repo root are what `README.md`'s
 `curl | sh` / `irm | iex` one-liners run. They download a branch/tag
-tarball or zipball from GitHub (`RAGPILOT_REF`, default `main`), create a
-venv, `pip install` the package into it, and link/launch `ragpilot` from a
-per-user bin directory (`RAGPILOT_BIN_DIR`, `RAGPILOT_INSTALL_DIR` to
+tarball or zipball from GitHub (`RAGMONK_REF`, default `main`), create a
+venv, `pip install` the package into it, and link/launch `ragmonk` from a
+per-user bin directory (`RAGMONK_BIN_DIR`, `RAGMONK_INSTALL_DIR` to
 override). Run them locally exactly as CI does, pointed at a branch:
 
 ```bash
-RAGPILOT_REF=my-branch RAGPILOT_INSTALL_DIR=/tmp/ragpilot-install RAGPILOT_BIN_DIR=/tmp/ragpilot-bin sh ./install.sh
-/tmp/ragpilot-bin/ragpilot version
+RAGMONK_REF=my-branch RAGMONK_INSTALL_DIR=/tmp/ragmonk-install RAGMONK_BIN_DIR=/tmp/ragmonk-bin sh ./install.sh
+/tmp/ragmonk-bin/ragmonk version
 ```
 
 ```powershell
-$env:RAGPILOT_REF = "my-branch"; ./install.ps1
+$env:RAGMONK_REF = "my-branch"; ./install.ps1
 ```
 
 Like `docling_pdf`/`embedding_model`, this repeats a real network fetch
@@ -281,25 +281,25 @@ non-blocking (`continue-on-error`) job across all three OSes -- see
 
 ## Test isolation
 
-Every test must isolate RAGpilot's runtime directory via the `RAGPILOT_HOME`
-environment variable (see the `ragpilot_home` fixture in `tests/conftest.py`)
+Every test must isolate RagMonk's runtime directory via the `RAGMONK_HOME`
+environment variable (see the `ragmonk_home` fixture in `tests/conftest.py`)
 and a `tmp_path`-based current working directory where project config or
 source files are involved. Tests must never read or write the real
-`~/.ragpilot` directory.
+`~/.ragmonk` directory.
 
 ## Project layout
 
-- `src/ragpilot/cli/` — Typer CLI commands
-- `src/ragpilot/core/` — config, paths, models, errors, app lifecycle
-- `src/ragpilot/sources/` — source registry, scanning, ignore rules, hashing
-- `src/ragpilot/storage/` — SQLite connection handling, schema, migrations, repositories
-- `src/ragpilot/indexing/` — scan/classify/enqueue/process orchestration
-- `src/ragpilot/code/` — Tree-sitter parsing, extraction, resolution, framework heuristics
-- `src/ragpilot/documents/` — Docling adapter, normalization, chunking, metadata
-- `src/ragpilot/retrieval/` — lexical/semantic search, graph traversal, context budgeting
-- `src/ragpilot/ai/` — LLM provider abstraction for `ragpilot ask` (Phase 9)
-- `src/ragpilot/telemetry/` — structured logging
-- `src/ragpilot/security/` — path containment and secret-file exclusion
+- `src/ragmonk/cli/` — Typer CLI commands
+- `src/ragmonk/core/` — config, paths, models, errors, app lifecycle
+- `src/ragmonk/sources/` — source registry, scanning, ignore rules, hashing
+- `src/ragmonk/storage/` — SQLite connection handling, schema, migrations, repositories
+- `src/ragmonk/indexing/` — scan/classify/enqueue/process orchestration
+- `src/ragmonk/code/` — Tree-sitter parsing, extraction, resolution, framework heuristics
+- `src/ragmonk/documents/` — Docling adapter, normalization, chunking, metadata
+- `src/ragmonk/retrieval/` — lexical/semantic search, graph traversal, context budgeting
+- `src/ragmonk/ai/` — LLM provider abstraction for `ragmonk ask` (Phase 9)
+- `src/ragmonk/telemetry/` — structured logging
+- `src/ragmonk/security/` — path containment and secret-file exclusion
 
 This repository is built out in sequential phases (see `README.md`); please
 keep changes scoped to the phase you are working on rather than adding

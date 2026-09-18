@@ -1,5 +1,5 @@
 """``service.health``: the daemon's heartbeat snapshot, read/write
-round-trip and "no snapshot yet" handling -- what ``ragpilot daemon
+round-trip and "no snapshot yet" handling -- what ``ragmonk daemon
 status``/``doctor`` read without talking to the daemon process itself.
 """
 
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ragpilot.service import health
+from ragmonk.service import health
 
 
 def test_read_missing_health_file_returns_none(tmp_path: Path) -> None:

@@ -9,15 +9,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ragpilot.core.config import RagpilotConfig
-from ragpilot.indexing.coordinator import IndexCoordinator
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import files_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.core.config import RagMonkConfig
+from ragmonk.indexing.coordinator import IndexCoordinator
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import files_repo
+from ragmonk.storage.sqlite import connect
 
 
 def _run(root: Path, conn) -> IndexCoordinator:  # noqa: ANN001
-    return IndexCoordinator(conn, "s1", str(root), [], [], RagpilotConfig())
+    return IndexCoordinator(conn, "s1", str(root), [], [], RagMonkConfig())
 
 
 def test_a_moved_file_reuses_its_existing_row_instead_of_delete_and_recreate(

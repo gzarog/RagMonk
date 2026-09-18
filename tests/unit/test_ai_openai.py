@@ -8,8 +8,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from ragpilot.ai.base import AiProviderError, AiRequest
-from ragpilot.ai.openai import OpenAiProvider
+from ragmonk.ai.base import AiProviderError, AiRequest
+from ragmonk.ai.openai import OpenAiProvider
 
 
 def _request() -> AiRequest:

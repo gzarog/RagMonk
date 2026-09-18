@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ragpilot.sources.fingerprint import hash_file, stat_unchanged
+from ragmonk.sources.fingerprint import hash_file, stat_unchanged
 
 
 def test_hash_file_is_deterministic(tmp_path: Path) -> None:

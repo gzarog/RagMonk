@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+{% block content %}
+<h1>Search</h1>
+
+<div class="panel">
+  <form method="get" action="/search" class="field-row">
+    <div style="flex:2">
+      <label>Query</label>
+      <input type="text" name="q" value="{{ query }}" placeholder="identifier, phrase, or path fragment" autofocus>
+    </div>
+    <div>
+      <label>Mode</label>
+      <select name="mode">
+        <option value="lexical" {{ 'selected' if mode == 'lexical' else '' }}>Lexical</option>
+        <option value="semantic" {{ 'selected' if mode == 'semantic' else '' }}>Semantic</option>
+        <option value="hybrid" {{ 'selected' if mode == 'hybrid' else '' }}>Hybrid</option>
+      </select>
+    </div>
+    <div>
+      <label>Limit</label>
+      <input type="number" name="limit" value="{{ limit }}" min="1" max="200">
+    </div>
+    <div style="flex:0"><button class="btn primary" type="submit">Search</button></div>
+  </form>
+</div>
+
+{% if results %}
+  {% if results.lexical is not none %}
+  <h2>Lexical results</h2>
+  <div class="panel">
+    {% if results.lexical %}
+    <table>
+      <thead><tr><th>#</th><th>Title</th><th>Path</th><th>Kind</th><th>Snippet</th></tr></thead>
+      <tbody>
+        {% for r in results.lexical %}
+        <tr>
+          <td>{{ r.rank }}</td>
+          <td>{{ r.title }}</td>
+          <td class="mono">{{ r.path }}</td>
+          <td>{{ r.kind }}</td>
+          <td class="muted">{{ r.snippet or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No lexical results.</p>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if mode in ("semantic", "hybrid") %}
+  <h2>Semantic results</h2>
+  <div class="panel">
+    {% if results.reason %}<div class="alert info">{{ results.reason }}</div>{% endif %}
+    {% if results.semantic %}
+    <table>
+      <thead><tr><th>#</th><th>Score</th><th>Title</th><th>Path</th><th>Snippet</th></tr></thead>
+      <tbody>
+        {% for r in results.semantic %}
+        <tr>
+          <td>{{ r.rank }}</td>
+          <td>{{ r.score }}</td>
+          <td>{{ r.title }}</td>
+          <td class="mono">{{ r.path }}</td>
+          <td class="muted">{{ r.snippet or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% elif not results.reason %}<p class="muted">No semantic results.</p>{% endif %}
+  </div>
+  {% endif %}
+{% elif query %}
+<div class="panel"><p class="muted">No results for “{{ query }}”.</p></div>
+{% endif %}
+{% endblock %}

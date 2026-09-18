@@ -1,14 +1,14 @@
 """``update/versioning.py``: MAJOR.MINOR.PATCH parsing/comparison, the
 "v" prefix normalization git tags carry, and ``installed_version``'s tie
-to ``ragpilot.__version__``.
+to ``ragmonk.__version__``.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from ragpilot import __version__
-from ragpilot.update import versioning
+from ragmonk import __version__
+from ragmonk.update import versioning
 
 
 def test_installed_version_matches_package_version() -> None:
@@ -30,7 +30,7 @@ def test_is_valid_accepts_plain_semver(valid: str) -> None:
 
 @pytest.mark.parametrize(
     "invalid",
-    ["ragpilot_0_1_0", "0.1", "0.1.8.1", "0.1.8-rc1", "", "not-a-version", "v0.1.8 "],
+    ["ragmonk_0_1_0", "0.1", "0.1.8.1", "0.1.8-rc1", "", "not-a-version", "v0.1.8 "],
 )
 def test_is_valid_rejects_everything_else(invalid: str) -> None:
     assert not versioning.is_valid(invalid)
@@ -42,7 +42,7 @@ def test_parse_returns_int_tuple() -> None:
 
 def test_parse_raises_value_error_on_invalid_input() -> None:
     with pytest.raises(ValueError, match="not a valid"):
-        versioning.parse("ragpilot_0_1_0")
+        versioning.parse("ragmonk_0_1_0")
 
 
 @pytest.mark.parametrize(
@@ -63,7 +63,7 @@ def test_is_newer_compares_correctly(candidate: str, than: str, expected: bool) 
 def test_is_newer_never_trusts_an_invalid_candidate() -> None:
     # An untrusted tag straight from a GitHub API response must degrade
     # to "no update" rather than raise -- see this module's docstring.
-    assert versioning.is_newer("ragpilot_0_1_0", "0.1.0") is False
+    assert versioning.is_newer("ragmonk_0_1_0", "0.1.0") is False
 
 
 def test_is_newer_never_trusts_an_invalid_baseline() -> None:

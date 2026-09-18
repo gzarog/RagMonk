@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import files_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.cli.main import app
+from ragmonk.core import paths
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import files_repo
+from ragmonk.storage.sqlite import connect
 
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
 
@@ -34,7 +34,7 @@ def _files_conn(home: Path, source_path: Path):  # noqa: ANN201 - test helper
 
 
 def test_full_index_and_status_flow(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -54,7 +54,7 @@ def test_full_index_and_status_flow(
     assert totals["indexed"] == 2
     assert payload["data"]["totals"]["queue_depth"] == 0
 
-    conn = _files_conn(ragpilot_home, source_dir)
+    conn = _files_conn(ragmonk_home, source_dir)
     try:
         before = {f.path: f.generation for f in files_repo.list_by_source(conn, source_id)}
     finally:
@@ -68,7 +68,7 @@ def test_full_index_and_status_flow(
 
     assert runner.invoke(app, ["index"]).exit_code == 0
 
-    conn = _files_conn(ragpilot_home, source_dir)
+    conn = _files_conn(ragmonk_home, source_dir)
     try:
         after = {f.path: f.generation for f in files_repo.list_by_source(conn, source_id)}
     finally:
@@ -94,7 +94,7 @@ def test_full_index_and_status_flow(
     sys.platform == "win32", reason="symlinks need elevated privileges on Windows"
 )
 def test_symlink_escape_is_skipped_without_crashing(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.service import pid
+from ragmonk.service import pid
 
 
 def test_write_then_read_round_trips(tmp_path: Path) -> None:
@@ -66,7 +66,7 @@ def test_running_daemon_reflects_a_live_pid(tmp_path: Path) -> None:
 
 class TestStopAndWait:
     """Shared by ``ops/restore.py`` (before swapping in a backup) and
-    ``ops/uninstall.py`` (before purging RAGPILOT_HOME) -- signal
+    ``ops/uninstall.py`` (before purging RAGMONK_HOME) -- signal
     delivery and process death are mocked out here (a real daemon
     subprocess is exercised separately, see the ``daemon_subprocess``
     marker in CONTRIBUTING.md).

@@ -15,13 +15,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import ragpilot.indexing.coordinator as coordinator_module
-from ragpilot.cli.main import app
-from ragpilot.core import paths
-from ragpilot.core.errors import EXIT_INDEXING_PARTIAL_FAILURE
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import documents_repo
-from ragpilot.storage.sqlite import connect
+import ragmonk.indexing.coordinator as coordinator_module
+from ragmonk.cli.main import app
+from ragmonk.core import paths
+from ragmonk.core.errors import EXIT_INDEXING_PARTIAL_FAILURE
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import documents_repo
+from ragmonk.storage.sqlite import connect
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "documents"
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
@@ -50,7 +50,7 @@ def _force_permanent_failure(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_mixed_format_directory_isolates_corrupt_document(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "docs_project"
     root.mkdir()
@@ -73,7 +73,7 @@ def test_mixed_format_directory_isolates_corrupt_document(
 
 
 def test_docs_cli_and_fts_reflect_indexed_documents(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "docs_project"
     root.mkdir()
@@ -105,7 +105,7 @@ def test_docs_cli_and_fts_reflect_indexed_documents(
     assert filtered.exit_code == 0
     assert len(json.loads(filtered.output)["data"]["documents"]) == 4
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         hits = documents_repo.search_fts(conn, "Section")
         assert any(h["document_id"] is not None for h in hits)
@@ -116,7 +116,7 @@ def test_docs_cli_and_fts_reflect_indexed_documents(
 
 
 def test_phase_10_formats_index_and_are_fts_searchable(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Search Quality Improvement Plan, Phase 10: CSV/ODT/ODS/ODP/EPUB
     convert, normalize, chunk, and store correctly end-to-end, and their
@@ -148,7 +148,7 @@ def test_phase_10_formats_index_and_are_fts_searchable(
     assert odt_row["section_count"] == 2
     assert odt_row["paragraph_count"] == 2
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         # CSV/ODS both store the same table -- content the FTS index has
         # to find regardless of which spreadsheet-like format it came
@@ -167,7 +167,7 @@ def test_phase_10_formats_index_and_are_fts_searchable(
 
 
 def test_image_ocr_disabled_by_default_indexes_without_derived_content(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``documents.image_ocr`` defaults to ``False`` -- an image-kind file
     is still indexed (as a file record) but never actually OCR'd, exactly
@@ -191,7 +191,7 @@ def test_image_ocr_disabled_by_default_indexes_without_derived_content(
     assert rows[0]["status"] == "indexed"
     assert rows[0]["format"] is None
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         assert documents_repo.count_all(conn) == 0
     finally:
@@ -200,7 +200,7 @@ def test_image_ocr_disabled_by_default_indexes_without_derived_content(
 
 @pytest.mark.docling_pdf
 def test_image_ocr_enabled_indexes_real_ocr_text_end_to_end(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The opt-in counterpart to
     ``test_image_ocr_disabled_by_default_indexes_without_derived_content``:
@@ -211,7 +211,7 @@ def test_image_ocr_enabled_indexes_real_ocr_text_end_to_end(
     and FTS-searchable through the exact same path every other format
     uses.
     """
-    monkeypatch.setenv("RAGPILOT_DOCUMENTS__IMAGE_OCR", "true")
+    monkeypatch.setenv("RAGMONK_DOCUMENTS__IMAGE_OCR", "true")
     root = tmp_path / "docs_project"
     root.mkdir()
     shutil.copy(FIXTURES / "sample_ocr.png", root / "sample_ocr.png")
@@ -228,7 +228,7 @@ def test_image_ocr_enabled_indexes_real_ocr_text_end_to_end(
     assert rows[0]["status"] == "indexed"
     assert rows[0]["format"] == "image"
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         assert documents_repo.search_fts(conn, "Sample Image Title")
         assert documents_repo.search_fts(conn, "OCR body text")
@@ -237,7 +237,7 @@ def test_image_ocr_enabled_indexes_real_ocr_text_end_to_end(
 
 
 def test_indexed_paragraph_stores_contextualized_embedding_text(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Search Quality Improvement Plan, Phase 3, end-to-end through the
     real pipeline (Docling parsing -> normalize -> chunk -> store): a
@@ -255,7 +255,7 @@ def test_indexed_paragraph_stores_contextualized_embedding_text(
     _add_source(runner, root)
     assert runner.invoke(app, ["index"]).exit_code == 0
 
-    conn = _knowledge_conn(ragpilot_home, root)
+    conn = _knowledge_conn(ragmonk_home, root)
     try:
         rows = conn.execute(
             "SELECT text, embedding_text FROM document_sections "
@@ -275,13 +275,13 @@ def test_indexed_paragraph_stores_contextualized_embedding_text(
 
 
 def test_oversized_pdf_is_skipped_limit_without_model_download(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # documents.max_pages=0 rejects the fixture's 1-page PDF via
     # docling_adapter.pdf_page_count (pypdfium2 only) *before*
     # docling_adapter.convert() would ever run -- so this test never
     # touches Docling's ML pipeline and needs no ``docling_pdf`` marker.
-    monkeypatch.setenv("RAGPILOT_DOCUMENTS__MAX_PAGES", "0")
+    monkeypatch.setenv("RAGMONK_DOCUMENTS__MAX_PAGES", "0")
     root = tmp_path / "docs_project"
     root.mkdir()
     shutil.copy(FIXTURES / "sample.pdf", root / "sample.pdf")

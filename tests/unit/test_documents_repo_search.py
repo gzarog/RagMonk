@@ -1,6 +1,6 @@
 """``documents_repo.search_fts_projection``: real match-centered snippets
 (SQLite FTS5's own ``snippet()``, not a naive body-prefix slice) plus the
-page/heading provenance a "ragpilot search --snippets"-style block needs
+page/heading provenance a "ragmonk search --snippets"-style block needs
 -- see ``cli/search.py``'s ``_print_document_snippet``.
 """
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ragpilot.core.models import (
+from ragmonk.core.models import (
     Document,
     DocumentFormat,
     FileKind,
@@ -16,9 +16,9 @@ from ragpilot.core.models import (
     FileStatus,
     Paragraph,
 )
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import documents_repo, files_repo
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import documents_repo, files_repo
+from ragmonk.storage.sqlite import connect, transaction
 
 
 def _seed_file(conn) -> None:  # noqa: ANN001 - test helper

@@ -3,18 +3,27 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ragpilot"
+name = "ragmonk"
 dynamic = ["version"]
 description = "Local-first knowledge compiler and retrieval engine CLI"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
-authors = [{ name = "RAGpilot" }]
+authors = [{ name = "RagMonk" }]
 dependencies = [
     "pydantic>=2",
     "typer>=0.12",
     "rich>=13",
     "pyyaml>=6",
+    # Exact Tokenizer plan, Phase 1: the Rust ``tokenizers`` library is a
+    # DIRECT, first-party dependency -- ``ragmonk.tokenization.model_tokenizer``
+    # loads the bundled ``tokenizer.json`` through it to count exact tokens
+    # for chunk budgeting. Although docling/transformers already pull
+    # ``tokenizers`` in transitively, the plan requires a declared, tested
+    # range here rather than relying on that transitive edge (so a future
+    # docling that drops or re-pins it can't silently break chunking). It
+    # loads local files only -- no network, no torch, no transformers.
+    "tokenizers>=0.19,<1",
     "tree-sitter>=0.24,<0.27",
     "tree-sitter-language-pack>=1.17,<2",
     # Plain "docling" only -- its VLM/ASR/XBRL extras (ocrmac,
@@ -111,9 +120,33 @@ dependencies = [
     # native-load failure, so a broken install degrades rather than
     # crashes.
     "usearch>=2.16,<3",
+    # Admin UI plan, Phase 1: the built-in local administration web
+    # interface (`ragmonk ui`). FastAPI + Starlette provide the ASGI app
+    # and routing, Uvicorn the local server, Jinja2 the server-rendered
+    # templates, and python-multipart lets Starlette parse the HTML form
+    # POSTs the admin screens submit. HTMX is vendored as a static asset
+    # under src/ragmonk/ui/static/js/ (no CDN, no Node.js, works offline)
+    # rather than pulled from PyPI. All four are pure-Python with light
+    # transitive footprints and are only imported when `ragmonk ui`
+    # actually runs -- every other command path never touches them.
+    "fastapi>=0.110,<1",
+    "uvicorn>=0.27,<1",
+    "jinja2>=3.1,<4",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
+# Subscription plan, Phase 3: the official GitHub Copilot Python SDK, an
+# OPTIONAL runtime for the beta ``github_copilot`` provider. It is not a
+# default dependency -- RagMonk indexes and retrieves without it, and the
+# adapter reports a clear "runtime unavailable" error when it is absent, so
+# only a user who opts into that provider installs it
+# (``pip install "ragmonk[copilot]"``). The exact distribution name/version
+# range must be confirmed against the pinned SDK before this provider
+# leaves beta (see docs/providers/subscription-integration-note.md).
+copilot = [
+    "github-copilot-sdk>=0.1,<1",
+]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
@@ -129,15 +162,32 @@ dev = [
 ]
 
 [project.scripts]
-ragpilot = "ragpilot.cli.main:app"
+ragmonk = "ragmonk.cli.main:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ragpilot"]
+packages = ["src/ragmonk"]
+# Exact Tokenizer plan, Phase 1: the bundled tokenizer assets are
+# non-Python data files under the package. They are git-tracked so
+# hatchling's default VCS-based file selection already ships them, but
+# they are declared here explicitly too -- indexing hard-fails without
+# them (see ragmonk.tokenization.model_tokenizer), so their packaging is
+# not something to leave to an implicit default.
+artifacts = [
+    "src/ragmonk/tokenization/assets/**/*",
+    # Admin UI plan, Phase 1 (§4.8 Packaging): the Jinja templates and
+    # static assets (vendored HTMX, CSS) `ragmonk ui` serves are non-Python
+    # data files. They are git-tracked so hatchling's default VCS file
+    # selection already ships them, but declared here explicitly too --
+    # the UI cannot render a single page without them, so their inclusion
+    # in wheels/sdists must not be left to an implicit default.
+    "src/ragmonk/ui/templates/**/*",
+    "src/ragmonk/ui/static/**/*",
+]
 
 # CLI performance improvement plan, Phase 6: one source of truth for the
 # version -- an immutable git tag (v0.1.8, ...) -- instead of a value
-# duplicated by hand across this file and src/ragpilot/__init__.py. This
-# writes src/ragpilot/_version.py (gitignored, generated) at build/install
+# duplicated by hand across this file and src/ragmonk/__init__.py. This
+# writes src/ragmonk/_version.py (gitignored, generated) at build/install
 # time; __init__.py imports __version__ from it.
 [tool.hatch.version]
 source = "vcs"
@@ -148,9 +198,9 @@ source = "vcs"
 fallback-version = "0.0.0"
 
 [tool.hatch.version.raw-options]
-# This repository's very first release predates this plan's tagging
-# convention (tagged "ragpilot_0_1_0", not "v0.1.0") and still exists
-# alongside real "v*.*.*" tags going forward. setuptools-scm's own tag
+# This repository's history includes an early tag that predates the
+# "v*.*.*" tagging convention (it does not match "v0.1.0") and still
+# exists alongside real "v*.*.*" tags going forward. setuptools-scm's own tag
 # selection (via `git describe`) picks the *nearest* tag unconditionally
 # and only *then* tries to parse it -- an unparseable nearest tag is a
 # hard error, not a "keep looking" -- so `--match` here excludes it from
@@ -159,7 +209,7 @@ fallback-version = "0.0.0"
 git_describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match", "v*.*.*"]
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/ragpilot/_version.py"
+version-file = "src/ragmonk/_version.py"
 
 [tool.ruff]
 target-version = "py312"
@@ -200,7 +250,7 @@ pythonpath = ["."]
 # converted by Docling's rule-based backends and never touches this path,
 # so it is exercised by the default suite like everything else.
 #
-# daemon_subprocess: spawns a real, detached OS process (`ragpilot daemon
+# daemon_subprocess: spawns a real, detached OS process (`ragmonk daemon
 # start`) and signals it (`daemon stop`). Slower and more platform-
 # fragile than everything else in the suite (process startup time,
 # signal delivery, PID reuse) the same way docling_pdf's model download
@@ -216,7 +266,7 @@ pythonpath = ["."]
 addopts = "-ra -m 'not docling_pdf and not daemon_subprocess and not embedding_model and not reranker_model and not benchmark_search and not cli_startup_benchmark'"
 markers = [
     "docling_pdf: exercises Docling's real PDF conversion pipeline (network + model download on first run); excluded from the default run, see CONTRIBUTING.md",
-    "daemon_subprocess: spawns and signals a real detached `ragpilot daemon` process; excluded from the default run, see CONTRIBUTING.md",
+    "daemon_subprocess: spawns and signals a real detached `ragmonk daemon` process; excluded from the default run, see CONTRIBUTING.md",
     "embedding_model: loads the real local embedding model (network + weight download on first run); excluded from the default run, see CONTRIBUTING.md",
     "reranker_model: loads the real local cross-encoder reranker model (network + weight download on first run); excluded from the default run, see CONTRIBUTING.md",
     "benchmark_search: measures search latency against a synthetic corpus (benchmarks/search/); excluded from the default run, see CONTRIBUTING.md",

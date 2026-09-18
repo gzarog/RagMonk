@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core.models import (
+from ragmonk.core.models import (
     Document,
     DocumentFormat,
     Entity,
@@ -25,12 +25,12 @@ from ragpilot.core.models import (
     FileStatus,
     Paragraph,
 )
-from ragpilot.documents import chunker
-from ragpilot.indexing import embedding_indexer
-from ragpilot.retrieval import embedder
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import documents_repo, embeddings_repo, entities_repo, files_repo
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.documents import chunker
+from ragmonk.indexing import embedding_indexer
+from ragmonk.retrieval import embedder
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import documents_repo, embeddings_repo, entities_repo, files_repo
+from ragmonk.storage.sqlite import connect, transaction
 
 
 @pytest.fixture

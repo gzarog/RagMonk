@@ -14,10 +14,10 @@ from dataclasses import replace
 
 import pytest
 
-from ragpilot.retrieval import neural_reranker
-from ragpilot.retrieval.lexical import RankTier, SearchResult
-from ragpilot.retrieval.merger import merge
-from ragpilot.retrieval.reranker import RankedHit, rerank
+from ragmonk.retrieval import neural_reranker
+from ragmonk.retrieval.lexical import RankTier, SearchResult
+from ragmonk.retrieval.merger import merge
+from ragmonk.retrieval.reranker import RankedHit, rerank
 
 
 def _lexical(id_: str, tier: RankTier = RankTier.FTS, snippet: str = "") -> SearchResult:

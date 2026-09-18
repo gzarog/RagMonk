@@ -4,7 +4,7 @@ isolation, with hand-constructed entity/document fixtures -- no database.
 
 from __future__ import annotations
 
-from ragpilot.core.models import (
+from ragmonk.core.models import (
     Confidence,
     Entity,
     EntityType,
@@ -12,8 +12,8 @@ from ragpilot.core.models import (
     RelationshipType,
     SectionKind,
 )
-from ragpilot.knowledge import linker
-from ragpilot.storage.repositories.documents_repo import DocumentUnit
+from ragmonk.knowledge import linker
+from ragmonk.storage.repositories.documents_repo import DocumentUnit
 
 
 def _entity(
@@ -116,7 +116,7 @@ def test_qualified_identifier_match_skipped_when_name_has_no_dot() -> None:
 
 
 def test_qualified_match_is_at_least_as_strong_as_bare_match() -> None:
-    from ragpilot.knowledge import confidence
+    from ragmonk.knowledge import confidence
 
     dog_bark = _entity("e1", "bark", "pkg.Dog.bark")
     unit = _unit("u1", "pkg.Dog.bark logs a bark when called.")

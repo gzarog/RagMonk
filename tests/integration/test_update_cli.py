@@ -1,4 +1,4 @@
-"""``ragpilot update [check|status|install]`` -- real Typer CLI dispatch,
+"""``ragmonk update [check|status|install]`` -- real Typer CLI dispatch,
 with the one real network call (``checker.fetch_latest_release``, for
 ``check``/``status``) or the whole upgrade orchestration
 (``installer.install_latest``, for ``install``) mocked out. Proves the
@@ -16,24 +16,24 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot import __version__
-from ragpilot.cli.main import app
-from ragpilot.core.errors import EXIT_GENERIC_FAILURE, EXIT_HEALTH_CHECK_FAILURE
-from ragpilot.update import checker, installer
-from ragpilot.update.installer import InstallOutcome, UpdateInstallError
-from ragpilot.update.models import ReleaseInfo
+from ragmonk import __version__
+from ragmonk.cli.main import app
+from ragmonk.core.errors import EXIT_GENERIC_FAILURE, EXIT_HEALTH_CHECK_FAILURE
+from ragmonk.update import checker, installer
+from ragmonk.update.installer import InstallOutcome, UpdateInstallError
+from ragmonk.update.models import ReleaseInfo
 
 
 def _fake_release(version: str) -> ReleaseInfo:
     return ReleaseInfo(
         version=version,
         tag_name=f"v{version}",
-        html_url=f"https://github.com/gzarog/Ragpilotv2/releases/tag/v{version}",
+        html_url=f"https://github.com/gzarog/RagMonk/releases/tag/v{version}",
     )
 
 
 def test_check_reports_update_available_and_writes_cache(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     newer = "999.0.0"
     monkeypatch.setattr(checker, "fetch_latest_release", lambda **_: _fake_release(newer))
@@ -44,7 +44,7 @@ def test_check_reports_update_available_and_writes_cache(
     assert f"Installed: {__version__}" in result.output
     assert f"Latest:    {newer}" in result.output
     assert "Update available." in result.output
-    assert "ragpilot update install" in result.output
+    assert "ragmonk update install" in result.output
 
     status_result = runner.invoke(app, ["update", "status", "--json"])
     payload = json.loads(status_result.output)["data"]
@@ -53,7 +53,7 @@ def test_check_reports_update_available_and_writes_cache(
 
 
 def test_check_reports_up_to_date(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(checker, "fetch_latest_release", lambda **_: _fake_release(__version__))
 
@@ -65,7 +65,7 @@ def test_check_reports_up_to_date(
 
 
 def test_check_json_output(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(checker, "fetch_latest_release", lambda **_: _fake_release("999.0.0"))
 
@@ -80,7 +80,7 @@ def test_check_json_output(
 
 
 def test_check_surfaces_a_clear_error_when_github_is_unreachable(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def _raise(**_: object) -> ReleaseInfo:
         raise checker.UpdateCheckError("GitHub is unreachable: simulated")
@@ -95,7 +95,7 @@ def test_check_surfaces_a_clear_error_when_github_is_unreachable(
 
 
 def test_bare_update_behaves_like_check(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(checker, "fetch_latest_release", lambda **_: _fake_release("999.0.0"))
 
@@ -106,7 +106,7 @@ def test_bare_update_behaves_like_check(
 
 
 def test_status_with_no_prior_check_reports_unknown(
-    ragpilot_home: Path, runner: CliRunner
+    ragmonk_home: Path, runner: CliRunner
 ) -> None:
     result = runner.invoke(app, ["update", "status"])
 
@@ -115,7 +115,7 @@ def test_status_with_no_prior_check_reports_unknown(
     assert "unknown" in result.output
 
 
-def test_status_json_with_no_prior_check(ragpilot_home: Path, runner: CliRunner) -> None:
+def test_status_json_with_no_prior_check(ragmonk_home: Path, runner: CliRunner) -> None:
     result = runner.invoke(app, ["update", "status", "--json"])
 
     assert result.exit_code == 0, result.output
@@ -125,7 +125,7 @@ def test_status_json_with_no_prior_check(ragpilot_home: Path, runner: CliRunner)
 
 
 def test_install_already_up_to_date(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
         installer,
@@ -142,7 +142,7 @@ def test_install_already_up_to_date(
 
 
 def test_install_success_reports_each_step(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
         installer,
@@ -155,14 +155,14 @@ def test_install_success_reports_each_step(
     result = runner.invoke(app, ["update", "install"])
 
     assert result.exit_code == 0, result.output
-    assert "Installed RAGpilot 999.0.0" in result.output
+    assert "Installed RagMonk 999.0.0" in result.output
     assert "Database migrations complete" in result.output
     assert "Health check passed" in result.output
-    assert "RAGpilot 999.0.0 is ready." in result.output
+    assert "RagMonk 999.0.0 is ready." in result.output
 
 
 def test_install_json_output(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
         installer,
@@ -185,7 +185,7 @@ def test_install_json_output(
 
 
 def test_install_unhealthy_after_upgrade_exits_with_health_check_failure(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
         installer,
@@ -202,10 +202,10 @@ def test_install_unhealthy_after_upgrade_exits_with_health_check_failure(
 
 
 def test_install_surfaces_a_clear_error_for_an_unsupported_install_method(
-    ragpilot_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def _raise(home: Path, **_: object) -> None:
-        raise UpdateInstallError("this is an editable/dev RAGpilot install; use `git pull`")
+        raise UpdateInstallError("this is an editable/dev RagMonk install; use `git pull`")
 
     monkeypatch.setattr(installer, "install_latest", _raise)
 

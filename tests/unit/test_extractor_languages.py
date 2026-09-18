@@ -10,8 +10,8 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from ragpilot.code.extractor import ExtractionResult, default_namespace_for_path, extract
-from ragpilot.core.models import EntityType, RelationshipType
+from ragmonk.code.extractor import ExtractionResult, default_namespace_for_path, extract
+from ragmonk.core.models import EntityType, RelationshipType
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "languages"
 
@@ -177,7 +177,7 @@ def test_csharp_golden() -> None:
     ],
 )
 def test_every_fixture_parses_without_error(language: str, filename: str) -> None:
-    from ragpilot.code.parser import parse
+    from ragmonk.code.parser import parse
 
     source = (FIXTURES / language / filename).read_bytes()
     tree = parse(source, language)

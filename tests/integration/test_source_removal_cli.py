@@ -1,4 +1,4 @@
-"""Phase 1A: ``ragpilot source remove`` must be a confirmed, all-or-nothing
+"""Phase 1A: ``ragmonk source remove`` must be a confirmed, all-or-nothing
 operation -- the entire derived project directory (``knowledge.db``,
 vectors, cache, state) gone, the registry row gone, the original source
 files on disk untouched, and a since-removed source's data never
@@ -18,12 +18,12 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
-from ragpilot.service import pid
-from ragpilot.sources import registry as registry_module
-from ragpilot.storage.repositories import entities_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.cli.main import app
+from ragmonk.core import paths
+from ragmonk.service import pid
+from ragmonk.sources import registry as registry_module
+from ragmonk.storage.repositories import entities_repo
+from ragmonk.storage.sqlite import connect
 
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
 
@@ -65,7 +65,7 @@ def _project_dir_for(home: Path, source_dir: Path) -> Path:
 
 def _entity_count_on_disk(home: Path, source_dir: Path) -> int:
     """Reads the entity count directly from the project's on-disk
-    ``knowledge.db``, bypassing ``ragpilot search`` and its process-local
+    ``knowledge.db``, bypassing ``ragmonk search`` and its process-local
     result cache entirely -- unlike a real deployment (a separate OS
     process per CLI invocation), a same-process ``CliRunner`` sequence
     can otherwise observe a stale cache entry keyed off a data-version
@@ -98,10 +98,10 @@ def _setup_indexed_source(
 
 
 def test_declining_confirmation_removes_nothing(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir, source_id = _setup_indexed_source(runner, tmp_path, monkeypatch, "DeclineMarker")
-    project_dir = _project_dir_for(ragpilot_home, source_dir)
+    project_dir = _project_dir_for(ragmonk_home, source_dir)
     assert project_dir.is_dir()
 
     result = runner.invoke(app, ["source", "remove", source_id], input="n\n")
@@ -114,10 +114,10 @@ def test_declining_confirmation_removes_nothing(
 
 
 def test_eof_on_prompt_removes_nothing(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir, source_id = _setup_indexed_source(runner, tmp_path, monkeypatch, "EofMarker")
-    project_dir = _project_dir_for(ragpilot_home, source_dir)
+    project_dir = _project_dir_for(ragmonk_home, source_dir)
 
     # No input at all -- CliRunner's stdin hits EOF immediately, the same
     # as a real Ctrl+D at the prompt.
@@ -130,10 +130,10 @@ def test_eof_on_prompt_removes_nothing(
 
 
 def test_empty_line_on_prompt_removes_nothing(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir, source_id = _setup_indexed_source(runner, tmp_path, monkeypatch, "EmptyLineMarker")
-    project_dir = _project_dir_for(ragpilot_home, source_dir)
+    project_dir = _project_dir_for(ragmonk_home, source_dir)
 
     # A bare Enter at the prompt: an explicit (if empty) answer, not EOF --
     # confirm's own default (no) applies, same outcome either way.
@@ -147,10 +147,10 @@ def test_empty_line_on_prompt_removes_nothing(
 
 
 def test_yes_flag_skips_prompt_and_removes(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir, source_id = _setup_indexed_source(runner, tmp_path, monkeypatch, "YesFlagMarker")
-    project_dir = _project_dir_for(ragpilot_home, source_dir)
+    project_dir = _project_dir_for(ragmonk_home, source_dir)
 
     result = runner.invoke(app, ["source", "remove", source_id, "--yes"])
 
@@ -163,10 +163,10 @@ def test_yes_flag_skips_prompt_and_removes(
 
 
 def test_removal_deletes_registry_row_and_full_project_dir(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir, source_id = _setup_indexed_source(runner, tmp_path, monkeypatch, "FullWipeMarker")
-    project_dir = _project_dir_for(ragpilot_home, source_dir)
+    project_dir = _project_dir_for(ragmonk_home, source_dir)
     assert (project_dir / "knowledge.db").is_file()
 
     # An arbitrary extra artifact under the project dir -- standing in for
@@ -189,10 +189,10 @@ def test_removal_deletes_registry_row_and_full_project_dir(
 
 
 def test_missing_project_dir_still_allows_registry_removal(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir, source_id = _setup_indexed_source(runner, tmp_path, monkeypatch, "NoDirMarker")
-    project_dir = _project_dir_for(ragpilot_home, source_dir)
+    project_dir = _project_dir_for(ragmonk_home, source_dir)
     assert project_dir.is_dir()
 
     import shutil
@@ -207,13 +207,13 @@ def test_missing_project_dir_still_allows_registry_removal(
 
 
 def test_filesystem_deletion_failure_keeps_source_registered(
-    ragpilot_home: Path,
+    ragmonk_home: Path,
     runner: CliRunner,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_dir, source_id = _setup_indexed_source(runner, tmp_path, monkeypatch, "FailureMarker")
-    project_dir = _project_dir_for(ragpilot_home, source_dir)
+    project_dir = _project_dir_for(ragmonk_home, source_dir)
     assert project_dir.is_dir()
 
     def _raise_rmtree(path: object) -> None:
@@ -237,7 +237,7 @@ def test_filesystem_deletion_failure_keeps_source_registered(
 
 
 def test_removed_source_not_in_list(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir, source_id = _setup_indexed_source(runner, tmp_path, monkeypatch, "ListMarker")
     assert source_id in _list_ids(runner)
@@ -248,7 +248,7 @@ def test_removed_source_not_in_list(
 
 
 def test_search_returns_nothing_from_a_removed_source(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir, source_id = _setup_indexed_source(runner, tmp_path, monkeypatch, "SearchGoneMarker")
     assert _has_entity(runner, "SearchGoneMarker")
@@ -259,7 +259,7 @@ def test_search_returns_nothing_from_a_removed_source(
 
 
 def test_readding_same_path_after_removal_is_clean_no_stale_data(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The regression this whole phase exists to fix: before, ``remove``
     only deleted the ``sources`` row -- the project directory (and its
@@ -267,7 +267,7 @@ def test_readding_same_path_after_removal_is_clean_no_stale_data(
     a project id that is a deterministic hash of the canonical source
     path. Re-adding the exact same path reused that same, stale
     ``knowledge.db`` rather than a fresh one, so the old content could
-    resurface in search results before ``ragpilot index`` was even run
+    resurface in search results before ``ragmonk index`` was even run
     again.
     """
     source_dir, source_id = _setup_indexed_source(runner, tmp_path, monkeypatch, "StaleMarkerZzz")
@@ -283,7 +283,7 @@ def test_readding_same_path_after_removal_is_clean_no_stale_data(
     # If the old project directory had survived the removal, this would
     # already show the stale entity even though nothing has been indexed
     # in this new generation yet.
-    assert _entity_count_on_disk(ragpilot_home, source_dir) == 0
+    assert _entity_count_on_disk(ragmonk_home, source_dir) == 0
 
     # A fresh index against the (unchanged) source files finds it again,
     # from a clean generation.
@@ -292,23 +292,23 @@ def test_readding_same_path_after_removal_is_clean_no_stale_data(
 
 
 def test_remove_refuses_while_a_daemon_is_running(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source_dir, source_id = _setup_indexed_source(
         runner, tmp_path, monkeypatch, "DaemonGuardMarker"
     )
-    project_dir = _project_dir_for(ragpilot_home, source_dir)
+    project_dir = _project_dir_for(ragmonk_home, source_dir)
 
     # Simulate a live daemon the same way tests/unit/test_service_pid.py
     # does: a PID file pointing at this very (definitely alive) test
     # process, without spawning a real background process.
-    pid.write_pid_file(ragpilot_home, os.getpid())
+    pid.write_pid_file(ragmonk_home, os.getpid())
 
     result = runner.invoke(app, ["source", "remove", source_id, "--yes"])
 
     assert result.exit_code != 0
     normalized_output = " ".join(result.output.split())
     assert "daemon" in normalized_output.lower()
-    assert "ragpilot daemon stop" in normalized_output
+    assert "ragmonk daemon stop" in normalized_output
     assert source_id in _list_ids(runner)
     assert project_dir.is_dir()

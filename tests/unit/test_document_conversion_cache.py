@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import document_conversion_cache_repo
-from ragpilot.storage.repositories.document_conversion_cache_repo import CachedConversion
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import document_conversion_cache_repo
+from ragmonk.storage.repositories.document_conversion_cache_repo import CachedConversion
+from ragmonk.storage.sqlite import connect, transaction
 
 
 @pytest.fixture
@@ -180,7 +180,7 @@ def test_ocr_used_is_part_of_the_cache_key(conn) -> None:  # noqa: ANN001
 def test_docling_document_json_round_trips_headings_paragraphs_and_tables() -> None:
     """Proves the serialization scheme ``docling_adapter._convert_pdf``
     relies on (``DoclingDocument.model_dump_json()`` /
-    ``model_validate_json()``) round-trips every item shape RAGpilot's
+    ``model_validate_json()``) round-trips every item shape RagMonk's
     normalizer reads -- title, heading, paragraph, table, and each item's
     real page ``prov`` -- losslessly. Pure pydantic, no Docling PDF
     pipeline or ML model involved.

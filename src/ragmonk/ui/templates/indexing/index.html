@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Indexing{% endblock %}
+{% block content %}
+<h1>Indexing</h1>
+
+{% set o = overview %}
+<div class="grid">
+  <div class="stat"><div class="num">{{ o.queue_depth }}</div><div class="label">Queue depth</div></div>
+  <div class="stat"><div class="num">{{ o.counts.get("indexed", 0) }}</div><div class="label">Indexed</div></div>
+  <div class="stat"><div class="num">{{ o.counts.get("queued", 0) }}</div><div class="label">Queued</div></div>
+  <div class="stat"><div class="num">{{ o.counts.get("failed", 0) }}</div><div class="label">Failed</div></div>
+  <div class="stat"><div class="num">{{ "yes" if o.running else "no" }}</div><div class="label">Running</div></div>
+</div>
+
+<div class="panel">
+  <div class="field-row">
+    <form class="inline" hx-post="/indexing/start" hx-swap="none">
+      <button class="btn primary" type="submit" {{ 'disabled' if o.running else '' }}>Start indexing</button>
+    </form>
+    <form class="inline" hx-post="/indexing/rebuild" hx-swap="none"
+          hx-confirm="Rebuild ALL sources? Derived indexes will be deleted and regenerated from source files.">
+      <input type="hidden" name="fresh" value="1">
+      <button class="btn danger" type="submit" {{ 'disabled' if o.running else '' }}>Rebuild all (fresh)</button>
+    </form>
+    <a href="/indexing/failed" class="btn">View failed files</a>
+  </div>
+  <p class="destructive-note">Rebuild deletes and regenerates derived indexes. Source files are never modified.</p>
+</div>
+
+<h2>Live progress</h2>
+<div class="panel">
+  <div id="index-log" hx-ext="sse">
+    <div class="muted">Waiting for indexing activity…</div>
+  </div>
+</div>
+
+{% if o.last_summary %}
+<div class="panel">
+  <h2 style="margin-top:0">Last run</h2>
+  <p>Mode: <code>{{ o.last_summary.mode }}</code> · failed: {{ o.last_summary.get("failed", 0) }}
+    {% if o.last_summary.get("error") %}<span class="badge danger">{{ o.last_summary.error }}</span>{% endif %}</p>
+</div>
+{% endif %}
+
+<script>
+// Minimal SSE consumer (plan §6.5): append each indexing event to the log
+// and refresh the page when a run completes so counts update.
+(function () {
+  var log = document.getElementById("index-log");
+  if (!log || typeof EventSource === "undefined") return;
+  var es = new EventSource("/events/indexing");
+  var first = true;
+  function append(kind, data) {
+    if (first) { log.innerHTML = ""; first = false; }
+    var d = document.createElement("div");
+    var obj = {};
+    try { obj = JSON.parse(data); } catch (e) {}
+    var detail = obj.path || obj.source_id || "";
+    d.textContent = "[" + kind + "] " + detail +
+      (obj.indexed !== undefined ? " (indexed " + obj.indexed + ", failed " + obj.failed + ")" : "");
+    log.prepend(d);
+    if (kind === "run_completed" || kind === "run_failed") {
+      setTimeout(function () { window.location.reload(); }, 1200);
+    }
+  }
+  ["run_started","scan_started","scan_completed","rebuild_started","run_completed","run_failed"]
+    .forEach(function (k) { es.addEventListener(k, function (e) { append(k, e.data); }); });
+})();
+</script>
+{% endblock %}

@@ -12,7 +12,7 @@ Runs each command in a fresh subprocess -- inspecting the current
 process's ``sys.modules`` would be polluted by whatever the rest of the
 test suite already imported.
 
-Was ``xfail(strict=True)`` while ``ragpilot.cli.main``'s eager imports of
+Was ``xfail(strict=True)`` while ``ragmonk.cli.main``'s eager imports of
 every CLI submodule (``ask``, ``index``, ``serve``, ``watch``, ``vectors``,
 ...) transitively loaded the full heavy stack regardless of which command
 was invoked. Fixed (Phase 2) by moving each heavy import to the function
@@ -38,6 +38,10 @@ HEAVY_MODULES = (
     "usearch",
     "openai",
     "anthropic",
+    # Exact Tokenizer plan, Phase 1: the exact tokenizer runtime loads
+    # only when a document is actually chunked. A lightweight command must
+    # never pull in ``tokenizers`` (nor initialize the bundled tokenizer).
+    "tokenizers",
 )
 
 LIGHTWEIGHT_INVOCATIONS = (
@@ -45,6 +49,10 @@ LIGHTWEIGHT_INVOCATIONS = (
     ["--help"],
     ["config", "--help"],
     ["search", "--help"],
+    # Subscription plan, Phase 1: `ai --help` and listing providers must
+    # not start a runtime or load a provider SDK either.
+    ["ai", "--help"],
+    ["ai", "providers"],
 )
 
 
@@ -58,7 +66,7 @@ def _loaded_heavy_modules(cli_args: list[str]) -> list[str]:
     # parsed out of the whole captured stdout.
     script = (
         "import sys\n"
-        "from ragpilot.cli.main import app\n"
+        "from ragmonk.cli.main import app\n"
         "try:\n"
         f"    app({cli_args!r})\n"
         "except SystemExit:\n"

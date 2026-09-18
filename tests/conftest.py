@@ -5,13 +5,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.retrieval import cache as search_cache
+from ragmonk.retrieval import cache as search_cache
 
 
 @pytest.fixture
-def ragpilot_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    home = tmp_path / "ragpilot_home"
-    monkeypatch.setenv("RAGPILOT_HOME", str(home))
+def ragmonk_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    home = tmp_path / "ragmonk_home"
+    monkeypatch.setenv("RAGMONK_HOME", str(home))
     return home
 
 
@@ -29,7 +29,7 @@ def _disable_background_update_checks(monkeypatch: pytest.MonkeyPatch) -> None:
     (``tests/unit/test_lifecycle_updates.py``), so this default is safe
     to override there.
     """
-    monkeypatch.setenv("RAGPILOT_UPDATES__ENABLED", "false")
+    monkeypatch.setenv("RAGMONK_UPDATES__ENABLED", "false")
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def runner() -> CliRunner:
 def _reset_search_caches() -> None:
     """``retrieval/cache.py``'s query-result/query-embedding caches are
     deliberately process-global state (see that module's docstring) so
-    they actually help a long-lived process like ``ragpilot serve`` --
+    they actually help a long-lived process like ``ragmonk serve`` --
     but that means they would otherwise leak between test functions
     sharing this one pytest process (e.g. two tests both querying
     "AnimalService" against unrelated fixture databases). Clearing them

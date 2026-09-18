@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core.models import EmbeddingSubjectType
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import embeddings_repo
-from ragpilot.storage.sqlite import connect, transaction
+from ragmonk.core.models import EmbeddingSubjectType
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import embeddings_repo
+from ragmonk.storage.sqlite import connect, transaction
 
 
 @pytest.fixture

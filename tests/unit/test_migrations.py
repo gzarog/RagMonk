@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ragpilot.storage.migrations import MIGRATIONS, apply_migrations, current_version
-from ragpilot.storage.schema import CURRENT_SCHEMA_VERSION
-from ragpilot.storage.sqlite import connect
+from ragmonk.storage.migrations import MIGRATIONS, apply_migrations, current_version
+from ragmonk.storage.schema import CURRENT_SCHEMA_VERSION
+from ragmonk.storage.sqlite import connect
 
 
 def test_apply_migrations_creates_expected_tables(tmp_path: Path) -> None:

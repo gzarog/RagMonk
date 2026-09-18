@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ragpilot.core.models import FileKind
-from ragpilot.sources.detector import classify
+from ragmonk.core.models import FileKind
+from ragmonk.sources.detector import classify
 
 
 def test_python_file_is_code() -> None:

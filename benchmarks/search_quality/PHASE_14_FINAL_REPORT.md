@@ -177,7 +177,7 @@ is not being fully reprocessed. The DB size grew by only 4,096 bytes (+1.2%)
 for three new nullable, no-backfill columns (Phase 12) plus one new column
 (Phase 5's `ocr_used`) -- negligible. On this tiny 3-file fixture, absolute
 millisecond numbers are dominated by fixed CLI/Python/Typer/SQLite process
-bootstrap cost (each `ragpilot index` invocation reloads the whole app
+bootstrap cost (each `ragmonk index` invocation reloads the whole app
 context), which is also why full/re-index numbers vary 30-50% run to run on
 this shared VM (see three separate measurements during this phase: 54.0,
 75.7, and 56.3 ms for re-index of the identical current-HEAD code).
@@ -254,7 +254,7 @@ disabled or deferred.
   72-query tagged golden set (`benchmarks/search/golden_queries.yaml`,
   10 categories), and the first committed baseline report. No
   retrieval/indexing code changed.
-- **Phase 1A** -- Safe, confirmed `ragpilot source remove`.
+- **Phase 1A** -- Safe, confirmed `ragmonk source remove`.
 - **Phase 1B** -- PDFs normalized directly from Docling's native
   `DoclingDocument`, removing the lossy Markdown round-trip.
 - **Phase 2** -- Token-aware, hierarchy-aware chunking (`max_tokens`/
@@ -286,7 +286,7 @@ disabled or deferred.
   parser change is never silently left stale just because file bytes didn't
   change, while a moved/renamed file's chunks and embeddings are still
   reused outright.
-- **Phase 13** -- `ragpilot search --explain` (per-stage timing/diagnostics)
+- **Phase 13** -- `ragmonk search --explain` (per-stage timing/diagnostics)
   -- already shipped before this plan began; not a quality change.
 - **Phase 14 (this phase)** -- Final benchmark run, true Phase 0 baseline
   verification, release-gate scoring, and canonical baseline report

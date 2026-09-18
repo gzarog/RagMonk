@@ -1,23 +1,23 @@
 #!/bin/sh
-# Installs the RAGpilot CLI: downloads the source for $RAGPILOT_REF (default:
+# Installs the RagMonk CLI: downloads the source for $RAGMONK_REF (default:
 # main), creates an isolated virtual environment, installs the package into
-# it, and links the `ragpilot` executable onto a per-user bin directory.
+# it, and links the `ragmonk` executable onto a per-user bin directory.
 #
 # Requires Python 3.12+ already on PATH -- this script does not install
 # Python itself. See README.md's Installation section for details.
 set -eu
 
-REPO="gzarog/Ragpilotv2"
-REF="${RAGPILOT_REF:-main}"
-INSTALL_DIR="${RAGPILOT_INSTALL_DIR:-$HOME/.ragpilot}"
+REPO="gzarog/RagMonk"
+REF="${RAGMONK_REF:-main}"
+INSTALL_DIR="${RAGMONK_INSTALL_DIR:-$HOME/.ragmonk}"
 APP_DIR="$INSTALL_DIR/app"
 VENV_DIR="$INSTALL_DIR/venv"
-BIN_DIR="${RAGPILOT_BIN_DIR:-$HOME/.local/bin}"
-# Same default as ragpilot's own core/paths.py::runtime_dir() on POSIX --
-# RAGPILOT_INSTALL_DIR/RAGPILOT_HOME happen to share a default today, but
+BIN_DIR="${RAGMONK_BIN_DIR:-$HOME/.local/bin}"
+# Same default as ragmonk's own core/paths.py::runtime_dir() on POSIX --
+# RAGMONK_INSTALL_DIR/RAGMONK_HOME happen to share a default today, but
 # are independent overrides, so this is computed the same way rather than
 # assumed equal to INSTALL_DIR above.
-RAGPILOT_HOME="${RAGPILOT_HOME:-$HOME/.ragpilot}"
+RAGMONK_HOME="${RAGMONK_HOME:-$HOME/.ragmonk}"
 
 find_python() {
     for candidate in python3.13 python3.12 python3 python; do
@@ -35,7 +35,7 @@ find_python() {
 }
 
 PYTHON="$(find_python)" || {
-    echo "error: RAGpilot requires Python 3.12+, but no suitable interpreter was found on PATH." >&2
+    echo "error: RagMonk requires Python 3.12+, but no suitable interpreter was found on PATH." >&2
     echo "Install Python 3.12 or newer (https://www.python.org/downloads/) and re-run this script." >&2
     exit 1
 }
@@ -43,7 +43,7 @@ echo "Using $("$PYTHON" --version) at $(command -v "$PYTHON")"
 
 TARBALL="$(mktemp)"
 trap 'rm -f "$TARBALL"' EXIT
-echo "Downloading RAGpilot ($REF)..."
+echo "Downloading RagMonk ($REF)..."
 DOWNLOAD_URL="https://github.com/$REPO/archive/refs/heads/$REF.tar.gz"
 # GitHub's archive/codeload endpoint can briefly 404 a branch that was just
 # pushed (its tarball cache lags the push by a few seconds) -- retry a
@@ -97,7 +97,7 @@ echo "Creating virtual environment at $VENV_DIR..."
 rm -rf "$VENV_DIR"
 "$PYTHON" -m venv "$VENV_DIR"
 
-echo "Installing RAGpilot (this downloads its dependencies, including torch -- may take a few minutes)..."
+echo "Installing RagMonk (this downloads its dependencies, including torch -- may take a few minutes)..."
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 # Purge pip's cache before the real install: an entry written by whatever
 # pip version was previously on this machine can fail to deserialize under
@@ -122,15 +122,15 @@ else
 fi
 
 mkdir -p "$BIN_DIR"
-ln -sf "$VENV_DIR/bin/ragpilot" "$BIN_DIR/ragpilot"
-echo "RAGpilot installed: $BIN_DIR/ragpilot"
+ln -sf "$VENV_DIR/bin/ragmonk" "$BIN_DIR/ragmonk"
+echo "RagMonk installed: $BIN_DIR/ragmonk"
 
-# Lets `ragpilot update install` (update/installer.py) detect that this is
+# Lets `ragmonk update install` (update/installer.py) detect that this is
 # an install-script install and where to re-run this same script, rather
 # than guessing from the running interpreter's own path -- see this
 # file's own record of itself as the one thing that can't guess itself.
-mkdir -p "$RAGPILOT_HOME"
-cat > "$RAGPILOT_HOME/install_info.json" <<EOF
+mkdir -p "$RAGMONK_HOME"
+cat > "$RAGMONK_HOME/install_info.json" <<EOF
 {
   "install_method": "install-script",
   "repository": "$REPO",
@@ -151,4 +151,4 @@ case ":$PATH:" in
 esac
 
 echo ""
-echo "Run 'ragpilot version' to verify, then 'ragpilot init' to get started."
+echo "Run 'ragmonk version' to verify, then 'ragmonk init' to get started."

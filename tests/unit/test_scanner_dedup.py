@@ -16,9 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.security.path_guard import PathGuard
-from ragpilot.sources.ignore import IgnoreMatcher
-from ragpilot.sources.scanner import scan
+from ragmonk.security.path_guard import PathGuard
+from ragmonk.sources.ignore import IgnoreMatcher
+from ragmonk.sources.scanner import scan
 
 
 def _scan_all(root: Path, *, follow_symlinks: bool) -> list[str]:

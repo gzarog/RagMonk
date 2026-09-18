@@ -1,4 +1,4 @@
-"""``ragpilot daemon status|stop`` fast paths (no daemon running -- these
+"""``ragmonk daemon status|stop`` fast paths (no daemon running -- these
 never spawn a real process) and the ``daemon``/``watch`` commands' CLI
 wiring. Real process start/stop is exercised separately, behind the
 ``daemon_subprocess`` marker -- see ``test_daemon_subprocess.py`` and
@@ -13,10 +13,10 @@ from pathlib import Path
 import typer.main
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
+from ragmonk.cli.main import app
 
 
-def test_daemon_status_when_never_started(ragpilot_home: Path, runner: CliRunner) -> None:
+def test_daemon_status_when_never_started(ragmonk_home: Path, runner: CliRunner) -> None:
     assert runner.invoke(app, ["init"]).exit_code == 0
     result = runner.invoke(app, ["daemon", "status", "--json"])
     assert result.exit_code == 0, result.output
@@ -26,7 +26,7 @@ def test_daemon_status_when_never_started(ragpilot_home: Path, runner: CliRunner
     assert payload["sources"] == []
 
 
-def test_daemon_status_human_output_when_stopped(ragpilot_home: Path, runner: CliRunner) -> None:
+def test_daemon_status_human_output_when_stopped(ragmonk_home: Path, runner: CliRunner) -> None:
     assert runner.invoke(app, ["init"]).exit_code == 0
     result = runner.invoke(app, ["daemon", "status"])
     assert result.exit_code == 0, result.output
@@ -34,7 +34,7 @@ def test_daemon_status_human_output_when_stopped(ragpilot_home: Path, runner: Cl
 
 
 def test_daemon_stop_when_not_running_is_a_no_op_success(
-    ragpilot_home: Path, runner: CliRunner
+    ragmonk_home: Path, runner: CliRunner
 ) -> None:
     assert runner.invoke(app, ["init"]).exit_code == 0
     result = runner.invoke(app, ["daemon", "stop"])
@@ -42,13 +42,13 @@ def test_daemon_stop_when_not_running_is_a_no_op_success(
     assert "not running" in result.output.lower()
 
 
-def test_daemon_help_lists_subcommands(ragpilot_home: Path, runner: CliRunner) -> None:
+def test_daemon_help_lists_subcommands(ragmonk_home: Path, runner: CliRunner) -> None:
     result = runner.invoke(app, ["daemon", "--help"])
     assert result.exit_code == 0
     for name in ("start", "stop", "restart", "status"):
         assert name in result.output
 
 
-def test_watch_is_wired_into_main(ragpilot_home: Path, runner: CliRunner) -> None:
+def test_watch_is_wired_into_main(ragmonk_home: Path, runner: CliRunner) -> None:
     watch_command = typer.main.get_command(app).get_command(None, "watch")  # type: ignore[union-attr]
     assert watch_command is not None

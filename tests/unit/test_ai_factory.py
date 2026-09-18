@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from ragpilot.ai.anthropic import AnthropicProvider
-from ragpilot.ai.base import AiNotConfiguredError, AiPrivacyBlockedError
-from ragpilot.ai.factory import create_provider
-from ragpilot.ai.ollama import OllamaProvider
-from ragpilot.ai.openai import OpenAiProvider
-from ragpilot.ai.openai_compatible import OpenAiCompatibleProvider
-from ragpilot.core.config import AiConfig, PrivacyConfig
+from ragmonk.ai.anthropic import AnthropicProvider
+from ragmonk.ai.base import AiNotConfiguredError, AiPrivacyBlockedError
+from ragmonk.ai.factory import create_provider
+from ragmonk.ai.ollama import OllamaProvider
+from ragmonk.ai.openai import OpenAiProvider
+from ragmonk.ai.openai_compatible import OpenAiCompatibleProvider
+from ragmonk.core.config import AiConfig, PrivacyConfig
 
 
 def test_no_provider_configured_raises_not_configured() -> None:
@@ -150,3 +150,49 @@ def test_ollama_remote_base_url_with_privacy_allowed_builds_a_provider() -> None
         privacy=PrivacyConfig(external_ai_allowed=True),
     )
     assert isinstance(provider, OllamaProvider)
+
+
+def test_codex_without_privacy_flag_is_blocked_before_runtime_lookup() -> None:
+    """A subscription provider must hit the privacy gate first -- the block
+    is raised before its (absent, in Phase 1) adapter is even imported.
+    """
+    with pytest.raises(AiPrivacyBlockedError):
+        create_provider(
+            ai=AiConfig(provider="codex"),
+            privacy=PrivacyConfig(external_ai_allowed=False),
+        )
+
+
+def test_codex_with_privacy_allowed_builds_a_provider() -> None:
+    """Phase 2 ships the codex adapter: past the privacy gate the factory
+    returns a provider. Actually contacting the (absent) runtime fails
+    only when ``answer`` is called, not at construction time.
+    """
+    from ragmonk.ai.codex import CodexProvider
+
+    provider = create_provider(
+        ai=AiConfig(provider="codex"),
+        privacy=PrivacyConfig(external_ai_allowed=True),
+    )
+    assert isinstance(provider, CodexProvider)
+
+
+def test_github_copilot_without_privacy_flag_is_blocked() -> None:
+    with pytest.raises(AiPrivacyBlockedError):
+        create_provider(
+            ai=AiConfig(provider="github_copilot"),
+            privacy=PrivacyConfig(external_ai_allowed=False),
+        )
+
+
+def test_github_copilot_with_privacy_allowed_builds_a_provider() -> None:
+    """Phase 3 ships the copilot adapter: past the privacy gate the factory
+    returns a provider; the (absent) SDK is only loaded when ``answer`` runs.
+    """
+    from ragmonk.ai.github_copilot import CopilotProvider
+
+    provider = create_provider(
+        ai=AiConfig(provider="github_copilot"),
+        privacy=PrivacyConfig(external_ai_allowed=True),
+    )
+    assert isinstance(provider, CopilotProvider)

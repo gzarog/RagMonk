@@ -13,12 +13,12 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot.core.config import RagpilotConfig
-from ragpilot.core.models import ScannedFile
-from ragpilot.indexing import coordinator as coordinator_module
-from ragpilot.storage.migrations import apply_migrations
-from ragpilot.storage.repositories import files_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.core.config import RagMonkConfig
+from ragmonk.core.models import ScannedFile
+from ragmonk.indexing import coordinator as coordinator_module
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.repositories import files_repo
+from ragmonk.storage.sqlite import connect
 
 
 def test_a_duplicate_scanned_path_does_not_crash_the_run(
@@ -49,7 +49,7 @@ def test_a_duplicate_scanned_path_does_not_crash_the_run(
             str(root),
             [],
             [],
-            RagpilotConfig(),
+            RagMonkConfig(),
         )
 
         result = coord.run()

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}AI providers{% endblock %}
+{% block content %}
+<h1>AI providers</h1>
+
+{% set o = overview %}
+<div class="panel">
+  <table>
+    <tr><th>Selected provider</th><td>{{ o.selected }}</td></tr>
+    <tr><th>Model</th><td>{{ o.model or "—" }}</td></tr>
+    <tr><th>Base URL</th><td class="mono">{{ o.base_url or "—" }}</td></tr>
+    <tr><th>Authentication</th><td>{{ o.auth_status }}</td></tr>
+    <tr><th>External AI allowed</th><td>{{ "yes" if o.external_ai_allowed else "no" }}</td></tr>
+  </table>
+  <p class="muted">Credentials are never displayed — only whether a provider is configured.</p>
+</div>
+
+{% if test_result %}
+<div class="alert {{ 'success' if test_result.ok else 'error' }}">
+  <strong>{{ test_result.provider }}:</strong> {{ test_result.detail }}
+  {% if test_result.get("account") %}(account: {{ test_result.account }}){% endif %}
+</div>
+{% endif %}
+
+<h2>Available providers</h2>
+<div class="panel">
+  <table>
+    <thead><tr><th>Provider</th><th>Cloud</th><th>Auth</th><th>Key env</th><th></th></tr></thead>
+    <tbody>
+      {% for p in o.providers %}
+      <tr>
+        <td>{{ p.display_name }} {% if p.beta %}<span class="badge warn">beta</span>{% endif %}
+            {% if p.selected %}<span class="badge ok">selected</span>{% endif %}</td>
+        <td>{{ "yes" if p.cloud_egress else "no" }}</td>
+        <td>{{ "account" if p.subscription else ("api key" if p.api_key_env else "local") }}</td>
+        <td class="mono">{{ p.api_key_env or "—" }}</td>
+        <td class="right">
+          <form class="inline" hx-post="/ai/test" hx-swap="none">
+            <input type="hidden" name="provider" value="{{ p.provider_id }}">
+            <button class="btn small" type="submit">Test</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Select and configure the provider via <a href="/config">Configuration → ai</a>.</p>
+</div>
+{% endblock %}

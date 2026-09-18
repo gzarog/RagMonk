@@ -1,8 +1,8 @@
 """End-to-end: index a small project mixing code and documents where a
 doc explicitly mentions a code symbol by qualified name and by filename,
-run ``ragpilot index``, and confirm ``ragpilot link list --json`` shows
+run ``ragmonk index``, and confirm ``ragmonk link list --json`` shows
 the expected auto-discovered cross-domain relationships with correct
-confidence -- and that a manually-added link via ``ragpilot link add``
+confidence -- and that a manually-added link via ``ragmonk link add``
 also appears and survives a re-index.
 """
 
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
+from ragmonk.cli.main import app
 
 SOURCE_ID_RE = re.compile(r"Added source (\S+)")
 
@@ -53,7 +53,7 @@ def _links(runner: CliRunner) -> list[dict]:
 
 
 def test_cross_domain_auto_linking_and_manual_link_persist(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
 ) -> None:
     root = tmp_path / "project"
     _write_project(root)

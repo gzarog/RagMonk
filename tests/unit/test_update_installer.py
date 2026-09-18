@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from ragpilot import __version__
-from ragpilot.update import checker, installer
-from ragpilot.update.installer import InstallMethod, UpdateInstallError
-from ragpilot.update.models import ReleaseInfo
+from ragmonk import __version__
+from ragmonk.update import checker, installer
+from ragmonk.update.installer import InstallMethod, UpdateInstallError
+from ragmonk.update.models import ReleaseInfo
 
 _NEWER_TAG = "v999.0.0"
 _NEWER_VERSION = "999.0.0"
@@ -43,7 +43,7 @@ class TestDetectInstallMethod:
         home = tmp_path
         home.mkdir(parents=True, exist_ok=True)
         (home / "install_info.json").write_text(
-            json.dumps({"install_method": "install-script", "repository": "gzarog/Ragpilotv2"}),
+            json.dumps({"install_method": "install-script", "repository": "gzarog/RagMonk"}),
             encoding="utf-8",
         )
         assert installer.detect_install_method(home) is InstallMethod.INSTALL_SCRIPT
@@ -161,7 +161,7 @@ class TestInstallLatest:
 
         argv, env = runner.calls[0]
         assert _NEWER_TAG not in " ".join(argv)
-        assert env == {"RAGPILOT_REF": _NEWER_TAG}
+        assert env == {"RAGMONK_REF": _NEWER_TAG}
 
     def test_pipx_install_runs_pipx_install_force(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

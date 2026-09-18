@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-from ragpilot.core.config import UpdatesConfig
-from ragpilot.update import background, cache, checker
-from ragpilot.update.models import ReleaseInfo, UpdateCache
+from ragmonk.core.config import UpdatesConfig
+from ragmonk.update import background, cache, checker
+from ragmonk.update.models import ReleaseInfo, UpdateCache
 
 
 def _cache_entry(*, last_checked: str, latest_version: str = "0.1.8") -> UpdateCache:
@@ -23,7 +23,7 @@ def _cache_entry(*, last_checked: str, latest_version: str = "0.1.8") -> UpdateC
         last_checked=last_checked,
         installed_version="0.1.7",
         latest_version=latest_version,
-        release_url="https://github.com/gzarog/Ragpilotv2/releases/tag/v0.1.8",
+        release_url="https://github.com/gzarog/RagMonk/releases/tag/v0.1.8",
     )
 
 
@@ -82,7 +82,7 @@ class TestMaybeLaunchBackgroundCheck:
 
         assert len(calls) == 1
         argv = calls[0][0][0]
-        assert argv[1:3] == ["-m", "ragpilot.update.background"]
+        assert argv[1:3] == ["-m", "ragmonk.update.background"]
         assert argv[3] == str(tmp_path)
         assert calls[0][1]["start_new_session"] is True
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from ragpilot.retrieval import embedder
+from ragmonk.retrieval import embedder
 
 
 def test_embedding_model_id_and_dim_are_stable_constants() -> None:
@@ -56,7 +56,7 @@ def test_embed_texts_returns_normalized_vectors_of_the_expected_dimension() -> N
 
 @pytest.mark.embedding_model
 def test_embed_texts_puts_similar_sentences_closer_than_dissimilar_ones() -> None:
-    from ragpilot.retrieval.vectorstore import cosine_similarity
+    from ragmonk.retrieval.vectorstore import cosine_similarity
 
     vectors = embedder.embed_texts(
         [

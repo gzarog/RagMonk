@@ -47,10 +47,10 @@ from benchmarks.search_quality.evaluator import load_golden_queries
 from benchmarks.search_quality.fixture_project import write_project
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core.config import SearchRerankerConfig
-from ragpilot.core.lifecycle import AppContext
-from ragpilot.retrieval import lexical, merger, neural_reranker, reranker, semantic
+from ragmonk.cli.main import app
+from ragmonk.core.config import SearchRerankerConfig
+from ragmonk.core.lifecycle import AppContext
+from ragmonk.retrieval import lexical, merger, neural_reranker, reranker, semantic
 
 DEFAULT_TOP_N = SearchRerankerConfig().top_n
 DEFAULT_WARM_REPEATS = 10
@@ -78,25 +78,25 @@ def _index_fixture_project(base: Path) -> tuple[Path, Path]:
     root = base / "project"
     write_project(root)
 
-    previous_home = os.environ.get("RAGPILOT_HOME")
-    previous_semantic = os.environ.get("RAGPILOT_SEARCH__SEMANTIC")
-    os.environ["RAGPILOT_HOME"] = str(home)
-    os.environ["RAGPILOT_SEARCH__SEMANTIC"] = "true"
+    previous_home = os.environ.get("RAGMONK_HOME")
+    previous_semantic = os.environ.get("RAGMONK_SEARCH__SEMANTIC")
+    os.environ["RAGMONK_HOME"] = str(home)
+    os.environ["RAGMONK_SEARCH__SEMANTIC"] = "true"
     try:
         runner = CliRunner()
         for args in (["init"], ["source", "add", str(root)], ["index"]):
             result = runner.invoke(app, args)
             if result.exit_code != 0:
-                raise RuntimeError(f"`ragpilot {' '.join(args)}` failed: {result.output}")
+                raise RuntimeError(f"`ragmonk {' '.join(args)}` failed: {result.output}")
     finally:
         if previous_home is None:
-            os.environ.pop("RAGPILOT_HOME", None)
+            os.environ.pop("RAGMONK_HOME", None)
         else:
-            os.environ["RAGPILOT_HOME"] = previous_home
+            os.environ["RAGMONK_HOME"] = previous_home
         if previous_semantic is None:
-            os.environ.pop("RAGPILOT_SEARCH__SEMANTIC", None)
+            os.environ.pop("RAGMONK_SEARCH__SEMANTIC", None)
         else:
-            os.environ["RAGPILOT_SEARCH__SEMANTIC"] = previous_semantic
+            os.environ["RAGMONK_SEARCH__SEMANTIC"] = previous_semantic
     return home, root
 
 
@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     golden = load_golden_queries()
-    with tempfile.TemporaryDirectory(prefix="ragpilot-reranker-eval-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="ragmonk-reranker-eval-") as tmp:
         base = Path(tmp)
         home, root = _index_fixture_project(base)
         ctx = AppContext.bootstrap(home=home, cwd=root.parent)

@@ -1,6 +1,6 @@
 """End-to-end Phase 9 semantic retrieval: index a small project with
 ``search.semantic`` enabled, verify embeddings actually get computed and
-stored, verify ``ragpilot search``/``ragpilot explore`` surface a
+stored, verify ``ragmonk search``/``ragmonk explore`` surface a
 semantic-tier result distinctly from lexical/graph results, verify
 behavior is unchanged with ``search.semantic`` left at its default
 ``false``, and verify graceful degradation when embeddings are missing/
@@ -24,11 +24,11 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
-from ragpilot.retrieval import embedder
-from ragpilot.storage.repositories import embeddings_repo
-from ragpilot.storage.sqlite import connect
+from ragmonk.cli.main import app
+from ragmonk.core import paths
+from ragmonk.retrieval import embedder
+from ragmonk.storage.repositories import embeddings_repo
+from ragmonk.storage.sqlite import connect
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "documents"
 
@@ -66,7 +66,7 @@ def _fake_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_semantic_disabled_by_default_leaves_search_and_explore_unaffected(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "project"
     _write_project(root)
@@ -79,7 +79,7 @@ def test_semantic_disabled_by_default_leaves_search_and_explore_unaffected(
     assert "embedded=0" in index_result.output
 
     project_id = paths.project_id_for_path(root)
-    conn = connect(paths.project_db_path(project_id, ragpilot_home))
+    conn = connect(paths.project_db_path(project_id, ragmonk_home))
     try:
         assert embeddings_repo.count_all(conn) == 0
     finally:
@@ -101,12 +101,12 @@ def test_semantic_disabled_by_default_leaves_search_and_explore_unaffected(
 
 
 def test_semantic_enabled_computes_embeddings_and_surfaces_semantic_results(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "project"
     _write_project(root)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
@@ -115,7 +115,7 @@ def test_semantic_enabled_computes_embeddings_and_surfaces_semantic_results(
     assert "embedded=0" not in index_result.output
 
     project_id = paths.project_id_for_path(root)
-    conn = connect(paths.project_db_path(project_id, ragpilot_home))
+    conn = connect(paths.project_db_path(project_id, ragmonk_home))
     try:
         stored = embeddings_repo.count_all(conn)
         assert stored > 0
@@ -154,7 +154,7 @@ def test_semantic_enabled_computes_embeddings_and_surfaces_semantic_results(
 
 
 def test_semantic_search_surfaces_phase_10_document_formats(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Search Quality Improvement Plan, Phase 10's new formats flow through
     semantic search exactly like every earlier format: their real,
@@ -172,7 +172,7 @@ def test_semantic_search_surfaces_phase_10_document_formats(
     shutil.copy(FIXTURES / "document.odt", root / "document.odt")
     shutil.copy(FIXTURES / "simple.csv", root / "simple.csv")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
@@ -181,7 +181,7 @@ def test_semantic_search_surfaces_phase_10_document_formats(
     assert "embedded=0" not in index_result.output
 
     project_id = paths.project_id_for_path(root)
-    conn = connect(paths.project_db_path(project_id, ragpilot_home))
+    conn = connect(paths.project_db_path(project_id, ragmonk_home))
     try:
         assert embeddings_repo.count_all(conn) > 0
     finally:
@@ -201,19 +201,19 @@ def test_semantic_search_surfaces_phase_10_document_formats(
 
 
 def test_semantic_enabled_degrades_gracefully_when_embeddings_are_cleared(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "project"
     _write_project(root)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
     assert runner.invoke(app, ["index"]).exit_code == 0
 
     project_id = paths.project_id_for_path(root)
-    conn = connect(paths.project_db_path(project_id, ragpilot_home))
+    conn = connect(paths.project_db_path(project_id, ragmonk_home))
     try:
         assert embeddings_repo.count_all(conn) > 0
         embeddings_repo.clear_all(conn)
@@ -236,7 +236,7 @@ def test_semantic_enabled_degrades_gracefully_when_embeddings_are_cleared(
 
 
 def test_semantic_enabled_degrades_gracefully_when_the_model_is_unavailable(
-    ragpilot_home: Path,
+    ragmonk_home: Path,
     runner: CliRunner,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -244,7 +244,7 @@ def test_semantic_enabled_degrades_gracefully_when_the_model_is_unavailable(
     root = tmp_path / "project"
     _write_project(root)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     def _raise(texts: list[str]) -> list[list[float]]:
         raise embedder.EmbeddingModelUnavailableError("simulated: no network")
@@ -267,7 +267,7 @@ def test_semantic_enabled_degrades_gracefully_when_the_model_is_unavailable(
 
 
 def test_lazy_semantic_skips_semantic_search_on_a_high_confidence_hit(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Blueprint section 18: with ``search.lazy_semantic`` on, a query the
     lexical pass already answers with high confidence (an exact symbol
@@ -276,8 +276,8 @@ def test_lazy_semantic_skips_semantic_search_on_a_high_confidence_hit(
     root = tmp_path / "project"
     _write_project(root)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
-    monkeypatch.setenv("RAGPILOT_SEARCH__LAZY_SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__LAZY_SEMANTIC", "true")
 
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
@@ -298,7 +298,7 @@ def test_lazy_semantic_skips_semantic_search_on_a_high_confidence_hit(
 
 
 def test_explain_reports_per_stage_timings(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "project"
     _write_project(root)
@@ -324,16 +324,16 @@ def test_explain_reports_per_stage_timings(
 
 
 def test_vectors_rebuild_and_doctor_report_the_ann_backend(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Blueprint sections 15/32: ``ragpilot vectors rebuild`` regenerates
-    the persistent ANN index from SQLite, and ``ragpilot doctor`` reports
+    """Blueprint sections 15/32: ``ragmonk vectors rebuild`` regenerates
+    the persistent ANN index from SQLite, and ``ragmonk doctor`` reports
     which backend is active and how many vectors it holds.
     """
     root = tmp_path / "project"
     _write_project(root)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
@@ -345,10 +345,10 @@ def test_vectors_rebuild_and_doctor_report_the_ann_backend(
     assert payload["rebuilt"][0]["backend"] == "usearch"
     assert payload["rebuilt"][0]["vectors"] > 0
 
-    from ragpilot.core import paths
+    from ragmonk.core import paths
 
     project_id = paths.project_id_for_path(root)
-    index_path = paths.project_vector_index_path(project_id, ragpilot_home)
+    index_path = paths.project_vector_index_path(project_id, ragmonk_home)
     assert index_path.is_file()
 
     doctor_result = runner.invoke(app, ["doctor", "--json"])
@@ -361,7 +361,7 @@ def test_vectors_rebuild_and_doctor_report_the_ann_backend(
 
 
 def test_hybrid_flag_merges_and_reranks_without_changing_existing_keys(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Blueprint sections 21/22: ``--hybrid`` adds a merged, reranked
     view alongside (never instead of) the existing ``results``/
@@ -375,7 +375,7 @@ def test_hybrid_flag_merges_and_reranks_without_changing_existing_keys(
     root = tmp_path / "project"
     _write_project(root)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
@@ -399,7 +399,7 @@ def test_hybrid_flag_merges_and_reranks_without_changing_existing_keys(
 
 
 def test_reranker_disabled_by_default_leaves_hybrid_output_unchanged(
-    ragpilot_home: Path,
+    ragmonk_home: Path,
     runner: CliRunner,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -410,7 +410,7 @@ def test_reranker_disabled_by_default_leaves_hybrid_output_unchanged(
     making the neural pass reverse order if it ever ran (a change that
     would be impossible to miss) and asserting the output is unaffected.
     """
-    from ragpilot.retrieval import neural_reranker
+    from ragmonk.retrieval import neural_reranker
 
     def _reversing_score_batch(_query: str, texts: list[str]) -> list[float]:
         return list(range(len(texts)))
@@ -420,7 +420,7 @@ def test_reranker_disabled_by_default_leaves_hybrid_output_unchanged(
     root = tmp_path / "project"
     _write_project(root)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
@@ -439,7 +439,7 @@ def test_reranker_disabled_by_default_leaves_hybrid_output_unchanged(
 
 
 def test_reranker_enabled_reorders_the_hybrid_view_and_falls_back_gracefully(
-    ragpilot_home: Path,
+    ragmonk_home: Path,
     runner: CliRunner,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -451,12 +451,12 @@ def test_reranker_enabled_reorders_the_hybrid_view_and_falls_back_gracefully(
     raises ``NeuralRerankerUnavailableError`` falls back to the unpatched
     RRF order instead of failing the search.
     """
-    from ragpilot.retrieval import neural_reranker
+    from ragmonk.retrieval import neural_reranker
 
     root = tmp_path / "project"
     _write_project(root)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("RAGPILOT_SEARCH__SEMANTIC", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
@@ -471,7 +471,7 @@ def test_reranker_enabled_reorders_the_hybrid_view_and_falls_back_gracefully(
     baseline_ids = [h["id"] for h in json.loads(baseline_result.output)["data"]["hybrid"]]
     assert len(baseline_ids) >= 2
 
-    monkeypatch.setenv("RAGPILOT_SEARCH__RERANKER__ENABLED", "true")
+    monkeypatch.setenv("RAGMONK_SEARCH__RERANKER__ENABLED", "true")
 
     def _reversing_score_batch(_query: str, texts: list[str]) -> list[float]:
         return list(range(len(texts)))

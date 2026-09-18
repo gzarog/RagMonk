@@ -1,4 +1,4 @@
-"""``ragpilot daemon start|stop|restart`` against a real, detached OS
+"""``ragmonk daemon start|stop|restart`` against a real, detached OS
 process. Marked ``daemon_subprocess`` and excluded from the default run
 (see ``pyproject.toml``) -- spawning and signaling a real process is
 slower and more platform-fragile than anything else in the suite, the
@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ragpilot.cli.main import app
-from ragpilot.core import paths
+from ragmonk.cli.main import app
+from ragmonk.core import paths
 
 pytestmark = pytest.mark.daemon_subprocess
 
@@ -30,7 +30,7 @@ def _pid_owns_a_visible_window(  # pragma: no cover - exercised only on Windows
     pid: int, *, timeout_seconds: float = 3.0
 ) -> bool:
     """True if any top-level window on the desktop belongs to ``pid`` --
-    the real-world, live-reported symptom this guards against (`ragpilot
+    the real-world, live-reported symptom this guards against (`ragmonk
     daemon start` popping open a second, visible console window instead
     of returning silently) has no CI-visible trace beyond an actual
     window existing on the runner's desktop, so this checks the Win32
@@ -67,7 +67,7 @@ def _pid_owns_a_visible_window(  # pragma: no cover - exercised only on Windows
 
 
 def test_daemon_start_stop_full_cycle(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -77,7 +77,7 @@ def test_daemon_start_stop_full_cycle(
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(source_dir)]).exit_code == 0
 
-    daemon_log = paths.logs_dir(ragpilot_home) / "daemon.out.log"
+    daemon_log = paths.logs_dir(ragmonk_home) / "daemon.out.log"
     start = runner.invoke(app, ["daemon", "start"])
     assert start.exit_code == 0, (start.output, daemon_log.read_text())
 
@@ -114,7 +114,7 @@ def test_daemon_start_stop_full_cycle(
 
 
 def test_daemon_restart_stops_and_starts_a_fresh_process(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
 ) -> None:
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -142,9 +142,9 @@ def test_daemon_restart_stops_and_starts_a_fresh_process(
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only spawn-flag regression")
 def test_daemon_start_on_windows_opens_no_visible_window(
-    ragpilot_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch
 ) -> None:
-    # Reported live: `ragpilot daemon start` popped open a second, visible
+    # Reported live: `ragmonk daemon start` popped open a second, visible
     # console window instead of returning silently to the caller's own
     # terminal -- DETACHED_PROCESS alone doesn't reliably suppress a
     # console window for a console-subsystem child (python.exe) on

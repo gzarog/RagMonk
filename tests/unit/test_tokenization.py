@@ -1,13 +1,18 @@
+"""Exact Tokenizer plan, Phase 2: ``documents/tokenization.py`` now
+delegates to the real embedding tokenizer, so these assert exact
+tokenizer behavior/properties rather than the old ~4-chars-per-token
+estimator's specific numbers (which were deliberately removed)."""
+
 from __future__ import annotations
 
-from ragpilot.documents.tokenization import count_tokens, split_by_token_budget, split_sentences
+from ragmonk.documents.tokenization import count_tokens, split_by_token_budget, split_sentences
 
 
 def test_count_tokens_empty_string_is_zero() -> None:
     assert count_tokens("") == 0
 
 
-def test_count_tokens_counts_a_four_char_word_as_one_token() -> None:
+def test_count_tokens_counts_a_common_word_as_one_token() -> None:
     assert count_tokens("word") == 1
 
 
@@ -15,18 +20,22 @@ def test_count_tokens_counts_punctuation_as_its_own_token() -> None:
     assert count_tokens("hi!") == count_tokens("hi") + 1
 
 
-def test_count_tokens_scales_with_word_length() -> None:
-    assert count_tokens("a" * 4) == 1
-    assert count_tokens("a" * 5) == 2
-    assert count_tokens("a" * 8) == 2
-    assert count_tokens("a" * 9) == 3
+def test_count_tokens_grows_with_word_length() -> None:
+    # The exact WordPiece tokenizer breaks a long unknown word into more
+    # sub-word tokens, so the count is non-decreasing in length and a long
+    # word costs more than a single token (kept under WordPiece's
+    # 100-char-per-word cap, past which a word collapses to one [UNK]).
+    assert count_tokens("a") == 1
+    counts = [count_tokens("a" * n) for n in (1, 4, 8, 16, 32)]
+    assert counts == sorted(counts)
+    assert counts[-1] > counts[0]
 
 
 def test_count_tokens_is_not_a_flat_character_proxy() -> None:
     # Same character count, very different real word-shape -- a raw
-    # len(text)/4 proxy would score these identically; the real
-    # piece-based estimator should not.
-    many_short_words = "a bb ccc dddd " * 4  # lots of punctuation-free short words
+    # len(text)/4 proxy would score these identically; the exact
+    # tokenizer does not.
+    many_short_words = "the cat dog run " * 4  # lots of punctuation-free short words
     one_long_word = "a" * len(many_short_words)
     assert count_tokens(many_short_words) != count_tokens(one_long_word)
 

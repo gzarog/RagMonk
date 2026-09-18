@@ -7,6 +7,268 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Admin UI plan: a built-in, **local-first administration web interface**,
+started with `ragmonk ui`.
+
+### Added
+
+- **`ragmonk ui`** starts a FastAPI + Jinja2 + HTMX admin app on
+  `127.0.0.1:8765` (options `--host`, `--port`, `--no-browser`) and opens
+  the browser. HTMX is vendored as a static asset and the templates/assets
+  ship inside the wheel, so the UI needs no Node.js and works fully
+  offline.
+- **Admin screens** for the dashboard, sources (add/enable/disable/remove +
+  detail), indexing (start/rebuild/failed-files + live SSE progress),
+  documents (filter/paginate + chunk inspection), search
+  (lexical/semantic/hybrid), code knowledge (symbols/callers/callees/
+  references/impact), AI providers (status + connectivity test), typed
+  configuration editing, daemon control, health, backups (create/download/
+  restore) + update status, logs, and system info.
+- A reusable **application-service layer** (`ragmonk.service.*`:
+  `status_service`, `source_service`, `index_service`, `document_service`,
+  `search_service`, `config_service`, `health_service`, `backup_service`,
+  `daemon_service`, `ai_service`, `knowledge_service`, `logs_service`) that
+  the UI calls directly — it never shells out to CLI commands. `ragmonk
+  status` now reads the same `status_service.collect_status` the dashboard
+  and the `ragmonk_status` MCP tool use.
+- **Security controls** (localhost-only default, double-submit CSRF token,
+  Host-header validation against DNS rebinding, explicit confirmation on
+  destructive actions, and credentials never rendered — only
+  configured/not-configured). No authentication is included: the release is
+  localhost-only and single-user.
+- Documentation: `docs/ui.md` and a README section.
+
+### Notes
+
+- New runtime dependencies (`fastapi`, `uvicorn`, `jinja2`,
+  `python-multipart`) are imported only when `ragmonk ui` runs; every other
+  command path stays free of the web stack.
+
+## [0.3.4]
+
+Exact Tokenizer work, Phase 5 (final): **diagnostics and observability**.
+This completes the exact-tokenizer series.
+
+### Added
+
+- `ragmonk doctor` gains a **Tokenizer** section reporting the pinned
+  model id, revision and asset fingerprint, the model's maximum sequence
+  length and the effective chunk ceiling, and -- by scanning every stored
+  embedding payload against the model's real input limit -- a
+  **truncation count that must remain zero** (the section fails if any
+  payload would be silently truncated). This proves which tokenizer the
+  active index was built with and that no payload exceeds the model limit.
+- `ragmonk status --json` includes a `tokenizer` block (identity + chunk
+  ceiling); `ragmonk search --explain` reports the tokenizer identity.
+- Structured log events: `tokenizer_loaded` on tokenizer initialization,
+  and a per-document `chunk_budget_diagnostics` event (context reductions,
+  budget splits, oversized-table segmentation, max observed payload) that
+  escalates to a `chunk_budget_invariant_violation` WARNING if a payload
+  ever breaks the no-silent-truncation invariant.
+- `tokenization.diagnostics` (`tokenizer_identity` / `scan_payloads`) and
+  `documents_repo.iter_embedding_texts` back the above.
+
+### Notes
+
+- The chunker's `ChunkingDiagnostics` counters are now collected during
+  real indexing (wired through `documents/pipeline.py`).
+
+## [0.3.3]
+
+Exact Tokenizer work, Phase 4: **index identity + recoverable rebuild**.
+
+### Changed
+
+- The document index-derivation identity (`document_version_stamp`) now
+  embeds the exact tokenizer's identity -- pinned revision, asset
+  fingerprint and maximum sequence length -- inside `chunker_version`.
+  Because chunk boundaries depend on the tokenizer's bytes and the budget
+  ceiling, any tokenizer change now reprocesses affected files through the
+  existing graceful version-drift path (`decide_reprocessing`) on the next
+  `index` run. No hard index rejection is imposed: an index built by the
+  old estimator is simply detected as stale and rebuilt from its source
+  files, file by file, like any other version bump.
+
+### Added
+
+- `ragmonk rebuild --fresh [--yes]`: a recoverable rebuild from source
+  files. Each project's existing derived state (`knowledge.db` + vector
+  index + metadata) is moved aside to `*.old` backups, the fresh index is
+  built in its place, and the backups are discarded only once the rebuild
+  completes without error. A rebuild that fails mid-way is rolled back to
+  the previously active index, so a failed `rebuild --fresh` never leaves
+  a source without a usable index. Registered source roots are verified
+  reachable before anything is touched; `--fresh` prompts for confirmation
+  unless `--yes` (or `--json`) is given. Source files are never modified.
+
+## [0.3.2]
+
+Exact Tokenizer work, Phase 3: **exact table budgeting**.
+
+### Changed
+
+- Table chunks are now budgeted against the exact contextual payload
+  (caption + repeated header + row text + contextual breadcrumb + special
+  tokens), split at row boundaries when the whole table overflows.
+- The previous "oversized single row kept whole" exception -- which could
+  still produce an embedding payload beyond the model limit -- is removed.
+  A single data row that alone exceeds the budget is now segmented at
+  **cell boundaries**, and a single cell that still overflows is
+  **token-split** into fragments. Every child segment repeats the relevant
+  column header(s) and a `Row N` provenance marker, so no table embedding
+  payload exceeds the model limit and row/column/table provenance is
+  preserved (`documents/table_renderer.segment_oversized_row`).
+- `ChunkingDiagnostics` now records `oversized_table_rows` and
+  `oversized_table_cells`; `max_payload_tokens` is measured over the
+  emitted chunks only.
+
+## [0.3.1]
+
+Exact Tokenizer work, Phase 2: **exact, payload-aware paragraph budgeting**.
+
+### Changed
+
+- The document chunker (`documents/chunker.py`) now budgets every chunk
+  against the **exact** embedding tokenizer and against the **full
+  contextual payload** the embedder actually sees -- document title,
+  section/heading breadcrumb, separators, body, and the model's special
+  tokens -- not just the raw body. The guaranteed invariant for every
+  embeddable chunk is `exact_tokens(contextual_text, with special tokens)
+  <= max_tokens - safety_tokens`, so no normal embedding payload relies on
+  the model silently truncating an over-long input.
+- `documents/tokenization.py` no longer estimates: `count_tokens` and
+  `split_by_token_budget` delegate to the exact tokenizer (the old
+  `_PIECE_RE` / `_CHARS_PER_TOKEN` estimator is removed). Sentence-first
+  splitting is retained, with an exact sub-word fallback for a single word
+  that alone exceeds the budget.
+- Long contextual headers are reduced deterministically when they would
+  starve the body budget: keep the deepest/current heading, then the
+  title, dropping oldest intermediate ancestors first, and only
+  token-truncating an individually oversized heading/title as a last
+  resort. The evidence body is never truncated to keep a breadcrumb.
+
+### Configuration
+
+- `documents.chunking.max_tokens` now defaults to `auto` (resolves to the
+  embedding model's real maximum sequence length, 256) and represents the
+  full model input ceiling. An explicit integer above the model limit is
+  rejected (it would permit silent truncation).
+- New `documents.chunking.safety_tokens` (default 4): a reserve kept below
+  the model limit. `min_tokens`/`overlap_tokens` are now exact token
+  counts.
+
+### Notes
+
+- The chunker exposes an optional `ChunkingDiagnostics` accumulator
+  (chunks split by budget, contextual headers reduced, oversized table
+  rows, max observed payload) that `doctor`/`status` will surface in a
+  later phase.
+- `chunker_version`/`embedding_text_version` advance to `2`, so existing
+  derived indexes rebuild their chunks/vectors from source on the next
+  index run.
+
+## [0.3.0]
+
+Start of the **Exact Tokenizer** work: RagMonk is moving from an
+approximate ~4-characters-per-token estimator to the real tokenizer of
+its embedding model (`sentence-transformers/all-MiniLM-L6-v2`), so every
+embedding payload can be budgeted against the model's true input limit.
+This ships across several releases (0.3.x); each is independently
+testable, and the clean-break index rejection is deliberately staged for
+a later release.
+
+### Added
+
+- **Pinned, bundled, offline exact tokenizer** (`ragmonk.tokenization`).
+  A new `ModelTokenizer` service loads the real WordPiece tokenizer for
+  the embedding model from tokenizer assets bundled inside the package at
+  a pinned Hugging Face revision
+  (`1110a243fdf4706b3f48f1d95db1a4f5529b4d41`). It:
+  - counts exact tokens (with or without the model's `[CLS]`/`[SEP]`
+    special tokens) and splits text at exact sub-word boundaries;
+  - loads lazily on first use and is cached once per process;
+  - reads only bundled files -- it never contacts Hugging Face during
+    indexing;
+  - verifies every bundled asset against a SHA-256 manifest on load and
+    fails loudly (no silent fallback to the old estimator) if an asset is
+    missing or modified.
+- `tokenizers` is now a direct, version-pinned dependency (it loads local
+  files only -- no network, no `torch`, no `transformers`).
+- One source of truth for the embedding-model / tokenizer identity
+  (`ragmonk.tokenization.model_identity`); `retrieval/embedder.py` now
+  imports `EMBEDDING_MODEL_ID` from it so the embedder and tokenizer can
+  never drift onto two different models.
+- `scripts/refresh_tokenizer_assets.py`, a maintainer tool to re-download
+  and re-hash the bundled assets when the pinned revision changes.
+
+### Notes
+
+- Exact-tokenizer tests run in the **default** (offline) test suite --
+  the bundled assets need no network or model-weight download.
+- Lightweight CLI commands (`--help`, `version`, ...) still never import
+  or initialize the tokenizer; the startup-import regression test now
+  guards `tokenizers` too.
+
+## [0.2.0]
+
+### Changed
+
+- **Renamed the entire application from Ragpilot/RAGpilot to RagMonk as a
+  clean break.** This is a new application identity, not a compatibility
+  upgrade.
+  - Python distribution and package: `ragpilot` -> `ragmonk`
+    (source tree moved from `src/ragpilot` to `src/ragmonk`).
+  - CLI executable: `ragpilot` -> `ragmonk`.
+  - Environment-variable prefix: `RAGPILOT_*` -> `RAGMONK_*`
+    (e.g. `RAGPILOT_HOME` -> `RAGMONK_HOME`).
+  - Runtime home: `~/.ragpilot` / `%LOCALAPPDATA%\RAGpilot` ->
+    `~/.ragmonk` / `%LOCALAPPDATA%\RagMonk`.
+  - Project configuration: `.ragpilot.yaml` -> `.ragmonk.yaml`;
+    per-source ignore file `.ragpilotignore` -> `.ragmonkignore`.
+  - MCP server/client key `ragpilot` -> `ragmonk`; all MCP tools
+    renamed from `ragpilot_*` to `ragmonk_*`.
+  - Installers, updater, and release automation now use the
+    `gzarog/RagMonk` repository and produce `ragmonk-<version>-*`
+    artifacts, a `ragmonk-release-artifacts` CI bundle, and a
+    `ragmonk-dependency-manifest` SBOM with a `ragmonk_version` field.
+  - `RagpilotConfig`/`RagpilotError` -> `RagMonkConfig`/`RagMonkError`;
+    daemon thread names, logger names, and process labels use `ragmonk`.
+
+### Removed
+
+- **No backward compatibility.** There is intentionally no `ragpilot` CLI
+  alias, no `ragpilot` import shim, no `RAGPILOT_*` environment-variable
+  fallback, no `.ragpilot.yaml` fallback, and no migration from
+  `~/.ragpilot` or `%LOCALAPPDATA%\RAGpilot`. Existing Ragpilot databases,
+  indexes, embeddings, caches, backups, and install metadata are neither
+  read nor migrated, and are never deleted automatically.
+
+### Migration
+
+RagMonk starts with an empty knowledge base. A former Ragpilot user must
+reinstall RagMonk, re-register source folders, and rebuild the index:
+
+```bash
+ragmonk init
+ragmonk source add /path/to/source
+ragmonk index
+```
+
+Old Ragpilot data is left untouched; optional manual cleanup is documented
+in `README.md`.
+
+### Added
+
+- `scripts/check_branding.py`, run in CI, fails the build if any old
+  pre-rename product identifier survives outside the narrow historical /
+  clean-break allowlist.
+- `.github/workflows/main-release.yml` now recognizes a controlled
+  `[release minor]` merge marker that bumps the minor version (advancing
+  `v0.1.x` directly to `v0.2.0`) instead of the default patch bump, and
+  refuses to overwrite an existing tag.
+
+## [Unreleased]
+
 ### Added
 
 - Phase 1: Production Foundation.
