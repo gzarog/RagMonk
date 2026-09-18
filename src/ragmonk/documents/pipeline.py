@@ -36,21 +36,49 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _tokenizer_index_identity() -> str:
+    """The exact tokenizer's contribution to the chunk-derivation identity
+    (Exact Tokenizer plan, Phase 4).
+
+    Chunk boundaries depend on the exact tokenizer's *bytes* and on the
+    model's maximum sequence length (the budget ceiling), so the pinned
+    revision, the asset fingerprint and the max-sequence-length are all
+    folded into ``chunker_version``. Bumping the pinned tokenizer -- even
+    with no chunker code change -- therefore changes the stored stamp and
+    triggers the existing graceful reprocessing
+    (``indexing/incremental.decide_reprocessing``) for every affected file
+    on the next index run; no hard index rejection is needed. Read live
+    (never cached) so a test's monkeypatch of the identity takes effect
+    immediately.
+    """
+    from ragmonk.tokenization import model_identity
+
+    return (
+        f"tok:{model_identity.TOKENIZER_REVISION}"
+        f":{model_identity.tokenizer_fingerprint()}"
+        f":max{model_identity.MAX_SEQUENCE_TOKENS}"
+    )
+
+
 def document_version_stamp() -> VersionStamp:
-    """The document pipeline's current composite reuse identity (Search
-    Quality Improvement Plan, Phase 12) -- ``IndexCoordinator`` compares
-    this against a file's stored stamp (``indexing/incremental.
-    decide_reprocessing``) to decide whether an unchanged-content
-    document file still needs reprocessing.
+    """The document pipeline's current composite reuse identity
+    (``IndexCoordinator`` compares this against a file's stored stamp --
+    ``indexing/incremental.decide_reprocessing`` -- to decide whether an
+    unchanged-content document file still needs reprocessing).
 
     Reads each module's constant live (never cached) via plain attribute
     access, so a test's monkeypatch of e.g. ``chunker.CHUNKER_VERSION`` or
     ``embedder.EMBEDDING_MODEL_ID`` takes effect on this function's very
     next call, exactly as if that version had genuinely changed.
+
+    Exact Tokenizer plan, Phase 4: ``chunker_version`` now embeds the
+    exact tokenizer's identity (see ``_tokenizer_index_identity``) so the
+    index's derivation is provably tied to the tokenizer that produced it,
+    and a tokenizer change reprocesses affected files gracefully.
     """
     return VersionStamp(
         parser_version=docling_adapter.PARSER_VERSION,
-        chunker_version=chunker.CHUNKER_VERSION,
+        chunker_version=f"{chunker.CHUNKER_VERSION}+{_tokenizer_index_identity()}",
         embedding_model_id=embedder.EMBEDDING_MODEL_ID,
         embedding_text_version=chunker.EMBEDDING_TEXT_VERSION,
     )

@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 import typer
 
-from ragmonk.core.errors import IndexingPartialFailureError
+from ragmonk.core.errors import IndexingPartialFailureError, UsageError
 from ragmonk.core.lifecycle import AppContext
 from ragmonk.ops.rebuild import rebuild as run_rebuild
 
@@ -18,12 +18,34 @@ def rebuild(
     source_id: Annotated[
         str | None, typer.Option("--source", help="Only rebuild this source id.")
     ] = None,
+    fresh: Annotated[
+        bool,
+        typer.Option(
+            "--fresh",
+            help=(
+                "Recoverable rebuild from source files: the existing index is kept "
+                "as a backup until the fresh rebuild succeeds, and restored if it fails. "
+                "Use this to rebuild after the exact tokenizer changed the index identity."
+            ),
+        ),
+    ] = False,
+    yes: Annotated[
+        bool, typer.Option("--yes", help="Skip the confirmation prompt for --fresh.")
+    ] = False,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
+    if fresh and not yes and not json_output:
+        confirmed = typer.confirm(
+            "rebuild --fresh will re-index every selected source from its source files "
+            "(the old index is kept as a backup until the rebuild succeeds). Continue?"
+        )
+        if not confirmed:
+            raise UsageError("aborted: rebuild --fresh not confirmed (pass --yes to skip)")
+
     with AppContext.bootstrap() as ctx:
         lock = ctx.acquire_lock("index")
         try:
-            outcomes = run_rebuild(ctx, source_id=source_id)
+            outcomes = run_rebuild(ctx, source_id=source_id, fresh=fresh)
         finally:
             lock.release()
 
