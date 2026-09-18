@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3]
+
+Exact Tokenizer work, Phase 4: **index identity + recoverable rebuild**.
+
+### Changed
+
+- The document index-derivation identity (`document_version_stamp`) now
+  embeds the exact tokenizer's identity -- pinned revision, asset
+  fingerprint and maximum sequence length -- inside `chunker_version`.
+  Because chunk boundaries depend on the tokenizer's bytes and the budget
+  ceiling, any tokenizer change now reprocesses affected files through the
+  existing graceful version-drift path (`decide_reprocessing`) on the next
+  `index` run. No hard index rejection is imposed: an index built by the
+  old estimator is simply detected as stale and rebuilt from its source
+  files, file by file, like any other version bump.
+
+### Added
+
+- `ragmonk rebuild --fresh [--yes]`: a recoverable rebuild from source
+  files. Each project's existing derived state (`knowledge.db` + vector
+  index + metadata) is moved aside to `*.old` backups, the fresh index is
+  built in its place, and the backups are discarded only once the rebuild
+  completes without error. A rebuild that fails mid-way is rolled back to
+  the previously active index, so a failed `rebuild --fresh` never leaves
+  a source without a usable index. Registered source roots are verified
+  reachable before anything is touched; `--fresh` prompts for confirmation
+  unless `--yes` (or `--json`) is given. Source files are never modified.
+
 ## [0.3.2]
 
 Exact Tokenizer work, Phase 3: **exact table budgeting**.
