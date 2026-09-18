@@ -24,9 +24,17 @@ try:
 except ImportError:  # pragma: no cover - exercised only on non-POSIX platforms
     fcntl = None  # type: ignore[assignment]
 
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - exercised only on non-Windows platforms
+    msvcrt = None  # type: ignore[assignment]
+
 
 class RunLock:
-    """Best-effort exclusive lock; a no-op fallback where flock is unavailable."""
+    """Cross-platform exclusive file lock.
+
+    Uses fcntl.flock on POSIX and msvcrt.locking on Windows.
+    """
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -37,12 +45,20 @@ class RunLock:
         self._handle = self._path.open("w")  # noqa: SIM115 - handle outlives this call
         if fcntl is not None:
             fcntl.flock(self._handle, fcntl.LOCK_EX)
+        elif msvcrt is not None:
+            msvcrt.locking(self._handle.fileno(), msvcrt.LK_LOCK, 1)
 
     def release(self) -> None:
         if self._handle is None:
             return
         if fcntl is not None:
             fcntl.flock(self._handle, fcntl.LOCK_UN)
+        elif msvcrt is not None:
+            try:
+                self._handle.seek(0)
+                msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
         self._handle.close()
         self._handle = None
 

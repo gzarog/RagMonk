@@ -239,6 +239,14 @@ class Daemon:
                 continue
             try:
                 self._run_pass(source_id)
+            except Exception:
+                log_event(
+                    _logger,
+                    "daemon_pass_error",
+                    level=logging.ERROR,
+                    source_id=source_id,
+                    exc_info=True,
+                )
             finally:
                 self._queue.task_done()
 
