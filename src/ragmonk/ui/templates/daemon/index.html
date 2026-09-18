@@ -4,45 +4,27 @@
 <h1>Daemon</h1>
 
 <div class="panel">
-  <div class="spread">
-    <div>
-      {% if daemon.running %}
-      <span class="badge ok">RUNNING</span> pid {{ daemon.pid }} · started {{ daemon.started_at }}
-      {% else %}
-      <span class="badge muted">STOPPED</span>
-      {% endif %}
-    </div>
-    <div>
-      {% if daemon.running %}
-      <button class="btn" hx-post="/daemon/restart" hx-swap="none">Restart</button>
-      <button class="btn danger" hx-post="/daemon/stop" hx-swap="none"
-              hx-confirm="Stop the background daemon?">Stop</button>
-      {% else %}
-      <button class="btn primary" hx-post="/daemon/start" hx-swap="none">Start</button>
-      {% endif %}
-    </div>
-  </div>
-  <p class="muted">Last reconciliation: {{ daemon.last_reconciliation_at or "—" }}</p>
+  {% include "daemon/_panel.html" %}
 </div>
 
-<h2>Watched sources</h2>
+<h2>Daemon log</h2>
 <div class="panel">
-  {% if daemon.sources %}
-  <table>
-    <thead><tr><th>Source</th><th>Type</th><th>Online</th><th>Last pass</th></tr></thead>
-    <tbody>
-      {% for s in daemon.sources %}
-      <tr>
-        <td class="mono">{{ s.path }}</td>
-        <td>{{ s.source_type }}</td>
-        <td>{% if s.online %}<span class="badge ok">online</span>{% else %}<span class="badge danger">offline</span>{% endif %}</td>
-        <td class="muted">{{ s.last_pass_at or "—" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="muted">Daemon is not reporting any watched sources.</p>
-  {% endif %}
+  {% include "daemon/_logs.html" %}
 </div>
+
+<style>
+  .log-output {
+    background: var(--bg-code, #1e1e1e);
+    color: var(--fg-code, #d4d4d4);
+    padding: 1rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+  }
+</style>
 {% endblock %}

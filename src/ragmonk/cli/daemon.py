@@ -30,6 +30,38 @@ from ._common import cli_command, console, print_json
 
 app = typer.Typer(no_args_is_help=True, help="Manage the RagMonk background daemon.")
 
+
+def _launch_dashboard(port: int = 8765) -> None:
+    """Start the web UI in a background process and open the daemon page."""
+    import contextlib
+    import webbrowser
+
+    url = f"http://127.0.0.1:{port}/daemon"
+    ui_log = paths.logs_dir() / "ui.out.log"
+    ui_log.parent.mkdir(parents=True, exist_ok=True)
+    log_file = ui_log.open("a", encoding="utf-8")
+    kwargs: dict[str, Any] = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            | subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
+            | subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+        )
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen(
+        [sys.executable, "-m", "ragmonk.cli.main", "ui", "--no-browser", "--port", str(port)],
+        stdin=subprocess.DEVNULL,
+        stdout=log_file,
+        stderr=log_file,
+        close_fds=True,
+        **kwargs,
+    )
+    time.sleep(1.5)
+    with contextlib.suppress(Exception):
+        webbrowser.open(url)
+    console.print(f"[green]Web dashboard[/green] opening at {url}")
+
 # A background daemon process needs a moment to import, bootstrap
 # AppContext, apply migrations and subscribe its first watchers before
 # its health snapshot exists -- generous but bounded so a genuinely
@@ -88,11 +120,22 @@ def _spawn(home: Path) -> int:
 
 @app.command("start")
 @cli_command
-def start() -> None:
+def start(
+    open_ui: Annotated[
+        bool,
+        typer.Option("--ui", help="Open the web dashboard after starting the daemon."),
+    ] = False,
+    ui_port: Annotated[
+        int,
+        typer.Option("--ui-port", help="Port for the web dashboard (used with --ui)."),
+    ] = 8765,
+) -> None:
     with AppContext.bootstrap() as ctx:
         existing = pid.running_daemon(ctx.home)
         if existing is not None:
             console.print(f"[yellow]Daemon already running[/yellow] (pid {existing.pid})")
+            if open_ui:
+                _launch_dashboard(ui_port)
             return
 
         child_pid = _spawn(ctx.home)
@@ -116,6 +159,10 @@ def start() -> None:
                 f"see {log_path}"
             )
         console.print(f"[green]Daemon started[/green] (pid {child_pid})")
+        console.print("  Monitor via: ragmonk daemon status")
+        console.print("  Web dashboard: ragmonk ui  (or ragmonk daemon start --ui)")
+        if open_ui:
+            _launch_dashboard(ui_port)
 
 
 @app.command("stop")
@@ -154,6 +201,20 @@ def _uptime_seconds(started_at: str) -> float:
     return (datetime.now(UTC) - started).total_seconds()
 
 
+def _format_uptime(seconds: float) -> str:
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, secs = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h {minutes}m"
+    days, hours = divmod(hours, 24)
+    return f"{days}d {hours}h"
+
+
 @app.command("status")
 @cli_command
 def status(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
@@ -184,9 +245,11 @@ def status(json_output: Annotated[bool, typer.Option("--json")] = False) -> None
             return
 
         if info is not None:
+            uptime = data["uptime_seconds"]
+            uptime_str = _format_uptime(uptime) if uptime else "0s"
             console.print(
                 f"[green]RUNNING[/green] pid={info.pid} "
-                f"uptime={data['uptime_seconds']:.0f}s"
+                f"uptime={uptime_str}"
             )
         else:
             console.print("[yellow]STOPPED[/yellow]")
@@ -197,3 +260,5 @@ def status(json_output: Annotated[bool, typer.Option("--json")] = False) -> None
                 f"  {source['source_id']} ({source['source_type']}) {state} "
                 f"last_pass={source['last_pass_at'] or '-'}"
             )
+        console.print()
+        console.print("[dim]Web dashboard: ragmonk ui  or  ragmonk daemon start --ui[/dim]")
