@@ -155,7 +155,7 @@ def test_chunker_version_bump_rebuilds_and_serves_the_new_derivation(
     finally:
         conn.close()
 
-    def _fake_chunk_document(normalized, *, config=None, doc_title=""):  # noqa: ANN001, ANN201
+    def _fake_chunk_document(normalized, *, config=None, doc_title="", diagnostics=None):  # noqa: ANN001, ANN201
         return [
             Chunk(
                 kind="paragraph",

@@ -18,6 +18,7 @@ from ragmonk.storage.repositories import (
     jobs_repo,
     relationships_repo,
 )
+from ragmonk.tokenization import diagnostics
 
 from ._common import cli_command, console, print_json
 
@@ -88,8 +89,15 @@ def _run(ctx: AppContext) -> dict[str, Any]:
             }
         )
 
+    # Exact Tokenizer plan, Phase 5: identify the pinned tokenizer the
+    # active index is tied to. Cheap (no tokenizer load) -- see
+    # ``tokenization.diagnostics.tokenizer_identity``.
+    tokenizer = diagnostics.tokenizer_identity()
+    tokenizer["chunk_ceiling"] = ctx.config.documents.chunking.resolved_max_tokens
+
     return {
         "sources": per_source,
+        "tokenizer": tokenizer,
         "totals": {
             "by_status": totals,
             "queue_depth": total_queue_depth,

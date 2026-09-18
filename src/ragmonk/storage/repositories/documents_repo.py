@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from ragmonk.core.models import Document, DocumentFormat, Paragraph, Section, SectionKind, Table
@@ -470,6 +471,20 @@ def count_all(conn: sqlite3.Connection) -> int:
     ``documents_processed`` metric (Phase 8)."""
     row = conn.execute("SELECT COUNT(*) AS n FROM documents").fetchone()
     return int(row["n"])
+
+
+def iter_embedding_texts(conn: sqlite3.Connection) -> Iterator[str]:
+    """Yields every stored section's ``embedding_text`` (a chunk's exact
+    contextual payload). Backs the Exact Tokenizer plan's ``doctor``
+    payload-invariant scan (Phase 5) -- streamed rather than materialized
+    so a large index doesn't build one giant list.
+    """
+    cursor = conn.execute(
+        "SELECT embedding_text FROM document_sections "
+        "WHERE embedding_text IS NOT NULL AND embedding_text != ''"
+    )
+    for row in cursor:
+        yield str(row["embedding_text"])
 
 
 def get_document(conn: sqlite3.Connection, document_id: str) -> Document | None:
