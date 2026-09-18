@@ -1,49 +1,154 @@
 # RagMonk
 
-A local-first knowledge compiler and retrieval engine for software repositories and organizational documents.
+<div align="center">
 
-## Presentation
+**Local-first knowledge compiler and retrieval engine for company documents and software repositories.**
 
-RagMonk turns a folder of source code and documents into a queryable, evidence-backed knowledge base that lives entirely on your machine. Point it at a repository and a docs folder, index them, and then ask questions like "what breaks if `SettlementService` changes?" or "who calls `bark_loudly`?" and get answers traced back to exact files, lines, and pages — not guesses.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![MCP Compatible](https://img.shields.io/badge/MCP-compatible-green)](https://modelcontextprotocol.io)
+[![Zero Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](https://github.com/gzarog/RagMonk)
+[![Offline First](https://img.shields.io/badge/offline-first-orange)](https://github.com/gzarog/RagMonk)
 
-It has no web UI. You use it three ways:
+</div>
 
-- **CLI** — for humans, scripts, and CI (every command supports `--json`)
-- **MCP server** (`ragmonk serve --mcp`) — for AI coding agents (Claude Code, Cursor, etc.) that speak the [Model Context Protocol](https://modelcontextprotocol.io)
-- **A daemon** (`ragmonk watch` / `ragmonk daemon start`) that keeps the knowledge base current as files change
+---
 
-Two things make it different from a typical embeddings-only RAG tool:
+## What is RagMonk?
 
-- **Deterministic by default.** Symbol lookup, call graphs, full-text search, and cross-domain code↔doc linking all work with zero network access and zero LLM calls. Semantic (embedding-based) search and LLM-generated answers are opt-in extras layered on top, not the foundation.
-- **Evidence-first.** Every result — a caller, a linked document, a search hit — carries a confidence tier (`EXACT`/`HIGH`/`MEDIUM`/`HEURISTIC`) and a precise source location, so you can tell a compiler-grade fact from an inferred guess.
+Point RagMonk at your company documents and source code. It builds a **queryable, evidence-backed knowledge base that lives entirely on your machine** — no cloud, no telemetry, no LLM required to get answers.
 
-Source files are always the source of truth; everything RagMonk stores is derived, rebuildable state (`ragmonk rebuild` proves it). Every retrieval path is indexed: exact lookups use SQLite B-tree indexes, lexical search uses FTS5, semantic search uses a persistent USearch HNSW index kept warm in memory, and metadata for every hit is resolved in one batched query — never a full-corpus scan.
+Ask questions like:
+
+> *"What does the onboarding policy say about remote work?"*
+> *"What breaks if `SettlementService` changes?"*
+> *"Who calls `processInvoice` and which spec documents describe it?"*
+
+Every answer is traced back to exact files, pages, headings, and lines — not guesses.
+
+---
+
+## Why RagMonk?
+
+| Typical RAG tool | RagMonk |
+|---|---|
+| Embeddings first, determinism optional | **Deterministic by default** — symbol lookup, call graphs, full-text search, and cross-domain code↔doc linking work with zero LLM calls |
+| "Confident" answers with no source | **Evidence-first** — every result carries a confidence tier (`EXACT` / `HIGH` / `MEDIUM` / `HEURISTIC`) and a precise source location |
+| Data leaves your machine | **Fully local** — no data leaves your machine, no telemetry, no external AI unless you explicitly opt in |
+| Opaque, rebuildable only with support | **Transparent** — everything RagMonk stores is derived state; `ragmonk rebuild` proves source files are the real truth |
+
+---
+
+## Company Documents — First-Class Citizens
+
+RagMonk is built for organizations that need answers from their own document corpus before they ever touch a codebase.
+
+### Supported Formats
+
+| Format | Notes |
+|---|---|
+| **PDF** | Docling layout model — tables, headings, page numbers extracted |
+| **DOCX** | Full heading structure with page provenance |
+| **PPTX** | Slide titles and body text with slide number provenance |
+| **XLSX / ODS** | Spreadsheet data |
+| **HTML** | Web pages and exported wikis |
+| **Markdown** | Docs-as-code, ADRs, runbooks |
+| **TXT / EML** | Plain text and email files |
+| **ODT / ODP** | OpenDocument formats |
+
+### How It Works
+
+A [Docling](https://github.com/docling-project/docling)-backed pipeline converts every document into a normalized **heading → paragraph → table** structure with **page number** and **heading-path provenance** on every unit:
+
+```
+docs/onboarding-policy.pdf  →  page 4, §Remote Work Policy > §Equipment Allowance
+contracts/msa-2024.docx     →  page 12, §Termination > §Notice Period
+```
+
+PDFs are converted to Markdown internally and cached by content hash — **re-indexing an unchanged PDF skips the expensive layout model entirely**.
+
+A corrupt or unsupported document is isolated and recorded as failed rather than aborting the run.
+
+### Cross-Domain Linking: Documents ↔ Code
+
+After indexing, RagMonk automatically connects code entities to the documents that describe them — matching on exact/qualified identifiers, filenames, and HTTP route mentions, each scored on the same confidence ladder as the code graph.
+
+```bash
+ragmonk impact SettlementService
+# → callers, callees, tests, AND the spec docs that mention it
+```
+
+Manage the link graph explicitly:
+
+```bash
+ragmonk link list
+ragmonk link add --symbol SettlementService --doc contracts/settlement-spec.pdf
+ragmonk link remove <ID>
+```
+
+Automated linking never overrides an explicit one.
+
+---
+
+## Code Intelligence
+
+Tree-sitter-based parsing extracts a rich entity/relationship graph from your repositories:
+
+- **Entities**: classes, interfaces, structs, enums, functions, methods, properties, fields, imports, inheritance, calls
+- **Queries**: `symbol`, `callers`, `callees`, `references`, `impact`
+
+**Fully supported languages**: Python, JavaScript, TypeScript/TSX, Go, Java, Rust, C#
+
+A file in an unsupported language still indexes (without extracted entities); a file that fails to parse is isolated without stopping the run.
+
+```bash
+ragmonk symbol SettlementService          # look up a symbol
+ragmonk callers SettlementService         # who calls it
+ragmonk callees SettlementService         # what it calls
+ragmonk impact SettlementService          # blast-radius: callers, docs, tests
+```
+
+---
+
+## Search & Retrieval
+
+### `ragmonk explore` — the primary retrieval command
+
+A deterministic query planner picks the right strategies for your question — symbol lookup, graph traversal, full-text, document links, semantic search — and assembles a budgeted, deduplicated evidence package.
+
+```bash
+ragmonk explore "what breaks if SettlementService changes?"
+ragmonk explore "what does the remote work policy say about equipment?"
+```
+
+A high-confidence lexical hit can skip semantic search entirely, avoiding unnecessary embedding inference.
+
+### `ragmonk search` — ranked lexical search
+
+Merges exact/qualified-symbol matches, alias matches, indexed path hits, and FTS5 full-text across both code and documents:
+
+```bash
+ragmonk search "SettlementService"
+ragmonk search "SettlementService" --explain     # per-stage timing + query kind
+ragmonk search "SettlementService" --hybrid      # lexical + semantic, merged and reranked
+```
+
+Document hits render as **match-centered snippet blocks** — a real excerpt via SQLite FTS5's `snippet()`, plus the page number (PDF/DOCX/PPTX) or heading path (Markdown/HTML/text).
+
+### `ragmonk impact` — blast-radius analysis
+
+```bash
+ragmonk impact SettlementService
+# → defining location, callers/callees, linked docs, test files, LOW/MEDIUM/HIGH bucket
+```
+
+---
 
 ## Installation
 
-Requires **Python 3.12+** already on your `PATH` — RagMonk isn't published on PyPI yet, and these scripts don't install Python itself.
+Requires **Python 3.12+** already on your `PATH`.
 
-<!-- branding-audit-allow-start -->
-> **Coming from Ragpilot?** RagMonk `v0.2.0` is a new application identity. It does not read or migrate Ragpilot installations. Install RagMonk separately and rebuild the index from the original source folders. Your old Ragpilot data is left completely untouched and is simply ignored.
->
-> After you've confirmed RagMonk works, you can optionally remove the old Ragpilot data by hand (RagMonk never does this for you):
->
-> ```bash
-> # macOS / Linux / WSL
-> rm -rf ~/.ragpilot
-> ```
->
-> ```powershell
-> # Windows (PowerShell) -- only after confirming RagMonk works
-> Remove-Item -Recurse -Force "$env:LOCALAPPDATA\RAGpilot"
-> ```
->
-> These cleanup commands are entirely optional and unrelated to installing RagMonk.
-<!-- branding-audit-allow-end -->
-
-### Install the CLI
-
-One command finds your Python, creates an isolated virtual environment, and installs `ragmonk`:
+### One-command install
 
 ```bash
 # macOS / Linux
@@ -55,9 +160,7 @@ curl -fsSL https://raw.githubusercontent.com/gzarog/RagMonk/main/install.sh | sh
 irm https://raw.githubusercontent.com/gzarog/RagMonk/main/install.ps1 | iex
 ```
 
-It installs into `~/.ragmonk` (`%LOCALAPPDATA%\RagMonk` on Windows) and links `ragmonk` onto a per-user bin directory. If that directory isn't already on your `PATH`, the script prints the one-line fix (on Windows it adds it to your user `PATH` automatically — open a new terminal afterward).
-
-Verify it:
+Installs into `~/.ragmonk` (`%LOCALAPPDATA%\RagMonk` on Windows) and links `ragmonk` onto your `PATH`.
 
 ```bash
 ragmonk version
@@ -66,115 +169,168 @@ ragmonk doctor
 
 ### Install from source
 
-For development, or to track an unreleased change:
-
 ```bash
 git clone https://github.com/gzarog/RagMonk.git
 cd RagMonk
-pip install -e .
+pip install -e ".[dev]"   # includes test suite and linting tools
 ```
 
-For running the test suite and linting, install the `dev` extra instead:
+On first use of document ingestion or semantic search, RagMonk downloads and locally caches small ML models (Docling's layout model for PDFs, a sentence-embedding model). After that, everything runs fully offline.
+
+---
+
+## Quick Start
 
 ```bash
-pip install -e ".[dev]"
+ragmonk init                                        # create ~/.ragmonk
+ragmonk source add /path/to/docs-or-repo            # register a folder
+ragmonk source add /path/to/another-repo            # add more sources
+ragmonk index                                        # parse code + documents
+ragmonk status --json                               # what got indexed
+ragmonk doctor                                      # health check
+
+# Ask questions
+ragmonk explore "what does the onboarding policy say about equipment?"
+ragmonk explore "what breaks if SettlementService changes?"
+ragmonk search "remote work policy"
+ragmonk symbol SettlementService
+ragmonk callers SettlementService
+ragmonk impact SettlementService
+
+# Keep the index current
+ragmonk watch                                        # foreground file watcher
+ragmonk daemon start                                 # background daemon
 ```
 
-No system dependencies are required beyond Python 3.12+. On first use of a document source or semantic search, RagMonk downloads and locally caches small ML models (Docling's layout model for PDFs, a sentence-embedding model) — after that, everything runs offline.
+---
 
-## Usage
+## Admin UI
 
 ```bash
-ragmonk init                                    # create ~/.ragmonk (or %LOCALAPPDATA%\RagMonk on Windows)
-ragmonk source add /path/to/a/repo/or/docs       # register a folder to index
-ragmonk index                                    # parse code + documents, build the knowledge graph
-ragmonk status --json                            # what got indexed
-ragmonk doctor                                   # health check
-
-ragmonk search "SettlementService"                # lexical search across code + docs
-ragmonk search "SettlementService" --explain       # per-stage timing + classified query kind/confidence
-ragmonk symbol SettlementService                  # look up a symbol
-ragmonk callers SettlementService                  # who calls it
-ragmonk impact SettlementService                   # blast-radius analysis: callers, docs, tests
-ragmonk explore "what breaks if SettlementService changes?"   # the primary retrieval command
-
-ragmonk ui                                        # open the local admin web interface (http://127.0.0.1:8765)
-ragmonk serve --mcp                              # expose everything above to an MCP-speaking agent
-ragmonk watch                                     # keep indexing as files change (foreground)
-ragmonk daemon start                              # keep indexing as files change (background)
-ragmonk backup                                    # snapshot the knowledge base
+ragmonk ui    # opens http://127.0.0.1:8765 in your browser
 ```
 
-Turning on semantic search and AI-assisted answers (both opt-in, off by default):
+A built-in, **local-first administration interface** — no Node.js, no CDN, works fully offline (HTMX vendored inside the wheel).
+
+From the browser you can:
+
+- Manage sources (add, enable, disable, remove)
+- Start and monitor indexing with **live progress** (Server-Sent Events)
+- Browse indexed documents and inspect extracted chunks
+- Test lexical / semantic / hybrid search
+- Explore the code-knowledge graph
+- Edit configuration safely (Pydantic-validated; credentials never displayed)
+- Control the daemon, run health checks, create and restore backups
+- Read logs and view system info
+
+Binds to `127.0.0.1` only, with CSRF protection and host-header validation (DNS-rebinding defense). See [docs/ui.md](docs/ui.md).
+
+---
+
+## MCP Server — Agent Integration
+
+```bash
+ragmonk serve --mcp   # stdio MCP server for AI coding agents
+```
+
+Exposes the full RagMonk surface to any [Model Context Protocol](https://modelcontextprotocol.io)-speaking agent (Claude Code, Cursor, etc.):
+
+| Tool | What it does |
+|---|---|
+| `ragmonk_explore` | Primary retrieval — deterministic query planner |
+| `ragmonk_search` | Ranked lexical + optional hybrid search |
+| `ragmonk_symbol` | Symbol lookup |
+| `ragmonk_callers` / `ragmonk_callees` | Call graph traversal |
+| `ragmonk_impact` | Blast-radius analysis |
+| `ragmonk_documents` | Document listing and chunk inspection |
+| `ragmonk_status` | Knowledge base status |
+| `ragmonk_ask` | AI-assisted answer (opt-in) |
+
+Register with your agent client automatically:
+
+```bash
+ragmonk install-agent --client claude-code    # writes .mcp.json
+ragmonk install-agent --client cursor         # writes .cursor/mcp.json
+ragmonk install-agent --client vscode         # writes .vscode/mcp.json
+ragmonk install-agent --client all            # all of the above
+```
+
+Responses are versioned, bounded in size, and every call has a configurable timeout. As a long-lived process, the embedding model, database connections, and ANN index all stay warm across repeated agent calls.
+
+---
+
+## AI-Assisted Answers (Optional)
+
+Everything above works fully offline with no LLM. Two opt-in extras layer on top:
+
+### Local semantic search
 
 ```bash
 ragmonk config set search.semantic true
+# Uses local sentence embeddings — no network after the model is cached
+# Results appear as a clearly lower-confidence tier, never mixed into exact matches
+```
+
+### AI-generated answers
+
+```bash
 ragmonk config set ai.provider ollama
 ragmonk config set ai.model llama3.2
 ragmonk ask "how are settlement retries handled?"
 ```
 
-Settings live in `<runtime dir>/config.yaml` (`~/.ragmonk` on Linux/macOS, `%LOCALAPPDATA%\RagMonk` on Windows) and are always readable/writable via `ragmonk config get|set`. By default: no data leaves your machine, no telemetry is sent, and no external AI provider is called.
+Supported providers: **OpenAI**, **Anthropic**, **Ollama**, any OpenAI-compatible endpoint. Cloud providers require explicitly opting in:
 
-## Functionalities
-
-### Code intelligence
-Tree-sitter-based parsing extracts classes, interfaces, structs, enums, functions, methods, properties, fields, imports, inheritance, and calls into a normalized entity/relationship graph, queryable via `ragmonk symbol|callers|callees|references`. Fully supported languages: **Python, JavaScript, TypeScript/TSX, Go, Java, Rust, C#**. A recognized file in an unsupported language still indexes (just without extracted entities); a file that fails to parse is isolated and recorded as failed without stopping the rest of the run.
-
-### Document ingestion
-A [Docling](https://github.com/docling-project/docling)-backed pipeline converts **PDF, DOCX, PPTX, XLSX, HTML, Markdown, TXT, and EML** files into a normalized heading/paragraph/table structure with page and heading-path provenance on every unit, exposed via `ragmonk docs`. PDFs are internally converted to Markdown, cached by content hash, and reparsed from that Markdown -- so re-indexing an unchanged PDF skips Docling's expensive layout/table-structure model entirely. A corrupt or unsupported document is isolated and recorded as failed rather than aborting the run.
-
-### Cross-domain linking
-After indexing, RagMonk connects code entities to the documents that describe them — matching on exact/qualified identifiers, filenames, and HTTP route mentions, each scored on the same confidence ladder as the code graph. `ragmonk link add|remove|list` lets you inspect the link graph and pin or remove a mapping by hand; automated linking never overrides an explicit one.
-
-### Search & retrieval
-- `ragmonk search QUERY` — ranked lexical search merging exact/qualified-symbol matches, alias matches, indexed path hits, and FTS5 full-text/document title/heading matches, all backed by indexed lookups (no full-corpus scans). Add `--explain` for a per-stage timing breakdown and the classified query kind/confidence, or `--hybrid` for one merged, reranked view of lexical and semantic results (semantic score never outranks a lexical match). Document hits render as match-centered snippet blocks by default (`--snippets` to force it explicitly) — a real, match-centered excerpt via SQLite FTS5's own `snippet()`, plus the page number (PDF/DOCX/PPTX) or heading path (Markdown/HTML/text) it came from; code/symbol hits are unaffected and always show their plain title/path/tier row. `--table` reverts to that plain table for every hit. The default output mode, and what one document hit falls back to when it has no real match snippet (an exact-title hit with no FTS row), are both driven by `search.output.fallback` in `config.yaml` — an ordered list of `snippets`/`json`/`files`/`table`, `["snippets", "json", "files"]` out of the box (`ragmonk config set search.output.fallback json,files`).
-- `ragmonk explore "QUERY"` — the primary retrieval command: a deterministic query planner picks the right strategies (symbol lookup, graph traversal, full-text, document links, semantic search) for the question and assembles a budgeted, deduplicated evidence package. A high-confidence lexical hit can skip semantic search entirely (`search.lazy_semantic`), avoiding unnecessary embedding inference.
-- `ragmonk impact SYMBOL` — a symbol's defining location, callers/callees, linked documents, a naming-convention "tests" heuristic, and a LOW/MEDIUM/HIGH blast-radius bucket.
-- `ragmonk vectors rebuild [--source ID]` — rebuilds the semantic-search ANN index from scratch; `ragmonk doctor` reports which backend is active and how many vectors it holds. The index rebuilds itself automatically once enough vectors have been deleted/tombstoned.
-- Query-result and query-embedding caches speed up repeated searches in any long-lived process, and the on-disk USearch index is loaded once and kept warm in memory rather than reread on every query.
-
-### Admin UI
-`ragmonk ui` starts a built-in, local-first administration web interface and opens it in your browser (`http://127.0.0.1:8765` by default). From the browser you can manage sources, start and monitor indexing (with live progress over Server-Sent Events), browse indexed documents and inspect their extracted chunks, test lexical/semantic/hybrid search, explore the code-knowledge graph, view and safely edit configuration (Pydantic-validated, with environment overrides shown read-only and credentials never displayed), control the daemon, run health checks, create/restore backups, and read logs. It reuses the same RagMonk application services as the CLI and MCP server — it never shells out to CLI commands — and ships its templates and vendored HTMX asset inside the wheel, so it needs no Node.js and works fully offline. It binds to `127.0.0.1` only, with CSRF protection, host-header validation (DNS-rebinding defense), and explicit confirmation on destructive actions. Options: `--host`, `--port`, `--no-browser`. See [docs/ui.md](docs/ui.md).
-
-### MCP server (agent integration)
-`ragmonk serve --mcp` starts a stdio MCP server exposing `ragmonk_explore`, `ragmonk_search`, `ragmonk_symbol`, `ragmonk_callers`, `ragmonk_callees`, `ragmonk_impact`, `ragmonk_documents`, `ragmonk_status`, and `ragmonk_ask` — each a thin wrapper over the same functions backing the CLI, so an agent sees exactly what you'd see at the terminal. Responses are versioned, bounded in size, and every call has a configurable timeout. As a long-lived process, it's also where the embedding model, database connections, and the ANN index all stay warm across repeated calls. `ragmonk install-agent [--write PATH]` prints the config snippet needed to register RagMonk with a client like Claude Code — it only prints/writes, it never edits a client's config file on its own. Add `--client NAME` (repeatable, or `--client all`) to instead register automatically with that client's real config file at its documented location — `claude-code` (`.mcp.json`), `cursor` (`.cursor/mcp.json`), `vscode` (`.vscode/mcp.json`), or `codex` (`~/.codex/config.toml`). Only the `ragmonk` entry in that file is ever added or updated; everything else already there is left untouched, and re-running it is always safe (a matching entry is left alone, reported as already configured).
-
-### Continuous indexing
-`ragmonk watch` (foreground) or `ragmonk daemon start|stop|restart|status` (background) watches every enabled source — local roots via native OS filesystem events, network/UNC roots by polling — and keeps the knowledge base current, plus a periodic full reconciliation as a safety net. A source that goes temporarily unreachable (an unmounted network share, a disconnected drive) is flagged `offline` rather than having its knowledge mistakenly deleted, and reconciles for real once it's back.
-
-### Operations
-- `ragmonk backup [PATH]` — an online, consistent snapshot (SQLite's backup API, not a raw file copy) of the knowledge base into one archive. Never includes your original source files.
-- `ragmonk restore ARCHIVE` — verifies and integrity-checks a backup before atomically swapping it into place; a bad archive is refused before anything live is touched.
-- `ragmonk rebuild [--source ID]` — wipes and re-indexes a source from scratch, proving source files are the real truth.
-- `ragmonk upgrade` — applies pending schema migrations, backing up automatically first.
-- `ragmonk update [check|status|install]` — checks for, and installs, a newer RagMonk release (distinct from `upgrade`'s schema migrations). Bare `ragmonk update`/`update check` queries GitHub; `update status` reads the local cache only; `update install` detects how RagMonk was installed (install script, pip, pipx, or an editable/dev checkout) and upgrades accordingly, then runs schema migrations and a health check against the newly-installed code. Normal commands never make a synchronous GitHub request for this: a lightweight detached check runs at most once every `updates.check_interval_hours` (default 24), and the next invocation notifies you once, to stderr, if a newer version was found. Disable entirely with `ragmonk config set updates.enabled false` or `RAGMONK_UPDATES__ENABLED=false`.
-- `ragmonk uninstall [--keep-data] [--yes]` — removes the installed application (same install-method detection as `update install`: `pip`/`pipx uninstall`, or the install script's own venv/app/launcher files) and, by default, all of its data (databases, config, backups, logs). Prompts for confirmation first unless `--yes`/`-y` is given; `--keep-data` removes only the application. An editable/dev install is never auto-removed — it reports how to remove it manually instead, purging data (unless `--keep-data`) regardless.
-
-### Optional: semantic search & AI-assisted answers
-Everything above works fully offline with no LLM. Two opt-in extras layer on top:
-- **Semantic search** (`ragmonk config set search.semantic true`): local sentence embeddings (no network once the model is cached) surface similarity-based results as their own clearly lower-confidence tier, never mixed into exact/graph matches. Backed by a persistent local ANN index (`usearch` HNSW by default, auto-falling back to a pure-Python scan only if the `usearch` package itself can't load) for large knowledge bases, updated incrementally as you index and kept warm in memory across repeated queries.
-- **`ragmonk ask "QUESTION"`**: runs the same deterministic retrieval as `explore`, then hands the question and that evidence to a configured LLM provider (OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint) for a synthesized, evidence-grounded answer. Cloud providers require explicitly opting in (`privacy.external_ai_allowed: true`); a local Ollama endpoint is exempt only when it actually resolves to loopback.
-
-### Optional: subscription AI providers (beta)
-Instead of an API key, `ragmonk ask` can use an eligible **existing AI subscription** through the provider's own official runtime — no key management, but still cloud inference that consumes your account's allowance (not offline or unlimited). Indexing and retrieval remain fully local; this needs no reindexing.
-
-- **`codex`** (beta): ChatGPT via the official Codex runtime.
-- **`github_copilot`** (beta): GitHub Copilot via its official Python SDK (`pip install "ragmonk[copilot]"`).
-
-Manage them with the `ragmonk ai` command group:
-
-```sh
-ragmonk ai providers                 # list providers and their capabilities
-ragmonk ai login codex               # sign in through the provider's own flow
-ragmonk ai status codex              # connection state (no secrets printed)
-ragmonk ai models codex              # models the signed-in account offers
+```bash
 ragmonk config set privacy.external_ai_allowed true
+```
+
+### Subscription providers (beta)
+
+Use an existing AI subscription instead of an API key:
+
+```bash
+# ChatGPT via Codex runtime
+ragmonk ai login codex
 ragmonk config set ai.provider codex
 ragmonk ask "Explain the settlement flow and cite the source files"
+
+# GitHub Copilot (pip install "ragmonk[copilot]" first)
+ragmonk ai login github_copilot
+ragmonk config set ai.provider github_copilot
+```
+
+```bash
+ragmonk ai providers                  # list providers and capabilities
+ragmonk ai status codex               # connection state (no secrets printed)
+ragmonk ai models codex               # available models
 ragmonk ai logout codex
 ```
 
-RagMonk never asks for a password, copies browser cookies, stores a token in config, or silently falls back to a billable API key: sign-in is delegated to the provider's runtime, and a subscription request fails clearly when sign-in is needed. Answers run in an isolated, tools-disabled session so retrieved evidence can't drive the runtime. These adapters are **beta** and gated behind version/isolation checks; see [`docs/providers/`](docs/providers/) for setup, limitations, tested versions, the MCP-client alternative, and how each release gate is met.
+RagMonk never asks for a password, copies browser cookies, stores a token in config, or silently falls back to a billable API key. These adapters are **beta** — see [`docs/providers/`](docs/providers/) for setup, limitations, and tested versions.
 
-See `CHANGELOG.md` for a detailed history of what shipped, `CONTRIBUTING.md` for development setup, and `SECURITY.md` for the security policy.
+---
+
+## Operations
+
+```bash
+ragmonk backup [PATH]             # consistent snapshot of the knowledge base
+ragmonk restore ARCHIVE           # verify + integrity-check, then atomically swap in
+ragmonk rebuild [--source ID]     # wipe and re-index from scratch
+ragmonk upgrade                   # apply pending schema migrations (auto-backs up first)
+ragmonk update [check|install]    # check for / install a newer RagMonk release
+ragmonk uninstall [--keep-data]   # remove the app (and optionally its data)
+ragmonk vectors rebuild           # rebuild the semantic-search ANN index from scratch
+```
+
+Settings live in `~/.ragmonk/config.yaml` and are always readable/writable via `ragmonk config get|set`. By default: no data leaves your machine, no telemetry is sent, and no external AI provider is called.
+
+---
+
+## Further Reading
+
+- [`CHANGELOG.md`](CHANGELOG.md) — detailed history of every release
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — development setup, test suite, linting
+- [`SECURITY.md`](SECURITY.md) — security policy and vulnerability reporting
+- [`docs/ui.md`](docs/ui.md) — Admin UI reference
+- [`docs/providers/`](docs/providers/) — subscription AI provider setup and limitations
