@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4]
+
+Exact Tokenizer work, Phase 5 (final): **diagnostics and observability**.
+This completes the exact-tokenizer series.
+
+### Added
+
+- `ragmonk doctor` gains a **Tokenizer** section reporting the pinned
+  model id, revision and asset fingerprint, the model's maximum sequence
+  length and the effective chunk ceiling, and -- by scanning every stored
+  embedding payload against the model's real input limit -- a
+  **truncation count that must remain zero** (the section fails if any
+  payload would be silently truncated). This proves which tokenizer the
+  active index was built with and that no payload exceeds the model limit.
+- `ragmonk status --json` includes a `tokenizer` block (identity + chunk
+  ceiling); `ragmonk search --explain` reports the tokenizer identity.
+- Structured log events: `tokenizer_loaded` on tokenizer initialization,
+  and a per-document `chunk_budget_diagnostics` event (context reductions,
+  budget splits, oversized-table segmentation, max observed payload) that
+  escalates to a `chunk_budget_invariant_violation` WARNING if a payload
+  ever breaks the no-silent-truncation invariant.
+- `tokenization.diagnostics` (`tokenizer_identity` / `scan_payloads`) and
+  `documents_repo.iter_embedding_texts` back the above.
+
+### Notes
+
+- The chunker's `ChunkingDiagnostics` counters are now collected during
+  real indexing (wired through `documents/pipeline.py`).
+
 ## [0.3.3]
 
 Exact Tokenizer work, Phase 4: **index identity + recoverable rebuild**.

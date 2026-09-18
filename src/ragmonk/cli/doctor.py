@@ -18,7 +18,9 @@ from ragmonk.sources.registry import SourceRegistry
 from ragmonk.sources.scanner import check_root_accessible
 from ragmonk.storage import schema
 from ragmonk.storage.migrations import current_version
-from ragmonk.storage.repositories import jobs_repo, vector_items_repo
+from ragmonk.storage.repositories import documents_repo, jobs_repo, vector_items_repo
+from ragmonk.tokenization import diagnostics
+from ragmonk.tokenization.model_tokenizer import TokenizerAssetError
 
 from ._common import cli_command, console, print_json
 
@@ -129,9 +131,62 @@ def run_checks(ctx: AppContext) -> list[CheckSection]:
     if ctx.config.search.semantic:
         sections.append(CheckSection("Semantic", [_semantic_check(ctx, sources)]))
 
+    sections.append(_tokenizer_section(ctx, sources))
     sections.append(_ai_section(ctx))
 
     return sections
+
+
+def _tokenizer_section(ctx: AppContext, sources: list[Any]) -> CheckSection:
+    """Exact Tokenizer plan, Phase 5: report which pinned tokenizer the
+    active index is tied to, the effective chunk ceiling, and -- by
+    measuring every stored embedding payload against the model's real
+    input limit -- prove no payload is silently truncated (the truncation
+    count must remain zero).
+    """
+    identity = diagnostics.tokenizer_identity()
+    ceiling = ctx.config.documents.chunking.resolved_max_tokens
+    checks: list[CheckResult] = [
+        CheckResult("model", "ok", f"{identity['model_id']}"),
+        CheckResult("revision", "ok", f"revision {identity['revision'][:12]}"),
+        CheckResult("fingerprint", "ok", identity["fingerprint"][:19]),
+        CheckResult(
+            "limits",
+            "ok",
+            f"model max {identity['max_sequence_tokens']} tokens, chunk ceiling {ceiling}",
+        ),
+    ]
+
+    try:
+        scan = diagnostics.scan_payloads(_iter_index_embedding_texts(ctx, sources))
+    except TokenizerAssetError as exc:
+        checks.append(CheckResult("payloads", "fail", f"tokenizer unavailable: {exc}"))
+        return CheckSection("Tokenizer", checks)
+
+    if scan.scanned == 0:
+        checks.append(CheckResult("payloads", "ok", "no embedding payloads indexed yet"))
+    else:
+        payload_status: Status = "fail" if scan.truncation_count else "ok"
+        checks.append(
+            CheckResult(
+                "payloads",
+                payload_status,
+                f"{scan.scanned} scanned, max {scan.max_payload_tokens}/{scan.limit} tokens, "
+                f"truncated {scan.truncation_count}",
+            )
+        )
+    return CheckSection("Tokenizer", checks)
+
+
+def _iter_index_embedding_texts(ctx: AppContext, sources: list[Any]) -> Any:
+    seen_projects: set[str] = set()
+    for source in sources:
+        project_id = paths.project_id_for_path(Path(source.path))
+        if project_id in seen_projects:
+            continue
+        seen_projects.add(project_id)
+        conn = ctx.project_conn(project_id)
+        yield from documents_repo.iter_embedding_texts(conn)
 
 
 def _ai_section(ctx: AppContext) -> CheckSection:

@@ -332,12 +332,15 @@ def search(
             if ranked_hits is not None:
                 payload["hybrid"] = [h.to_dict() for h in ranked_hits]
             if explain:
+                from ragmonk.tokenization import diagnostics
+
                 payload["explain"] = {
                     "query_kind": query_classifier.classify_query(query).value,
                     "lexical_confidence": confidence.value,
                     "semantic_skipped": search_config.semantic and not run_semantic,
                     "stages": [t.to_dict() for t in timings],
                     "total_ms": round(sum(t.duration_ms for t in timings), 3),
+                    "tokenizer": diagnostics.tokenizer_identity(),
                 }
             print_json(payload)
             return
@@ -393,3 +396,10 @@ def search(
                 explain_table.add_row(t.name, str(t.hits), f"{t.duration_ms:.3f}")
             console.print(explain_table)
             console.print(f"[bold]Total:[/bold] {sum(t.duration_ms for t in timings):.3f} ms")
+            from ragmonk.tokenization import diagnostics
+
+            ident = diagnostics.tokenizer_identity()
+            console.print(
+                f"[bold]Tokenizer:[/bold] {ident['model_id']} "
+                f"(revision {ident['revision'][:12]}, max {ident['max_sequence_tokens']} tokens)"
+            )

@@ -13,6 +13,7 @@ exceptions per file without aborting the run, exactly as it does for
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import uuid
 from datetime import UTC, datetime
@@ -30,10 +31,50 @@ from ragmonk.retrieval import embedder
 from ragmonk.sources.fingerprint import hash_file
 from ragmonk.storage.repositories import documents_repo
 from ragmonk.storage.sqlite import transaction
+from ragmonk.telemetry.logging import get_logger, log_event
+
+_logger = get_logger("documents")
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _log_chunking_diagnostics(
+    ctx: ProcessorContext,
+    config: ChunkingConfig,
+    diagnostics: chunker.ChunkingDiagnostics,
+) -> None:
+    """Exact Tokenizer plan, Phase 5: emit a structured event summarizing
+    how the exact token budget shaped this document's chunks -- context
+    reductions, budget splits, oversized-table segmentation and the
+    largest observed embedding payload -- and, critically, a WARNING if
+    any payload broke the no-silent-truncation invariant (which must never
+    happen).
+    """
+    bound = config.resolved_max_tokens - config.safety_tokens
+    violated = diagnostics.max_payload_tokens > bound
+    noteworthy = (
+        violated
+        or diagnostics.chunks_split_by_budget
+        or diagnostics.context_headers_reduced
+        or diagnostics.oversized_table_rows
+        or diagnostics.oversized_table_cells
+    )
+    if not noteworthy:
+        return
+    log_event(
+        _logger,
+        "chunk_budget_invariant_violation" if violated else "chunk_budget_diagnostics",
+        level=logging.WARNING if violated else logging.INFO,
+        path=str(ctx.path),
+        max_payload_tokens=diagnostics.max_payload_tokens,
+        payload_budget=bound,
+        chunks_split_by_budget=diagnostics.chunks_split_by_budget,
+        context_headers_reduced=diagnostics.context_headers_reduced,
+        oversized_table_rows=diagnostics.oversized_table_rows,
+        oversized_table_cells=diagnostics.oversized_table_cells,
+    )
 
 
 def _tokenizer_index_identity() -> str:
@@ -138,9 +179,15 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
     # `extract_metadata` only reads `conversion.document`/`normalized`, not
     # `chunks`, so reordering is safe.
     meta = extract_metadata(conversion.document, normalized, doc_format, ctx.path)
+    chunking_config = ctx.chunking or ChunkingConfig()
+    chunk_diagnostics = chunker.ChunkingDiagnostics()
     chunks = chunker.chunk_document(
-        normalized, config=ctx.chunking or ChunkingConfig(), doc_title=meta.title or ""
+        normalized,
+        config=chunking_config,
+        doc_title=meta.title or "",
+        diagnostics=chunk_diagnostics,
     )
+    _log_chunking_diagnostics(ctx, chunking_config, chunk_diagnostics)
 
     now = _now()
     document_id = uuid.uuid4().hex

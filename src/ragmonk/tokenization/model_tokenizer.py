@@ -117,6 +117,20 @@ class ModelTokenizer:
         self.fingerprint = tokenizer_fingerprint()
         self.max_sequence_tokens = MAX_SEQUENCE_TOKENS
 
+        # Structured init event (Exact Tokenizer plan, Phase 5). Imported
+        # lazily so merely importing this module stays free of the
+        # telemetry layer.
+        from ragmonk.telemetry.logging import get_logger, log_event
+
+        log_event(
+            get_logger("tokenizer"),
+            "tokenizer_loaded",
+            model_id=self.model_id,
+            revision=self.model_revision,
+            fingerprint=self.fingerprint,
+            max_sequence_tokens=self.max_sequence_tokens,
+        )
+
     def count(self, text: str, *, add_special_tokens: bool = True) -> int:
         """Exact number of tokens the model sees for ``text``.
 
