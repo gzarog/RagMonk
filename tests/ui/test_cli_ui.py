@@ -2,23 +2,43 @@
 
 from __future__ import annotations
 
+import re
+
 from typer.testing import CliRunner
 
 from ragmonk.cli.main import app
 
+# Typer renders --help through Rich when it is installed, which styles the
+# text with ANSI escapes and, crucially, *soft-wraps and truncates* the
+# options table to the terminal width (80 columns for a non-tty like CI's
+# pytest). At 80 columns a flag such as ``--host`` can be split across a
+# wrap or truncated with an ellipsis, so a naive ``"--host" in output``
+# substring check is flaky across Rich/Typer versions and widths (it
+# passes locally, fails on CI). Rendering at a wide width and stripping
+# ANSI makes the assertion depend on the command's real wiring, not on how
+# Rich happened to lay the help out.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_WIDE_ENV = {"COLUMNS": "200", "TERM": "dumb", "NO_COLOR": "1"}
+
+
+def _help_text(runner: CliRunner, args: list[str]) -> str:
+    result = runner.invoke(app, args, env=_WIDE_ENV)
+    assert result.exit_code == 0, result.output
+    # Rich also inserts hard line breaks to fit the (now wide) width; drop
+    # newlines too so a flag never straddles a wrap boundary.
+    return _ANSI.sub("", result.output).replace("\n", " ")
+
 
 def test_ui_help_lists_options(runner: CliRunner) -> None:
-    result = runner.invoke(app, ["ui", "--help"])
-    assert result.exit_code == 0
-    assert "--host" in result.output
-    assert "--port" in result.output
-    assert "--no-browser" in result.output
+    text = _help_text(runner, ["ui", "--help"])
+    assert "--host" in text
+    assert "--port" in text
+    assert "--no-browser" in text
 
 
 def test_ui_command_is_registered(runner: CliRunner) -> None:
-    result = runner.invoke(app, ["--help"])
-    assert result.exit_code == 0
-    assert "ui" in result.output
+    text = _help_text(runner, ["--help"])
+    assert "ui" in text
 
 
 def test_ui_starts_and_serves(monkeypatch, ragmonk_home, tmp_path) -> None:
