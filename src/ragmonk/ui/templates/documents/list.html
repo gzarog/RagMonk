@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Documents{% endblock %}
+{% block content %}
+<h1>Documents</h1>
+
+<div class="panel">
+  <form method="get" action="/documents" class="field-row">
+    <div>
+      <label>Filename search</label>
+      <input type="text" name="q" value="{{ filters.q }}" placeholder="report">
+    </div>
+    <div>
+      <label>Source</label>
+      <select name="source_id">
+        <option value="">All sources</option>
+        {% for s in sources %}
+        <option value="{{ s.id }}" {{ 'selected' if filters.source_id == s.id else '' }}>{{ s.path }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Format</label>
+      <select name="fmt">
+        <option value="">All formats</option>
+        {% for f in result.formats %}
+        <option value="{{ f }}" {{ 'selected' if filters.fmt == f else '' }}>{{ f }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="flex:0"><button class="btn primary" type="submit">Filter</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  <table>
+    <thead><tr><th>File</th><th>Source</th><th>Type</th><th>Size</th><th>Status</th><th>Sections</th><th>Tables</th></tr></thead>
+    <tbody>
+      {% for d in result.documents %}
+      <tr>
+        <td><a href="/documents/{{ d.source_id }}/{{ d.id }}">{{ d.name }}</a><br><span class="tag mono">{{ d.path }}</span></td>
+        <td>{{ d.source_id }}</td>
+        <td>{{ d.format }}</td>
+        <td>{{ d.size or "—" }}</td>
+        <td>{{ d.status or "—" }}</td>
+        <td>{{ d.section_count }}</td>
+        <td>{{ d.table_count }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted">No documents match.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="spread" style="margin-top:12px">
+    <span class="muted">{{ result.total }} documents · page {{ result.page }} of {{ result.pages }}</span>
+    <span>
+      {% if result.page > 1 %}
+      <a class="btn small" href="/documents?page={{ result.page - 1 }}&q={{ filters.q }}&source_id={{ filters.source_id }}&fmt={{ filters.fmt }}">← Prev</a>
+      {% endif %}
+      {% if result.page < result.pages %}
+      <a class="btn small" href="/documents?page={{ result.page + 1 }}&q={{ filters.q }}&source_id={{ filters.source_id }}&fmt={{ filters.fmt }}">Next →</a>
+      {% endif %}
+    </span>
+  </div>
+</div>
+{% endblock %}
