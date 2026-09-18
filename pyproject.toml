@@ -120,6 +120,19 @@ dependencies = [
     # native-load failure, so a broken install degrades rather than
     # crashes.
     "usearch>=2.16,<3",
+    # Admin UI plan, Phase 1: the built-in local administration web
+    # interface (`ragmonk ui`). FastAPI + Starlette provide the ASGI app
+    # and routing, Uvicorn the local server, Jinja2 the server-rendered
+    # templates, and python-multipart lets Starlette parse the HTML form
+    # POSTs the admin screens submit. HTMX is vendored as a static asset
+    # under src/ragmonk/ui/static/js/ (no CDN, no Node.js, works offline)
+    # rather than pulled from PyPI. All four are pure-Python with light
+    # transitive footprints and are only imported when `ragmonk ui`
+    # actually runs -- every other command path never touches them.
+    "fastapi>=0.110,<1",
+    "uvicorn>=0.27,<1",
+    "jinja2>=3.1,<4",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
@@ -159,7 +172,17 @@ packages = ["src/ragmonk"]
 # they are declared here explicitly too -- indexing hard-fails without
 # them (see ragmonk.tokenization.model_tokenizer), so their packaging is
 # not something to leave to an implicit default.
-artifacts = ["src/ragmonk/tokenization/assets/**/*"]
+artifacts = [
+    "src/ragmonk/tokenization/assets/**/*",
+    # Admin UI plan, Phase 1 (§4.8 Packaging): the Jinja templates and
+    # static assets (vendored HTMX, CSS) `ragmonk ui` serves are non-Python
+    # data files. They are git-tracked so hatchling's default VCS file
+    # selection already ships them, but declared here explicitly too --
+    # the UI cannot render a single page without them, so their inclusion
+    # in wheels/sdists must not be left to an implicit default.
+    "src/ragmonk/ui/templates/**/*",
+    "src/ragmonk/ui/static/**/*",
+]
 
 # CLI performance improvement plan, Phase 6: one source of truth for the
 # version -- an immutable git tag (v0.1.8, ...) -- instead of a value

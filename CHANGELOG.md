@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Admin UI plan: a built-in, **local-first administration web interface**,
+started with `ragmonk ui`.
+
+### Added
+
+- **`ragmonk ui`** starts a FastAPI + Jinja2 + HTMX admin app on
+  `127.0.0.1:8765` (options `--host`, `--port`, `--no-browser`) and opens
+  the browser. HTMX is vendored as a static asset and the templates/assets
+  ship inside the wheel, so the UI needs no Node.js and works fully
+  offline.
+- **Admin screens** for the dashboard, sources (add/enable/disable/remove +
+  detail), indexing (start/rebuild/failed-files + live SSE progress),
+  documents (filter/paginate + chunk inspection), search
+  (lexical/semantic/hybrid), code knowledge (symbols/callers/callees/
+  references/impact), AI providers (status + connectivity test), typed
+  configuration editing, daemon control, health, backups (create/download/
+  restore) + update status, logs, and system info.
+- A reusable **application-service layer** (`ragmonk.service.*`:
+  `status_service`, `source_service`, `index_service`, `document_service`,
+  `search_service`, `config_service`, `health_service`, `backup_service`,
+  `daemon_service`, `ai_service`, `knowledge_service`, `logs_service`) that
+  the UI calls directly — it never shells out to CLI commands. `ragmonk
+  status` now reads the same `status_service.collect_status` the dashboard
+  and the `ragmonk_status` MCP tool use.
+- **Security controls** (localhost-only default, double-submit CSRF token,
+  Host-header validation against DNS rebinding, explicit confirmation on
+  destructive actions, and credentials never rendered — only
+  configured/not-configured). No authentication is included: the release is
+  localhost-only and single-user.
+- Documentation: `docs/ui.md` and a README section.
+
+### Notes
+
+- New runtime dependencies (`fastapi`, `uvicorn`, `jinja2`,
+  `python-multipart`) are imported only when `ragmonk ui` runs; every other
+  command path stays free of the web stack.
+
 ## [0.3.4]
 
 Exact Tokenizer work, Phase 5 (final): **diagnostics and observability**.

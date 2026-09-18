@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Health{% endblock %}
+{% block content %}
+<h1>Health</h1>
+
+{% set cls = "ok" if report.overall == "HEALTHY" else ("warn" if "WARNING" in report.overall else "danger") %}
+<div class="panel">
+  <span class="badge {{ cls }}">{{ report.overall }}</span>
+</div>
+
+{% for section in report.sections %}
+<div class="panel">
+  <h2 style="margin-top:0">{{ section.name }}</h2>
+  <table>
+    <tbody>
+      {% for c in section.checks %}
+      <tr>
+        <td style="width:120px">
+          <span class="badge {{ 'ok' if c.status == 'ok' else ('warn' if c.status == 'warn' else 'danger') }}">{{ c.status }}</span>
+        </td>
+        <td><strong>{{ c.name }}</strong></td>
+        <td class="muted">{{ c.detail }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% endblock %}

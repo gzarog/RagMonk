@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+{% set m = status.totals.metrics %}
+<div class="grid">
+  <div class="stat"><div class="num">{{ status.sources|length }}</div><div class="label">Sources</div></div>
+  <div class="stat"><div class="num">{{ status.sources|selectattr("enabled")|list|length }}</div><div class="label">Enabled</div></div>
+  <div class="stat"><div class="num">{{ m.files_indexed }}</div><div class="label">Indexed files</div></div>
+  <div class="stat"><div class="num">{{ m.index_queue_depth }}</div><div class="label">Queued</div></div>
+  <div class="stat"><div class="num">{{ m.files_failed }}</div><div class="label">Failed</div></div>
+  <div class="stat"><div class="num">{{ m.documents_processed }}</div><div class="label">Documents</div></div>
+  <div class="stat"><div class="num">{{ m.symbols_created }}</div><div class="label">Symbols</div></div>
+  <div class="stat"><div class="num">{{ m.relationships_created }}</div><div class="label">Relationships</div></div>
+  <div class="stat"><div class="num">{{ (m.database_size_bytes / 1024)|round(1) }} KB</div><div class="label">DB / index size</div></div>
+</div>
+
+<div class="panel">
+  <div class="spread">
+    <h2 style="margin:0">Runtime</h2>
+    {% if daemon.running %}
+      <span class="badge ok">Daemon running (pid {{ daemon.pid }})</span>
+    {% else %}
+      <span class="badge muted">Daemon stopped</span>
+    {% endif %}
+  </div>
+  <p class="muted">
+    Tokenizer: <code>{{ status.tokenizer.get("model_id", status.tokenizer.get("name", "unknown")) }}</code>
+    · chunk ceiling {{ status.tokenizer.chunk_ceiling }} tokens
+    · last reconciliation {{ daemon.last_reconciliation_at or "—" }}
+  </p>
+</div>
+
+<h2>Sources</h2>
+<div class="panel">
+  <table>
+    <thead><tr><th>Source</th><th>Status</th><th>Indexed</th><th>Queued</th><th>Failed</th><th>Last scan</th></tr></thead>
+    <tbody>
+      {% for s in status.sources %}
+      <tr>
+        <td><a href="/sources/{{ s.id }}">{{ s.path }}</a></td>
+        <td><span class="badge {{ 'ok' if s.status == 'active' else 'muted' }}">{{ s.status }}</span></td>
+        <td>{{ s.counts.get("indexed", 0) }}</td>
+        <td>{{ s.queue_depth }}</td>
+        <td>{{ s.counts.get("failed", 0) }}</td>
+        <td class="muted">{{ s.last_scan_at or "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">No sources yet. <a href="/sources">Add one</a>.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2>Latest indexing errors</h2>
+<div class="panel">
+  {% if errors %}
+  <table>
+    <thead><tr><th>When</th><th>Source</th><th>Path</th><th>Error</th></tr></thead>
+    <tbody>
+      {% for e in errors %}
+      <tr>
+        <td class="muted mono">{{ e.occurred_at }}</td>
+        <td>{{ e.source_id }}</td>
+        <td class="mono">{{ e.path or "—" }}</td>
+        <td>{{ e.error_code }}: {{ e.error_message }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No indexing errors recorded.</p>
+  {% endif %}
+</div>
+{% endblock %}

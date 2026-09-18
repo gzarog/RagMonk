@@ -28,6 +28,7 @@ from ragmonk.cli import (
     source,
     status,
     symbol,
+    ui,
     uninstall,
     update,
     upgrade,
@@ -54,6 +55,7 @@ app.add_typer(update.app, name="update")
 app.command("init", help="Bootstrap the RagMonk runtime directory.")(init.init)
 app.command("index", help="Scan sources and process pending files.")(index.index)
 app.command("status", help="Show indexing status.")(status.status)
+app.command("ui", help="Start the RagMonk administration web interface.")(ui.ui)
 app.command("doctor", help="Run health checks.")(doctor.doctor)
 app.command("health", help="Show a condensed health summary.")(doctor.health)
 app.command("version", help="Show the RagMonk version.")(version_cmd.version)

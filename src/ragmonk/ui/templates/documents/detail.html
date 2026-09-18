@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Document detail{% endblock %}
+{% block content %}
+<div class="spread">
+  <h1 style="margin:0">{{ document.title or document.path.split("/")[-1] }}</h1>
+  <a href="/documents" class="btn small">← Documents</a>
+</div>
+
+<div class="panel">
+  <table>
+    <tr><th>Path</th><td class="mono">{{ document.path }}</td></tr>
+    <tr><th>Format</th><td>{{ document.format }}</td></tr>
+    <tr><th>Author</th><td>{{ document.author or "—" }}</td></tr>
+    <tr><th>Pages</th><td>{{ document.page_count or "—" }}</td></tr>
+    <tr><th>Sections</th><td>{{ document.section_count }}</td></tr>
+    <tr><th>Paragraphs</th><td>{{ document.paragraph_count }}</td></tr>
+    <tr><th>Tables</th><td>{{ document.table_count }}</td></tr>
+    <tr><th>Scanned (OCR)</th><td>{{ "yes" if document.is_scanned else "no" }}</td></tr>
+    <tr><th>Indexed</th><td>{{ document.indexed_at or "—" }}</td></tr>
+  </table>
+</div>
+
+<h2>Chunks ({{ document.chunks|length }})</h2>
+{% for c in document.chunks %}
+<div class="chunk">
+  <div class="meta">
+    <span class="badge muted">{{ c.kind }}</span>
+    {% if c.heading_path %}<span class="mono">{{ c.heading_path|join(" › ") }}</span>{% endif %}
+    {% if c.page_start %}· page {{ c.page_start }}{% endif %}
+    · {{ "embedded" if c.has_embedding else "no embedding" }}
+    · <span class="tag mono">{{ c.id }}</span>
+  </div>
+  <pre>{{ c.text }}</pre>
+</div>
+{% else %}
+<div class="panel"><p class="muted">No chunks recorded for this document.</p></div>
+{% endfor %}
+{% endblock %}
