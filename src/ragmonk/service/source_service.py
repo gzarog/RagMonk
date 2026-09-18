@@ -102,7 +102,19 @@ def set_enabled(ctx: AppContext, source_id: str, enabled: bool) -> Source:
 
 
 def remove_source(ctx: AppContext, source_id: str) -> SourceRemoval:
-    return _registry(ctx).remove(source_id)
+    registry = _registry(ctx)
+    source = registry.get(source_id)
+    # The long-lived UI AppContext caches a project connection the moment a
+    # source is listed or summarized (``ctx.project_conn`` in
+    # ``_summarize``). On Windows an open SQLite handle keeps ``knowledge.db``
+    # locked, so ``registry.remove``'s ``shutil.rmtree`` of the project dir
+    # would fail (POSIX lets you unlink an open file, Windows does not).
+    # Drop the cached handle first -- the same thing ``ops/rebuild`` does
+    # before wiping a project (``AppContext.close_project_conn``). The CLI
+    # never needs this because it bootstraps a fresh context per command.
+    project_id = paths.project_id_for_path(Path(source.path))
+    ctx.close_project_conn(project_id)
+    return registry.remove(source_id)
 
 
 def _file_size(path: Path) -> int:
