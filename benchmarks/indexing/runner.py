@@ -9,19 +9,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ragmonk.core import paths
-from ragmonk.core.config import RagMonkConfig
-from ragmonk.core.lifecycle import AppContext
-from ragmonk.indexing import runner as index_runner
-from ragmonk.sources.registry import SourceRegistry
-from ragmonk.storage.repositories import entities_repo
-
 from benchmarks.indexing.metrics import (
     ScenarioMetrics,
     count_hash_calls,
     environment_info,
     measure_resources,
 )
+
+from ragmonk.core import paths
+from ragmonk.core.config import RagMonkConfig
+from ragmonk.core.lifecycle import AppContext
+from ragmonk.indexing import runner as index_runner
+from ragmonk.sources.registry import SourceRegistry
+from ragmonk.storage.repositories import entities_repo
 
 try:
     from ragmonk.storage.repositories import documents_repo

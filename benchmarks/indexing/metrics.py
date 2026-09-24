@@ -6,13 +6,15 @@ is comparable across machines/runs.
 
 from __future__ import annotations
 
+import contextlib
 import platform
 import resource
 import sys
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
-from typing import Iterator
+from pathlib import Path
 
 from ragmonk.sources import fingerprint as fingerprint_module
 
@@ -50,17 +52,15 @@ def count_hash_calls() -> Iterator[HashCounters]:
     counters = HashCounters()
     original = fingerprint_module.hash_file
 
-    def _counting_hash_file(path, algorithm="sha256"):  # noqa: ANN001, ANN201
+    def _counting_hash_file(path: Path, algorithm: str = "sha256") -> str:
         started = time.perf_counter()
         try:
             return original(path, algorithm)
         finally:
             counters.calls += 1
             counters.total_seconds += time.perf_counter() - started
-            try:
+            with contextlib.suppress(OSError):
                 counters.bytes_hashed += path.stat().st_size
-            except OSError:
-                pass
 
     patched_modules = []
     for module_name in _PATCH_TARGETS:
@@ -71,11 +71,11 @@ def count_hash_calls() -> Iterator[HashCounters]:
         if getattr(module, "hash_file", None) is original:
             module.hash_file = _counting_hash_file  # type: ignore[attr-defined]
             patched_modules.append(module)
-    fingerprint_module.hash_file = _counting_hash_file  # type: ignore[assignment]
+    fingerprint_module.hash_file = _counting_hash_file
     try:
         yield counters
     finally:
-        fingerprint_module.hash_file = original  # type: ignore[assignment]
+        fingerprint_module.hash_file = original
         for module in patched_modules:
             module.hash_file = original  # type: ignore[attr-defined]
 

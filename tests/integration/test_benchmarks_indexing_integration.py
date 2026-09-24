@@ -9,7 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from benchmarks.indexing import fixtures
 from benchmarks.indexing.runner import run_scenario
 
