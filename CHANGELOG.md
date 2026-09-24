@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
+Phase P0: reproducible, fully-offline benchmarks measuring the existing
+indexing implementation before any optimization changes are made. See
+`docs/indexing_benchmarks.md`.
+
+### Added
+
+- `benchmarks/indexing/`: a synthetic-fixture generator (deterministic
+  code/document corpora, no real-world data) and a benchmark runner that
+  drives the real `run_source_pass` entry point through cold-index,
+  warm-unchanged, single-edit, 1%-change, burst, rename and delete
+  scenarios, recording wall time, hash-call counts/bytes, CPU time, peak
+  RSS and correctness counts. Run with `python -m benchmarks.indexing
+  --tier <tiny|small|medium|large|scale>`.
+- `benchmarks/indexing/baseline_small.json` and `baseline_medium.json`:
+  measured baseline results against the pre-optimization implementation
+  (commit `d8a5fad`), for later phases' before/after comparison.
+- `docs/indexing_benchmarks.md` documents how to run and extend the
+  suite.
+
 Admin UI plan: a built-in, **local-first administration web interface**,
 started with `ragmonk ui`.
 
