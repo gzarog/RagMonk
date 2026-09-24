@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import contextlib
 import platform
-import resource
 import sys
 import time
 from collections.abc import Iterator
@@ -17,6 +16,19 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from ragmonk.sources import fingerprint as fingerprint_module
+
+try:
+    # POSIX-only (Linux/macOS) -- unavailable on Windows. Peak
+    # RSS/CPU-time reporting degrades to 0.0 there rather than making
+    # this whole benchmark suite unusable on a Windows dev machine or CI
+    # runner; wall time (the primary metric everything else compares
+    # against) is unaffected either way.
+    import resource
+
+    _HAS_RESOURCE = True
+except ImportError:  # pragma: no cover - exercised only on Windows
+    resource = None  # type: ignore[assignment]
+    _HAS_RESOURCE = False
 
 # Plan finding F4: the coordinator, the document pipeline and the PDF
 # adapter each did ``from ragmonk.sources.fingerprint import hash_file``
@@ -116,20 +128,26 @@ def measure_resources() -> Iterator[dict]:
     """
     usage: dict = {}
     start_wall = time.perf_counter()
-    start_rusage = resource.getrusage(resource.RUSAGE_SELF)
+    start_rusage = resource.getrusage(resource.RUSAGE_SELF) if _HAS_RESOURCE else None
     try:
         yield usage
     finally:
         end_wall = time.perf_counter()
-        end_rusage = resource.getrusage(resource.RUSAGE_SELF)
         usage["wall_time_s"] = end_wall - start_wall
-        usage["cpu_user_s"] = end_rusage.ru_utime - start_rusage.ru_utime
-        usage["cpu_sys_s"] = end_rusage.ru_stime - start_rusage.ru_stime
-        # ru_maxrss is KB on Linux, bytes on macOS -- normalize to MB
-        # assuming Linux (the only platform this benchmark targets for
-        # now; documented in the baseline JSON's environment block).
-        divisor = 1024.0 if sys.platform != "darwin" else (1024.0 * 1024.0)
-        usage["peak_rss_mb"] = end_rusage.ru_maxrss / divisor
+        if _HAS_RESOURCE and start_rusage is not None:
+            end_rusage = resource.getrusage(resource.RUSAGE_SELF)
+            usage["cpu_user_s"] = end_rusage.ru_utime - start_rusage.ru_utime
+            usage["cpu_sys_s"] = end_rusage.ru_stime - start_rusage.ru_stime
+            # ru_maxrss is KB on Linux, bytes on macOS -- normalize to MB
+            # assuming Linux (the only platform this benchmark targets
+            # for now; documented in the baseline JSON's environment
+            # block).
+            divisor = 1024.0 if sys.platform != "darwin" else (1024.0 * 1024.0)
+            usage["peak_rss_mb"] = end_rusage.ru_maxrss / divisor
+        else:
+            usage["cpu_user_s"] = 0.0
+            usage["cpu_sys_s"] = 0.0
+            usage["peak_rss_mb"] = 0.0
 
 
 def environment_info() -> dict:

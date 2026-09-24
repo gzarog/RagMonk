@@ -92,7 +92,10 @@ def test_measure_resources_reports_positive_wall_time() -> None:
     with measure_resources() as usage:
         sum(range(100_000))
     assert usage["wall_time_s"] >= 0.0
-    assert usage["peak_rss_mb"] > 0.0
+    # peak_rss_mb/cpu_*_s are best-effort: 0.0 on a platform without the
+    # POSIX ``resource`` module (Windows) rather than an error -- see
+    # metrics.py's _HAS_RESOURCE fallback.
+    assert usage["peak_rss_mb"] >= 0.0
 
 
 def test_environment_info_reports_docling_availability() -> None:
