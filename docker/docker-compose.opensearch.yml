@@ -1,0 +1,50 @@
+# Storage backend abstraction plan, Phase 9 (packaging/docs).
+#
+# OPTIONAL, dev-only convenience for exercising RagMonk's OpenSearch
+# `KnowledgeBackend` adapter (src/ragmonk/backends/opensearch.py) and its
+# integration tests (tests/unit/test_backends_opensearch_integration.py)
+# against a REAL cluster. This file is NEVER required to run RagMonk --
+# the default `storage.mode="local"` (SQLite/FTS5/USearch) needs no server
+# at all, and even `storage.mode="server"` only needs *some* reachable
+# OpenSearch cluster, not specifically this compose file.
+#
+# Single-node, security-disabled configuration for local testing only --
+# do not reuse this file's settings (no TLS, no auth, `discovery.type:
+# single-node`) for anything but a throwaway local dev cluster.
+#
+# Usage:
+#
+#   docker compose -f docker/docker-compose.opensearch.yml up -d
+#
+#   # Point the integration tests / a real `ragmonk init --storage-mode
+#   # server` at it:
+#   export OPENSEARCH_URL=http://localhost:9200          # for the test suite
+#   pytest -m opensearch_integration tests/unit/test_backends_opensearch_integration.py
+#
+#   ragmonk init --storage-mode server --storage-engine opensearch \
+#       --storage-url http://localhost:9200 --storage-no-verify-tls
+#
+#   docker compose -f docker/docker-compose.opensearch.yml down -v
+
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.15.0
+    container_name: ragmonk-dev-opensearch
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - ragmonk-dev-opensearch-data:/usr/share/opensearch/data
+
+volumes:
+  ragmonk-dev-opensearch-data:
