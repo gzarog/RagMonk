@@ -40,7 +40,7 @@ from ragmonk.indexing.incremental import (
 )
 from ragmonk.security.path_guard import PathGuard
 from ragmonk.sources import detector
-from ragmonk.sources.fingerprint import hash_file
+from ragmonk.sources.fingerprint import FileIdentity, hash_file
 from ragmonk.sources.ignore import IgnoreMatcher
 from ragmonk.sources.scanner import ScanOutcome, check_root_accessible, scan
 from ragmonk.storage.repositories import errors_repo, files_repo, jobs_repo
@@ -106,6 +106,16 @@ class ProcessorContext:
     # near-instantaneous transaction that cannot itself leave entities
     # half-written since it touches no entity/relationship row.
     next_generation: int = 0
+    # Indexing optimization plan, Phase P3 / finding F4: the content
+    # hash this coordinator run already computed for this file (during
+    # scan/classify_change), plus the exact size/mtime it was verified
+    # against. A processor uses ``fingerprint.verified_hash`` with this
+    # instead of unconditionally re-reading and re-hashing the whole
+    # file -- see ``documents/pipeline.py``. ``None`` for a
+    # coordinator-external ``ProcessorContext`` (most unit tests, a
+    # direct processor call) -- every such caller keeps hashing the
+    # file itself, exactly as before this phase.
+    file_identity: FileIdentity | None = None
 
 
 @dataclass(frozen=True)
@@ -247,6 +257,13 @@ class IndexCoordinator:
         self._exclude = exclude_patterns
         self._config = config
         self._processors = processors or default_registry()
+        # Indexing optimization plan, Phase P3: this run's file_id ->
+        # verified FileIdentity, populated during the scan loop below
+        # and consumed (popped) in ``_process_queue`` when building each
+        # file's ``ProcessorContext``. Reset at the top of every ``run()``
+        # call, not just here, since a caller may reuse one coordinator
+        # instance across multiple runs (tests do).
+        self._pending_identities: dict[str, FileIdentity] = {}
 
     def _reconcile_renames(
         self,
@@ -336,6 +353,7 @@ class IndexCoordinator:
 
     def run(self) -> IndexRunResult:
         result = IndexRunResult()
+        self._pending_identities = {}
 
         # Checked before anything else -- including before
         # ``recover_stuck``, which is safe to defer, but scanning an
@@ -468,6 +486,12 @@ class IndexCoordinator:
                 files_repo.update_status(self._conn, file_id, FileStatus.QUEUED, updated_at=now)
                 result.changed += 1
 
+            # Indexing optimization plan, Phase P3: this file_id's
+            # verified identity for whatever processor runs it next --
+            # see ``_pending_identities``'s docstring in ``__init__``.
+            self._pending_identities[file_id] = FileIdentity(
+                content_hash=content_hash, size=sf.size, mtime=sf.mtime
+            )
             jobs_repo.enqueue(self._conn, source_id=self._source_id, file_id=file_id)
 
         self._process_queue(result, max_size_bytes)
@@ -485,6 +509,12 @@ class IndexCoordinator:
 
             files_repo.update_status(self._conn, file.id, FileStatus.PROCESSING, updated_at=_now())
             processor = self._processors.get(file.kind)
+            # Indexing optimization plan, Phase P3: popped (not just
+            # read) so a same-pass immediate retry of this file_id
+            # (identity already consumed) safely falls back to a
+            # processor re-hashing the file itself, rather than reusing
+            # a possibly-stale identity a second time.
+            identity = self._pending_identities.pop(file.id, None)
             ctx = ProcessorContext(
                 path=Path(file.path),
                 size=file.size,
@@ -499,6 +529,7 @@ class IndexCoordinator:
                 chunking=self._config.documents.chunking,
                 ocr=self._config.documents.ocr,
                 image_ocr=self._config.documents.image_ocr,
+                file_identity=identity,
             )
             started = time.monotonic()
             try:

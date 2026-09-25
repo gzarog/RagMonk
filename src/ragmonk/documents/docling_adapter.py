@@ -595,7 +595,10 @@ def _run_ocr_conversion(path: Path) -> DoclingDocument | None:
 
 
 def _convert_pdf(
-    path: Path, conn: sqlite3.Connection | None, ocr_mode: str = "off"
+    path: Path,
+    conn: sqlite3.Connection | None,
+    ocr_mode: str = "off",
+    content_hash: str | None = None,
 ) -> ConversionResult:
     """PDF's extra step: Docling's real PDF-layout pipeline is expensive
     (a real layout/table-structure ML model), so its output -- the native
@@ -604,8 +607,18 @@ def _convert_pdf(
     never touching the pipeline again. See this module's docstring for
     the full rationale, including ``ocr_mode``'s "off"/"auto"/"always"
     behavior.
+
+    Indexing optimization plan, Phase P3 / finding F4: ``content_hash``,
+    when given, is trusted as-is for the cache key instead of this
+    function re-reading and re-hashing the whole file itself -- the
+    caller (``documents/pipeline.py``) is responsible for having
+    verified it against the file's current stat first (see
+    ``fingerprint.verified_hash``). ``None`` (any direct caller that
+    hasn't done that verification -- tests, mainly) falls back to
+    hashing here, exactly as before this phase.
     """
-    content_hash = hash_file(path)
+    if content_hash is None:
+        content_hash = hash_file(path)
 
     if ocr_mode == "always":
         document = _cached_document(conn, content_hash, ocr_used=_OCR_APPLIED)
@@ -648,7 +661,11 @@ def _convert_pdf(
 
 
 def convert(
-    path: Path, *, conn: sqlite3.Connection | None = None, ocr_mode: str = "off"
+    path: Path,
+    *,
+    conn: sqlite3.Connection | None = None,
+    ocr_mode: str = "off",
+    content_hash: str | None = None,
 ) -> ConversionResult:
     """Converts ``path`` (already confirmed supported by ``detect_format``)
     to a Docling ``DoclingDocument``, wrapped in a ``ConversionResult``, or
@@ -672,8 +689,11 @@ def convert(
     restricts ``documents.ocr`` to these three values (see
     ``core.config.DocumentsConfig``), so this is a last-resort safety net,
     not the primary validation.
+
+    ``content_hash`` (Phase P3 / finding F4), meaningful for PDF only,
+    is forwarded to ``_convert_pdf`` -- see its own docstring.
     """
     if detect_format(path) is DocumentFormat.PDF:
-        return _convert_pdf(path, conn, ocr_mode)
+        return _convert_pdf(path, conn, ocr_mode, content_hash)
     document = _run_conversion(_get_converter(), path, str(path))
     return ConversionResult(document=document)
