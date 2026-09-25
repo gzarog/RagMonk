@@ -56,3 +56,17 @@ def status(json_output: Annotated[bool, typer.Option("--json")] = False) -> None
             f"Documents: {metrics['documents_processed']}  "
             f"DB size: {metrics['database_size_bytes'] / 1024:.1f} KB"
         )
+
+        backend = data.get("backend", {})
+        console.print(f"Backend: {backend.get('type', 'local')}")
+        if backend.get("type", "local") != "local":
+            if "error" in backend:
+                console.print(f"  [red]{backend['error']}[/red]")
+            else:
+                counts = backend.get("counts", {})
+                console.print(
+                    f"  Server counts -- files: {counts.get('files', 0)}  "
+                    f"entities: {counts.get('entities', 0)}  "
+                    f"document_units: {counts.get('document_units', 0)}  "
+                    f"embeddings: {counts.get('embeddings', 0)}"
+                )

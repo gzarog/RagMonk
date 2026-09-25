@@ -39,6 +39,17 @@ def _file_size(path: Path) -> int:
         return 0
 
 
+def _backend_kind(ctx: AppContext) -> str:
+    """``"local"``, ``"server/opensearch"`` or ``"server/elasticsearch"`` --
+    the same three-way distinction ``ragmonk doctor``'s server section
+    reports, for ``ragmonk status``/the admin UI dashboard's own use
+    (Storage backend abstraction plan, Phase 8).
+    """
+    if ctx.config.storage.mode != "server":
+        return "local"
+    return f"server/{ctx.config.storage.server.engine}"
+
+
 def collect_status(ctx: AppContext) -> dict[str, Any]:
     """Aggregate per-source and total indexing metrics for a runtime.
 
@@ -49,6 +60,15 @@ def collect_status(ctx: AppContext) -> dict[str, Any]:
     excluded: query-latency style metrics -- nothing in this codebase
     times a query today, and inventing one only for a metrics field
     would be a fabricated number, not a real one.
+
+    In server mode (``storage.mode == "server"``), also reports the
+    backend's own real counts (``ctx.backend().count_stats()``) alongside
+    the per-source local numbers above -- the per-source table itself
+    still reflects the local control-plane registry/job-queue state
+    (sources, scan status, queue depth), which stays local regardless of
+    storage mode; only the searchable-knowledge counts additionally come
+    from the real server backend here. Local mode's own output is
+    unchanged (Storage backend abstraction plan, Phase 8).
     """
     registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
     sources = registry.list()
@@ -102,9 +122,28 @@ def collect_status(ctx: AppContext) -> dict[str, Any]:
     tokenizer = diagnostics.tokenizer_identity()
     tokenizer["chunk_ceiling"] = ctx.config.documents.chunking.resolved_max_tokens
 
+    backend_kind = _backend_kind(ctx)
+    backend_info: dict[str, Any] = {"type": backend_kind}
+    if ctx.config.storage.mode == "server":
+        # Real server-side counts, not the local-only numbers above --
+        # never silently reused/estimated from the local control plane.
+        # A backend that cannot be reached surfaces as an explicit error
+        # string rather than a fabricated zero/omitted field.
+        try:
+            stats = ctx.backend().count_stats()
+            backend_info["counts"] = {
+                "files": stats.files,
+                "entities": stats.entities,
+                "document_units": stats.document_units,
+                "embeddings": stats.embeddings,
+            }
+        except Exception as exc:
+            backend_info["error"] = f"server unreachable: {exc}"
+
     return {
         "sources": per_source,
         "tokenizer": tokenizer,
+        "backend": backend_info,
         "totals": {
             "by_status": totals,
             "queue_depth": total_queue_depth,
