@@ -147,6 +147,16 @@ dependencies = [
 copilot = [
     "github-copilot-sdk>=0.1,<1",
 ]
+# Storage backend abstraction plan, Phase 4: the official OpenSearch
+# Python client, an OPTIONAL runtime for `storage.mode="server"` with
+# `storage.server.engine="opensearch"`. Not a default dependency -- local
+# (SQLite) mode indexes and retrieves without it, and
+# `ragmonk.backends.opensearch`/`opensearch_client` import it lazily
+# inside function bodies, so only a user who opts into the OpenSearch
+# backend installs it (`pip install "ragmonk[opensearch]"`).
+opensearch = [
+    "opensearch-py>=2.4,<3",
+]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
@@ -263,7 +273,7 @@ pythonpath = ["."]
 # diagnostic, not a correctness test, and its numbers are only
 # meaningful on real, unshared hardware (see benchmarks/search/
 # targets.py), so it is excluded from the default run the same way.
-addopts = "-ra -m 'not docling_pdf and not daemon_subprocess and not embedding_model and not reranker_model and not benchmark_search and not cli_startup_benchmark'"
+addopts = "-ra -m 'not docling_pdf and not daemon_subprocess and not embedding_model and not reranker_model and not benchmark_search and not cli_startup_benchmark and not opensearch_integration'"
 markers = [
     "docling_pdf: exercises Docling's real PDF conversion pipeline (network + model download on first run); excluded from the default run, see CONTRIBUTING.md",
     "daemon_subprocess: spawns and signals a real detached `ragmonk daemon` process; excluded from the default run, see CONTRIBUTING.md",
@@ -271,4 +281,5 @@ markers = [
     "reranker_model: loads the real local cross-encoder reranker model (network + weight download on first run); excluded from the default run, see CONTRIBUTING.md",
     "benchmark_search: measures search latency against a synthetic corpus (benchmarks/search/); excluded from the default run, see CONTRIBUTING.md",
     "cli_startup_benchmark: measures CLI subprocess startup latency (benchmarks/cli_startup/); excluded from the default run, see CONTRIBUTING.md",
+    "opensearch_integration: exercises the OpenSearch adapter against a real cluster (OPENSEARCH_URL env var); excluded from the default run, skips cleanly when no cluster is reachable, see CONTRIBUTING.md",
 ]

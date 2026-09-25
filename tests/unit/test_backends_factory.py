@@ -6,7 +6,7 @@ OpenSearch/Elasticsearch backend-contract tests can extend (see
 
 from __future__ import annotations
 
-import importlib.util
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -41,10 +41,19 @@ def test_factory_local_mode_returns_local_backend(tmp_path: Path) -> None:
         backend.close()
 
 
-def test_factory_server_mode_raises_not_implemented() -> None:
+def test_factory_server_mode_opensearch_returns_opensearch_backend() -> None:
+    """Storage backend abstraction plan, Phase 4: ``mode="server"`` with
+    the (default) ``engine="opensearch"`` now returns a real, working
+    ``OpenSearchKnowledgeBackend`` instead of raising. This only needs
+    opensearch-py installed to *construct*; it does not connect (no
+    method that talks to a cluster is called here).
+    """
+    pytest.importorskip("opensearchpy")
+    from ragmonk.backends.opensearch import OpenSearchKnowledgeBackend
+
     config = StorageConfig(mode="server")
-    with pytest.raises(NotImplementedError, match="opensearch"):
-        create_backend(config)
+    backend = create_backend(config)
+    assert isinstance(backend, OpenSearchKnowledgeBackend)
 
 
 def test_factory_server_mode_elasticsearch_raises_not_implemented() -> None:
@@ -77,12 +86,17 @@ def test_local_backend_construction_needs_no_server_sdk(tmp_path: Path) -> None:
     backend still works -- locking the 'local mode needs no server SDK'
     contract from the inside (a real absence, not a mock).
     """
-    for module_name in ("opensearchpy", "elasticsearch"):
-        assert importlib.util.find_spec(module_name) is None, (
-            f"{module_name} is installed in this test environment; this test can no "
-            "longer prove local mode doesn't need it. Run it in an environment without "
-            "opensearch-py/elasticsearch-py installed."
-        )
+    # opensearch-py is now an OPTIONAL extra (Phase 4) that this repo's own
+    # dev/CI environment may have installed to test the OpenSearch adapter
+    # itself (see test_backends_opensearch.py) -- so this test can no
+    # longer assert its outright *absence* from the interpreter the way it
+    # could pre-Phase-4. What it still proves, either way: local-mode
+    # construction and use never *imports* either server SDK -- checked via
+    # sys.modules, not find_spec, since find_spec only asks whether a
+    # package is installed, not whether local-mode code touched it.
+    already_imported = {
+        name for name in ("opensearchpy", "elasticsearch") if name in sys.modules
+    }
 
     config = RagMonkConfig()
     backend = create_backend(config.storage, home=tmp_path / "home")
@@ -91,6 +105,14 @@ def test_local_backend_construction_needs_no_server_sdk(tmp_path: Path) -> None:
         backend.ensure_schema()
     finally:
         backend.close()
+
+    newly_imported = {
+        name for name in ("opensearchpy", "elasticsearch") if name in sys.modules
+    } - already_imported
+    assert not newly_imported, (
+        f"local-mode backend construction/use imported {newly_imported}, "
+        "which it must never need"
+    )
 
 
 def test_local_backend_health_and_schema(local_backend: KnowledgeBackend) -> None:

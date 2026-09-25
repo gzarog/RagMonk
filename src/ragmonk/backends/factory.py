@@ -1,18 +1,20 @@
 """``create_backend`` -- given a :class:`~ragmonk.core.config.StorageConfig`,
 return the right :class:`~ragmonk.backends.base.KnowledgeBackend` instance.
 
-Storage backend abstraction plan, Phase 1: only ``mode="local"`` returns a
-real, working backend today (:class:`ragmonk.backends.local.LocalKnowledgeBackend`).
-``mode="server"`` raises :class:`NotImplementedError` with a clear message
-naming the engine and the future phase that will add it -- there is no
-OpenSearch/Elasticsearch adapter yet.
+Storage backend abstraction plan: ``mode="local"`` returns
+:class:`ragmonk.backends.local.LocalKnowledgeBackend` (Phase 1).
+``mode="server"`` with ``server.engine="opensearch"`` returns a real,
+working :class:`ragmonk.backends.opensearch.OpenSearchKnowledgeBackend`
+(Phase 4). ``server.engine="elasticsearch"`` still raises
+:class:`NotImplementedError` -- that adapter is a future phase.
 
-Nothing in this module imports ``opensearch-py``/``elasticsearch-py``, even
-lazily, because there is nothing to construct yet. When those adapters
-land, their imports must stay inside this module's function bodies (or
-behind ``typing.TYPE_CHECKING``), never at module top level, so
-constructing a local backend never requires either package to be
-installed.
+Nothing in this module imports ``opensearch-py``/``elasticsearch-py`` at
+module scope -- the OpenSearch branch's import is local to
+``create_backend``'s own function body, and
+``ragmonk.backends.opensearch`` itself only imports ``opensearch-py``
+lazily inside its methods (see that module's docstring), so constructing
+a local backend, or importing this module at all, never requires either
+package to be installed.
 """
 
 from __future__ import annotations
@@ -66,10 +68,19 @@ def create_backend(config: StorageConfig, *, home: Path | None = None) -> Knowle
 
     if config.mode == "server":
         engine = config.server.engine
-        if engine in _CREDENTIAL_ENV_VARS:
+        if engine == "opensearch":
+            # Local import: OpenSearchKnowledgeBackend only imports
+            # opensearch-py lazily too (inside its own methods), but
+            # keeping the import here as well means this factory module
+            # never needs opensearch-py installed unless server mode with
+            # engine="opensearch" is actually selected.
+            from ragmonk.backends.opensearch import OpenSearchKnowledgeBackend
+
+            return OpenSearchKnowledgeBackend(config.server)
+        if engine == "elasticsearch":
             raise NotImplementedError(
                 f"storage.mode='server' with engine={engine!r} has no adapter yet -- "
-                "OpenSearch/Elasticsearch KnowledgeBackend adapters are a future phase "
+                "the Elasticsearch KnowledgeBackend adapter is a future phase "
                 "of the storage backend abstraction plan (not yet implemented)."
             )
         raise ConfigError(f"unknown storage.server.engine {engine!r}")
