@@ -27,6 +27,7 @@ this exact seam.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,9 @@ from ragmonk.core.lifecycle import AppContext
 from ragmonk.retrieval import ann, embedder
 from ragmonk.retrieval import cache as search_cache
 from ragmonk.storage.repositories import embeddings_repo, vector_items_repo
+from ragmonk.telemetry.logging import get_logger, log_event
+
+_logger = get_logger("retrieval.semantic")
 
 DEFAULT_LIMIT = 15
 
@@ -170,7 +174,22 @@ def _semantic_search_server(
     call, P4/P5) instead of USearch/vector_items -- never local SQLite, per
     this phase's "no silent local fallback" rule.
     """
+    started = time.perf_counter()
     raw_hits = ctx.backend().semantic_search(query_vector, k)
+    duration_ms = (time.perf_counter() - started) * 1000
+    # Structured query-latency logging (Storage backend abstraction plan,
+    # Phase 8), matching ``retrieval/lexical.py``'s
+    # ``_search_with_timings_server``'s ``StageTiming`` shape -- logged
+    # rather than added to ``SemanticSearchResult`` itself, which (unlike
+    # lexical's ``TimedSearchResult``) has no ``timings`` field and is a
+    # widely-consumed public return type not worth changing shape for
+    # this alone.
+    log_event(
+        _logger,
+        "server_semantic_search",
+        hits=len(raw_hits),
+        duration_ms=round(duration_ms, 3),
+    )
     if not raw_hits:
         return SemanticSearchResult(
             available=True, reason="no embeddings computed for this project yet", results=()

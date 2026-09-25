@@ -35,6 +35,9 @@ from typing import Any
 
 from ragmonk.core.config import BulkConfig
 from ragmonk.core.errors import DatabaseError
+from ragmonk.telemetry.logging import get_logger, log_event
+
+_logger = get_logger("backends.elasticsearch_bulk")
 
 # HTTP/bulk-item statuses worth retrying: throttling and transient
 # conflict/server errors. A genuine mapping/validation error (400) is not
@@ -198,6 +201,7 @@ def run_bulk(client: Any, actions: list[BulkAction], config: BulkConfig) -> Bulk
     if not actions:
         return BulkResult()
 
+    started = time.perf_counter()
     batches = list(_batch(actions, config.max_actions, config.max_bytes))
     result = BulkResult()
 
@@ -206,16 +210,33 @@ def run_bulk(client: Any, actions: list[BulkAction], config: BulkConfig) -> Bulk
             succeeded, failures = _send_batch_with_retries(client, batch, config)
             result.succeeded += succeeded
             result.failed.extend(failures)
-        return result
+    else:
+        with ThreadPoolExecutor(max_workers=config.concurrency) as pool:
+            futures = [
+                pool.submit(_send_batch_with_retries, client, batch, config) for batch in batches
+            ]
+            for future in futures:
+                succeeded, failures = future.result()
+                result.succeeded += succeeded
+                result.failed.extend(failures)
 
-    with ThreadPoolExecutor(max_workers=config.concurrency) as pool:
-        futures = [
-            pool.submit(_send_batch_with_retries, client, batch, config) for batch in batches
-        ]
-        for future in futures:
-            succeeded, failures = future.result()
-            result.succeeded += succeeded
-            result.failed.extend(failures)
+    # Structured bulk-flush timing (Storage backend abstraction plan,
+    # Phase 8) -- mirrors the shape of ``retrieval/lexical.py``'s
+    # ``StageTiming``/``search_with_timings`` pattern (name, count,
+    # duration_ms), logged rather than returned since a bulk flush's
+    # caller (``publish_code``/``publish_document``/etc.) has no
+    # equivalent "timings" return slot in the ``KnowledgeBackend``
+    # contract to carry it in.
+    duration_ms = (time.perf_counter() - started) * 1000
+    log_event(
+        _logger,
+        "elasticsearch_bulk_flush",
+        actions=len(actions),
+        batches=len(batches),
+        succeeded=result.succeeded,
+        failed=len(result.failed),
+        duration_ms=round(duration_ms, 3),
+    )
     return result
 
 
