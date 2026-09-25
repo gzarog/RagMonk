@@ -24,6 +24,7 @@ from ragmonk.backends.base import GraphDirection, KnowledgeBackend
 from ragmonk.backends.local import LocalKnowledgeBackend
 from ragmonk.backends.models import BackendStats, FileRecord, SearchHit
 from ragmonk.code import graph as code_graph
+from ragmonk.core.errors import LocalStorageModeRequiredError
 from ragmonk.core.lifecycle import AppContext
 from ragmonk.retrieval import lexical, semantic
 
@@ -171,7 +172,7 @@ def test_all_project_connections_refuses_server_mode(ragmonk_home: Path) -> None
     stub = _StubBackend()
     ctx = _server_ctx(ragmonk_home, stub)
     try:
-        with pytest.raises(RuntimeError, match="storage.mode"):
+        with pytest.raises(LocalStorageModeRequiredError, match="storage.mode"):
             code_graph.all_project_connections(ctx)
     finally:
         ctx.close()
