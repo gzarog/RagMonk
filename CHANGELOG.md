@@ -8,7 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
-Phase P5: embeddings-only backfill, reuse, and short transactions.
+Phase P6: measured SQLite and cross-link optimizations.
+
+### Fixed
+
+- `knowledge.linker.link_touched_files` no longer builds its document-side
+  `namespace_by_file` map at all on a pass that touched no document files
+  (the overwhelmingly common case: an ordinary code-only edit). Before
+  this phase it was built unconditionally, which meant such a pass paid
+  for one `files_repo.get()` round trip per code file in the *entire*
+  project for a result nothing then read -- a real N+1 query pattern,
+  proportional to total project size rather than what actually changed.
+  New regression test (`test_code_only_pass_never_looks_up_other_code_
+  files_in_the_project`) asserts this directly.
+
+### Added
+
+- `files_repo.get_many()`: fetches several files' records in one `SELECT
+  ... WHERE id IN (...)` query. `knowledge.linker.link_touched_files` now
+  uses it for both its touched-code-files lookup and (when document files
+  were touched) the project-wide filename-candidate map, replacing what
+  were previously N individual `files_repo.get()` calls in each case.
+- `knowledge.linker`'s identifier matchers (`match_exact_identifier`,
+  `match_qualified_identifier`, `match_alias`, `match_filename`) now
+  compile each needle's whole-identifier regex pattern once per entity/
+  filename candidate, reused across every document unit checked against
+  it -- instead of rebuilding the same pattern string on every single
+  (entity, unit) pair, the pre-P6 shape.
+
+Both changes are pure internal refactors: `link_touched_files`'s inputs,
+outputs, and stored `cross_links` rows are byte-for-byte unchanged (every
+existing linker/cross-link test passes unmodified); only the query and
+regex-compilation cost of computing them is reduced.
 
 ### Added
 

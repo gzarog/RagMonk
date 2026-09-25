@@ -90,20 +90,30 @@ class LinkCandidate:
     evidence: str
 
 
-def _word_present(text: str, needle: str) -> bool:
-    """Whether ``needle`` appears in ``text`` as a whole identifier, not
-    merely as a substring of a longer one (e.g. "Dog" must not match
-    inside "Doghouse", nor "Dog.bark" inside "MyDog.bark2"). A plain
-    ``\\b...\\b`` regex boundary is not quite right for dotted qualified
-    names -- ``\\b`` treats ``.`` itself as a boundary, so it would still
-    let "Dog.bark" match inside a longer dotted path segment; excluding
-    both word characters *and* ``.`` on either side is what actually
-    pins the match to a standalone occurrence.
+def _needle_pattern(needle: str) -> re.Pattern[str] | None:
+    """Compiles ``needle``'s whole-identifier boundary pattern once --
+    indexing optimization plan Phase P6: every matcher below calls this
+    exactly once per distinct needle (once per entity, or once per
+    filename candidate), *outside* its inner per-document-unit loop, and
+    reuses the same compiled ``re.Pattern`` across every unit -- instead
+    of re-building the same pattern string (a fresh ``re.escape`` call)
+    on every single (entity, unit) pair, the pre-P6 shape. ``None`` for
+    an empty needle keeps ``_word_present`` a plain, always-``False``
+    check without a special case at every call site.
+
+    A plain ``\\b...\\b`` regex boundary is not quite right for dotted
+    qualified names -- ``\\b`` treats ``.`` itself as a boundary, so it
+    would still let "Dog.bark" match inside a longer dotted path segment;
+    excluding both word characters *and* ``.`` on either side is what
+    actually pins the match to a standalone occurrence.
     """
     if not needle:
-        return False
-    pattern = r"(?<![\w.])" + re.escape(needle) + r"(?![\w.])"
-    return re.search(pattern, text) is not None
+        return None
+    return re.compile(r"(?<![\w.])" + re.escape(needle) + r"(?![\w.])")
+
+
+def _word_present(text: str, pattern: re.Pattern[str] | None) -> bool:
+    return pattern is not None and pattern.search(text) is not None
 
 
 def match_exact_identifier(
@@ -112,8 +122,9 @@ def match_exact_identifier(
     """A code entity's bare ``name`` appears verbatim in document text."""
     out: list[LinkCandidate] = []
     for entity in entities:
+        pattern = _needle_pattern(entity.name)
         for unit in units:
-            if _word_present(unit.text, entity.name):
+            if _word_present(unit.text, pattern):
                 out.append(
                     LinkCandidate(
                         entity_id=entity.id,
@@ -140,8 +151,9 @@ def match_qualified_identifier(
     for entity in entities:
         if "." not in entity.qualified_name:
             continue
+        pattern = _needle_pattern(entity.qualified_name)
         for unit in units:
-            if _word_present(unit.text, entity.qualified_name):
+            if _word_present(unit.text, pattern):
                 out.append(
                     LinkCandidate(
                         entity_id=entity.id,
@@ -169,8 +181,9 @@ def match_alias(entities: Sequence[Entity], units: Sequence[DocumentUnit]) -> li
         if len(segments) < _MIN_ALIAS_SEGMENTS:
             continue
         alias = ".".join(segments[-2:])
+        pattern = _needle_pattern(alias)
         for unit in units:
-            if _word_present(unit.text, alias):
+            if _word_present(unit.text, pattern):
                 out.append(
                     LinkCandidate(
                         entity_id=entity.id,
@@ -200,10 +213,13 @@ def match_filename(
     """
     if namespace_entity is None:
         return []
+    filename_patterns = [
+        (filename, _needle_pattern(filename)) for filename in filename_candidates if filename
+    ]
     out: list[LinkCandidate] = []
     for unit in units:
-        for filename in filename_candidates:
-            if filename and _word_present(unit.text, filename):
+        for filename, pattern in filename_patterns:
+            if _word_present(unit.text, pattern):
                 out.append(
                     LinkCandidate(
                         entity_id=namespace_entity.id,
@@ -336,11 +352,19 @@ def link_touched_files(
 
     inserted = 0
 
+    # Indexing optimization plan, Phase P6: one batched query for every
+    # touched code file's record, instead of the N individual
+    # ``files_repo.get()`` round trips this loop used before -- each
+    # touched file needs only its own path (for ``_filename_candidates``),
+    # never another file's, so a single ``IN (...)`` covering exactly this
+    # run's touched set is both correct and strictly cheaper than before.
+    touched_code_files = files_repo.get_many(conn, touched_code_file_ids)
+
     for file_id in touched_code_file_ids:
         file_entities = entities_by_file.get(file_id, [])
         if not file_entities:
             continue
-        file = files_repo.get(conn, file_id)
+        file = touched_code_files.get(file_id)
         namespace_entity = next(
             (e for e in file_entities if e.kind is EntityType.NAMESPACE), None
         )
@@ -356,14 +380,25 @@ def link_touched_files(
         ]
         inserted += _store(conn, candidates)
 
+    # Indexing optimization plan, Phase P6: this whole per-project-file
+    # ``namespace_by_file`` map (used only by the document-side loop
+    # below) is never needed at all on a pass that touched no document
+    # files -- the overwhelmingly common case (an ordinary code edit).
+    # Before this phase it was built unconditionally, which meant every
+    # code-only indexing pass paid for one query per code file in the
+    # *entire* project (a full N+1 round trip) for a result nothing then
+    # read. Skipping it here, and batch-fetching the rest in one query
+    # when it *is* needed, is this phase's other real SQLite-cost fix.
     namespace_by_file: dict[str, tuple[Entity | None, list[str]]] = {}
-    for fid, ents in entities_by_file.items():
-        namespace_entity = next((e for e in ents if e.kind is EntityType.NAMESPACE), None)
-        other_file = files_repo.get(conn, fid)
-        filename_candidates = (
-            _filename_candidates(other_file.path) if other_file is not None else []
-        )
-        namespace_by_file[fid] = (namespace_entity, filename_candidates)
+    if touched_document_file_ids:
+        all_project_files = files_repo.get_many(conn, list(entities_by_file))
+        for fid, ents in entities_by_file.items():
+            namespace_entity = next((e for e in ents if e.kind is EntityType.NAMESPACE), None)
+            other_file = all_project_files.get(fid)
+            filename_candidates = (
+                _filename_candidates(other_file.path) if other_file is not None else []
+            )
+            namespace_by_file[fid] = (namespace_entity, filename_candidates)
 
     for file_id in touched_document_file_ids:
         file_units = units_by_file.get(file_id, [])

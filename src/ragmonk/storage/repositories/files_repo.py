@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Sequence
 
 from ragmonk.core.models import FileKind, FileRecord, FileStatus
 from ragmonk.storage.repositories import links_repo
@@ -42,6 +43,25 @@ def get_by_path(conn: sqlite3.Connection, source_id: str, path: str) -> FileReco
 def get(conn: sqlite3.Connection, file_id: str) -> FileRecord | None:
     row = conn.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
     return _row_to_file(row) if row is not None else None
+
+
+def get_many(conn: sqlite3.Connection, file_ids: Sequence[str]) -> dict[str, FileRecord]:
+    """``{file_id: FileRecord}`` for every id in ``file_ids`` found, in one
+    query -- indexing optimization plan Phase P6: a caller that needs
+    several files' records (e.g. ``knowledge/linker.py``'s cross-domain
+    linker, resolving each project file's filename for the "document
+    mentions this filename" match) must never do it as N individual
+    ``get()`` round trips, one per file, when a single ``IN (...)``
+    query returns exactly the same rows. Missing ids are simply absent
+    from the result, mirroring ``get()`` returning ``None`` for one.
+    """
+    if not file_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in file_ids)
+    rows = conn.execute(
+        f"SELECT * FROM files WHERE id IN ({placeholders})", tuple(file_ids)
+    ).fetchall()
+    return {row["id"]: _row_to_file(row) for row in rows}
 
 
 def list_by_source(conn: sqlite3.Connection, source_id: str) -> list[FileRecord]:
