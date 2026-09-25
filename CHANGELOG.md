@@ -8,7 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
-Phase P2: targeted local updates and reused network snapshots.
+Phase P4: bounded parallel code extraction, one transactional publisher.
+
+### Added
+
+- `code.processor` splits into `prepare_code` (pure, read-only: Tree-
+  sitter parse + entity/relationship extraction, no database access)
+  and `publish_code` (the transactional delete-old-generation/insert-
+  new-generation write, including cross-file symbol resolution against
+  the live connection). `code_processor` itself is unchanged in
+  behavior -- it just calls the two back-to-back, serially, exactly as
+  before this phase.
+- `indexing.coordinator.ProcessorRegistry.register()` accepts optional
+  `prepare`/`publish` callables; a kind registering both becomes
+  eligible for the coordinator's bounded parallel path.
+  `IndexCoordinator._process_queue` runs a kind's `prepare` for up to
+  `indexing.code_extraction_workers` files concurrently in a bounded
+  thread pool -- **default `1` (fully serial, byte-for-byte the pre-P4
+  path)** -- while `publish` always runs on the coordinator's single
+  writer thread, one file at a time. `publish_code` re-verifies the
+  file's content identity immediately before writing and raises
+  `ContentChangedDuringProcessingError` (safely retried, same as
+  `documents.pipeline`'s identical Phase P3 check) if it changed since
+  being claimed -- a wider, real window under parallel extraction than
+  the serial path ever had.
+- Document extraction concurrency is explicitly **not** implemented in
+  this phase -- see the PR's scope note for why.
 
 ### Added
 

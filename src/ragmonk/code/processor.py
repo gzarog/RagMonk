@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
@@ -21,9 +22,10 @@ from ragmonk.code import framework_rules
 from ragmonk.code.extractor import ExtractionResult, default_namespace_for_path, extract
 from ragmonk.code.parser import detect_language, parse
 from ragmonk.code.resolver import ResolvedTarget, resolve_reference
-from ragmonk.core.errors import RagMonkError
+from ragmonk.core.errors import ContentChangedDuringProcessingError, RagMonkError
 from ragmonk.core.models import Confidence, Entity, FileStatus, Relationship, RelationshipType
 from ragmonk.indexing.coordinator import ProcessingOutcome, ProcessorContext
+from ragmonk.sources.fingerprint import stat_unchanged
 from ragmonk.storage.repositories import entities_repo, relationships_repo
 from ragmonk.storage.sqlite import transaction
 
@@ -63,27 +65,44 @@ def _decorator_head(text: str) -> str:
     return head.strip()
 
 
-def code_processor(ctx: ProcessorContext) -> ProcessingOutcome:
-    if ctx.size > ctx.max_size_bytes:
-        return ProcessingOutcome(status=FileStatus.SKIPPED_LIMIT)
-    if ctx.conn is None or ctx.file_id is None or ctx.source_id is None or ctx.source_root is None:
-        raise RagMonkError("CodeProcessor requires a coordinator-provided ProcessorContext")
+@dataclass(frozen=True)
+class PreparedCode:
+    """The pure, read-only output of code extraction -- everything
+    ``code_processor`` used to compute before touching the database,
+    now factored out so the coordinator's bounded parallel path
+    (indexing optimization plan, Phase P4) can run this half of the
+    work concurrently across files in a thread pool while the
+    transactional write half (``publish_code``) stays on the single
+    writer thread. ``language=None`` means "a recognized code
+    extension with no grammar yet" (e.g. ``.rb``, ``.sql``, ``.sh``) --
+    the same "index with no entities" fallback ``code_processor``
+    always had, just carried through this split instead of handled
+    inline.
+    """
 
-    language = detect_language(ctx.path)
+    language: str | None
+    extraction: ExtractionResult | None = None
+    namespace_local_id: int | None = None
+
+
+def prepare_code(path: Path, source_root: Path) -> PreparedCode:
+    """Reads and parses ``path`` and extracts raw entities/relationships
+    -- no database access at all, safe to call concurrently across
+    files. Raises ``CodeParseError`` exactly like the pre-P4 single-
+    function ``code_processor`` did; the coordinator's existing per-
+    file retry/backoff handles it identically either way (see
+    ``indexing/coordinator.py``'s ``_process_queue``).
+    """
+    language = detect_language(path)
     if language is None:
-        # A recognized "code" extension (per sources.detector) that Phase 2
-        # has no grammar for yet (e.g. .rb, .sql, .sh) -- index the file
-        # without entities rather than failing the run.
-        with transaction(ctx.conn):
-            entities_repo.delete_by_file(ctx.conn, ctx.file_id)
-        return ProcessingOutcome(status=FileStatus.INDEXED)
+        return PreparedCode(language=None)
 
-    source = ctx.path.read_bytes()
+    source = path.read_bytes()
     tree = parse(source, language)
     if tree.root_node.has_error:
-        raise CodeParseError(f"{ctx.path}: syntax error(s) in a {language} file")
+        raise CodeParseError(f"{path}: syntax error(s) in a {language} file")
 
-    relative = _relative_posix_path(ctx.path, ctx.source_root)
+    relative = _relative_posix_path(path, source_root)
     default_name, default_qualified_name = default_namespace_for_path(relative)
     extraction = extract(
         source,
@@ -91,6 +110,58 @@ def code_processor(ctx: ProcessorContext) -> ProcessingOutcome:
         default_namespace_name=default_name,
         default_namespace_qualified_name=default_qualified_name,
     )
+    namespace_local_id = next(
+        i for i, e in enumerate(extraction.entities) if e.kind.value == "namespace"
+    )
+    return PreparedCode(
+        language=language, extraction=extraction, namespace_local_id=namespace_local_id
+    )
+
+
+def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOutcome:
+    """Writes ``prepared``'s entities/relationships -- cross-file symbol
+    resolution (``qualified_lookup``/``name_lookup`` below, reading
+    ``entities_repo`` against the live connection) and the atomic
+    delete-old-generation/insert-new-generation write all happen here,
+    on whichever thread calls this, which the coordinator guarantees is
+    always its single writer thread, never a parallel prepare worker
+    (Phase P4's "one transactional publisher" rule).
+    """
+    assert ctx.conn is not None and ctx.file_id is not None and ctx.source_id is not None
+
+    if ctx.file_identity is not None:
+        # Indexing optimization plan, Phase P4: a bounded parallel
+        # pipeline widens the gap between when this file's content was
+        # last verified (at claim/prepare time) and when it's actually
+        # published -- re-check before writing so a file that changed
+        # in that window is safely retried rather than silently
+        # publishing content derived from stale bytes. Mirrors
+        # documents/pipeline.py's identical check for the same reason.
+        try:
+            post_stat = ctx.path.stat()
+        except OSError as exc:
+            raise ContentChangedDuringProcessingError(
+                f"{ctx.path}: file became unreadable during processing: {exc}"
+            ) from exc
+        if not stat_unchanged(
+            ctx.file_identity.size, ctx.file_identity.mtime, post_stat.st_size, post_stat.st_mtime
+        ):
+            raise ContentChangedDuringProcessingError(
+                f"{ctx.path}: file changed during processing; will be retried"
+            )
+
+    if prepared.language is None:
+        # A recognized "code" extension (per sources.detector) that Phase 2
+        # has no grammar for yet -- index the file without entities
+        # rather than failing the run.
+        with transaction(ctx.conn):
+            entities_repo.delete_by_file(ctx.conn, ctx.file_id)
+        return ProcessingOutcome(status=FileStatus.INDEXED)
+
+    assert prepared.extraction is not None and prepared.namespace_local_id is not None
+    extraction = prepared.extraction
+    language = prepared.language
+    namespace_local_id = prepared.namespace_local_id
 
     now = _now()
     entities: list[Entity] = []
@@ -159,6 +230,25 @@ def code_processor(ctx: ProcessorContext) -> ProcessingOutcome:
             relationships_repo.insert(ctx.conn, relationship)
 
     return ProcessingOutcome(status=FileStatus.INDEXED)
+
+
+def code_processor(ctx: ProcessorContext) -> ProcessingOutcome:
+    """The registered ``FileKind.CODE`` processor -- ``prepare_code``
+    then ``publish_code`` run back-to-back on whichever thread calls
+    this, exactly the serial, single-call behavior code_processor
+    always had. The coordinator's optional bounded-parallel path calls
+    ``prepare_code``/``publish_code`` directly instead (see
+    ``ProcessorRegistry``'s ``prepare``/``publish`` registration), never
+    through this function -- this wrapper exists only for the (default,
+    ``code_extraction_workers=1``) serial path and any direct caller
+    (tests, mainly) that wants the simple one-call interface.
+    """
+    if ctx.size > ctx.max_size_bytes:
+        return ProcessingOutcome(status=FileStatus.SKIPPED_LIMIT)
+    if ctx.conn is None or ctx.file_id is None or ctx.source_id is None or ctx.source_root is None:
+        raise RagMonkError("CodeProcessor requires a coordinator-provided ProcessorContext")
+    prepared = prepare_code(ctx.path, ctx.source_root)
+    return publish_code(ctx, prepared)
 
 
 def _build_relationships(

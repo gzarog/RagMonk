@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ragmonk.code.processor import code_processor
+from ragmonk.code.processor import code_processor, prepare_code, publish_code
 from ragmonk.core import paths
 from ragmonk.core.config import RagMonkConfig
 from ragmonk.core.lifecycle import AppContext
@@ -36,7 +36,14 @@ def build_processor_registry(config: RagMonkConfig) -> ProcessorRegistry:
     dispatch a touched file to the exact same processors.
     """
     registry = default_registry()
-    registry.register(FileKind.CODE, code_processor)
+    # Indexing optimization plan, Phase P4: registering prepare/publish
+    # alongside the plain processor is what makes CODE eligible for the
+    # coordinator's bounded-parallel path (see
+    # ProcessorRegistry.supports_parallel_prepare) -- opt-in via
+    # config.indexing.code_extraction_workers, default 1 (serial),
+    # which never even looks at prepare/publish and keeps calling
+    # code_processor exactly as before this phase.
+    registry.register(FileKind.CODE, code_processor, prepare=prepare_code, publish=publish_code)
     # Respects documents.enabled (core/config.py) -- when off, document-kind
     # files still index via the default raw processor (recorded, marked
     # INDEXED) just without Docling-derived content. Import deferred to here
