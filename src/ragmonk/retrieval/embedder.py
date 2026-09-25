@@ -95,9 +95,12 @@ def _mean_pool(last_hidden_state: Any, attention_mask: Any) -> Any:
     return summed / counts
 
 
-def embed_texts(texts: Sequence[str]) -> list[list[float]]:
+def embed_texts(texts: Sequence[str], *, batch_size: int | None = None) -> list[list[float]]:
     """One L2-normalized, ``EMBEDDING_DIM``-length vector per input text,
-    in the same order, batched ``_BATCH_SIZE`` at a time.
+    in the same order, batched ``batch_size`` at a time (default
+    ``_BATCH_SIZE``, overridable via ``IndexingConfig.embedding_batch_size``
+    -- indexing optimization plan, Phase P5 -- so it can be tuned
+    per-machine without editing code).
 
     Raises ``EmbeddingModelUnavailableError`` if the model cannot be
     loaded at all; never partially returns vectors for some texts and not
@@ -108,9 +111,10 @@ def embed_texts(texts: Sequence[str]) -> list[list[float]]:
     tokenizer, model = _load_model()
     import torch
 
+    size = batch_size if batch_size is not None and batch_size > 0 else _BATCH_SIZE
     vectors: list[list[float]] = []
-    for start in range(0, len(texts), _BATCH_SIZE):
-        batch = [text[:_MAX_CHARS] for text in texts[start : start + _BATCH_SIZE]]
+    for start in range(0, len(texts), size):
+        batch = [text[:_MAX_CHARS] for text in texts[start : start + size]]
         encoded = tokenizer(
             batch, padding=True, truncation=True, max_length=_MAX_TOKENS, return_tensors="pt"
         )

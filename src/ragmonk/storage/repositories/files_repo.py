@@ -238,6 +238,42 @@ def update_embedding_version(
     )
 
 
+def list_missing_embeddings(
+    conn: sqlite3.Connection, source_id: str, *, model_id: str
+) -> list[FileRecord]:
+    """Successfully indexed CODE/DOCUMENT files with no current-model
+    vectors at all -- the indexing optimization plan Phase P5 backfill
+    target, distinct from ``indexing/incremental.py``'s
+    ``ReprocessDecision.EMBEDDINGS_ONLY`` path: that one only fires for a
+    file an ordinary scan happens to revisit and finds otherwise
+    ``UNCHANGED`` (see ``decide_reprocessing``'s docstring on why a
+    stored ``NULL`` embedding stamp is deliberately never treated as
+    "stale" there). A file indexed while ``search.semantic`` was off has
+    ``embedding_model_id IS NULL`` and perfectly current content/parser/
+    chunker stamps -- nothing about it will ever look "changed" or
+    "stale" to a normal scan again, so it needs this explicit query
+    instead (``ragmonk vectors backfill``) rather than waiting on a scan
+    that will never revisit it for this reason.
+    """
+    rows = conn.execute(
+        """
+        SELECT * FROM files
+        WHERE source_id = ? AND status = ?
+          AND kind IN (?, ?)
+          AND (embedding_model_id IS NULL OR embedding_model_id != ?)
+        ORDER BY path
+        """,
+        (
+            source_id,
+            FileStatus.INDEXED.value,
+            FileKind.CODE.value,
+            FileKind.DOCUMENT.value,
+            model_id,
+        ),
+    ).fetchall()
+    return [_row_to_file(row) for row in rows]
+
+
 def rename(
     conn: sqlite3.Connection,
     file_id: str,

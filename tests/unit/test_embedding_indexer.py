@@ -128,7 +128,7 @@ def _seed_code_entity(conn) -> None:  # noqa: ANN001
 def _fake_embed_texts(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     calls: list[list[str]] = []
 
-    def _fake(texts: list[str]) -> list[list[float]]:
+    def _fake(texts: list[str], *, batch_size: int | None = None) -> list[list[float]]:
         calls.append(list(texts))
         return [[float(len(t))] for t in texts]
 
@@ -215,6 +215,74 @@ def test_embed_touched_files_stamps_the_reuse_identity_it_just_embedded_with(
     assert code_file.embedding_text_version == embedding_indexer.CODE_EMBEDDING_TEXT_VERSION
 
 
+def test_prepare_embeddings_performs_no_writes(conn, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    """Indexing optimization plan, Phase P5: ``prepare_embeddings`` is the
+    read-plus-model-inference half meant to run *before* a caller opens
+    its write transaction -- proving it writes nothing itself is what
+    makes that safe to do outside ``BEGIN IMMEDIATE``.
+    """
+    _seed_document_section(conn, embedding_text="contextual text")
+    _fake_embed_texts(monkeypatch)
+
+    prepared = embedding_indexer.prepare_embeddings(
+        conn, source_id="s1", touched_code_file_ids=[], touched_document_file_ids=["f1"]
+    )
+
+    assert prepared is not None
+    assert len(prepared.subjects) == 1
+    assert embeddings_repo.list_by_model(conn, embedder.EMBEDDING_MODEL_ID) == []
+    document_file = files_repo.get(conn, "f1")
+    assert document_file is not None
+    assert document_file.embedding_model_id is None
+
+    with transaction(conn):
+        count = embedding_indexer.publish_embeddings(conn, prepared)
+    assert count == 1
+    assert len(embeddings_repo.list_by_model(conn, embedder.EMBEDDING_MODEL_ID)) == 1
+
+
+def test_prepare_embeddings_dedupes_identical_texts_within_the_batch(
+    conn, monkeypatch: pytest.MonkeyPatch  # noqa: ANN001
+) -> None:
+    """Two entities sharing the exact same signature text (e.g. two
+    overloads) must only be sent through the model once -- the model
+    call receives one text per *unique* string, and both subjects still
+    end up with a vector in the result.
+    """
+    _seed_code_entity(conn)
+    with transaction(conn):
+        entities_repo.insert(
+            conn,
+            Entity(
+                id="e2",
+                source_id="s1",
+                file_id="f2",
+                kind=EntityType.FUNCTION,
+                name="bark_loudly",
+                qualified_name="OtherAnimalService.bark_loudly",
+                language="python",
+                signature="def bark_loudly(self):",  # identical text to e1
+                start_line=10,
+                end_line=11,
+                generation=1,
+                created_at="now",
+                updated_at="now",
+            ),
+            snippet="def bark_loudly(self): ...",
+        )
+    calls = _fake_embed_texts(monkeypatch)
+
+    prepared = embedding_indexer.prepare_embeddings(
+        conn, source_id="s1", touched_code_file_ids=["f2"], touched_document_file_ids=[]
+    )
+
+    assert prepared is not None
+    assert len(prepared.subjects) == 2
+    assert len(prepared.vectors) == 2
+    assert calls == [["def bark_loudly(self):"]]  # the model saw it exactly once
+    assert prepared.vectors[0] == prepared.vectors[1]
+
+
 def test_embed_touched_files_leaves_the_stamp_untouched_when_the_model_is_unavailable(
     conn, monkeypatch: pytest.MonkeyPatch  # noqa: ANN001
 ) -> None:
@@ -224,7 +292,7 @@ def test_embed_touched_files_leaves_the_stamp_untouched_when_the_model_is_unavai
     """
     _seed_document_section(conn, embedding_text="contextual text")
 
-    def _raise(texts: list[str]) -> list[list[float]]:
+    def _raise(texts: list[str], *, batch_size: int | None = None) -> list[list[float]]:
         raise embedder.EmbeddingModelUnavailableError("simulated")
 
     monkeypatch.setattr(embedder, "embed_texts", _raise)

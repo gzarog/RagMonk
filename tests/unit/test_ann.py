@@ -260,6 +260,64 @@ def test_sync_index_for_files_rebuilds_on_model_change(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_sync_index_for_files_recovers_from_interrupted_prior_update(tmp_path: Path) -> None:
+    """Indexing optimization plan, Phase P5: simulates a pass that
+    committed its SQLite writes (``embeddings``/``vector_items``) but was
+    interrupted before ``ann.sync_index_for_files`` itself ran for that
+    pass's files -- e.g. a crash between the two, per
+    ``indexing/runner.py``'s documented "ANN lags until the next sync or
+    an explicit rebuild" tradeoff. The *next* sync (for unrelated files)
+    must notice the on-disk index no longer agrees with what SQLite says
+    it should hold, and self-heal via a full rebuild, rather than
+    silently keep serving a permanently-short index forever.
+    """
+    home = tmp_path / "home"
+    conn = connect(tmp_path / "knowledge.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        _seed_vector_items(conn, file_id="f2", count=1)
+        ann.sync_index_for_files(
+            conn,
+            project_id="proj1",
+            home=home,
+            engine="auto",
+            ndim=3,
+            model_id=MODEL,
+            removed_vector_ids=[],
+            touched_file_ids=["f2"],
+            rebuild_deleted_ratio=0.15,
+        )
+        index_path = home / "projects" / "proj1" / "vectors.usearch"
+        index, _ = ann.select_backend("auto", ndim=3, index_path=index_path)
+        assert len(index) == 1
+
+        # SQLite gains f1's vectors (as if a prior pass committed them),
+        # but the on-disk ANN index was never told -- the interrupted
+        # update this test is reproducing.
+        _seed_vector_items(conn, file_id="f1", count=3)
+
+        # A later, unrelated pass touches neither file (e.g. a periodic
+        # reconciliation tick with nothing new); the drift check alone
+        # must still catch and repair the earlier gap.
+        backend = ann.sync_index_for_files(
+            conn,
+            project_id="proj1",
+            home=home,
+            engine="auto",
+            ndim=3,
+            model_id=MODEL,
+            removed_vector_ids=[],
+            touched_file_ids=[],
+            rebuild_deleted_ratio=0.15,
+        )
+        assert backend == "usearch"
+
+        index, _ = ann.select_backend("auto", ndim=3, index_path=index_path)
+        assert len(index) == 4
+    finally:
+        conn.close()
+
+
 def test_rebuild_index_reflects_current_vector_items(tmp_path: Path) -> None:
     home = tmp_path / "home"
     conn = connect(tmp_path / "knowledge.db")

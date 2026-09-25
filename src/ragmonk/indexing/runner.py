@@ -24,7 +24,7 @@ from ragmonk.indexing.coordinator import (
     ScanRequest,
     default_registry,
 )
-from ragmonk.indexing.embedding_indexer import embed_touched_files
+from ragmonk.indexing.embedding_indexer import prepare_embeddings, publish_embeddings
 from ragmonk.knowledge.linker import link_touched_files
 from ragmonk.retrieval import ann, embedder
 from ragmonk.storage.repositories import embeddings_repo, sources_repo, vector_items_repo
@@ -180,13 +180,22 @@ def run_source_pass(
         # only place that "before" snapshot is still available (blueprint
         # section 14).
         stale_vector_ids = vector_items_repo.list_vector_ids_by_file(conn, touched_file_ids)
+        # Indexing optimization plan, Phase P5: model inference
+        # (``prepare_embeddings``, potentially the slowest step in a
+        # source pass) runs here, *before* the write transaction opens --
+        # only the short delete+insert+stamp write (``publish_embeddings``)
+        # below actually holds ``BEGIN IMMEDIATE``, unlike the pre-P5
+        # shape where a single ``embed_touched_files`` call held that
+        # write lock for as long as the model itself took to run.
+        prepared = prepare_embeddings(
+            conn,
+            source_id=source.id,
+            touched_code_file_ids=embed_code_file_ids,
+            touched_document_file_ids=embed_document_file_ids,
+            batch_size=ctx.config.indexing.embedding_batch_size,
+        )
         with transaction(conn):
-            embedded = embed_touched_files(
-                conn,
-                source_id=source.id,
-                touched_code_file_ids=embed_code_file_ids,
-                touched_document_file_ids=embed_document_file_ids,
-            )
+            embedded = publish_embeddings(conn, prepared) if prepared is not None else 0
         if embedded:
             # Deliberately outside the transaction above: the ANN index
             # is a separate on-disk file, not part of the SQLite

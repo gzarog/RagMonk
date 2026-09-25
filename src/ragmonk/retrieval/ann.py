@@ -383,6 +383,30 @@ def sync_index_for_files(
             conn, project_id=project_id, home=home, engine=engine, ndim=ndim, model_id=model_id
         )
 
+    # Indexing optimization plan, Phase P5: this incremental update only
+    # ever touches *this pass's* files -- it has no way to notice drift
+    # left over from an *earlier* pass that crashed between its own
+    # SQLite commit (already durable) and this same save() (interrupted,
+    # so the on-disk index never picked up that earlier pass's vectors).
+    # SQLite stays authoritative (blueprint section 49): if the index's
+    # own size still disagrees with what SQLite says it should hold after
+    # this pass's own add/remove are already applied, a prior interruption
+    # is the only explanation, and a full rebuild is the only way to
+    # actually reconverge rather than silently keep serving a
+    # permanently-short index.
+    if len(index) != total_vectors:
+        log_event(
+            _logger,
+            "ann_index_drift_detected",
+            level=logging.WARNING,
+            project_id=project_id,
+            index_size=len(index),
+            expected=total_vectors,
+        )
+        return rebuild_index(
+            conn, project_id=project_id, home=home, engine=engine, ndim=ndim, model_id=model_id
+        )
+
     _write_meta(
         meta_path,
         model_id=model_id,

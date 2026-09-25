@@ -28,11 +28,11 @@ from ragmonk.storage.sqlite import connect
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "documents"
 
 
-def _fake_embed_texts(texts: list[str]) -> list[list[float]]:
+def _fake_embed_texts(texts: list[str], *, batch_size: int | None = None) -> list[list[float]]:
     return [[float(len(t)), float(sum(map(ord, t)) % 997)] for t in texts]
 
 
-def _fake_embed_texts_v2(texts: list[str]) -> list[list[float]]:
+def _fake_embed_texts_v2(texts: list[str], *, batch_size: int | None = None) -> list[list[float]]:
     """A deliberately different transform standing in for "a different
     embedding model would produce different vectors for the same text" --
     ``_fake_embed_texts`` alone can't prove that, since it's a pure
