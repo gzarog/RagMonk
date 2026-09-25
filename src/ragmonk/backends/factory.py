@@ -5,16 +5,18 @@ Storage backend abstraction plan: ``mode="local"`` returns
 :class:`ragmonk.backends.local.LocalKnowledgeBackend` (Phase 1).
 ``mode="server"`` with ``server.engine="opensearch"`` returns a real,
 working :class:`ragmonk.backends.opensearch.OpenSearchKnowledgeBackend`
-(Phase 4). ``server.engine="elasticsearch"`` still raises
-:class:`NotImplementedError` -- that adapter is a future phase.
+(Phase 4). ``server.engine="elasticsearch"`` returns a real, working
+:class:`ragmonk.backends.elasticsearch.ElasticsearchKnowledgeBackend`
+(Phase 5).
 
-Nothing in this module imports ``opensearch-py``/``elasticsearch-py`` at
-module scope -- the OpenSearch branch's import is local to
+Nothing in this module imports ``opensearch-py``/``elasticsearch`` at
+module scope -- each server branch's import is local to
 ``create_backend``'s own function body, and
-``ragmonk.backends.opensearch`` itself only imports ``opensearch-py``
-lazily inside its methods (see that module's docstring), so constructing
-a local backend, or importing this module at all, never requires either
-package to be installed.
+``ragmonk.backends.opensearch``/``ragmonk.backends.elasticsearch``
+themselves only import their respective client packages lazily inside
+their methods (see those modules' docstrings), so constructing a local
+backend, or importing this module at all, never requires either package
+to be installed.
 """
 
 from __future__ import annotations
@@ -78,11 +80,14 @@ def create_backend(config: StorageConfig, *, home: Path | None = None) -> Knowle
 
             return OpenSearchKnowledgeBackend(config.server)
         if engine == "elasticsearch":
-            raise NotImplementedError(
-                f"storage.mode='server' with engine={engine!r} has no adapter yet -- "
-                "the Elasticsearch KnowledgeBackend adapter is a future phase "
-                "of the storage backend abstraction plan (not yet implemented)."
-            )
+            # Local import: ElasticsearchKnowledgeBackend only imports
+            # the `elasticsearch` package lazily too (inside its own
+            # methods), but keeping the import here as well means this
+            # factory module never needs it installed unless server mode
+            # with engine="elasticsearch" is actually selected.
+            from ragmonk.backends.elasticsearch import ElasticsearchKnowledgeBackend
+
+            return ElasticsearchKnowledgeBackend(config.server)
         raise ConfigError(f"unknown storage.server.engine {engine!r}")
 
     raise ConfigError(f"unknown storage.mode {config.mode!r}")

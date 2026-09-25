@@ -157,6 +157,16 @@ copilot = [
 opensearch = [
     "opensearch-py>=2.4,<3",
 ]
+# Storage backend abstraction plan, Phase 5: the official Elasticsearch
+# Python client, an OPTIONAL runtime for `storage.mode="server"` with
+# `storage.server.engine="elasticsearch"`. Not a default dependency --
+# local (SQLite) mode and the OpenSearch backend index/retrieve without
+# it, and `ragmonk.backends.elasticsearch`/`elasticsearch_client` import
+# it lazily inside function bodies, so only a user who opts into the
+# Elasticsearch backend installs it (`pip install "ragmonk[elasticsearch]"`).
+elasticsearch = [
+    "elasticsearch>=8,<9",
+]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
@@ -273,7 +283,7 @@ pythonpath = ["."]
 # diagnostic, not a correctness test, and its numbers are only
 # meaningful on real, unshared hardware (see benchmarks/search/
 # targets.py), so it is excluded from the default run the same way.
-addopts = "-ra -m 'not docling_pdf and not daemon_subprocess and not embedding_model and not reranker_model and not benchmark_search and not cli_startup_benchmark and not opensearch_integration'"
+addopts = "-ra -m 'not docling_pdf and not daemon_subprocess and not embedding_model and not reranker_model and not benchmark_search and not cli_startup_benchmark and not opensearch_integration and not elasticsearch_integration'"
 markers = [
     "docling_pdf: exercises Docling's real PDF conversion pipeline (network + model download on first run); excluded from the default run, see CONTRIBUTING.md",
     "daemon_subprocess: spawns and signals a real detached `ragmonk daemon` process; excluded from the default run, see CONTRIBUTING.md",
@@ -282,4 +292,5 @@ markers = [
     "benchmark_search: measures search latency against a synthetic corpus (benchmarks/search/); excluded from the default run, see CONTRIBUTING.md",
     "cli_startup_benchmark: measures CLI subprocess startup latency (benchmarks/cli_startup/); excluded from the default run, see CONTRIBUTING.md",
     "opensearch_integration: exercises the OpenSearch adapter against a real cluster (OPENSEARCH_URL env var); excluded from the default run, skips cleanly when no cluster is reachable, see CONTRIBUTING.md",
+    "elasticsearch_integration: exercises the Elasticsearch adapter against a real cluster (ELASTICSEARCH_URL env var); excluded from the default run, skips cleanly when no cluster is reachable, see CONTRIBUTING.md",
 ]
