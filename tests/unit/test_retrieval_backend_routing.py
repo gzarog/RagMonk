@@ -135,6 +135,15 @@ class _StubBackend(KnowledgeBackend):
     def get_files(self, file_ids: list[str]) -> list[FileRecord]:
         return [self.files_by_id[i] for i in file_ids if i in self.files_by_id]
 
+    def find_unresolved_relationships(
+        self,
+        symbols: list[str],
+        relationship_types: list[str] | None = None,
+        *,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        return []
+
     def get_links(
         self, *, entity_ids: list[str] | None = None, document_ids: list[str] | None = None
     ) -> list[Any]:

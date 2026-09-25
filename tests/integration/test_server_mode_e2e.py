@@ -178,12 +178,37 @@ def test_incremental_modify_delete_rename_in_server_mode(
     assert "moved_extra.py" not in file_paths()
 
 
+@pytest.fixture(params=["sorted", "reversed"])
+def walk_order(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Pins the scanner's ``os.walk`` file order both ways. ``os.walk``
+    order is filesystem-dependent; when ``test_billing.py`` is indexed
+    before ``billing.py`` its call is stored name-only (unresolved
+    ``target_symbol``), and server-mode callers must still find it
+    (regression: this passed locally but failed on CI runners).
+    """
+    import os
+
+    from ragmonk.sources import scanner
+
+    real_walk = os.walk
+    reverse = request.param == "reversed"
+
+    def ordered_walk(*args: Any, **kwargs: Any) -> Any:
+        for dirpath, dirnames, filenames in real_walk(*args, **kwargs):
+            filenames.sort(reverse=reverse)
+            yield dirpath, dirnames, filenames
+
+    monkeypatch.setattr(scanner.os, "walk", ordered_walk)
+    return str(request.param)
+
+
 def test_callers_callees_impact_explore_parity_in_server_mode(
     ragmonk_home: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     runner: CliRunner,
     engine: str,
+    walk_order: str,
 ) -> None:
     _index_and_source(ragmonk_home, tmp_path, monkeypatch, runner, engine)
 

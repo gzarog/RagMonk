@@ -237,3 +237,20 @@ class KnowledgeBackend(ABC):
         self, source_id: str, prefix: str, *, generation: str | None = None
     ) -> list[dict[str, Any]]:
         raise NotImplementedError(f"{type(self).__name__}.find_relationships_by_target_prefix")
+
+    def find_unresolved_relationships(
+        self,
+        symbols: list[str],
+        relationship_types: list[str] | None = None,
+        *,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Published relationships with no resolved ``target_entity_id``
+        whose ``target_symbol`` is exactly one of ``symbols`` -- the
+        server-mode counterpart of local ``relationships_repo.
+        incoming_by_symbol`` (a caller indexed before its callee's
+        defining file keeps a name-only edge, never retroactively
+        upgraded, and ``graph_neighbors``' entity-id-keyed query cannot
+        reach it).
+        """
+        raise NotImplementedError(f"{type(self).__name__}.find_unresolved_relationships")

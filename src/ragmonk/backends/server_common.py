@@ -456,6 +456,27 @@ class ServerReadMixin:
         )
         return self._scan(rel_index, query, "relationship_id")
 
+    def find_unresolved_relationships(
+        self,
+        symbols: list[str],
+        relationship_types: list[str] | None = None,
+        *,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        names = sorted({s for s in symbols if s})
+        if not names:
+            return []
+        rel_index = self._index_names()[2]
+        clauses: list[dict[str, Any]] = [
+            {"term": {"doc_kind": "relationship"}},
+            {"terms": {"target_symbol": names}},
+            {"bool": {"must_not": [{"exists": {"field": "target_entity_id"}}]}},
+        ]
+        if relationship_types:
+            clauses.append({"terms": {"relationship_type": list(relationship_types)}})
+        query = self._filtered(*clauses)
+        return self._scan(rel_index, query, "relationship_id", limit=limit)
+
     # -- write helpers shared by both adapters ------------------------------
     def _entity_file_ids(self, entity_ids: list[str]) -> dict[str, str]:
         """entity_id -> file_id, across *every* generation (a link is

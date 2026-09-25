@@ -91,6 +91,10 @@ def test_ensure_schema_creates_indices(backend: OpenSearchKnowledgeBackend) -> N
 
 
 def test_bulk_indexing_round_trip(backend: OpenSearchKnowledgeBackend) -> None:
+    # Mirror the real indexing lifecycle (begin -> publish_code ->
+    # publish_generation): reads only see a source's *published*
+    # generation, so unactivated writes are correctly invisible.
+    gen = backend.begin_generation("s1")
     entity = Entity(
         id="e1",
         source_id="s1",
@@ -101,19 +105,24 @@ def test_bulk_indexing_round_trip(backend: OpenSearchKnowledgeBackend) -> None:
         language="python",
         start_line=1,
         end_line=5,
-        generation=1,
+        generation=int(gen),
         created_at="2024-01-01T00:00:00Z",
         updated_at="2024-01-01T00:00:00Z",
     )
     backend.publish_code(
-        PreparedCode(file_id="f1", source_id="s1", generation=1, entities=[entity])
+        PreparedCode(file_id="f1", source_id="s1", generation=int(gen), entities=[entity])
     )
+    backend.publish_generation("s1", gen)
     entities = backend.get_entities_for_files(["f1"])
     assert len(entities) == 1
     assert entities[0]["entity_id"] == "e1"
 
 
 def test_lexical_search_returns_expected_hits(backend: OpenSearchKnowledgeBackend) -> None:
+    # Mirror the real indexing lifecycle (begin -> publish_code ->
+    # publish_generation): reads only see a source's *published*
+    # generation, so unactivated writes are correctly invisible.
+    gen = backend.begin_generation("s1")
     entity = Entity(
         id="e1",
         source_id="s1",
@@ -124,7 +133,7 @@ def test_lexical_search_returns_expected_hits(backend: OpenSearchKnowledgeBacken
         language="python",
         start_line=1,
         end_line=5,
-        generation=1,
+        generation=int(gen),
         created_at="2024-01-01T00:00:00Z",
         updated_at="2024-01-01T00:00:00Z",
     )
@@ -132,11 +141,12 @@ def test_lexical_search_returns_expected_hits(backend: OpenSearchKnowledgeBacken
         PreparedCode(
             file_id="f1",
             source_id="s1",
-            generation=1,
+            generation=int(gen),
             entities=[entity],
             entity_snippets={"e1": "def frobnicate_widget(): pass"},
         )
     )
+    backend.publish_generation("s1", gen)
     hits = backend.lexical_search("frobnicate_widget", limit=5)
     assert any(h.payload.get("entity_id") == "e1" for h in hits)
 

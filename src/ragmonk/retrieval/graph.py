@@ -28,6 +28,7 @@ from typing import Any
 
 from ragmonk.backends.base import GraphDirection
 from ragmonk.backends.models import FileRecord as BackendFileRecord
+from ragmonk.backends.models import SearchHit
 from ragmonk.code.graph import (
     DEFAULT_LIMIT,
     DEFAULT_MAX_DEPTH,
@@ -197,6 +198,7 @@ def _resolved_server(
     relationship_types: tuple[RelationshipType, ...],
     max_depth: int,
     limit: int,
+    name: str | None = None,
 ) -> list[ResolvedEdge]:
     """Shared server-mode body for ``resolved_incoming``/``resolved_outgoing``.
 
@@ -220,6 +222,35 @@ def _resolved_server(
             seen_ids.add(hit.id)
             relationship = relationship_from_search_hit(hit)
             raw.append((match.source_id, TraversalEdge(depth=1, relationship=relationship)))
+    if backend_direction == "in":
+        # Parity with local ``resolved_incoming``: merge unresolved
+        # (name-only) edges recorded against each match's name. A caller
+        # file indexed before the callee's defining file stores its call
+        # by ``target_symbol`` alone (never retroactively upgraded), so
+        # ``graph_neighbors``' entity-id-keyed query cannot reach it --
+        # without this, callers silently depend on filesystem walk order.
+        by_source: dict[str, set[str]] = {}
+        for match in matches:
+            by_source.setdefault(match.source_id, set()).update(
+                {name, match.entity.name} if name else {match.entity.name}
+            )
+        for source_id, symbols in by_source.items():
+            payloads = backend.find_unresolved_relationships(
+                sorted(symbols),
+                [rt.value for rt in relationship_types],
+                limit=limit,
+            )
+            for payload in payloads:
+                if payload.get("source_id") not in (None, source_id):
+                    continue
+                hit_id = str(payload.get("relationship_id") or "")
+                if not hit_id or hit_id in seen_ids:
+                    continue
+                seen_ids.add(hit_id)
+                relationship = relationship_from_search_hit(
+                    SearchHit(id=hit_id, score=0.0, kind="relationship", payload=payload)
+                )
+                raw.append((source_id, TraversalEdge(depth=1, relationship=relationship)))
     raw = raw[:limit]
     direction = "incoming" if backend_direction == "in" else "outgoing"
     neighbor_ids = [
@@ -301,7 +332,7 @@ def resolved_incoming(
     if ctx.config.storage.mode == "server":
         return _resolved_server(
             ctx, matches, backend_direction="in", relationship_types=relationship_types,
-            max_depth=max_depth, limit=limit,
+            max_depth=max_depth, limit=limit, name=name,
         )
     out: list[ResolvedEdge] = []
     seen: set[tuple[int, str]] = set()
