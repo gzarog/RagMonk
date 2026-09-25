@@ -256,6 +256,25 @@ commands never import Docling/torch/transformers/mcp/openai/anthropic/
 usearch, regardless of what a shared runner's timing looks like on any
 given run.
 
+### The `opensearch_integration` marker
+
+Storage backend abstraction plan, Phase 4: the OpenSearch
+`KnowledgeBackend` adapter (`src/ragmonk/backends/opensearch.py`) has two
+test layers. `tests/unit/test_backends_opensearch.py` runs against an
+in-memory fake client (`tests/unit/_fake_opensearch.py`) and is part of
+the default suite -- no real cluster, no `opensearch-py` install required.
+`tests/unit/test_backends_opensearch_integration.py` exercises a REAL
+cluster and is marked `@pytest.mark.opensearch_integration`, excluded
+from the default run the same way `docling_pdf`/`embedding_model` are. It
+skips cleanly (not fails) both when `opensearch-py` isn't installed and
+when `$OPENSEARCH_URL` doesn't point at a reachable cluster. Run it for
+real with:
+
+```bash
+pip install "ragmonk[opensearch]"
+OPENSEARCH_URL=https://localhost:9200 pytest -m opensearch_integration -q
+```
+
 ### The install scripts (`install.sh` / `install.ps1`)
 
 `install.sh` and `install.ps1` at the repo root are what `README.md`'s
