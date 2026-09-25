@@ -114,6 +114,15 @@ def remove_source(ctx: AppContext, source_id: str) -> SourceRemoval:
     # never needs this because it bootstraps a fresh context per command.
     project_id = paths.project_id_for_path(Path(source.path))
     ctx.close_project_conn(project_id)
+    # Storage backend abstraction plan, Phase 8: purge the source's
+    # searchable knowledge from the real server backend too (every
+    # generation, per ``clear_source``'s own contract) before the source
+    # stops being registered -- see ``ragmonk.cli.source.remove``'s
+    # identical call for the full rationale. Control-plane bookkeeping
+    # (the ``sources`` registry row/project dir, below) stays local
+    # regardless of storage mode.
+    if ctx.config.storage.mode == "server":
+        ctx.backend().clear_source(source_id)
     return registry.remove(source_id)
 
 

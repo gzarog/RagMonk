@@ -106,6 +106,19 @@ def remove(
 
         lock = ctx.acquire_lock("index")
         try:
+            # Storage backend abstraction plan, Phase 8: in server mode,
+            # the searchable knowledge (files/content/relationships
+            # documents across every generation) lives in the server
+            # backend, not local SQLite -- purge it there too, before the
+            # source stops being registered, or it would become
+            # permanently unreachable stale data with no source left to
+            # ever clear it. Control-plane bookkeeping (the sources
+            # registry itself, below) stays local regardless of storage
+            # mode. Done before the local removal so a backend failure
+            # leaves the source registered (safe to retry) rather than
+            # unregistered with orphaned remote documents.
+            if ctx.config.storage.mode == "server":
+                ctx.backend().clear_source(source_id)
             outcome = registry.remove(source_id)
         finally:
             lock.release()
