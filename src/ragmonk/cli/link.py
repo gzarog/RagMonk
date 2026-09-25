@@ -50,6 +50,11 @@ def _resolve_pair(
     hits = []
     for source in _candidate_sources(ctx, source_id):
         project_id = paths.project_id_for_path(Path(source.path))
+        # Independent review BLOCKER fix: genuine knowledge-data
+        # read/write (cross-links between entities and documents) --
+        # default control_plane=False raises cleanly in server mode
+        # (caught by @cli_command below) instead of silently linking
+        # against a stale/empty local sqlite file.
         conn = ctx.project_conn(project_id)
         entity_candidates = knowledge_entities.find_code_entity_candidates(conn, entity_ref)
         document_candidates = knowledge_entities.find_document_candidates(conn, document_ref)
@@ -120,6 +125,7 @@ def remove(
     with AppContext.bootstrap() as ctx:
         for source in _candidate_sources(ctx, source_id):
             project_id = paths.project_id_for_path(Path(source.path))
+            # See the comment in ``_resolve_pair`` above.
             conn = ctx.project_conn(project_id)
             if links_repo.delete(conn, link_id):
                 console.print(f"[bold red]Removed[/bold red] {link_id}")
@@ -167,6 +173,7 @@ def list_links(
         rows: list[dict[str, Any]] = []
         for source in _candidate_sources(ctx, source_id):
             project_id = paths.project_id_for_path(Path(source.path))
+            # See the comment in ``_resolve_pair`` above.
             conn = ctx.project_conn(project_id)
 
             if entity is not None:

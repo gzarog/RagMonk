@@ -18,6 +18,10 @@ from ragmonk.storage.repositories import documents_repo, files_repo
 
 
 def _project_conn(ctx: AppContext, source_path: str) -> Any:
+    # Independent review BLOCKER fix: every caller of this helper
+    # (``list_documents``, ``document_detail`` via ``_source_conn``) reads
+    # genuine knowledge data (documents/chunks) -- deliberately left as
+    # the default control_plane=False so it raises in server mode.
     project_id = paths.project_id_for_path(Path(source_path))
     return ctx.project_conn(project_id)
 

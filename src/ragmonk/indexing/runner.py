@@ -159,7 +159,14 @@ def run_source_pass(
     connection, and the usual per-file ``file.generation + 1`` bump.
     """
     project_id = paths.project_id_for_path(Path(source.path))
-    conn = ctx.project_conn(project_id)
+    # control_plane=True: even in server mode this pass still needs its
+    # own local ``conn`` -- the coordinator's scan/diff/generation
+    # bookkeeping and file-status tracking (Phase 3/7) live in local
+    # sqlite regardless of ``storage.mode``; only the *published*
+    # knowledge (entities/documents/embeddings) is redirected to the
+    # server backend, via the ``backend`` argument below, when one is
+    # supplied by a server-mode caller (``ops/rebuild.py``).
+    conn = ctx.project_conn(project_id, control_plane=True)
     # Storage backend abstraction plan, Phase 3: one backend per pass,
     # bound to this pass's own project connection -- handed to the
     # coordinator (so every queued file's ``publish`` half writes

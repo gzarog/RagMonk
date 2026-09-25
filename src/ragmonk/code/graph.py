@@ -17,6 +17,7 @@ from typing import Any, Literal
 from ragmonk.backends.base import GraphDirection
 from ragmonk.backends.models import SearchHit
 from ragmonk.core import paths
+from ragmonk.core.errors import LocalStorageModeRequiredError
 from ragmonk.core.lifecycle import AppContext
 from ragmonk.core.models import Confidence, Entity, EntityType, Relationship, RelationshipType
 from ragmonk.sources.registry import SourceRegistry
@@ -108,7 +109,7 @@ def all_project_connections(ctx: AppContext) -> list[tuple[str, str, sqlite3.Con
     this per-project-sqlite pattern is meaningless for it.
     """
     if ctx.config.storage.mode != "local":
-        raise RuntimeError(
+        raise LocalStorageModeRequiredError(
             "all_project_connections: storage.mode is "
             f"{ctx.config.storage.mode!r}, not 'local' -- local per-project "
             "sqlite enumeration must never run outside local mode (no "
@@ -232,7 +233,7 @@ def conn_for_source_path(ctx: AppContext, source_path: str) -> sqlite3.Connectio
     gap, see those modules) now raise instead of doing that.
     """
     if ctx.config.storage.mode != "local":
-        raise RuntimeError(
+        raise LocalStorageModeRequiredError(
             "conn_for_source_path: storage.mode is "
             f"{ctx.config.storage.mode!r}, not 'local' -- local per-project "
             "sqlite must never be opened outside local mode (no silent "

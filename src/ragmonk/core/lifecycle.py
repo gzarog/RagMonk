@@ -14,6 +14,7 @@ from typing import Any
 from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.core import paths
 from ragmonk.core.config import RagMonkConfig, load_config
+from ragmonk.core.errors import LocalStorageModeRequiredError
 from ragmonk.storage.migrations import apply_migrations
 from ragmonk.storage.sqlite import connect
 from ragmonk.telemetry.logging import configure_logging
@@ -113,7 +114,41 @@ class AppContext:
             update_background.maybe_launch_background_check(resolved_home, config.updates)
         return cls(config=config, home=resolved_home, cwd=resolved_cwd, sources_conn=sources_conn)
 
-    def project_conn(self, project_id: str) -> sqlite3.Connection:
+    def project_conn(self, project_id: str, *, control_plane: bool = False) -> sqlite3.Connection:
+        """The per-project local sqlite (``knowledge.db``) connection.
+
+        Independent review BLOCKER fix (storage.mode bypass): this is the
+        single choke point every call site in the codebase goes through to
+        reach local per-project sqlite, so the ``storage.mode`` guard lives
+        here rather than being copy-pasted into each of the many call
+        sites -- ``code.graph.all_project_connections``/
+        ``conn_for_source_path`` already established this exact pattern
+        (raise, never silently fall back to local sqlite in server mode);
+        this closes the gap where ``project_conn`` itself had no such
+        guard, so anything calling it directly bypassed those two
+        already-guarded functions entirely.
+
+        ``control_plane=True`` is a narrow, explicit opt-out for call
+        sites that are genuinely NOT reading/writing searchable knowledge
+        data, but the local, per-process bookkeeping that Phase 6/7/8's
+        own design keeps local even when ``storage.mode == "server"``
+        (schema/version bookkeeping, the indexing coordinator's own
+        scan/generation state, the local job queue). Every call site
+        passing it carries its own comment explaining why. Default
+        ``False`` is deliberately the safer failure mode: an oversight at
+        a new call site raises loudly in server mode instead of silently
+        returning wrong/stale knowledge data, per this plan's "never
+        silently fall back" rule.
+        """
+        if not control_plane and self.config.storage.mode != "local":
+            raise LocalStorageModeRequiredError(
+                "AppContext.project_conn(): storage.mode is "
+                f"{self.config.storage.mode!r}, not 'local' -- local "
+                "per-project sqlite must never be read/written for "
+                "knowledge data outside local mode (no silent local "
+                "fallback in server mode); callers must route through "
+                "ctx.backend() instead"
+            )
         conn = self._project_conns.get(project_id)
         if conn is None:
             paths.ensure_project_layout(project_id, self.home)

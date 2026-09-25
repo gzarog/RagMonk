@@ -27,6 +27,10 @@ def list_symbols(
     registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
     rows: list[dict[str, Any]] = []
     for source in registry.list():
+        # Independent review BLOCKER fix: genuine knowledge-data read (the
+        # symbol list itself) -- deliberately left as the default
+        # control_plane=False so this raises in server mode instead of
+        # silently reading local sqlite.
         conn = ctx.project_conn(paths.project_id_for_path(Path(source.path)))
         if query:
             try:

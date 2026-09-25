@@ -83,7 +83,13 @@ def collect_status(ctx: AppContext) -> dict[str, Any]:
 
     for source in sources:
         project_id = paths.project_id_for_path(Path(source.path))
-        conn = ctx.project_conn(project_id)
+        # control_plane=True: this function's docstring above already
+        # documents the deliberate design (Phase 8) -- the per-source
+        # table stays local control-plane state (registry/job-queue/file
+        # status) regardless of storage.mode; the real searchable-knowledge
+        # counts are read separately below via ``ctx.backend().count_stats()``
+        # in server mode.
+        conn = ctx.project_conn(project_id, control_plane=True)
         counts = files_repo.count_by_status(conn, source.id)
         depth = jobs_repo.queue_depth(conn)
         total_queue_depth += depth
@@ -197,7 +203,12 @@ def recent_errors(ctx: AppContext, *, limit: int = 20) -> list[dict[str, Any]]:
     collected: list[dict[str, Any]] = []
     for source in registry.list():
         project_id = paths.project_id_for_path(Path(source.path))
-        conn = ctx.project_conn(project_id)
+        # control_plane=True: indexing-error bookkeeping is local
+        # control-plane state (the record of what failed during a local
+        # scan/process pass), not searchable knowledge data -- see the
+        # docstring note in ``indexing_overview`` above for the same
+        # per-source-stays-local design (Phase 8).
+        conn = ctx.project_conn(project_id, control_plane=True)
         for record in errors_repo.list_for_source(conn, source.id):
             collected.append(
                 {

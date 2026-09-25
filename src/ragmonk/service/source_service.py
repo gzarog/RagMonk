@@ -34,7 +34,11 @@ def _registry(ctx: AppContext) -> SourceRegistry:
 
 def _summarize(ctx: AppContext, source: Source) -> dict[str, Any]:
     project_id = paths.project_id_for_path(Path(source.path))
-    conn = ctx.project_conn(project_id)
+    # control_plane=True: mirrors ``service/status_service.py``'s
+    # ``indexing_overview`` (Phase 8) -- the per-source registry/job-queue/
+    # file-status numbers here are local control-plane state, deliberately
+    # kept local regardless of storage.mode.
+    conn = ctx.project_conn(project_id, control_plane=True)
     counts = files_repo.count_by_status(conn, source.id)
     return {
         "id": source.id,
@@ -64,7 +68,10 @@ def source_detail(ctx: AppContext, source_id: str) -> dict[str, Any]:
     detail = _summarize(ctx, source)
 
     project_id = paths.project_id_for_path(Path(source.path))
-    conn = ctx.project_conn(project_id)
+    # control_plane=True: see the comment in ``_summarize`` above -- these
+    # metrics mirror the same local-control-plane numbers ``status_service``
+    # already documents as deliberately local regardless of storage.mode.
+    conn = ctx.project_conn(project_id, control_plane=True)
     detail["metrics"] = {
         "symbols_created": entities_repo.count_all(conn),
         "relationships_created": relationships_repo.count_all(conn),
