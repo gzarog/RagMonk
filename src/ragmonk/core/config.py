@@ -60,6 +60,14 @@ class IndexingConfig(BaseModel):
     # runs on the single coordinator writer thread regardless of this
     # setting; see ``indexing/coordinator.py``'s ``_process_queue``.
     code_extraction_workers: int = 1
+    # Indexing optimization plan, Phase P5: how many texts
+    # ``retrieval/embedder.py`` sends through the model in one forward
+    # pass. Kept configurable (rather than the prior hardcoded constant)
+    # so it can be tuned per-machine, but the default is unchanged from
+    # before this phase -- CPU-only batching showed no reliable gain past
+    # it in this project's own benchmark, so nothing is claimed here that
+    # measurement didn't back up (see docs/indexing_benchmarks.md).
+    embedding_batch_size: int = 16
 
 
 class ChunkingConfig(BaseModel):

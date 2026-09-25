@@ -15,8 +15,11 @@ import typer
 from ragmonk.code.graph import all_project_connections
 from ragmonk.core import paths
 from ragmonk.core.lifecycle import AppContext
+from ragmonk.core.models import FileKind
+from ragmonk.indexing.embedding_indexer import prepare_embeddings, publish_embeddings
 from ragmonk.retrieval import ann, embedder
-from ragmonk.storage.repositories import embeddings_repo, vector_items_repo
+from ragmonk.storage.repositories import embeddings_repo, files_repo, vector_items_repo
+from ragmonk.storage.sqlite import transaction
 
 from ._common import cli_command, console, print_json
 
@@ -74,3 +77,84 @@ def rebuild(
                 f"[bold]{entry['source_id']}[/bold]: rebuilt {entry['vectors']} vector(s) "
                 f"via {entry['backend']}"
             )
+
+
+@app.command("backfill")
+@cli_command
+def backfill(
+    source_id: Annotated[
+        str | None, typer.Option("--source", help="Only backfill this source id.")
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Computes vectors for already-indexed CODE/DOCUMENT files that have
+    none yet for the current model (indexing optimization plan, Phase
+    P5) -- most commonly every file indexed while ``search.semantic`` was
+    off, which a normal ``ragmonk index`` pass will never revisit for
+    this reason alone (see ``files_repo.list_missing_embeddings``).
+    Reuses the exact entities/document sections already on disk; never
+    reruns Tree-sitter/Docling extraction, so this is far cheaper than
+    ``ragmonk rebuild``.
+    """
+    model_id = embedder.EMBEDDING_MODEL_ID
+    backfilled: list[dict[str, Any]] = []
+    with AppContext.bootstrap() as ctx:
+        engine = ctx.config.search.vector.engine
+        for sid, source_path, conn in all_project_connections(ctx):
+            if source_id is not None and sid != source_id:
+                continue
+            missing = files_repo.list_missing_embeddings(conn, sid, model_id=model_id)
+            if not missing:
+                backfilled.append({"source_id": sid, "embedded": 0})
+                continue
+
+            code_file_ids = [f.id for f in missing if f.kind is FileKind.CODE]
+            document_file_ids = [f.id for f in missing if f.kind is FileKind.DOCUMENT]
+
+            prepared = prepare_embeddings(
+                conn,
+                source_id=sid,
+                touched_code_file_ids=code_file_ids,
+                touched_document_file_ids=document_file_ids,
+                batch_size=ctx.config.indexing.embedding_batch_size,
+            )
+            if prepared is None:
+                backfilled.append({"source_id": sid, "embedded": 0})
+                continue
+
+            touched_file_ids = [*code_file_ids, *document_file_ids]
+            stale_vector_ids = vector_items_repo.list_vector_ids_by_file(conn, touched_file_ids)
+            with transaction(conn):
+                embedded = publish_embeddings(conn, prepared)
+
+            if embedded:
+                project_id = paths.project_id_for_path(Path(source_path))
+                dim = embeddings_repo.get_dim_for_model(conn, model_id)
+                if dim is not None:
+                    ann.sync_index_for_files(
+                        conn,
+                        project_id=project_id,
+                        home=ctx.home,
+                        engine=engine,
+                        ndim=dim,
+                        model_id=model_id,
+                        removed_vector_ids=stale_vector_ids,
+                        touched_file_ids=touched_file_ids,
+                        rebuild_deleted_ratio=ctx.config.search.vector.rebuild_deleted_ratio,
+                    )
+            backfilled.append({"source_id": sid, "embedded": embedded})
+
+    if json_output:
+        print_json({"backfilled": backfilled})
+        return
+
+    if not backfilled:
+        console.print("[yellow]No sources to backfill.[/yellow]")
+        return
+    for entry in backfilled:
+        if entry["embedded"]:
+            console.print(
+                f"[bold]{entry['source_id']}[/bold]: embedded {entry['embedded']} vector(s)"
+            )
+        else:
+            console.print(f"[dim]{entry['source_id']}: nothing to backfill.[/dim]")

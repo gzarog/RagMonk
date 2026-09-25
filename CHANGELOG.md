@@ -8,6 +8,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
+Phase P5: embeddings-only backfill, reuse, and short transactions.
+
+### Added
+
+- `ragmonk vectors backfill [--source ID] [--json]`: computes vectors for
+  already-indexed CODE/DOCUMENT files that have none yet for the current
+  embedding model -- most commonly every file indexed while
+  `search.semantic` was off, which a normal `ragmonk index` pass never
+  revisits for this reason alone (a `NULL` `embedding_model_id` is
+  deliberately never treated as "stale" by `indexing.incremental.
+  decide_reprocessing`). Reuses entities/document sections already on
+  disk; never reruns Tree-sitter/Docling extraction. New
+  `files_repo.list_missing_embeddings()` finds the target files.
+- `indexing.embedding_indexer.embed_touched_files` splits into
+  `prepare_embeddings` (pure reads plus model inference, no writes) and
+  `publish_embeddings` (the short transactional delete-old-generation/
+  insert-new-generation write and version-stamp update).
+  `indexing.runner.run_source_pass` now calls `prepare_embeddings`
+  *before* opening its write transaction and only `publish_embeddings`
+  inside it -- the (potentially slow) model inference step no longer
+  holds `BEGIN IMMEDIATE` for the duration it used to. `embed_touched_files`
+  itself is kept as a thin prepare+publish convenience wrapper for
+  callers (tests, one-off scripts) that don't need the split.
+- `prepare_embeddings` deduplicates identical embedding texts within one
+  batch (e.g. two overloads sharing a signature, a document chunk
+  duplicated across sections) before calling the model, fanning the one
+  resulting vector back out to every subject that shared the text.
+  Scoped to a single batch only -- never persisted or reused across
+  files or projects -- so this can never leak a vector across a
+  project/permission boundary.
+- `retrieval.embedder.embed_texts` accepts an optional `batch_size`,
+  wired from new `IndexingConfig.embedding_batch_size` (default `16`,
+  unchanged) -- tunable per-machine without editing code. CPU-only
+  benchmarking showed no reliable gain from raising it in this project's
+  own test environment, so the default is left as-is; no speedup is
+  claimed here that measurement didn't back up.
+- `retrieval.ann.sync_index_for_files` now detects drift left over from
+  an interrupted prior update (SQLite committed, the on-disk ANN index
+  never got that pass's `save()`) by comparing the index's own size
+  against `vector_items`' count after applying the *current* pass's own
+  changes, and falls back to a full `rebuild_index` when they still
+  disagree -- SQLite stays the always-authoritative source (blueprint
+  section 49) an interrupted index can reconverge from, without needing
+  a separate repair command.
+
+---
+
+Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
 Phase P4: bounded parallel code extraction, one transactional publisher.
 
 ### Added

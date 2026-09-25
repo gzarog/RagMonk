@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from benchmarks.search.corpus import EMBEDDING_DIM
 
 
-def fake_embed_texts(texts: Sequence[str]) -> list[list[float]]:
+def fake_embed_texts(texts: Sequence[str], *, batch_size: int | None = None) -> list[list[float]]:
     vectors: list[list[float]] = []
     for text in texts:
         digest = hashlib.sha256(text.lower().encode("utf-8")).digest()

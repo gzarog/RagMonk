@@ -33,7 +33,7 @@ from ragmonk.storage.sqlite import connect
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "documents"
 
 
-def _fake_embed_texts(texts: list[str]) -> list[list[float]]:
+def _fake_embed_texts(texts: list[str], *, batch_size: int | None = None) -> list[list[float]]:
     """Deterministic, dependency-free stand-in for the real model: each
     text hashes to a small fixed-dimension vector so semantically
     unrelated calls (e.g. a query vs. indexed content) still produce
@@ -246,7 +246,7 @@ def test_semantic_enabled_degrades_gracefully_when_the_model_is_unavailable(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
 
-    def _raise(texts: list[str]) -> list[list[float]]:
+    def _raise(texts: list[str], *, batch_size: int | None = None) -> list[list[float]]:
         raise embedder.EmbeddingModelUnavailableError("simulated: no network")
 
     monkeypatch.setattr(embedder, "embed_texts", _raise)
@@ -495,3 +495,64 @@ def test_reranker_enabled_reorders_the_hybrid_view_and_falls_back_gracefully(
     assert fallback_result.exit_code == 0, fallback_result.output
     fallback_ids = [h["id"] for h in json.loads(fallback_result.output)["data"]["hybrid"]]
     assert fallback_ids == baseline_ids
+
+
+def test_vectors_backfill_embeds_files_indexed_before_semantic_was_enabled(
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Indexing optimization plan, Phase P5: a project indexed entirely
+    while ``search.semantic`` was off has every file's
+    ``embedding_model_id`` still ``NULL`` -- nothing about its content,
+    parser, or chunker stamps is stale, so a normal ``ragmonk index``
+    pass after turning semantic search on (see
+    ``test_semantic_disabled_by_default_leaves_search_and_explore_unaffected``)
+    would never revisit these files on its own. ``ragmonk vectors
+    backfill`` must compute their vectors directly, entity/document data
+    already on disk, no reindex needed.
+    """
+    root = tmp_path / "project"
+    _write_project(root)
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
+    index_result = runner.invoke(app, ["index"])
+    assert index_result.exit_code == 0, index_result.output
+
+    project_id = paths.project_id_for_path(root)
+    conn = connect(paths.project_db_path(project_id, ragmonk_home))
+    try:
+        assert embeddings_repo.count_all(conn) == 0
+    finally:
+        conn.close()
+
+    monkeypatch.setenv("RAGMONK_SEARCH__SEMANTIC", "true")
+    # A reindex with nothing changed on disk must not be what backfills
+    # vectors -- it should still report nothing embedded, proving the
+    # separate `vectors backfill` command below is doing real work.
+    noop_reindex = runner.invoke(app, ["index"])
+    assert noop_reindex.exit_code == 0, noop_reindex.output
+    assert "embedded=0" in noop_reindex.output
+
+    backfill_result = runner.invoke(app, ["vectors", "backfill", "--json"])
+    assert backfill_result.exit_code == 0, backfill_result.output
+    backfill_payload = json.loads(backfill_result.output)["data"]
+    assert backfill_payload["backfilled"][0]["embedded"] > 0
+
+    conn = connect(paths.project_db_path(project_id, ragmonk_home))
+    try:
+        stored = embeddings_repo.count_all(conn)
+        assert stored > 0
+    finally:
+        conn.close()
+
+    search_result = runner.invoke(app, ["search", "bark_loudly", "--json"])
+    assert search_result.exit_code == 0, search_result.output
+    payload = json.loads(search_result.output)["data"]
+    assert payload["semantic"]["available"] is True
+    assert payload["semantic"]["results"] != []
+
+    # Running it again with nothing newly missing must be a no-op.
+    second_backfill = runner.invoke(app, ["vectors", "backfill", "--json"])
+    assert second_backfill.exit_code == 0, second_backfill.output
+    assert json.loads(second_backfill.output)["data"]["backfilled"][0]["embedded"] == 0

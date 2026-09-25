@@ -144,3 +144,46 @@ def test_rename_keeps_id_and_content_hash_but_moves_path(tmp_path: Path) -> None
         assert files_repo.search_path_projection(conn, "a.md") == []
     finally:
         conn.close()
+
+
+def test_list_missing_embeddings_finds_indexed_files_with_no_current_model_vectors(
+    tmp_path: Path,
+) -> None:
+    """Indexing optimization plan, Phase P5: the ``ragmonk vectors
+    backfill`` target -- an INDEXED CODE/DOCUMENT file whose
+    ``embedding_model_id`` is ``NULL`` (never embedded, e.g. indexed
+    while ``search.semantic`` was off) or stamped for a different model.
+    Excludes: a file already current for this model, a file that hasn't
+    finished indexing yet, and a non-CODE/DOCUMENT kind.
+    """
+    conn = connect(tmp_path / "k.db")
+    try:
+        apply_migrations(conn, "knowledge")
+
+        def _file(file_id: str, *, kind: FileKind, status: FileStatus, model: str | None) -> None:
+            files_repo.insert(
+                conn,
+                FileRecord(
+                    id=file_id,
+                    source_id="s1",
+                    path=f"/root/{file_id}",
+                    kind=kind,
+                    size=1,
+                    mtime=1.0,
+                    status=status,
+                    embedding_model_id=model,
+                    created_at="now",
+                    updated_at="now",
+                ),
+            )
+
+        _file("never_embedded", kind=FileKind.CODE, status=FileStatus.INDEXED, model=None)
+        _file("old_model", kind=FileKind.DOCUMENT, status=FileStatus.INDEXED, model="old-model")
+        _file("current", kind=FileKind.CODE, status=FileStatus.INDEXED, model="new-model")
+        _file("not_indexed_yet", kind=FileKind.CODE, status=FileStatus.QUEUED, model=None)
+        _file("unknown_kind", kind=FileKind.UNKNOWN, status=FileStatus.INDEXED, model=None)
+
+        missing = files_repo.list_missing_embeddings(conn, "s1", model_id="new-model")
+        assert {f.id for f in missing} == {"never_embedded", "old_model"}
+    finally:
+        conn.close()
