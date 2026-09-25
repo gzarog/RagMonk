@@ -9,6 +9,9 @@ future caller with its own client) can bypass ``opensearch_client.build_client``
 
 from __future__ import annotations
 
+import time
+from typing import Any
+
 import pytest
 from tests.unit._fake_opensearch import FakeOpenSearch
 
@@ -103,6 +106,32 @@ def test_deterministic_link_id_is_a_natural_key() -> None:
     b = ids.link_doc_id("s1", "e1", "d1", "sec1", "documented_by", "resolver-a")
     assert a == b
     assert a != ids.link_doc_id("s1", "e1", "d1", "sec2", "documented_by", "resolver-a")
+
+
+def test_deterministic_ids_are_stable_across_calls_for_every_id_type() -> None:
+    """Independent review follow-up: the entity/link coverage above did not
+    extend to file/document/chunk/relationship/generation-marker ids -- each
+    must be a pure function of its inputs too (repeated calls with identical
+    inputs give identical output, and distinguishing an input changes it).
+    """
+    assert ids.file_doc_id("s1", "f1") == ids.file_doc_id("s1", "f1")
+    assert ids.file_doc_id("s1", "f1") != ids.file_doc_id("s1", "f2")
+
+    assert ids.generation_marker_id("s1") == ids.generation_marker_id("s1")
+    assert ids.generation_marker_id("s1") != ids.generation_marker_id("s2")
+
+    assert ids.document_doc_id("s1", "f1") == ids.document_doc_id("s1", "f1")
+    assert ids.document_doc_id("s1", "f1") != ids.document_doc_id("s1", "f2")
+
+    assert ids.chunk_doc_id("s1", "f1", "c1") == ids.chunk_doc_id("s1", "f1", "c1")
+    assert ids.chunk_doc_id("s1", "f1", "c1") != ids.chunk_doc_id("s1", "f1", "c2")
+
+    assert ids.relationship_doc_id("s1", "f1", "r1") == ids.relationship_doc_id(
+        "s1", "f1", "r1"
+    )
+    assert ids.relationship_doc_id("s1", "f1", "r1") != ids.relationship_doc_id(
+        "s1", "f1", "r2"
+    )
 
 
 # -- health / no silent fallback ------------------------------------------
@@ -200,6 +229,93 @@ def test_bulk_partial_failure_does_not_swallow_successes() -> None:
     assert result.succeeded == 2
     assert [f.doc_id for f in result.failed] == ["bad"]
     assert set(fake.store["idx"].keys()) == {"good1", "good2"}
+
+
+def test_bulk_batches_by_max_bytes_independently_of_max_actions() -> None:
+    """Independent review follow-up: a handful of large documents must
+    split on ``max_bytes`` even though they are far under ``max_actions``.
+    """
+    fake = FakeOpenSearch()
+    # Each doc's source serializes to well over 1000 bytes; max_bytes=1500
+    # should force one action per batch even though max_actions=100 would
+    # happily allow all 4 in a single batch.
+    big_value = "x" * 1200
+    config = BulkConfig(max_actions=100, max_bytes=1500, concurrency=1, max_retries=0)
+    actions = [
+        BulkAction(op="index", index="idx", doc_id=f"d{i}", source={"v": big_value})
+        for i in range(4)
+    ]
+    result = run_bulk(fake, actions, config)
+    assert result.succeeded == 4
+    assert not result.failed
+    assert len(fake.bulk_calls) == 4  # one document per batch, capped by bytes
+
+
+def test_bulk_many_small_actions_hit_max_actions_before_max_bytes() -> None:
+    """The complementary bound: many tiny documents should split on
+    ``max_actions`` well before ``max_bytes`` would ever kick in.
+    """
+    fake = FakeOpenSearch()
+    config = BulkConfig(max_actions=3, max_bytes=10_000_000, concurrency=1, max_retries=0)
+    actions = [
+        BulkAction(op="index", index="idx", doc_id=f"d{i}", source={"n": i}) for i in range(7)
+    ]
+    result = run_bulk(fake, actions, config)
+    assert result.succeeded == 7
+    # 7 actions batched by 3 => 3 bulk() calls (3, 3, 1).
+    assert len(fake.bulk_calls) == 3
+    assert [len(call) for call in fake.bulk_calls] == [6, 6, 2]  # 2 body lines per index action
+
+
+def test_bulk_concurrency_is_bounded_by_config() -> None:
+    """Bounded concurrency: no more than ``config.concurrency`` batches
+    may be in flight (executing inside ``client.bulk``) at once.
+    """
+    import threading
+
+    max_in_flight = 0
+    current_in_flight = 0
+    lock = threading.Lock()
+
+    class ConcurrencyTrackingFake(FakeOpenSearch):
+        def bulk(self, body: list[dict[str, Any]]) -> dict[str, Any]:
+            nonlocal max_in_flight, current_in_flight
+            with lock:
+                current_in_flight += 1
+                max_in_flight = max(max_in_flight, current_in_flight)
+            try:
+                time.sleep(0.02)
+                return super().bulk(body)
+            finally:
+                with lock:
+                    current_in_flight -= 1
+
+    fake = ConcurrencyTrackingFake()
+    config = BulkConfig(max_actions=1, max_bytes=10_000_000, concurrency=3, max_retries=0)
+    actions = [
+        BulkAction(op="index", index="idx", doc_id=f"d{i}", source={"n": i}) for i in range(12)
+    ]
+    result = run_bulk(fake, actions, config)
+    assert result.succeeded == 12
+    assert max_in_flight <= 3
+    assert max_in_flight > 1  # sanity: batches really did overlap, not fully serial
+
+
+def test_bulk_retry_attempts_are_bounded_by_max_retries() -> None:
+    """A persistently-failing item must stop retrying at exactly
+    ``max_retries`` attempts, never looping indefinitely, and the
+    resulting failure must surface to the caller rather than being
+    silently dropped.
+    """
+    fake = FakeOpenSearch(fail_ids={"d0": 10_000})  # would fail "forever" if unbounded
+    config = BulkConfig(max_actions=10, max_bytes=10_000_000, concurrency=1, max_retries=3)
+    actions = [BulkAction(op="index", index="idx", doc_id="d0", source={"n": 0})]
+    result = run_bulk(fake, actions, config)
+    # 1 initial attempt + max_retries retries = 4 total bulk() calls.
+    assert len(fake.bulk_calls) == 4
+    assert result.succeeded == 0
+    assert len(result.failed) == 1
+    assert result.failed[0].doc_id == "d0"
 
 
 # -- upsert/delete file -------------------------------------------------------
