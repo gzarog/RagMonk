@@ -66,6 +66,16 @@ def _format_location(payload: dict[str, Any]) -> str:
 
 
 def _defined_locations(ctx: AppContext, matches: list[SourceMatch]) -> list[dict[str, Any]]:
+    """Local-mode only: resolves each match's defining file via
+    ``conn_for_source_path``/``files_repo`` (local sqlite). Server mode
+    has no backend-contract equivalent for "fetch a file by id" either
+    (same documented gap as ``retrieval/graph.py``'s ``_resolved_server``)
+    -- skipped explicitly here (``cli/search.py``'s Phase 6 precedent for
+    a server-mode gap) rather than opening local sqlite or raising and
+    losing the rest of ``impact``'s otherwise-working callers/callees/tests.
+    """
+    if ctx.config.storage.mode == "server":
+        return []
     defined: list[dict[str, Any]] = []
     for match in matches:
         conn = conn_for_source_path(ctx, match.source_path)
@@ -86,6 +96,16 @@ def _defined_locations(ctx: AppContext, matches: list[SourceMatch]) -> list[dict
 def _documentation(
     ctx: AppContext, matches: list[SourceMatch]
 ) -> tuple[list[dict[str, Any]], list[Confidence]]:
+    """Local-mode only: reads cross-links via ``links_repo``/
+    ``documents_repo`` (local sqlite) -- the ``KnowledgeBackend`` contract
+    has no read method for cross-links yet (``publish_links`` is write-only,
+    see ``backends/base.py``), so this is a genuine gap, not something
+    ``symbol_search``/``graph_neighbors`` can express. Skipped explicitly
+    in server mode (same rationale as ``_defined_locations``) rather than
+    opening local sqlite or raising and losing the rest of ``impact``.
+    """
+    if ctx.config.storage.mode == "server":
+        return [], []
     documents: list[dict[str, Any]] = []
     confidences: list[Confidence] = []
     seen: set[tuple[str, str | None]] = set()

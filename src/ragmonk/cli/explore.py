@@ -127,7 +127,16 @@ def _graph_path(
 def _document_links(
     ctx: AppContext, matches: list[SourceMatch], strategies: tuple[planner.Strategy, ...]
 ) -> list[Evidence]:
+    """Local-mode only: reads cross-links via ``links_repo``/
+    ``documents_repo`` (local sqlite) -- see ``cli/impact.py``'s
+    ``_documentation`` for why this has no backend-contract equivalent
+    yet. Skipped explicitly in server mode rather than opening local
+    sqlite or raising and losing the rest of ``explore``'s otherwise-
+    working symbols/callers/callees/tests.
+    """
     if not matches or planner.Strategy.DOCUMENTS not in strategies:
+        return []
+    if ctx.config.storage.mode == "server":
         return []
     out: list[Evidence] = []
     seen: set[tuple[str, str | None]] = set()
