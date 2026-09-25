@@ -368,3 +368,25 @@ def test_clear_source_removes_every_generation_not_just_active() -> None:
 
     remaining = fake.store.get("ragmonk-content", {})
     assert not any(doc.get("source_id") == "s1" for doc in remaining.values())
+
+
+def test_begin_generation_never_reuses_a_number_even_if_abort_never_ran() -> None:
+    """Independent review follow-up: retrying a rebuild after a failure
+    whose ``abort_generation`` was never called (or itself failed) must
+    not receive the same generation id as the failed attempt -- see
+    ``test_backends_opensearch_generation_isolation.py``'s twin test and
+    ``OpenSearchKnowledgeBackend.begin_generation``'s docstring for the
+    full reasoning (mirrored in the Elasticsearch adapter).
+    """
+    fake = FakeElasticsearch()
+    backend = _backend(fake)
+
+    gen1 = backend.begin_generation("s1")
+    assert gen1 == "1"
+    gen2 = backend.begin_generation("s1")
+    assert gen2 == "2"
+    assert gen2 != gen1
+
+    backend.publish_generation("s1", gen2)
+    gen3 = backend.begin_generation("s1")
+    assert gen3 == "3"

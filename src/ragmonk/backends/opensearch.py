@@ -168,7 +168,7 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         self._client = None
 
     # -- generation lifecycle -------------------------------------------
-    def _active_generation(self, source_id: str) -> str:
+    def _generation_marker_source(self, source_id: str) -> dict[str, Any]:
         client = self._get_client()
         try:
             doc = client.get(
@@ -176,8 +176,11 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                 id=ids.generation_marker_id(source_id),
             )
         except Exception:
-            return _DEFAULT_ACTIVE_GENERATION
-        source = doc.get("_source", {}) if isinstance(doc, dict) else {}
+            return {}
+        return doc.get("_source", {}) if isinstance(doc, dict) else {}
+
+    def _active_generation(self, source_id: str) -> str:
+        source = self._generation_marker_source(source_id)
         return str(source.get("active_generation", _DEFAULT_ACTIVE_GENERATION))
 
     def _active_generations_map(self) -> dict[str, str]:
@@ -237,11 +240,46 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         return {"bool": {"should": should, "minimum_should_match": 1}}
 
     def begin_generation(self, source_id: str) -> str:
-        current = self._active_generation(source_id)
+        """Issues a new generation id, guaranteed never to repeat a value
+        this method has already handed out for ``source_id`` -- even
+        across a failed rebuild whose ``abort_generation`` never ran or
+        itself failed (independent review follow-up: a retry must not
+        reuse a generation number that may still have uncleaned documents
+        tagged with it, or those could leak into the newly-published
+        generation for any file the retry's pass never revisits, such as
+        one deleted from the source between attempts).
+
+        To do this without a shared/global counter (which would break
+        the per-source isolation the rest of this generation scheme
+        relies on), the marker document persists not just the
+        *published* ``active_generation`` but also the highest
+        generation ever *begun* (``last_begun_generation``), written
+        eagerly by this method itself -- before any content is touched,
+        let alone published. The next id is always one past
+        ``max(active_generation, last_begun_generation)``, so calling
+        this twice in a row (as a retry after any failure does, since
+        ``publish_generation`` never ran) always advances, never repeats.
+        """
+        marker = self._generation_marker_source(source_id)
+        active = str(marker.get("active_generation", _DEFAULT_ACTIVE_GENERATION))
+        last_begun = str(marker.get("last_begun_generation", active))
         try:
-            return str(int(current) + 1)
+            new_generation = str(max(int(active), int(last_begun)) + 1)
         except ValueError:
-            return uuid.uuid4().hex
+            new_generation = uuid.uuid4().hex
+        client = self._get_client()
+        client.index(
+            index=mappings.files_index(self._prefix),
+            id=ids.generation_marker_id(source_id),
+            body={
+                "doc_kind": "generation_marker",
+                "source_id": source_id,
+                "active_generation": active,
+                "last_begun_generation": new_generation,
+                "updated_at": _now(),
+            },
+        )
+        return new_generation
 
     def publish_generation(self, source_id: str, generation: str) -> None:
         client = self._get_client()
@@ -252,6 +290,7 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                 "doc_kind": "generation_marker",
                 "source_id": source_id,
                 "active_generation": generation,
+                "last_begun_generation": generation,
                 "updated_at": _now(),
             },
         )

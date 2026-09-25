@@ -365,3 +365,33 @@ def test_clear_source_removes_every_generation_not_just_active() -> None:
 
     remaining = fake.store.get("ragmonk-content", {})
     assert not any(doc.get("source_id") == "s1" for doc in remaining.values())
+
+
+def test_begin_generation_never_reuses_a_number_even_if_abort_never_ran() -> None:
+    """Independent review follow-up: retrying a rebuild after a failure
+    whose ``abort_generation`` was never called (or itself failed) must
+    not receive the same generation id as the failed attempt -- reusing
+    a number could let that attempt's uncleaned documents leak into the
+    generation the retry goes on to publish (e.g. for a file the retry's
+    pass never revisits, such as one removed from the source in between
+    attempts). Two consecutive ``begin_generation`` calls with no
+    ``publish_generation``/``abort_generation`` in between (simulating a
+    failure whose cleanup never ran) must still advance.
+    """
+    fake = FakeOpenSearch()
+    backend = _backend(fake)
+
+    gen1 = backend.begin_generation("s1")
+    assert gen1 == "1"
+    # Simulate a failed attempt whose abort_generation was skipped
+    # entirely (e.g. it itself raised) -- retry immediately begins again.
+    gen2 = backend.begin_generation("s1")
+    assert gen2 == "2"
+    assert gen2 != gen1
+
+    # And publishing the retry's generation makes exactly that one
+    # active -- a subsequent begin still advances past it, not back to
+    # gen1's neighborhood.
+    backend.publish_generation("s1", gen2)
+    gen3 = backend.begin_generation("s1")
+    assert gen3 == "3"

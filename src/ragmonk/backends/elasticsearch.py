@@ -177,7 +177,7 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
         self._client = None
 
     # -- generation lifecycle -------------------------------------------
-    def _active_generation(self, source_id: str) -> str:
+    def _generation_marker_source(self, source_id: str) -> dict[str, Any]:
         client = self._get_client()
         try:
             doc = client.get(
@@ -185,9 +185,12 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
                 id=ids.generation_marker_id(source_id),
             )
         except Exception:
-            return _DEFAULT_ACTIVE_GENERATION
+            return {}
         doc_dict = dict(doc) if not isinstance(doc, dict) else doc
-        source = doc_dict.get("_source", {})
+        return doc_dict.get("_source", {})
+
+    def _active_generation(self, source_id: str) -> str:
+        source = self._generation_marker_source(source_id)
         return str(source.get("active_generation", _DEFAULT_ACTIVE_GENERATION))
 
     def _active_generations_map(self) -> dict[str, str]:
@@ -244,11 +247,41 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
         return {"bool": {"should": should, "minimum_should_match": 1}}
 
     def begin_generation(self, source_id: str) -> str:
-        current = self._active_generation(source_id)
+        """Issues a new generation id, guaranteed never to repeat a value
+        this method has already handed out for ``source_id`` -- even
+        across a failed rebuild whose ``abort_generation`` never ran or
+        itself failed (independent review follow-up: a retry must not
+        reuse a generation number that may still have uncleaned documents
+        tagged with it -- see ``OpenSearchKnowledgeBackend.begin_generation``'s
+        docstring for the full reasoning, mirrored here).
+
+        The marker document persists not just the *published*
+        ``active_generation`` but also the highest generation ever
+        *begun* (``last_begun_generation``), written eagerly by this
+        method itself -- before any content is touched, let alone
+        published. The next id is always one past
+        ``max(active_generation, last_begun_generation)``.
+        """
+        marker = self._generation_marker_source(source_id)
+        active = str(marker.get("active_generation", _DEFAULT_ACTIVE_GENERATION))
+        last_begun = str(marker.get("last_begun_generation", active))
         try:
-            return str(int(current) + 1)
+            new_generation = str(max(int(active), int(last_begun)) + 1)
         except ValueError:
-            return uuid.uuid4().hex
+            new_generation = uuid.uuid4().hex
+        client = self._get_client()
+        client.index(
+            index=mappings.files_index(self._prefix),
+            id=ids.generation_marker_id(source_id),
+            document={
+                "doc_kind": "generation_marker",
+                "source_id": source_id,
+                "active_generation": active,
+                "last_begun_generation": new_generation,
+                "updated_at": _now(),
+            },
+        )
+        return new_generation
 
     def publish_generation(self, source_id: str, generation: str) -> None:
         client = self._get_client()
@@ -259,6 +292,7 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
                 "doc_kind": "generation_marker",
                 "source_id": source_id,
                 "active_generation": generation,
+                "last_begun_generation": generation,
                 "updated_at": _now(),
             },
         )
