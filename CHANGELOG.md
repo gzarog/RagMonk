@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Storage backend abstraction plan ([PR #72](https://github.com/gzarog/RagMonk/pull/72)):
+adds optional OpenSearch/Elasticsearch server storage backends alongside
+the existing local SQLite/FTS5/USearch mode, behind a backend-neutral
+`KnowledgeBackend` abstraction. Nine phases: config/CLI scaffolding
+(P1-P2), the backend contract and publish models (P3), the OpenSearch
+adapter (P4), the Elasticsearch adapter (P5), routing retrieval/graph
+commands through the backend in server mode (P6), generation-based
+atomic rebuild publishing (P6b/P7), backend-aware doctor/status/source
+removal and daemon startup validation (P8), and packaging/docs/dev
+tooling (P9, this entry).
+
+### Added
+
+- **Server storage mode**: `storage.mode="server"` with
+  `storage.server.engine` of `"opensearch"` or `"elasticsearch"`, each
+  with a real, working `KnowledgeBackend` adapter
+  (`ragmonk.backends.opensearch`/`ragmonk.backends.elasticsearch`).
+  Local (SQLite) mode remains the default and requires neither client
+  library — both are lazy-imported and only installed via the new
+  optional `opensearch`/`elasticsearch`/`server` extras.
+- **`ragmonk init --storage-mode server`**: `--storage-engine`,
+  `--storage-url`, `--storage-index-prefix`,
+  `--storage-verify-tls`/`--storage-no-verify-tls`, and `--interactive`
+  prompting. Performs a real preflight HTTP check against
+  `--storage-url` before writing any config; never persists a
+  credential (server credentials are read only from
+  `RAGMONK_OPENSEARCH_USERNAME`/`_PASSWORD`/`_API_KEY` and
+  `RAGMONK_ELASTICSEARCH_USERNAME`/`_PASSWORD`/`_API_KEY` at call time).
+- **`KnowledgeBackend` abstraction**: a backend-neutral contract
+  (`ragmonk.backends.base`) covering publish (code/documents/embeddings/
+  links), lexical/semantic/symbol search, graph traversal, and stats,
+  routing `search`/`explore`/`symbol`/`callers`/`callees`/`references`/
+  `impact` through it in server mode instead of direct SQLite access.
+- **Generation-based atomic rebuild publishing**: `ragmonk rebuild`
+  writes each source's rebuilt content under a new generation and
+  atomically republishes reads to it only once the rebuild completes;
+  every read (`lexical_search`/`semantic_search`/`symbol_search`/
+  `graph_neighbors`/`get_entities_for_files`/
+  `get_document_units_for_files`/`count_stats`) is filtered to each
+  source's currently-active generation, so a failed or in-progress
+  rebuild never surfaces partial results — the previous generation
+  stays active and searchable until the new one is fully published.
+- **Backend-aware operations**: `ragmonk doctor` and `ragmonk status`
+  report cluster reachability and index-level counts from the
+  configured server backend in server mode; source removal routes
+  through `backend.clear_source`; `ragmonk daemon start` fails startup
+  clearly (rather than silently falling back to local storage) when the
+  configured server backend is unreachable.
+- **Packaging and dev tooling** (P9): a new `ragmonk[server]` extra
+  (`opensearch` + `elasticsearch` together); `docker/
+  docker-compose.opensearch.yml` and `docker/
+  docker-compose.elasticsearch.yml`, single-node dev-only clusters for
+  running the `opensearch_integration`/`elasticsearch_integration` test
+  suites locally; a new README "Storage Backends: Local vs. Server"
+  section covering mode selection, credentials, local test clusters,
+  and server-mode recovery/diagnostics.
+
+### Known limitations
+
+- **Neighbor-name resolution** in server-mode `impact`/`explore`: the
+  `KnowledgeBackend` contract has no "fetch entity/file by id"
+  primitive, so graph-neighbor edges resolve with `neighbor_entity=None`
+  in server mode where local mode resolves the neighboring symbol's
+  name directly (see `ragmonk.retrieval.graph`).
+- **File-metadata generation filtering**: file-identity documents
+  (`upsert_file`) carry no `generation` field, so `get_file` and the
+  files count in backend stats are not generation-scoped the way
+  content/relationship/embedding reads are (see the OpenSearch/
+  Elasticsearch adapter module docstrings).
+
+---
+
 Indexing optimization plan V2 / Completion (`ragmonk-indexing-optimization-v2-completion`),
 finishing the material gaps left after `ragmonk-indexing-performance-v1`'s
 P0-P7 (below). Six phases, one PR: code derivation versioning (P1),
