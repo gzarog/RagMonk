@@ -167,6 +167,18 @@ opensearch = [
 elasticsearch = [
     "elasticsearch>=8,<9",
 ]
+# Phase 9 (packaging): convenience extra for users who want to be able to
+# switch `storage.server.engine` between "opensearch" and "elasticsearch"
+# (or run both against separate projects) without a second `pip install`.
+# Self-referencing extras syntax (supported by hatchling/pip, PEP 508) --
+# this is NOT a third client library, just the union of the two extras
+# above; local (SQLite) mode remains fully installable without any of
+# this (`pip install ragmonk` alone stays lightweight, see the
+# `opensearch`/`elasticsearch` extras' own comments above).
+server = [
+    "ragmonk[opensearch]",
+    "ragmonk[elasticsearch]",
+]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
