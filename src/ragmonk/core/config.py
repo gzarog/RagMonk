@@ -60,6 +60,23 @@ class IndexingConfig(BaseModel):
     # runs on the single coordinator writer thread regardless of this
     # setting; see ``indexing/coordinator.py``'s ``_process_queue``.
     code_extraction_workers: int = 1
+    # Indexing optimization plan V2, Phase P2: how many files' document
+    # extraction (Docling conversion + normalization + chunking -- the
+    # potentially slow, CPU/IO-heavy "prepare" half of
+    # ``documents.pipeline``) may run concurrently in a bounded thread
+    # pool. ``1`` (the default) is fully serial -- byte-for-byte the
+    # pre-P2 behavior -- for the same reason ``code_extraction_workers``
+    # defaults to ``1``: no benchmark evidence yet justifies a riskier
+    # default given Docling/OCR/Torch's own native thread pools are far
+    # heavier than Tree-sitter's. The bounded in-flight queue this
+    # enables (at most this many files' prepared-but-not-yet-published
+    # results held in memory) is also what keeps concurrent extraction's
+    # peak memory bounded relative to ``runtime.max_memory_mb`` -- see
+    # ``indexing/coordinator.py``'s ``_process_queue_with_parallel``. The
+    # transactional write ("publish") half always runs on the single
+    # coordinator writer thread regardless of this setting, exactly like
+    # ``code_extraction_workers``.
+    document_extraction_workers: int = 1
     # Indexing optimization plan, Phase P5: how many texts
     # ``retrieval/embedder.py`` sends through the model in one forward
     # pass. Kept configurable (rather than the prior hardcoded constant)

@@ -9,6 +9,7 @@ transaction (see ``code/processor.py``), mirroring the generational pattern
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ragmonk.core.models import Entity, EntityType
@@ -164,6 +165,30 @@ def list_all(conn: sqlite3.Connection) -> list[Entity]:
 def list_by_file(conn: sqlite3.Connection, file_id: str) -> list[Entity]:
     rows = conn.execute(
         "SELECT * FROM entities WHERE file_id = ? ORDER BY start_line", (file_id,)
+    ).fetchall()
+    return [_row_to_entity(row) for row in rows]
+
+
+def list_by_files(conn: sqlite3.Connection, file_ids: Sequence[str]) -> list[Entity]:
+    """Every entity belonging to any of ``file_ids``, in one query --
+    indexing optimization plan V2, Phase P4: a caller that needs several
+    files' entities (``indexing/embedding_indexer.prepare_embeddings``,
+    across every touched code file in one source pass) must never do it
+    as N individual ``list_by_file`` round trips when a single ``IN
+    (...)`` query returns exactly the same rows, mirroring
+    ``files_repo.get_many``'s identical Phase P6 precedent. Measured: a
+    300-file batch dropped from 300 statements to 1 (see this phase's
+    commit message for the full before/after numbers). Ordered by
+    ``file_id, start_line`` (not just ``start_line``) so a caller
+    grouping results back out per file gets each file's own entities in
+    their original ``start_line`` order.
+    """
+    if not file_ids:
+        return []
+    placeholders = ", ".join("?" for _ in file_ids)
+    rows = conn.execute(
+        f"SELECT * FROM entities WHERE file_id IN ({placeholders}) ORDER BY file_id, start_line",
+        tuple(file_ids),
     ).fetchall()
     return [_row_to_entity(row) for row in rows]
 

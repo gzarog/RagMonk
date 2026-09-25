@@ -70,9 +70,7 @@ class Daemon:
         self._ctx = ctx
         self._processors = build_processor_registry(ctx.config)
         self._registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
-        self._reconciliation_interval = float(
-            ctx.config.indexing.reconciliation_interval_seconds
-        )
+        self._reconciliation_interval = float(ctx.config.indexing.reconciliation_interval_seconds)
 
         self._queue: queue.Queue[str] = queue.Queue()
         self._stop_event = threading.Event()
@@ -104,6 +102,19 @@ class Daemon:
         # runs; this decides *what kind* once it does.
         self._touched_paths: dict[str, set[str]] = {}
         self._force_full: dict[str, bool] = {}
+        # Indexing optimization plan V2, Phase P5: the *real* trigger
+        # reason for this source's next pass -- startup/reconciliation/
+        # network_watcher/local_watcher/manual -- accumulated and
+        # consumed the same way ``_touched_paths``/``_force_full`` above
+        # are: set once (first reason wins) when a new pending batch
+        # starts, popped in ``_build_scan_request`` right before that
+        # pass runs. Previously ``_build_scan_request`` hardcoded
+        # ``reason="daemon"`` on every ``ScanRequest`` regardless of what
+        # actually triggered it -- this is what makes
+        # ``daemon_pass_completed``'s telemetry (and any other consumer
+        # of ``ScanRequest.reason``) traceable back to a real cause
+        # instead of one constant string.
+        self._trigger_reasons: dict[str, str] = {}
 
         # ``ctx.sources_conn`` (and, transitively, each project
         # connection ``run_source_pass`` opens) is shared across the
@@ -203,6 +214,15 @@ class Daemon:
         with self._state_lock:
             if reason in _FORCE_FULL_REASONS:
                 self._force_full[source_id] = True
+            # First reason wins for whichever pending batch this trigger
+            # contributes to -- mirrors _touched_paths/_force_full above:
+            # accumulated unconditionally on every trigger, popped as one
+            # unit in _build_scan_request. A burst of mixed-reason
+            # triggers (e.g. a local_watcher event followed by a
+            # reconciliation tick before the pass starts) reports the
+            # *first* one, on the reasoning that it's what actually
+            # caused this batch to start accumulating in the first place.
+            self._trigger_reasons.setdefault(source_id, reason)
             state = self._pending_state.get(source_id)
             if state is None:
                 self._pending_state[source_id] = "queued"
@@ -349,10 +369,19 @@ class Daemon:
         with self._state_lock:
             touched = self._touched_paths.pop(source_id, None)
             force_full = self._force_full.pop(source_id, False)
+            # Indexing optimization plan V2, Phase P5: the real trigger
+            # reason, not a constant "daemon" string -- falls back to
+            # "daemon" only for the never-actually-expected case of a
+            # pass with no recorded reason at all (e.g. a queue entry
+            # from before this phase's own bookkeeping existed, which
+            # cannot happen in practice since every enqueue_source call
+            # sets one, but a bare fallback is cheaper than an assert
+            # here).
+            reason = self._trigger_reasons.pop(source_id, "daemon")
         if force_full or not touched or len(touched) > _MAX_TARGETED_PATHS:
-            return ScanRequest(source_id=source_id, reason="daemon", full=True)
+            return ScanRequest(source_id=source_id, reason=reason, full=True)
         return ScanRequest(
-            source_id=source_id, reason="daemon", changed_paths=frozenset(touched), full=False
+            source_id=source_id, reason=reason, changed_paths=frozenset(touched), full=False
         )
 
     def _run_pass(self, source_id: str) -> None:

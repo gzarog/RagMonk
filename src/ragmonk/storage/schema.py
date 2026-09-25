@@ -611,3 +611,53 @@ KNOWLEDGE_DB_V14: tuple[str, ...] = (
     "ALTER TABLE files ADD COLUMN embedding_model_id TEXT",
     "ALTER TABLE files ADD COLUMN embedding_text_version TEXT",
 )
+
+# Indexing optimization plan V2, Phase P3: a persistent, project-local
+# cache of already-computed embedding vectors, keyed by the *exact*
+# normalized text that produced them plus every axis that could make the
+# same text produce a different vector -- ``model_id`` (which model),
+# ``preprocessing_version`` (the exact tokenizer/preprocessing identity --
+# see ``tokenization/model_identity.preprocessing_fingerprint``), and
+# ``embedding_text_version`` (which text-assembly code produced this
+# string in the first place -- ``documents/chunker.EMBEDDING_TEXT_VERSION``
+# or ``indexing/embedding_indexer.CODE_EMBEDDING_TEXT_VERSION``). All four
+# are the composite primary key, so a lookup with any one of them
+# different from what a row was written under is simply a miss, never a
+# fuzzy/partial match. ``text_hash`` (not the raw text) is what's actually
+# indexed/matched -- a sha256 of the exact text, keeping the key compact
+# regardless of how long a chunk's contextual text gets.
+#
+# Lives in this same per-project ``knowledge.db`` -- never a shared,
+# cross-project table or file -- which is what makes project isolation
+# free: a project's cache rows physically cannot be read by a different
+# project's ``IndexCoordinator``/embedding pass, since each project opens
+# its own separate database file (``core/lifecycle.AppContext.
+# project_conn``) and nothing in this project ever opens another
+# project's database from within an indexing run.
+#
+# Deliberately never actively garbage-collected, exactly
+# ``document_conversion_cache``'s own precedent (see that table's own
+# migration comment and ``document_conversion_cache_repo.py``'s module
+# docstring): purely derived, disposable state, an upsert on the same key
+# simply overwrites, and row count is bounded by the number of distinct
+# embedding texts this project's corpus has ever produced -- not
+# unbounded across repeated runs, since re-embedding identical text always
+# collapses onto the same row rather than adding a new one. The whole
+# table disappears the moment a project's ``knowledge.db`` itself is
+# deleted (``ragmonk`` has no separate per-project embedding-cache file to
+# separately clean up), which is this phase's documented, intentionally
+# simple retention policy in place of active GC.
+KNOWLEDGE_DB_V15: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS embedding_cache (
+        text_hash TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        preprocessing_version TEXT NOT NULL,
+        embedding_text_version TEXT NOT NULL,
+        vector BLOB NOT NULL,
+        dim INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (text_hash, model_id, preprocessing_version, embedding_text_version)
+    )
+    """,
+)

@@ -23,6 +23,20 @@ def delete_by_file(conn: sqlite3.Connection, file_id: str) -> None:
     conn.execute("DELETE FROM vector_items WHERE file_id = ?", (file_id,))
 
 
+def delete_by_files(conn: sqlite3.Connection, file_ids: Sequence[str]) -> None:
+    """Same as ``delete_by_file``, for several files in one statement --
+    indexing optimization plan V2, Phase P4 (measured), mirroring
+    ``embeddings_repo.delete_by_files``'s identical rationale: already
+    inside one caller-held transaction covering the whole touched-file
+    batch, so this changes only statement count, never failure
+    semantics. A no-op for an empty ``file_ids``.
+    """
+    if not file_ids:
+        return
+    placeholders = ", ".join("?" for _ in file_ids)
+    conn.execute(f"DELETE FROM vector_items WHERE file_id IN ({placeholders})", tuple(file_ids))
+
+
 def list_vector_ids_by_file(conn: sqlite3.Connection, file_ids: Sequence[str]) -> list[int]:
     """The vector ids a set of files currently own, read *before* a
     reindex's ``delete_by_file`` call -- the caller needs this "before"

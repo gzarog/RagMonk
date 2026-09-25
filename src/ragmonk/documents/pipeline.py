@@ -16,15 +16,16 @@ from __future__ import annotations
 import logging
 import sqlite3
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from ragmonk.core.config import ChunkingConfig
 from ragmonk.core.errors import ContentChangedDuringProcessingError, RagMonkError
 from ragmonk.core.models import Document, DocumentFormat, FileStatus, Paragraph, Section, Table
 from ragmonk.documents import chunker, docling_adapter, normalizer
-from ragmonk.documents.chunker import Chunk
+from ragmonk.documents.chunker import Chunk, ChunkingDiagnostics
 from ragmonk.documents.docling_adapter import UnsupportedDocumentFormatError
-from ragmonk.documents.metadata import extract_metadata
+from ragmonk.documents.metadata import DocumentMetadata, extract_metadata
 from ragmonk.indexing.coordinator import ProcessingOutcome, ProcessorContext
 from ragmonk.indexing.incremental import VersionStamp
 from ragmonk.retrieval import embedder
@@ -125,11 +126,60 @@ def document_version_stamp() -> VersionStamp:
     )
 
 
-def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
+@dataclass(frozen=True)
+class PreparedDocument:
+    """``prepare_document``'s result: everything Docling conversion,
+    normalization and chunking produced for one file -- no database
+    access at all beyond the read-only document-conversion cache lookup
+    (``cache_conn``, a caller-supplied connection kept deliberately
+    separate from ``ProcessorContext.conn`` -- see ``prepare_document``'s
+    docstring for why). Safe to build concurrently across files, exactly
+    like ``code.processor.PreparedCode``.
+
+    ``status`` set (``SKIPPED_LIMIT``) means "stop here, nothing else is
+    populated, ``publish_document`` should just return this status".
+    ``delete_only`` means "this file is recognized but has no document
+    content to derive (unsupported extension, or an image with
+    ``image_ocr`` off) -- ``publish_document`` should delete any prior
+    generation's rows and mark it indexed, nothing more". Otherwise every
+    other field is populated and ``publish_document`` writes a full new
+    generation from them.
+    """
+
+    status: FileStatus | None = None
+    delete_only: bool = False
+    doc_format: DocumentFormat | None = None
+    content_hash: str | None = None
+    meta: DocumentMetadata | None = None
+    chunks: list[Chunk] | None = None
+
+
+def prepare_document(
+    ctx: ProcessorContext, *, cache_conn: sqlite3.Connection | None
+) -> PreparedDocument:
+    """Docling conversion, normalization and chunking -- the potentially
+    slow, CPU/IO-heavy half of document processing -- with no write
+    transaction held on ``ctx.conn`` at any point, so it's safe to run
+    this concurrently across files (indexing optimization plan V2, Phase
+    P2's bounded ``indexing.document_extraction_workers`` pool).
+
+    ``cache_conn`` is deliberately a *separate* connection from
+    ``ctx.conn``, never that same shared connection object: the document-
+    conversion cache lookup/store inside ``docling_adapter.convert`` does
+    read and write SQLite (``document_conversion_cache``), and a
+    ``sqlite3.Connection`` is not safe to use concurrently from more than
+    one thread. The coordinator's parallel path hands this function one
+    dedicated connection per worker thread (see
+    ``indexing/coordinator.py``'s ``_PerThreadConnections``); the serial
+    (default, ``document_extraction_workers=1``) path -- via
+    ``document_processor`` below -- simply passes ``ctx.conn`` itself,
+    exactly matching this function's pre-P2 behavior since there is only
+    ever one caller of it at a time in that mode. ``None`` (a
+    coordinator-external ``ProcessorContext``, e.g. most unit tests) means
+    "convert without a cache", same as every pre-P2 caller.
+    """
     if ctx.size > ctx.max_size_bytes:
-        return ProcessingOutcome(status=FileStatus.SKIPPED_LIMIT)
-    if ctx.conn is None or ctx.file_id is None or ctx.source_id is None:
-        raise RagMonkError("DocumentProcessor requires a coordinator-provided ProcessorContext")
+        return PreparedDocument(status=FileStatus.SKIPPED_LIMIT)
 
     try:
         doc_format = docling_adapter.detect_format(ctx.path)
@@ -141,9 +191,7 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
         # content rather than failing the run, mirroring
         # code/processor.py's "recognized extension, no grammar"
         # fallback.
-        with transaction(ctx.conn):
-            documents_repo.delete_by_file(ctx.conn, ctx.file_id)
-        return ProcessingOutcome(status=FileStatus.INDEXED)
+        return PreparedDocument(delete_only=True)
 
     if doc_format in docling_adapter.FORMATS_REQUIRING_IMAGE_OCR and not ctx.image_ocr:
         # Search Quality Improvement Plan, Phase 10: a raw image is
@@ -154,9 +202,7 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
         # source doesn't silently make every index run much slower
         # unless a project explicitly asks for that. Same "recognized,
         # no derived content" fallback as an unsupported extension.
-        with transaction(ctx.conn):
-            documents_repo.delete_by_file(ctx.conn, ctx.file_id)
-        return ProcessingOutcome(status=FileStatus.INDEXED)
+        return PreparedDocument(delete_only=True)
 
     if doc_format is DocumentFormat.PDF and ctx.max_document_pages is not None:
         # Checked via pypdfium2 alone (see docling_adapter.pdf_page_count),
@@ -164,7 +210,7 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
         # triggers the layout/table-structure model download at all.
         page_count = docling_adapter.pdf_page_count(ctx.path)
         if page_count > ctx.max_document_pages:
-            return ProcessingOutcome(status=FileStatus.SKIPPED_LIMIT)
+            return PreparedDocument(status=FileStatus.SKIPPED_LIMIT)
 
     # Indexing optimization plan, Phase P3 / finding F4: reuses the
     # coordinator's already-computed digest (via ``ctx.file_identity``)
@@ -180,7 +226,7 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
     # Phase 3's original, only behavior, exactly like the coordinator's
     # own docstring for this field promises.
     conversion = docling_adapter.convert(
-        ctx.path, conn=ctx.conn, ocr_mode=ctx.ocr or "off", content_hash=content_hash
+        ctx.path, conn=cache_conn, ocr_mode=ctx.ocr or "off", content_hash=content_hash
     )
     normalized = normalizer.normalize(conversion.document, doc_format)
     # Metadata (title, in particular) is extracted before chunking rather
@@ -191,7 +237,7 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
     # `chunks`, so reordering is safe.
     meta = extract_metadata(conversion.document, normalized, doc_format, ctx.path)
     chunking_config = ctx.chunking or ChunkingConfig()
-    chunk_diagnostics = chunker.ChunkingDiagnostics()
+    chunk_diagnostics = ChunkingDiagnostics()
     chunks = chunker.chunk_document(
         normalized,
         config=chunking_config,
@@ -200,15 +246,57 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
     )
     _log_chunking_diagnostics(ctx, chunking_config, chunk_diagnostics)
 
-    # Indexing optimization plan, Phase P3: a final, cheap check that
-    # the file is still the one the coordinator scanned and this
-    # processor just spent potentially real time converting/chunking --
-    # a narrow but real race (a concurrent write landing mid-extraction)
-    # must never end in silently publishing content derived from a file
-    # that no longer looks like that on disk. Only meaningful when the
-    # coordinator supplied an identity in the first place; a
-    # coordinator-external ``ProcessorContext`` has nothing to compare
-    # against and keeps its pre-P3 behavior.
+    return PreparedDocument(
+        doc_format=doc_format, content_hash=content_hash, meta=meta, chunks=chunks
+    )
+
+
+def publish_document(ctx: ProcessorContext, prepared: PreparedDocument) -> ProcessingOutcome:
+    """Writes ``prepared``'s document/sections/paragraphs/tables -- the
+    atomic delete-old-generation/insert-new-generation transaction --
+    always on whichever thread calls this, which the coordinator
+    guarantees is always its single writer thread, never a parallel
+    prepare worker (Phase P2's "one transactional publisher per project"
+    rule, mirroring ``code.processor.publish_code``).
+    """
+    if ctx.conn is None or ctx.file_id is None or ctx.source_id is None:
+        raise RagMonkError("DocumentProcessor requires a coordinator-provided ProcessorContext")
+
+    if prepared.status is not None:
+        return ProcessingOutcome(status=prepared.status)
+
+    if prepared.delete_only:
+        # No content was derived (unsupported extension, or an
+        # image with image_ocr off) -- nothing to identity-recheck
+        # either, matching document_processor's pre-P2 behavior, which
+        # never reached the check for these two cases.
+        with transaction(ctx.conn):
+            documents_repo.delete_by_file(ctx.conn, ctx.file_id)
+        return ProcessingOutcome(status=FileStatus.INDEXED)
+
+    assert (
+        prepared.doc_format is not None
+        and prepared.content_hash is not None
+        and prepared.meta is not None
+        and prepared.chunks is not None
+    )
+    doc_format = prepared.doc_format
+    content_hash = prepared.content_hash
+    meta = prepared.meta
+    chunks = prepared.chunks
+
+    # Indexing optimization plan, Phase P3 (serial path)/P2 (bounded
+    # parallel path): a final, cheap check that the file is still the
+    # one the coordinator scanned and ``prepare_document`` just spent
+    # potentially real time converting/chunking -- a narrow but real
+    # race (a concurrent write landing mid-extraction, widened further
+    # by however long this file sat in the bounded in-flight queue
+    # before this publish call ran) must never end in silently
+    # publishing content derived from a file that no longer looks like
+    # that on disk. Only meaningful when the coordinator supplied an
+    # identity in the first place; a coordinator-external
+    # ``ProcessorContext`` has nothing to compare against and keeps its
+    # pre-P3 behavior.
     if ctx.file_identity is not None:
         try:
             post_stat = ctx.path.stat()
@@ -266,6 +354,30 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
             )
 
     return ProcessingOutcome(status=FileStatus.INDEXED)
+
+
+def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
+    """The registered ``FileKind.DOCUMENT`` processor -- ``prepare_document``
+    then ``publish_document`` run back-to-back on whichever thread calls
+    this, exactly the serial, single-call behavior this function always
+    had. The coordinator's optional bounded-parallel path
+    (``indexing.document_extraction_workers`` > 1) calls
+    ``prepare_document``/``publish_document`` directly instead (see
+    ``ProcessorRegistry``'s ``prepare``/``publish`` registration), never
+    through this function -- this wrapper exists only for the (default,
+    ``document_extraction_workers=1``) serial path and any direct caller
+    (tests, mainly) that wants the simple one-call interface. Passes
+    ``ctx.conn`` itself as ``prepare_document``'s cache connection: safe
+    here specifically because this wrapper is only ever called once at a
+    time (no concurrent prepare calls sharing it), unlike the parallel
+    path's dedicated per-worker connections.
+    """
+    if ctx.size > ctx.max_size_bytes:
+        return ProcessingOutcome(status=FileStatus.SKIPPED_LIMIT)
+    if ctx.conn is None or ctx.file_id is None or ctx.source_id is None:
+        raise RagMonkError("DocumentProcessor requires a coordinator-provided ProcessorContext")
+    prepared = prepare_document(ctx, cache_conn=ctx.conn)
+    return publish_document(ctx, prepared)
 
 
 def _insert_chunk(

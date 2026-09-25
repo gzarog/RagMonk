@@ -137,7 +137,8 @@ def _fake_embed_texts(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
 
 def test_embeds_stored_embedding_text_not_raw_text(
-    conn, monkeypatch: pytest.MonkeyPatch  # noqa: ANN001
+    conn,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
 ) -> None:
     contextual = (
         "Document: Sportsbook Architecture\n"
@@ -163,7 +164,8 @@ def test_embeds_stored_embedding_text_not_raw_text(
 
 
 def test_falls_back_to_raw_text_when_embedding_text_is_unset(
-    conn, monkeypatch: pytest.MonkeyPatch  # noqa: ANN001
+    conn,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
 ) -> None:
     """A row written before Phase 3 (or by a caller that never passed
     ``embedding_text``) has it stored as ``NULL``/``""`` -- degrading to
@@ -184,7 +186,8 @@ def test_falls_back_to_raw_text_when_embedding_text_is_unset(
 
 
 def test_embed_touched_files_stamps_the_reuse_identity_it_just_embedded_with(
-    conn, monkeypatch: pytest.MonkeyPatch  # noqa: ANN001
+    conn,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
 ) -> None:
     """Search Quality Improvement Plan, Phase 12: once vectors are
     actually (re)computed, the touched file's ``embedding_model_id``/
@@ -242,7 +245,8 @@ def test_prepare_embeddings_performs_no_writes(conn, monkeypatch: pytest.MonkeyP
 
 
 def test_prepare_embeddings_dedupes_identical_texts_within_the_batch(
-    conn, monkeypatch: pytest.MonkeyPatch  # noqa: ANN001
+    conn,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
 ) -> None:
     """Two entities sharing the exact same signature text (e.g. two
     overloads) must only be sent through the model once -- the model
@@ -284,7 +288,8 @@ def test_prepare_embeddings_dedupes_identical_texts_within_the_batch(
 
 
 def test_embed_touched_files_leaves_the_stamp_untouched_when_the_model_is_unavailable(
-    conn, monkeypatch: pytest.MonkeyPatch  # noqa: ANN001
+    conn,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
 ) -> None:
     """A skipped embedding step must never claim a rebuild that didn't
     happen -- otherwise a later run would wrongly believe this file's
@@ -307,3 +312,149 @@ def test_embed_touched_files_leaves_the_stamp_untouched_when_the_model_is_unavai
     assert document_file is not None
     assert document_file.embedding_model_id is None
     assert document_file.embedding_text_version is None
+
+
+def test_multi_file_batch_assigns_entities_and_sections_to_the_correct_file(
+    conn,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
+) -> None:
+    """Indexing optimization plan V2, Phase P4: ``prepare_embeddings``
+    now fetches every touched code file's entities (and every touched
+    document file's sections) in one batched query each
+    (``entities_repo.list_by_files``/``documents_repo.
+    list_units_by_files``) instead of one query per file, then regroups
+    them by ``file_id`` in Python. A three-code-file, two-document-file
+    batch with distinct, file-identifying text on every subject is the
+    regression test for that regrouping: every subject must still land
+    on its own originating file, never mixed up with another file's rows
+    -- entities_repo.list_by_files/documents_repo.list_units_by_files are
+    unit-tested for parity on their own in
+    test_storage_batched_writes.py; this is the integration point that
+    proves the regrouping built on top of them is correct too.
+    """
+    for i in range(3):
+        fid = f"code{i}"
+        files_repo.insert(
+            conn,
+            FileRecord(
+                id=fid,
+                source_id="s1",
+                path=f"/src/{fid}.py",
+                kind=FileKind.CODE,
+                size=10,
+                mtime=0.0,
+                status=FileStatus.QUEUED,
+                created_at="now",
+                updated_at="now",
+            ),
+        )
+        with transaction(conn):
+            entities_repo.insert(
+                conn,
+                Entity(
+                    id=f"{fid}-e",
+                    source_id="s1",
+                    file_id=fid,
+                    kind=EntityType.FUNCTION,
+                    name=f"fn_{fid}",
+                    qualified_name=f"{fid}.fn_{fid}",
+                    language="python",
+                    signature=f"def fn_{fid}(): pass  # from {fid}",
+                    start_line=1,
+                    end_line=2,
+                    generation=1,
+                    created_at="now",
+                    updated_at="now",
+                ),
+                snippet="...",
+            )
+    for i in range(2):
+        fid = f"doc{i}"
+        files_repo.insert(
+            conn,
+            FileRecord(
+                id=fid,
+                source_id="s1",
+                path=f"/docs/{fid}.md",
+                kind=FileKind.DOCUMENT,
+                size=10,
+                mtime=0.0,
+                status=FileStatus.QUEUED,
+                created_at="now",
+                updated_at="now",
+            ),
+        )
+        with transaction(conn):
+            documents_repo.insert_document(
+                conn,
+                Document(
+                    id=f"d-{fid}",
+                    source_id="s1",
+                    file_id=fid,
+                    format=DocumentFormat.MARKDOWN,
+                    title="Doc",
+                    paragraph_count=1,
+                    generation=1,
+                    created_at="now",
+                    updated_at="now",
+                ),
+            )
+            documents_repo.insert_paragraph(
+                conn,
+                Paragraph(
+                    id=f"{fid}-p",
+                    document_id=f"d-{fid}",
+                    file_id=fid,
+                    text=f"paragraph text unique to {fid}",
+                    heading_path=[],
+                    order_index=0,
+                    generation=1,
+                    created_at="now",
+                ),
+                doc_title="Doc",
+                embedding_text=f"paragraph text unique to {fid}",
+            )
+
+    _fake_embed_texts(monkeypatch)
+    prepared = embedding_indexer.prepare_embeddings(
+        conn,
+        source_id="s1",
+        touched_code_file_ids=["code0", "code1", "code2"],
+        touched_document_file_ids=["doc0", "doc1"],
+    )
+    assert prepared is not None
+    assert len(prepared.subjects) == 5
+
+    by_subject_id = {subject_id: file_id for _kind, subject_id, file_id, _text in prepared.subjects}
+    assert by_subject_id == {
+        "code0-e": "code0",
+        "code1-e": "code1",
+        "code2-e": "code2",
+        "doc0-p": "doc0",
+        "doc1-p": "doc1",
+    }
+    by_subject_text = {subject_id: text for _kind, subject_id, _file_id, text in prepared.subjects}
+    assert by_subject_text["code0-e"].endswith("from code0")
+    assert by_subject_text["code2-e"].endswith("from code2")
+    assert by_subject_text["doc1-p"] == "paragraph text unique to doc1"
+
+    with transaction(conn):
+        count = embedding_indexer.publish_embeddings(conn, prepared)
+    assert count == 5
+
+    for fid in ("code0", "code1", "code2", "doc0", "doc1"):
+        record = files_repo.get(conn, fid)
+        assert record is not None
+        assert record.embedding_model_id == embedder.EMBEDDING_MODEL_ID
+    for fid in ("code0", "code1", "code2"):
+        assert files_repo.get(conn, fid).embedding_text_version == (
+            embedding_indexer.CODE_EMBEDDING_TEXT_VERSION
+        )
+    for fid in ("doc0", "doc1"):
+        assert files_repo.get(conn, fid).embedding_text_version == chunker.EMBEDDING_TEXT_VERSION
+
+    stored = {
+        e.subject_id: e.file_id
+        for e in embeddings_repo.list_by_model(conn, embedder.EMBEDDING_MODEL_ID)
+    }
+    assert stored == by_subject_id

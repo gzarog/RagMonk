@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Indexing optimization plan V2 / Completion (`ragmonk-indexing-optimization-v2-completion`),
+finishing the material gaps left after `ragmonk-indexing-performance-v1`'s
+P0-P7 (below). Six phases, one PR: code derivation versioning (P1),
+bounded document extraction concurrency (P2), persistent project-local
+embedding reuse (P3), measured SQLite write-path completion (P4), stage
+telemetry and trigger provenance (P5), and a benchmark/validation gate
+(P6). See the PR description for full before/after numbers and
+`docs/indexing_benchmarks.md` for the updated benchmark writeup.
+
+### Added
+
+- **Code derivation versioning** (P1): `FileKind.CODE` now registers a
+  `version_provider` (`code.processor.code_version_stamp`), the one gap
+  the P0-P7 baseline explicitly left open — an unchanged-content code
+  file is now correctly reprocessed once when the parser/extractor's own
+  derivation version changes, using the same generic version-stamp
+  comparison the document pipeline already had since the Search Quality
+  Improvement Plan's Phase 12.
+- **Bounded document extraction concurrency** (P2): `documents.pipeline`
+  splits into `prepare_document`/`publish_document`, mirroring P4(v1)'s
+  CODE precedent. New `indexing.document_extraction_workers` config key
+  (default `1`, serial — see below). `indexing/coordinator.py`'s
+  parallel-processing path is generalized from CODE-only to support any
+  number of parallel-eligible kinds. `documents.docling_adapter.
+  cap_native_thread_pools` caps torch's thread pool when concurrency is
+  actually engaged, preventing oversubscription.
+- **Persistent project-local embedding reuse** (P3): new `embedding_cache`
+  table (`KNOWLEDGE_DB_V15`) in each project's own `knowledge.db`,
+  composite-keyed on exact text + model id + preprocessing version +
+  embedding-text version. Reuses a cached vector across separate indexing
+  runs within the same project; never actively garbage-collected
+  (mirrors `document_conversion_cache`'s own precedent). Project
+  isolation is free — this table lives in the same per-project database
+  every other project-scoped table already does.
+- **Measured SQLite write-path completion** (P4): a new optional,
+  benchmark-only `storage.sqlite.count_statements` instrumentation hook;
+  batched `entities_repo.list_by_files`/`documents_repo.
+  list_units_by_files` (fixing a real N+1 in P3's own `prepare_embeddings`
+  hot path, found via this phase's own statement counting) and batched
+  delete/update statements in `embedding_indexer.publish_embeddings`.
+  `executemany` for INSERTs was measured and explicitly rejected (no
+  real statement-count or wall-time win) rather than kept.
+- **Stage telemetry and trigger provenance** (P5): the daemon's real
+  trigger reason (startup/reconciliation/network_watcher/local_watcher)
+  now survives to the dispatched `ScanRequest` — previously silently
+  discarded into a constant `"daemon"` string by `_build_scan_request`.
+  New `indexing.coordinator.StageTimings` records per-stage wall-clock
+  duration (scan/classify/hash/process/linking/embedding/ann_sync) on
+  every `IndexRunResult`; `run_source_pass` also emits a structured
+  `stage_timings` DEBUG-level log event (off by default at the normal
+  `info` log level, the codebase's existing "detailed telemetry"
+  mechanism, no new config flag).
+- `benchmarks/indexing/v2_supplemental.py` (P6): document-heavy,
+  embedding-backfill, embedding-cache-reuse and concurrent-document-
+  extraction benchmark scenarios beyond the P0-P7 tiered suite.
+
+### Changed
+
+- `benchmarks/indexing/metrics.py`/`runner.py`: `ScenarioMetrics` extended
+  with per-stage durations, embedding cache reuse count, worker counts,
+  and an optional SQL statement count (P6).
+
+### Configuration
+
+- New `indexing.document_extraction_workers` (default `1`). Measured in
+  P6 against real (unmocked) document conversion — concurrent extraction
+  showed **no wall-time benefit, and a small regression**, for this
+  project's rule-based document backends (plain text/HTML/CSV/Markdown;
+  real PDF/OCR-under-concurrency was not benchmarked, no cached model
+  weights in this environment) — the default stays serial (`1`), same
+  "serial until proven safe" rule `code_extraction_workers` already
+  follows. No other default changed in this plan.
+
 Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
 Phase P7 (final phase): end-to-end regression, measured rollout, docs.
 

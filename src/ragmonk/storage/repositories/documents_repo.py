@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 
 from ragmonk.core.models import Document, DocumentFormat, Paragraph, Section, SectionKind, Table
@@ -450,6 +450,29 @@ def get_chunk_neighbors(
 def list_units_by_file(conn: sqlite3.Connection, file_id: str) -> list[DocumentUnit]:
     rows = conn.execute(
         "SELECT * FROM document_sections WHERE file_id = ? ORDER BY order_index", (file_id,)
+    ).fetchall()
+    return [_row_to_unit(row) for row in rows]
+
+
+def list_units_by_files(conn: sqlite3.Connection, file_ids: Sequence[str]) -> list[DocumentUnit]:
+    """Every unit belonging to any of ``file_ids``, in one query --
+    indexing optimization plan V2, Phase P4: mirrors
+    ``entities_repo.list_by_files``'s identical fix for the same caller
+    (``indexing/embedding_indexer.prepare_embeddings``, across every
+    touched document file in one source pass), which previously called
+    ``list_units_by_file`` once per file -- N round trips for N touched
+    files, measured at 300 statements for a 300-file batch, down to 1.
+    Ordered by ``file_id, order_index`` so a caller grouping results back
+    out per file gets each file's own units in their original chunk
+    order.
+    """
+    if not file_ids:
+        return []
+    placeholders = ", ".join("?" for _ in file_ids)
+    rows = conn.execute(
+        f"SELECT * FROM document_sections WHERE file_id IN ({placeholders}) "
+        "ORDER BY file_id, order_index",
+        tuple(file_ids),
     ).fetchall()
     return [_row_to_unit(row) for row in rows]
 

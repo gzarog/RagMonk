@@ -112,6 +112,42 @@ class ScenarioMetrics:
     cpu_user_s: float
     cpu_sys_s: float
     peak_rss_mb: float
+    # Indexing optimization plan V2, Phase P6: sourced from
+    # ``IndexRunResult.timings`` (V2 Phase P5) -- per-stage wall time for
+    # this same pass, not a second measurement. "stat/walk count" from
+    # the plan's metric list maps onto ``scanned`` above (already the
+    # full-tree-walk/per-path-stat count, in both full and targeted
+    # mode) rather than a new counter -- see ``StageTimings``'s own
+    # docstring for exactly what each stage covers.
+    scan_seconds: float = 0.0
+    classify_seconds: float = 0.0
+    process_seconds: float = 0.0
+    linking_seconds: float = 0.0
+    embedding_seconds: float = 0.0
+    ann_sync_seconds: float = 0.0
+    targeted: bool = False
+    # V2 Phase P3's persistent embedding-cache reuse count for this pass
+    # (``PreparedEmbeddings.cache_reused``, threaded onto
+    # ``SourcePassResult.embedding_cache_reused`` in V2 Phase P5/P6).
+    embedding_cache_reused: int = 0
+    # V2 Phase P2/P4's configured worker counts for this run -- constant
+    # per benchmark invocation, but recorded per scenario row so a
+    # before/after comparison never has to cross-reference a separate
+    # config block to know what produced a given row's numbers.
+    code_extraction_workers: int = 1
+    document_extraction_workers: int = 1
+    # V2 Phase P4's optional statement counter
+    # (``storage/sqlite.count_statements``), wrapped around the whole
+    # ``run_source_pass`` call for this scenario -- "SQLite write/lock
+    # time" from the plan's metric list is approximated by
+    # ``process_seconds`` + ``linking_seconds`` + ``embedding_seconds``
+    # above (every stage that actually holds a write transaction); this
+    # is the complementary "how many statements" side of that same
+    # question. ``0`` when statement counting wasn't requested for this
+    # run (see ``run_scenario``'s ``count_sql`` parameter) -- kept
+    # opt-in per Phase P4's own "lightweight, not always-on" rule rather
+    # than measured on every single scenario by default.
+    sql_statement_count: int = 0
     files_per_second: float = field(init=False)
 
     def __post_init__(self) -> None:
@@ -119,6 +155,20 @@ class ScenarioMetrics:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def percentile(values: list[float], pct: float) -> float:
+    """Nearest-rank percentile (no interpolation) -- ``pct`` in
+    ``[0, 100]``. Used for stage-duration p50/p95 across a scenario's
+    repeated runs (V2 Phase P6) -- the standard library has no built-in
+    for this small a need, and a full statistics dependency would be
+    overkill for a handful of samples.
+    """
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, round((pct / 100.0) * (len(ordered) - 1))))
+    return ordered[index]
 
 
 @contextmanager

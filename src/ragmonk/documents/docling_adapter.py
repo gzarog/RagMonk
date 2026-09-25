@@ -165,7 +165,9 @@ unconditionally on like CSV/ODT/ODS/ODP/EPUB -- see
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -205,6 +207,54 @@ _logger = get_logger("docling_adapter")
 # module's own conversion/normalization output could differ for the same
 # input.
 PARSER_VERSION = "1"
+
+_native_threads_lock = threading.Lock()
+_native_threads_capped_for: int | None = None
+
+
+def cap_native_thread_pools(workers: int) -> None:
+    """Indexing optimization plan V2, Phase P2: when
+    ``indexing.document_extraction_workers`` runs more than one Docling
+    conversion concurrently, torch's own intra-op thread pool (backing
+    Docling's layout/table-structure models) would otherwise let *each*
+    worker try to use every CPU core -- ``workers`` such calls running at
+    once badly oversubscribes the machine (``workers * cores`` threads
+    contending for ``cores`` real CPUs), the exact hazard the plan's
+    "prevent unsafe oversubscription of Docling, OCR, Torch or native
+    worker pools" requirement calls out. Caps torch's thread pool to a
+    fair per-worker share instead, once per distinct ``workers`` value.
+
+    Deliberately does nothing when ``workers <= 1`` (the default, serial
+    path never needs this at all) or when torch is not yet importable --
+    this module's own docstring already commits to never loading Docling/
+    torch from a mere import, and this must not be the thing that breaks
+    that for a `ragmonk status`-style invocation that merely *configured*
+    ``document_extraction_workers > 1`` without ever actually indexing a
+    document. Idempotent for a repeated call with the same ``workers``
+    value (no need to re-cap on every file); a later call with a
+    *different* value re-caps, e.g. across two sources configured with
+    different worker counts.
+
+    RapidOCR (this project's OCR engine, see
+    ``docling_adapter.py``'s module docstring) has no equivalent
+    programmatic thread-count knob exposed by its Python API -- capping
+    torch's own pool is this phase's only concrete lever; this is a known,
+    documented limitation, not a silent gap.
+    """
+    global _native_threads_capped_for
+    if workers <= 1:
+        return
+    with _native_threads_lock:
+        if _native_threads_capped_for == workers:
+            return
+        try:
+            import torch
+        except ImportError:
+            return
+        capped = max(1, (os.cpu_count() or workers) // workers)
+        torch.set_num_threads(capped)
+        _native_threads_capped_for = workers
+
 
 # CLI performance improvement plan, Phase 2: Docling (which itself pulls in
 # torch for its layout/table-structure models) must never load just from
