@@ -1,0 +1,46 @@
+# Storage backend abstraction plan, Phase 9 (packaging/docs).
+#
+# OPTIONAL, dev-only convenience for exercising RagMonk's Elasticsearch
+# `KnowledgeBackend` adapter (src/ragmonk/backends/elasticsearch.py) and
+# its integration tests
+# (tests/unit/test_backends_elasticsearch_integration.py) against a REAL
+# cluster. This file is NEVER required to run RagMonk -- the default
+# `storage.mode="local"` (SQLite/FTS5/USearch) needs no server at all, and
+# even `storage.mode="server"` only needs *some* reachable Elasticsearch
+# cluster, not specifically this compose file.
+#
+# Single-node, security-disabled configuration for local testing only --
+# do not reuse this file's settings (no TLS, no auth,
+# `discovery.type: single-node`, `xpack.security.enabled: false`) for
+# anything but a throwaway local dev cluster.
+#
+# Usage:
+#
+#   docker compose -f docker/docker-compose.elasticsearch.yml up -d
+#
+#   # Point the integration tests / a real `ragmonk init --storage-mode
+#   # server` at it:
+#   export ELASTICSEARCH_URL=http://localhost:9200       # for the test suite
+#   pytest -m elasticsearch_integration tests/unit/test_backends_elasticsearch_integration.py
+#
+#   ragmonk init --storage-mode server --storage-engine elasticsearch \
+#       --storage-url http://localhost:9200 --storage-no-verify-tls
+#
+#   docker compose -f docker/docker-compose.elasticsearch.yml down -v
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: ragmonk-dev-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - ragmonk-dev-elasticsearch-data:/usr/share/elasticsearch/data
+
+volumes:
+  ragmonk-dev-elasticsearch-data:

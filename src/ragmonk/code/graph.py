@@ -12,11 +12,14 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
+from ragmonk.backends.base import GraphDirection
+from ragmonk.backends.models import SearchHit
 from ragmonk.core import paths
+from ragmonk.core.errors import LocalStorageModeRequiredError
 from ragmonk.core.lifecycle import AppContext
-from ragmonk.core.models import Entity, Relationship, RelationshipType
+from ragmonk.core.models import Confidence, Entity, EntityType, Relationship, RelationshipType
 from ragmonk.sources.registry import SourceRegistry
 from ragmonk.storage.repositories import entities_repo, relationships_repo
 
@@ -24,6 +27,8 @@ DEFAULT_MAX_DEPTH = 1
 DEFAULT_LIMIT = 100
 
 Direction = Literal["incoming", "outgoing"]
+
+_DIRECTION_TO_BACKEND: dict[Direction, GraphDirection] = {"incoming": "in", "outgoing": "out"}
 
 
 @dataclass(frozen=True)
@@ -89,7 +94,28 @@ def traverse(
 
 
 def all_project_connections(ctx: AppContext) -> list[tuple[str, str, sqlite3.Connection]]:
-    """(source_id, source_path, conn) for every registered source."""
+    """(source_id, source_path, conn) for every registered source.
+
+    Storage backend abstraction plan, Phase 6: this is the one place that
+    enumerates local per-project ``knowledge.db`` files, and every retrieval
+    call site that used to open sqlite directly (``retrieval/lexical.py``,
+    ``retrieval/semantic.py``, ``find_symbol_matches``/``traverse_symbol``
+    below) still funnels through it for local mode. That makes it the
+    single choke point for this phase's "never silently fall back to local
+    SQLite in server mode" rule: raising here, rather than in each of those
+    call sites individually, is what guarantees none of them can
+    accidentally enumerate local databases when ``storage.mode == "server"``
+    -- a server backend is the single source of truth across sources, and
+    this per-project-sqlite pattern is meaningless for it.
+    """
+    if ctx.config.storage.mode != "local":
+        raise LocalStorageModeRequiredError(
+            "all_project_connections: storage.mode is "
+            f"{ctx.config.storage.mode!r}, not 'local' -- local per-project "
+            "sqlite enumeration must never run outside local mode (no "
+            "silent local fallback in server mode); callers must route "
+            "through ctx.backend() instead"
+        )
     registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
     return [
         (source.id, source.path, ctx.project_conn(paths.project_id_for_path(Path(source.path))))
@@ -97,10 +123,94 @@ def all_project_connections(ctx: AppContext) -> list[tuple[str, str, sqlite3.Con
     ]
 
 
+def entity_from_symbol_hit(hit: SearchHit) -> Entity:
+    """Reconstructs an ``Entity`` from a backend-neutral ``SearchHit`` as
+    returned by ``KnowledgeBackend.symbol_search``/``graph_neighbors``.
+
+    ``hit.id`` is the backend's own composite document id (e.g.
+    ``source_id:file_id:entity_id`` for the OpenSearch/Elasticsearch
+    adapters), never the entity's own id -- the real entity id is carried
+    separately in ``payload["entity_id"]`` (see ``backends/opensearch.py``'s
+    ``publish_code``). ``signature``/``parent_id``/``start_col``/``end_col``
+    have no equivalent field in the indexed payload (only ``snippet``,
+    ``start_line``, ``end_line`` are stored), so they fall back to
+    ``Entity``'s own defaults (``None``/``0``) exactly like a local-mode
+    row would for an entity with no recorded signature.
+    """
+    payload = hit.payload
+    return Entity(
+        id=str(payload.get("entity_id") or hit.id),
+        source_id=str(payload.get("source_id", "")),
+        file_id=str(payload.get("file_id", "")),
+        kind=EntityType(payload["kind"]),
+        name=str(payload["name"]),
+        qualified_name=str(payload["qualified_name"]),
+        language=str(payload.get("language", "")),
+        signature=payload.get("snippet"),
+        start_line=int(payload.get("start_line") or 0),
+        end_line=int(payload.get("end_line") or 0),
+        generation=int(payload.get("generation") or 0),
+        created_at=str(payload.get("created_at", "")),
+        updated_at=str(payload.get("updated_at", "")),
+    )
+
+
+def source_match_from_symbol_hit(hit: SearchHit) -> SourceMatch:
+    """``source_path`` has no server-mode equivalent (a server backend is
+    one source of truth across every registered source, not a per-project
+    sqlite file -- see ``all_project_connections``'s docstring), so it is
+    set to ``source_id`` itself: informational only, and deliberately
+    never fed to ``conn_for_source_path`` by any server-mode code path in
+    this module (that would silently open local sqlite in server mode,
+    exactly what Phase 6 guards against).
+    """
+    source_id = str(hit.payload.get("source_id", ""))
+    return SourceMatch(
+        source_id=source_id, source_path=source_id, entity=entity_from_symbol_hit(hit)
+    )
+
+
+def relationship_from_search_hit(hit: SearchHit) -> Relationship:
+    """Reconstructs a ``Relationship`` from a ``graph_neighbors`` hit.
+
+    ``hit.id`` is again the backend's composite document id, not the
+    relationship's own id (never stored as its own payload field by the
+    OpenSearch/Elasticsearch adapters -- see ``publish_code``); it is only
+    ever used downstream for de-duplication and dict rendering, neither of
+    which needs the original UUID, so reusing it here is safe.
+    ``source_location`` has no payload field either and falls back to
+    ``None``, same as an unrecorded local row would.
+    """
+    payload = hit.payload
+    return Relationship(
+        id=str(hit.id),
+        relationship_type=RelationshipType(payload["relationship_type"]),
+        source_entity_id=str(payload.get("source_entity_id") or ""),
+        target_entity_id=payload.get("target_entity_id"),
+        target_symbol=payload.get("target_symbol"),
+        resolver=str(payload.get("resolver", "")),
+        confidence=Confidence(payload["confidence"]),
+        file_id=str(payload.get("file_id", "")),
+        source_location=payload.get("source_location"),
+        evidence=payload.get("evidence"),
+        generation=int(payload.get("generation") or 0),
+        created_at=str(payload.get("created_at", "")),
+    )
+
+
+def _find_symbol_matches_server(ctx: AppContext, name: str) -> list[SourceMatch]:
+    hits = ctx.backend().symbol_search(name)
+    matches = [source_match_from_symbol_hit(hit) for hit in hits]
+    matches.sort(key=lambda m: (m.entity.qualified_name, m.source_id, m.entity.id))
+    return matches
+
+
 def find_symbol_matches(ctx: AppContext, name: str) -> list[SourceMatch]:
     """Every entity across every registered source matching ``name``
     exactly by bare name or qualified name, deterministically ordered.
     """
+    if ctx.config.storage.mode == "server":
+        return _find_symbol_matches_server(ctx, name)
     matches: list[SourceMatch] = []
     for source_id, source_path, conn in all_project_connections(ctx):
         for entity in entities_repo.search(conn, name):
@@ -110,6 +220,25 @@ def find_symbol_matches(ctx: AppContext, name: str) -> list[SourceMatch]:
 
 
 def conn_for_source_path(ctx: AppContext, source_path: str) -> sqlite3.Connection:
+    """Local-mode-only: opens the per-project sqlite connection for a
+    registered source's own path. Guarded the same way as
+    ``all_project_connections`` (this phase's single choke point rule) --
+    a server-mode ``SourceMatch.source_path`` is a placeholder (the
+    source id, not a real filesystem path; see
+    ``source_match_from_symbol_hit``), so silently resolving it into a
+    project id and opening a local sqlite file would both be meaningless
+    and a silent local fallback. Callers that still reach here in server
+    mode (``cli/impact.py``'s/``cli/explore.py``'s cross-link/document
+    lookups, which have no backend-contract equivalent yet -- documented
+    gap, see those modules) now raise instead of doing that.
+    """
+    if ctx.config.storage.mode != "local":
+        raise LocalStorageModeRequiredError(
+            "conn_for_source_path: storage.mode is "
+            f"{ctx.config.storage.mode!r}, not 'local' -- local per-project "
+            "sqlite must never be opened outside local mode (no silent "
+            "local fallback in server mode)"
+        )
     project_id = paths.project_id_for_path(Path(source_path))
     return ctx.project_conn(project_id)
 
@@ -133,6 +262,58 @@ def unresolved_symbol_edges(
         edges = relationships_repo.incoming_by_symbol(conn, symbol_name, limit=limit)
     edges.sort(key=_sort_key)
     return [TraversalEdge(depth=1, relationship=edge) for edge in edges[:limit]]
+
+
+def _traverse_symbol_server(
+    ctx: AppContext,
+    name: str,
+    *,
+    direction: Direction,
+    relationship_types: tuple[RelationshipType, ...] | None,
+    max_depth: int,
+    limit: int,
+) -> tuple[list[SourceMatch], list[TraversalEdge]]:
+    """Server-mode counterpart of ``traverse_symbol``: walks
+    ``ctx.backend().graph_neighbors()`` from each matched entity instead of
+    the local BFS over ``relationships`` -- never local SQLite, per this
+    phase's "no silent local fallback" rule.
+
+    Scope cut (documented, not forced): ``graph_neighbors`` returns one
+    flat, depth-limited frontier expansion per call rather than a
+    per-result depth number, so every edge is tagged ``depth=1`` here
+    regardless of how many hops it actually took -- local mode's per-depth
+    ``TraversalEdge.depth`` has no equivalent in the current
+    ``SearchHit``-based contract without a larger redesign. This also
+    means the local-only "merge in unresolved (name-only) edges recorded
+    under a bare name resolver never retroactively upgraded" behavior
+    (see this function's own docstring below) has no server-mode
+    equivalent either: a relationship whose ``target_entity_id`` is
+    ``None`` is still returned by ``graph_neighbors`` when it is reachable
+    from a *resolved* entity id (exactly the majority case), but one
+    recorded purely under a bare ``target_symbol`` with no resolved
+    ``source_entity_id``/``target_entity_id`` in the frontier at all is
+    not discoverable through ``graph_neighbors``' entity-id-keyed query --
+    the contract has no "find relationships by bare symbol name" method.
+    """
+    matches = find_symbol_matches(ctx, name)
+    if not matches:
+        return matches, []
+    backend = ctx.backend()
+    backend_direction = _DIRECTION_TO_BACKEND[direction]
+    filters: dict[str, Any] | None = None
+    if relationship_types:
+        filters = {"relationship_type": [rt.value for rt in relationship_types]}
+    edges: list[TraversalEdge] = []
+    seen_ids: set[str] = set()
+    for match in matches:
+        hits = backend.graph_neighbors(match.entity.id, backend_direction, max_depth, filters)
+        for hit in hits:
+            if hit.id in seen_ids:
+                continue
+            seen_ids.add(hit.id)
+            edges.append(TraversalEdge(depth=1, relationship=relationship_from_search_hit(hit)))
+    edges.sort(key=lambda e: (e.depth, *_sort_key(e.relationship)))
+    return matches, edges[:limit]
 
 
 def traverse_symbol(
@@ -166,6 +347,11 @@ def traverse_symbol(
     ``outgoing`` has no such fallback: with no resolved entity there is
     nothing to walk callees *from*.
     """
+    if ctx.config.storage.mode == "server":
+        return _traverse_symbol_server(
+            ctx, name, direction=direction, relationship_types=relationship_types,
+            max_depth=max_depth, limit=limit,
+        )
     matches = find_symbol_matches(ctx, name)
     edges: list[TraversalEdge] = []
     if matches:

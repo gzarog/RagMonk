@@ -24,7 +24,9 @@ from __future__ import annotations
 import re
 import sqlite3
 from dataclasses import dataclass
+from typing import Any
 
+from ragmonk.backends.base import GraphDirection
 from ragmonk.code.graph import (
     DEFAULT_LIMIT,
     DEFAULT_MAX_DEPTH,
@@ -32,6 +34,7 @@ from ragmonk.code.graph import (
     TraversalEdge,
     conn_for_source_path,
     find_symbol_matches,
+    relationship_from_search_hit,
     traverse,
     unresolved_symbol_edges,
 )
@@ -58,6 +61,42 @@ __all__ = [
 REFERENCE_TYPES = (RelationshipType.CALLS, RelationshipType.IMPORTS, RelationshipType.REFERENCES)
 
 
+def _references_server(
+    ctx: AppContext, name: str, *, max_depth: int, limit: int
+) -> tuple[list[SourceMatch], list[TraversalEdge]]:
+    """Server-mode counterpart of ``references``: walks
+    ``ctx.backend().graph_neighbors()`` both directions from each matched
+    entity instead of the local BFS -- never local SQLite. Scope cut
+    (documented, not forced): the unresolved (name-only) edge merge has no
+    server-mode equivalent -- see ``code/graph.py``'s
+    ``_traverse_symbol_server`` docstring for exactly why.
+    """
+    matches = find_symbol_matches(ctx, name)
+    if not matches:
+        return matches, []
+    backend = ctx.backend()
+    filters: dict[str, Any] = {"relationship_type": [rt.value for rt in REFERENCE_TYPES]}
+    edges: list[TraversalEdge] = []
+    seen_ids: set[str] = set()
+    for match in matches:
+        for backend_direction in ("in", "out"):
+            hits = backend.graph_neighbors(match.entity.id, backend_direction, max_depth, filters)
+            for hit in hits:
+                if hit.id in seen_ids:
+                    continue
+                seen_ids.add(hit.id)
+                edges.append(TraversalEdge(depth=1, relationship=relationship_from_search_hit(hit)))
+    edges.sort(
+        key=lambda e: (
+            e.depth,
+            e.relationship.relationship_type.value,
+            e.relationship.target_entity_id or e.relationship.target_symbol or "",
+            e.relationship.id,
+        )
+    )
+    return matches, edges[:limit]
+
+
 def references(
     ctx: AppContext,
     name: str,
@@ -73,6 +112,8 @@ def references(
     text -- see ``code/graph.py``'s ``traverse_symbol`` docstring), same
     rationale as ``resolved_incoming``.
     """
+    if ctx.config.storage.mode == "server":
+        return _references_server(ctx, name, max_depth=max_depth, limit=limit)
     matches = find_symbol_matches(ctx, name)
     edges: list[TraversalEdge] = []
     seen: set[tuple[int, str]] = set()
@@ -147,6 +188,52 @@ def _resolve(
     )
 
 
+def _resolved_server(
+    ctx: AppContext,
+    matches: list[SourceMatch],
+    *,
+    backend_direction: GraphDirection,
+    relationship_types: tuple[RelationshipType, ...],
+    max_depth: int,
+    limit: int,
+) -> list[ResolvedEdge]:
+    """Shared server-mode body for ``resolved_incoming``/``resolved_outgoing``.
+
+    Scope cut (documented, not forced): the current ``KnowledgeBackend``
+    contract has no "fetch entity/file by id" primitive -- ``symbol_search``
+    only matches by name/qualified-name text, and ``graph_neighbors``
+    returns relationship rows, never the neighboring entity's own record.
+    Without that primitive there is no way to resolve a
+    ``graph_neighbors`` edge's *other* end to an ``Entity``/``FileRecord``
+    the way local mode's ``entities_repo.get``/``files_repo.get`` do, so
+    every server-mode ``ResolvedEdge`` here carries
+    ``neighbor_entity=None``/``neighbor_file=None`` -- the same shape
+    local mode already uses for a genuinely unresolved (name-only) edge --
+    rather than raising or fabricating a name. Callers that key off
+    ``neighbor_entity`` (``impact``'s caller/callee/test name lists,
+    ``explore``'s dependency list) degrade to reporting none in server
+    mode until a ``get_entities``-shaped contract extension lands; this is
+    the specific, documented gap, not a silent wrong answer.
+    """
+    backend = ctx.backend()
+    filters: dict[str, Any] = {"relationship_type": [rt.value for rt in relationship_types]}
+    out: list[ResolvedEdge] = []
+    seen_ids: set[str] = set()
+    for match in matches:
+        hits = backend.graph_neighbors(match.entity.id, backend_direction, max_depth, filters)
+        for hit in hits:
+            if hit.id in seen_ids:
+                continue
+            seen_ids.add(hit.id)
+            edge = TraversalEdge(depth=1, relationship=relationship_from_search_hit(hit))
+            out.append(
+                ResolvedEdge(
+                    edge=edge, source_id=match.source_id, neighbor_entity=None, neighbor_file=None
+                )
+            )
+    return out[:limit]
+
+
 def resolved_incoming(
     ctx: AppContext,
     matches: list[SourceMatch],
@@ -172,6 +259,11 @@ def resolved_incoming(
     Their resolved *source* (caller) entity is still exactly known --
     it's only the target end that was unresolved at write time.
     """
+    if ctx.config.storage.mode == "server":
+        return _resolved_server(
+            ctx, matches, backend_direction="in", relationship_types=relationship_types,
+            max_depth=max_depth, limit=limit,
+        )
     out: list[ResolvedEdge] = []
     seen: set[tuple[int, str]] = set()
     for match in matches:
@@ -208,6 +300,11 @@ def resolved_outgoing(
     """Outgoing edges of ``relationship_types`` from every match, each
     with its target (callee) entity/file resolved.
     """
+    if ctx.config.storage.mode == "server":
+        return _resolved_server(
+            ctx, matches, backend_direction="out", relationship_types=relationship_types,
+            max_depth=max_depth, limit=limit,
+        )
     out: list[ResolvedEdge] = []
     for match in matches:
         conn = conn_for_source_path(ctx, match.source_path)
@@ -262,6 +359,13 @@ def find_tests_referencing(
     naming-convention guess (HEURISTIC in spirit); it says nothing about
     ``edge.relationship.confidence``, which keeps meaning "how sure are
     we this call/reference itself is real".
+
+    In server mode this composes on top of ``resolved_incoming``'s own
+    documented gap: every edge's ``neighbor_file`` is ``None`` (no
+    "fetch entity/file by id" backend primitive exists yet -- see
+    ``_resolved_server``), so the ``is_test_file`` filter below can never
+    match and this always returns ``[]`` -- an honest empty result, not a
+    silent wrong answer, until that contract gap is closed.
     """
     incoming = resolved_incoming(
         ctx, matches, name, relationship_types=REFERENCE_TYPES, max_depth=max_depth, limit=limit

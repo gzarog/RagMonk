@@ -533,6 +533,100 @@ class UpdatesConfig(BaseModel):
     channel: str = "stable"
 
 
+StorageEngine = Literal["opensearch", "elasticsearch"]
+
+
+class BulkConfig(BaseModel):
+    """Batch-write tuning for a server ``KnowledgeBackend`` adapter's bulk
+    publish path (future phases -- OpenSearch/Elasticsearch bulk API).
+    Deliberately backend-neutral: these knobs map onto either engine's own
+    bulk helper without engine-specific vocabulary.
+    """
+
+    max_actions: int = 500
+    max_bytes: int = 5_000_000
+    concurrency: int = 2
+    max_retries: int = 3
+
+    @field_validator("max_actions", "max_bytes", "concurrency")
+    @classmethod
+    def _validate_positive(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("storage.server.bulk fields must be >= 1")
+        return value
+
+    @field_validator("max_retries")
+    @classmethod
+    def _validate_non_negative_retries(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("storage.server.bulk.max_retries must be >= 0")
+        return value
+
+
+class ServerStorageConfig(BaseModel):
+    """Connection shape for a server-backed ``KnowledgeBackend`` (future
+    phases). Deliberately holds no credential field -- ``username``,
+    ``password``, and ``api_key`` are never part of this persisted model.
+    They are read at runtime only, from
+    ``RAGMONK_OPENSEARCH_USERNAME``/``_PASSWORD``/``_API_KEY`` or
+    ``RAGMONK_ELASTICSEARCH_USERNAME``/``_PASSWORD``/``_API_KEY`` (selected
+    by ``engine``), so a plain-text ``config.yaml``/``.ragmonk.yaml`` (or a
+    ``ragmonk init`` log) can never leak one. See
+    ``ragmonk.backends.factory`` for how those env vars are read.
+    """
+
+    engine: StorageEngine = "opensearch"
+    url: str = ""
+    index_prefix: str = "ragmonk"
+    verify_tls: bool = True
+    request_timeout_seconds: float = 30.0
+    bulk: BulkConfig = Field(default_factory=BulkConfig)
+
+    @field_validator("engine")
+    @classmethod
+    def _validate_engine(cls, value: str) -> str:
+        allowed = {"opensearch", "elasticsearch"}
+        if value not in allowed:
+            raise ValueError(
+                f"unknown storage.server.engine {value!r}; expected one of {sorted(allowed)}"
+            )
+        return value
+
+    @field_validator("request_timeout_seconds")
+    @classmethod
+    def _validate_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("storage.server.request_timeout_seconds must be > 0")
+        return value
+
+
+class StorageConfig(BaseModel):
+    """Backend selection (Storage backend abstraction plan, Phase 1).
+    ``mode="local"`` is the default -- and MUST stay the default even when
+    this whole ``storage`` section is absent from an existing config file,
+    since every config written before this phase has no ``storage`` key at
+    all and must keep behaving exactly as it did (the local SQLite+FTS5+
+    USearch stack, wired through ``ragmonk.backends.local``).
+    ``mode="server"`` selects a server ``KnowledgeBackend`` (OpenSearch or
+    Elasticsearch, per ``server.engine``) -- the concrete adapters are a
+    future phase; ``ragmonk.backends.factory`` raises a clear error for
+    them today.
+    """
+
+    mode: str = "local"
+    server: ServerStorageConfig = Field(default_factory=ServerStorageConfig)
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_mode(cls, value: str) -> str:
+        allowed = {"local", "server"}
+        if value not in allowed:
+            raise ValueError(
+                f"unknown storage.mode {value!r}; expected one of {sorted(allowed)}"
+            )
+        return value
+
+
 class RagMonkConfig(BaseModel):
     version: int = 1
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
@@ -547,6 +641,7 @@ class RagMonkConfig(BaseModel):
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
     ai: AiConfig = Field(default_factory=AiConfig)
     updates: UpdatesConfig = Field(default_factory=UpdatesConfig)
+    storage: StorageConfig = Field(default_factory=StorageConfig)
 
 
 _KNOWN_SECTIONS = {
@@ -563,6 +658,7 @@ _KNOWN_SECTIONS = {
     "telemetry",
     "ai",
     "updates",
+    "storage",
 }
 
 

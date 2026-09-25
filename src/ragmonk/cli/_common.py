@@ -10,6 +10,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
+from ragmonk.backends.factory import redact_urls_in_text
 from ragmonk.core.errors import EXIT_GENERIC_FAILURE, RagMonkError
 
 console = Console()
@@ -38,12 +39,16 @@ def cli_command[**P, T](func: Callable[P, T]) -> Callable[P, T]:
         try:
             return func(*args, **kwargs)
         except RagMonkError as exc:
-            error_console.print(f"[bold red]Error:[/bold red] {exc}")
+            # Independent review follow-up: this is the last point before
+            # anything reaches the terminal, so it defensively scrubs any
+            # URL-embedded credential a wrapped/third-party exception's own
+            # message might carry -- see redact_urls_in_text's docstring.
+            error_console.print(f"[bold red]Error:[/bold red] {redact_urls_in_text(str(exc))}")
             raise typer.Exit(code=exc.exit_code) from exc
         except typer.Exit:
             raise
         except Exception as exc:  # noqa: BLE001 - CLI boundary: never traceback to the user
-            error_console.print(f"[bold red]Error:[/bold red] {exc}")
+            error_console.print(f"[bold red]Error:[/bold red] {redact_urls_in_text(str(exc))}")
             raise typer.Exit(code=EXIT_GENERIC_FAILURE) from exc
 
     return wrapper

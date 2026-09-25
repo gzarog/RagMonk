@@ -53,6 +53,11 @@ def _run(ctx: AppContext, source_id: str | None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for source in sources:
         project_id = paths.project_id_for_path(Path(source.path))
+        # Independent review BLOCKER fix: genuine knowledge-data read
+        # (document/file listing) -- default control_plane=False raises
+        # cleanly in server mode. Shared with the ``ragmonk_documents``
+        # MCP tool (see this function's docstring), so that surface is
+        # covered by the same guard too.
         conn = ctx.project_conn(project_id)
         for file in files_repo.list_by_source(conn, source.id):
             if file.kind is not FileKind.DOCUMENT:

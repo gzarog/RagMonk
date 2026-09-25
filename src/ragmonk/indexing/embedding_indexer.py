@@ -40,18 +40,12 @@ import logging
 import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
+from ragmonk.backends.base import KnowledgeBackend
+from ragmonk.backends.models import PreparedEmbeddings as BackendPreparedEmbeddings
 from ragmonk.core.models import EmbeddingSubjectType, Entity
 from ragmonk.retrieval import embedder
-from ragmonk.storage.repositories import (
-    documents_repo,
-    embedding_cache_repo,
-    embeddings_repo,
-    entities_repo,
-    files_repo,
-    vector_items_repo,
-)
+from ragmonk.storage.repositories import documents_repo, embedding_cache_repo, entities_repo
 from ragmonk.telemetry.logging import get_logger, log_event
 from ragmonk.tokenization import model_identity
 
@@ -300,16 +294,32 @@ def prepare_embeddings(
     )
 
 
-def publish_embeddings(conn: sqlite3.Connection, prepared: PreparedEmbeddings) -> int:
-    """The write half: replaces every touched file's previous embeddings
-    generation (any model) with ``prepared``'s already-computed vectors,
-    and stamps each file's embedding reuse identity. Deliberately no
-    model inference here -- run this *inside* the caller's ``with
-    transaction(conn):`` block (mirroring ``link_touched_files``), now
-    short enough to hold ``BEGIN IMMEDIATE`` for only as long as the
-    writes themselves take, not however long the model took to run.
+def publish_embeddings(
+    conn: sqlite3.Connection,
+    prepared: PreparedEmbeddings,
+    *,
+    backend: KnowledgeBackend | None = None,
+) -> int:
+    """The write half: hands ``prepared``'s already-computed vectors to
+    ``KnowledgeBackend.publish_embeddings``, which replaces every touched
+    file's previous embeddings generation (any model), stamps each
+    file's embedding reuse identity, and upserts the persistent
+    embedding cache. Deliberately no model inference here -- run this
+    *inside* the caller's ``with transaction(conn):`` block (mirroring
+    ``link_touched_files``), now short enough to hold ``BEGIN IMMEDIATE``
+    for only as long as the writes themselves take, not however long the
+    model took to run.
 
-    Returns the number of vectors stored.
+    Storage backend abstraction plan, Phase 3: the write itself moved to
+    ``LocalKnowledgeBackend.publish_embeddings`` -- see that method's
+    docstring; this function now only translates this module's own
+    (model-inference-facing) ``PreparedEmbeddings`` shape into the
+    backend-neutral one and returns the deterministic vector count
+    (unchanged: writing always stores every subject in ``prepared``, so
+    no result from the backend call is needed to compute it). ``backend``
+    is used when the caller (``indexing/runner.py``) supplies one; a
+    caller that doesn't (existing tests, ``embed_touched_files``) gets a
+    ``LocalKnowledgeBackend`` constructed on demand, bound to ``conn``.
     """
     # Lazy: documents/chunker.py transitively imports docling_core -- see
     # CODE_EMBEDDING_TEXT_VERSION's docstring above for why that cost must
@@ -319,108 +329,25 @@ def publish_embeddings(conn: sqlite3.Connection, prepared: PreparedEmbeddings) -
         EMBEDDING_TEXT_VERSION as _document_embedding_text_version,
     )
 
-    now = datetime.now(UTC).isoformat()
-    document_touched = prepared.touched_document_file_ids
-    code_touched = prepared.touched_code_file_ids
-    touched_files = code_touched | document_touched
+    if backend is None:
+        from ragmonk.backends.local import LocalKnowledgeBackend
 
-    # Indexing optimization plan V2, Phase P4 (measured): the delete and
-    # version-stamp steps below used to run once *per touched file* --
-    # measured (see this phase's commit message) at 600 statements for a
-    # 300-file batch (300 deletes across two tables + 300 UPDATEs).
-    # Already inside one caller-held transaction covering the whole
-    # batch (unchanged from Phase P5), so folding these into a handful
-    # of multi-row statements changes only statement count, never
-    # failure semantics -- the whole batch still commits or rolls back
-    # together exactly as before.
-    embeddings_repo.delete_by_files(conn, list(touched_files))
-    # Mirrors embeddings_repo.delete_by_files: vector_items is the ANN
-    # index's own id-mapping table (blueprint section 13), regenerated
-    # in lockstep with embeddings so the two never drift apart.
-    vector_items_repo.delete_by_files(conn, list(touched_files))
-    # Search Quality Improvement Plan, Phase 12 (extended by Phase P5's
-    # prepare/publish split): stamp every touched file's embedding reuse
-    # identity only here, inside the same transaction as the vectors
-    # themselves -- never speculatively before ``prepare_embeddings``
-    # succeeded, so a failed/unavailable model run (which returns
-    # ``None`` and never reaches this function at all) never claims a
-    # rebuild that didn't happen, and a mid-transaction failure here
-    # rolls the stamp back right along with the rows it describes. Split
-    # into (at most) two batched calls -- one per embedding_text_version
-    # group -- rather than N per-file ones, mirroring the deletes above.
-    files_repo.update_embedding_version_many(
-        conn,
-        list(code_touched),
-        embedding_model_id=embedder.EMBEDDING_MODEL_ID,
-        embedding_text_version=CODE_EMBEDDING_TEXT_VERSION,
-        updated_at=now,
-    )
-    files_repo.update_embedding_version_many(
-        conn,
-        list(document_touched),
-        embedding_model_id=embedder.EMBEDDING_MODEL_ID,
-        embedding_text_version=_document_embedding_text_version,
-        updated_at=now,
-    )
+        backend = LocalKnowledgeBackend(conn=conn)
 
-    # Phase P4 measured and *rejected* executemany here (see this
-    # phase's commit message): per-row INSERT via a Python loop vs.
-    # ``executemany`` showed no reliable wall-time difference for this
-    # table shape (~2000-row synthetic batch, both ~20-30ms, noise-level
-    # apart) -- unlike the DELETE/UPDATE batching above, an
-    # ``executemany`` INSERT still executes one prepared-statement run
-    # per row under the hood (confirmed via ``sqlite3.Connection.
-    # set_trace_callback`` statement counting: identical statement count
-    # to the loop, not reduced), so there was no real win to keep here.
-    # Left as the original per-subject loop.
-    for (subject_type, subject_id, file_id, _text), vector in zip(
-        prepared.subjects, prepared.vectors, strict=True
-    ):
-        embeddings_repo.insert(
-            conn,
-            subject_type=subject_type,
-            subject_id=subject_id,
-            file_id=file_id,
+    backend.publish_embeddings(
+        BackendPreparedEmbeddings(
             source_id=prepared.source_id,
             model_id=embedder.EMBEDDING_MODEL_ID,
-            vector=vector,
+            code_embedding_text_version=CODE_EMBEDDING_TEXT_VERSION,
+            document_embedding_text_version=_document_embedding_text_version,
+            subjects=prepared.subjects,
+            vectors=prepared.vectors,
+            touched_code_file_ids=prepared.touched_code_file_ids,
+            touched_document_file_ids=prepared.touched_document_file_ids,
+            cache_entries=prepared.cache_entries,
+            cache_reused=prepared.cache_reused,
         )
-        vector_items_repo.insert(
-            conn,
-            subject_type=subject_type.value,
-            subject_id=subject_id,
-            file_id=file_id,
-            source_id=prepared.source_id,
-            model_id=embedder.EMBEDDING_MODEL_ID,
-        )
-
-    # Indexing optimization plan V2, Phase P3: upsert every unique text
-    # this batch embedded (whether served from the cache or freshly
-    # computed -- see PreparedEmbeddings.cache_entries's docstring for why
-    # re-upserting a hit is a harmless no-op) into the persistent,
-    # project-local cache, in the *same* transaction as the
-    # embeddings/vector_items rows just written above. This is what keeps
-    # the cache consistent with the existing SQLite/ANN convergence
-    # mechanism: an interrupted publish (an exception before this
-    # transaction's COMMIT) rolls the cache writes back right along with
-    # the vectors they were derived alongside, so a cache row can never
-    # describe a vector that was never actually published, and the ANN
-    # sync that runs after a successful commit (``indexing/runner.py``'s
-    # ``run_source_pass``, unchanged by this phase) still has SQLite as
-    # its sole, self-healing source of truth either way. Left as a
-    # per-entry loop -- same measured-and-rejected executemany finding
-    # as the inserts immediately above applies here too.
-    preprocessing_version = model_identity.preprocessing_fingerprint()
-    for hashed_text, embedding_text_version, vector in prepared.cache_entries:
-        embedding_cache_repo.put(
-            conn,
-            hashed_text,
-            model_id=embedder.EMBEDDING_MODEL_ID,
-            preprocessing_version=preprocessing_version,
-            embedding_text_version=embedding_text_version,
-            vector=vector,
-            created_at=now,
-        )
+    )
 
     log_event(
         _logger,

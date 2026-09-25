@@ -207,6 +207,13 @@ def indexing_overview(ctx: AppContext) -> dict[str, Any]:
     totals: dict[str, int] = {}
     for source in registry.list():
         project_id = _project_id(source.path)
+        # Independent review BLOCKER fix (confirmed flagged call site):
+        # left as the default control_plane=False. Unlike
+        # ``status_service``'s per-source table (which documents an
+        # explicit local-control-plane design alongside real backend
+        # counts), this Admin UI indexing overview has no such
+        # server-mode counterpart today, so it must raise here rather
+        # than silently mix in wrong per-status file counts.
         conn = ctx.project_conn(project_id)
         total_queue += jobs_repo.queue_depth(conn)
         for key, value in files_repo.count_by_status(conn, source.id).items():
@@ -226,6 +233,9 @@ def failed_files(ctx: AppContext) -> list[dict[str, Any]]:
     failed: list[dict[str, Any]] = []
     for source in registry.list():
         project_id = _project_id(source.path)
+        # Independent review BLOCKER fix (confirmed flagged call site):
+        # left as the default control_plane=False -- see the comment in
+        # ``indexing_overview`` above.
         conn = ctx.project_conn(project_id)
         for record in files_repo.list_by_source(conn, source.id):
             if record.status.value == "failed":

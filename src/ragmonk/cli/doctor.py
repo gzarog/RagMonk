@@ -10,8 +10,9 @@ from typing import Annotated, Any, Literal
 import typer
 
 from ragmonk import __version__
+from ragmonk.backends.factory import redact_url
 from ragmonk.core import paths
-from ragmonk.core.errors import EXIT_HEALTH_CHECK_FAILURE
+from ragmonk.core.errors import EXIT_HEALTH_CHECK_FAILURE, HealthCheckError
 from ragmonk.core.lifecycle import AppContext
 from ragmonk.core.models import SourceStatus
 from ragmonk.sources.registry import SourceRegistry
@@ -110,7 +111,15 @@ def run_checks(ctx: AppContext) -> list[CheckSection]:
     total_queue = 0
     for source in sources:
         project_id = paths.project_id_for_path(Path(source.path))
-        conn = ctx.project_conn(project_id)
+        # control_plane=True: ``doctor`` is a local operational/diagnostic
+        # tool pre-dating the server backend work; its checks (job queue
+        # depth, WAL mode, schema version, tokenizer stats) all inspect
+        # the local per-project sqlite files directly and are not part of
+        # this fix's flagged user-facing knowledge surfaces (Admin UI /
+        # ``ragmonk link``/``docs``). Extending ``doctor`` itself to be
+        # server-mode-aware is a separate, larger piece of work -- out of
+        # scope for this blocker fix.
+        conn = ctx.project_conn(project_id, control_plane=True)
         total_queue += jobs_repo.queue_depth(conn)
     queue_status: Status = "ok" if total_queue < _QUEUE_DEPTH_WARN else "warn"
     detail = "queue empty" if total_queue == 0 else f"queue depth {total_queue}"
@@ -134,7 +143,88 @@ def run_checks(ctx: AppContext) -> list[CheckSection]:
     sections.append(_tokenizer_section(ctx, sources))
     sections.append(_ai_section(ctx))
 
+    if ctx.config.storage.mode == "server":
+        sections.append(_server_section(ctx))
+
     return sections
+
+
+def _server_section(ctx: AppContext) -> CheckSection:
+    """Storage backend abstraction plan, Phase 8: server-mode diagnostics
+    -- configured engine, redacted endpoint, cluster reachability/version
+    (via ``ctx.backend().describe()``), and index/schema existence.
+    Deliberately never prints a credential value in any form, in any
+    output mode (``--json`` included) -- see ``_redact_url`` and this
+    function's own error handling, which only ever surfaces typed
+    :class:`~ragmonk.core.errors.HealthCheckError` messages, which are
+    themselves guaranteed credential-free (see
+    ``backends/opensearch_client.py``/``backends/elasticsearch_client.py``
+    module docstrings).
+    """
+    server_config = ctx.config.storage.server
+    endpoint = redact_url(server_config.url)
+    checks: list[CheckResult] = [
+        CheckResult(
+            "engine",
+            "ok",
+            f"engine={server_config.engine}, endpoint={endpoint}, "
+            f"index_prefix={server_config.index_prefix}",
+        )
+    ]
+
+    try:
+        backend = ctx.backend()
+    except Exception as exc:  # pragma: no cover - construction itself never touches network
+        checks.append(CheckResult("connectivity", "fail", f"backend unavailable: {exc}"))
+        return CheckSection("Server", checks)
+
+    describe = getattr(backend, "describe", None)
+    try:
+        if callable(describe):
+            engine_name, version = describe()
+            checks.append(
+                CheckResult("connectivity", "ok", f"reachable ({engine_name} {version})")
+            )
+        else:
+            reachable = backend.health()
+            status: Status = "ok" if reachable else "fail"
+            detail = "reachable" if reachable else "server unreachable"
+            checks.append(CheckResult("connectivity", status, detail))
+    except HealthCheckError as exc:
+        checks.append(CheckResult("connectivity", "fail", f"server unreachable: {exc}"))
+        checks.append(CheckResult("indices", "fail", "skipped -- server unreachable"))
+        return CheckSection("Server", checks)
+    except Exception as exc:  # defensive: never let doctor crash uncaught on a backend error
+        checks.append(CheckResult("connectivity", "fail", f"server unreachable: {exc}"))
+        checks.append(CheckResult("indices", "fail", "skipped -- server unreachable"))
+        return CheckSection("Server", checks)
+
+    index_status = getattr(backend, "index_status", None)
+    if callable(index_status):
+        try:
+            statuses: dict[str, bool] = index_status()
+            missing = [name for name, exists in statuses.items() if not exists]
+            if missing:
+                checks.append(
+                    CheckResult(
+                        "indices",
+                        "warn",
+                        f"{len(statuses) - len(missing)}/{len(statuses)} indices present; "
+                        f"missing: {', '.join(sorted(missing))} (run 'ragmonk init' to create)",
+                    )
+                )
+            else:
+                checks.append(
+                    CheckResult("indices", "ok", f"{len(statuses)}/{len(statuses)} indices present")
+                )
+        except HealthCheckError as exc:
+            checks.append(CheckResult("indices", "fail", f"server unreachable: {exc}"))
+        except Exception as exc:
+            checks.append(CheckResult("indices", "fail", f"could not check indices: {exc}"))
+    else:
+        checks.append(CheckResult("indices", "warn", "index status check not available"))
+
+    return CheckSection("Server", checks)
 
 
 def _tokenizer_section(ctx: AppContext, sources: list[Any]) -> CheckSection:
@@ -185,7 +275,10 @@ def _iter_index_embedding_texts(ctx: AppContext, sources: list[Any]) -> Any:
         if project_id in seen_projects:
             continue
         seen_projects.add(project_id)
-        conn = ctx.project_conn(project_id)
+        # control_plane=True: see the comment on the queue-depth check
+        # above -- ``doctor``'s local-sqlite diagnostics are a pre-existing,
+        # out-of-scope gap for this fix, not one of its flagged surfaces.
+        conn = ctx.project_conn(project_id, control_plane=True)
         yield from documents_repo.iter_embedding_texts(conn)
 
 
@@ -263,7 +356,10 @@ def _semantic_check(ctx: AppContext, sources: list[Any]) -> CheckResult:
     total_bytes = 0
     for source in sources:
         project_id = paths.project_id_for_path(Path(source.path))
-        conn = ctx.project_conn(project_id)
+        # control_plane=True: see the comment on the queue-depth check
+        # above -- ``doctor``'s local-sqlite diagnostics are a pre-existing,
+        # out-of-scope gap for this fix, not one of its flagged surfaces.
+        conn = ctx.project_conn(project_id, control_plane=True)
         total_vectors += vector_items_repo.count_all(conn, model_id=embedder.EMBEDDING_MODEL_ID)
         index_path = paths.project_vector_index_path(project_id, ctx.home)
         if index_path.is_file():

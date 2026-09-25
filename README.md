@@ -327,6 +327,88 @@ Settings live in `~/.ragmonk/config.yaml` and are always readable/writable via `
 
 ---
 
+## Storage Backends: Local vs. Server
+
+By default RagMonk stores everything in a local, embedded stack (SQLite + FTS5 for lexical search, USearch for semantic/ANN search) — no server process, nothing to run, fully offline. For larger or shared deployments, RagMonk can instead store its knowledge base in a self-managed **OpenSearch** or **Elasticsearch** cluster.
+
+### Choosing a mode at `ragmonk init`
+
+```bash
+# Local (default) -- identical to plain `ragmonk init`
+ragmonk init --storage-mode local
+
+# Server -- OpenSearch
+ragmonk init --storage-mode server \
+    --storage-engine opensearch \
+    --storage-url https://localhost:9200 \
+    --storage-index-prefix ragmonk \
+    --storage-verify-tls          # or --storage-no-verify-tls for a dev cluster
+
+# Server -- Elasticsearch
+ragmonk init --storage-mode server \
+    --storage-engine elasticsearch \
+    --storage-url https://localhost:9200
+
+# Or answer prompts interactively instead of passing flags
+ragmonk init --interactive
+```
+
+`ragmonk init` performs a real preflight HTTP check against `--storage-url` before writing anything — no config file is written if the cluster is unreachable. Storage mode is fixed at init time for a given `~/.ragmonk` runtime directory; there is no in-place migration between local and server storage.
+
+Install the matching client library first — these are optional extras, never installed by plain `pip install ragmonk`:
+
+```bash
+pip install "ragmonk[opensearch]"       # storage.server.engine=opensearch
+pip install "ragmonk[elasticsearch]"    # storage.server.engine=elasticsearch
+pip install "ragmonk[server]"           # both, if you want to switch engines later
+```
+
+### Server credentials
+
+Credentials are **never** written to `config.yaml` — only the connection shape (`url`, `engine`, `index_prefix`, `verify_tls`) is persisted. Set these environment variables instead, at call time, for whichever engine you use:
+
+| Engine | Username | Password | API key |
+|---|---|---|---|
+| OpenSearch | `RAGMONK_OPENSEARCH_USERNAME` | `RAGMONK_OPENSEARCH_PASSWORD` | `RAGMONK_OPENSEARCH_API_KEY` |
+| Elasticsearch | `RAGMONK_ELASTICSEARCH_USERNAME` | `RAGMONK_ELASTICSEARCH_PASSWORD` | `RAGMONK_ELASTICSEARCH_API_KEY` |
+
+An API key, when set, takes precedence over username/password. Both are optional — an unauthenticated dev cluster needs neither.
+
+### Local test clusters (dev-only)
+
+`docker/docker-compose.opensearch.yml` and `docker/docker-compose.elasticsearch.yml` spin up single-node, security-disabled clusters for local testing. **These are a developer convenience only, never a runtime requirement** — RagMonk itself never expects or manages a Docker daemon.
+
+```bash
+docker compose -f docker/docker-compose.opensearch.yml up -d
+# or
+docker compose -f docker/docker-compose.elasticsearch.yml up -d
+```
+
+Both expose port `9200`. To run this project's own integration test suites against them (skipped by default — see `CONTRIBUTING.md`):
+
+```bash
+OPENSEARCH_URL=http://localhost:9200 \
+    pytest -m opensearch_integration tests/unit/test_backends_opensearch_integration.py
+
+ELASTICSEARCH_URL=http://localhost:9200 \
+    pytest -m elasticsearch_integration tests/unit/test_backends_elasticsearch_integration.py
+```
+
+(Note: these test-suite env vars, `OPENSEARCH_URL`/`ELASTICSEARCH_URL`, are separate from the `RAGMONK_*` credential env vars above — the compose clusters have security disabled and need no credentials at all.)
+
+### Diagnosing and recovering in server mode
+
+- `ragmonk doctor` and `ragmonk status` are backend-aware: in server mode they report cluster reachability and index-level counts from OpenSearch/Elasticsearch itself rather than from local SQLite tables.
+- `ragmonk daemon start` fails startup clearly, with an explicit error, if the configured server backend is unreachable — it does not silently fall back to local storage or start in a half-working state.
+- `ragmonk rebuild` publishes each source's rebuilt content as a new **generation**, atomically switching reads over only once the rebuild finishes. If a rebuild fails partway through, the **previous generation stays active and searchable** — a failed rebuild degrades to "stale but consistent," never to "partially indexed."
+
+### Known limitations in server mode
+
+- **Neighbor-name resolution in `impact`/`explore`**: the current `KnowledgeBackend` contract has no "fetch entity/file by id" primitive, so graph traversal results (caller/callee lists, dependency lists) that would normally resolve to a neighboring symbol or file's name can come back unresolved (`neighbor_entity=None`) in server mode, where local mode resolves them via direct SQLite lookups. This is a documented gap, not a silent wrong answer — see `src/ragmonk/retrieval/graph.py`.
+- **File-metadata generation filtering**: unlike content, relationship, and embedding documents, file-identity documents (written by `upsert_file`) are not generation-tagged, so `get_file` and the files count in backend stats are not scoped to a specific rebuild generation the way other reads are. See the OpenSearch/Elasticsearch adapter module docstrings for the exact scope.
+
+---
+
 ## Further Reading
 
 - [`CHANGELOG.md`](CHANGELOG.md) — detailed history of every release

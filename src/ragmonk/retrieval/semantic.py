@@ -27,6 +27,7 @@ this exact seam.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,9 @@ from ragmonk.core.lifecycle import AppContext
 from ragmonk.retrieval import ann, embedder
 from ragmonk.retrieval import cache as search_cache
 from ragmonk.storage.repositories import embeddings_repo, vector_items_repo
+from ragmonk.telemetry.logging import get_logger, log_event
+
+_logger = get_logger("retrieval.semantic")
 
 DEFAULT_LIMIT = 15
 
@@ -162,6 +166,53 @@ def _embed_query_cached(query: str, *, config: SearchConfig) -> list[float] | No
     )
 
 
+def _semantic_search_server(
+    ctx: AppContext, query_vector: list[float], *, limit: int, k: int
+) -> SemanticSearchResult:
+    """Server-mode counterpart of the local ANN loop below: routes through
+    ``ctx.backend().semantic_search`` (a real OpenSearch/Elasticsearch kNN
+    call, P4/P5) instead of USearch/vector_items -- never local SQLite, per
+    this phase's "no silent local fallback" rule.
+    """
+    started = time.perf_counter()
+    raw_hits = ctx.backend().semantic_search(query_vector, k)
+    duration_ms = (time.perf_counter() - started) * 1000
+    # Structured query-latency logging (Storage backend abstraction plan,
+    # Phase 8), matching ``retrieval/lexical.py``'s
+    # ``_search_with_timings_server``'s ``StageTiming`` shape -- logged
+    # rather than added to ``SemanticSearchResult`` itself, which (unlike
+    # lexical's ``TimedSearchResult``) has no ``timings`` field and is a
+    # widely-consumed public return type not worth changing shape for
+    # this alone.
+    log_event(
+        _logger,
+        "server_semantic_search",
+        hits=len(raw_hits),
+        duration_ms=round(duration_ms, 3),
+    )
+    if not raw_hits:
+        return SemanticSearchResult(
+            available=True, reason="no embeddings computed for this project yet", results=()
+        )
+    hits = [
+        SemanticHit(
+            kind="entity" if hit.kind == "entity" else "document",
+            id=hit.id,
+            title=str(
+                hit.payload.get("qualified_name") or hit.payload.get("name") or hit.id
+            ),
+            path=str(hit.payload.get("path", "")),
+            source_id=str(hit.payload.get("source_id", "")),
+            score=hit.score,
+            snippet=str(hit.payload.get("snippet") or ""),
+            location=None,
+        )
+        for hit in raw_hits
+    ]
+    hits.sort(key=lambda h: (-h.score, h.path, h.id))
+    return SemanticSearchResult(available=True, reason="ok", results=tuple(hits[:limit]))
+
+
 def semantic_search(
     ctx: AppContext,
     query: str,
@@ -208,6 +259,9 @@ def semantic_search(
 
     k = candidate_k if candidate_k is not None else limit
     model_id = embedder.EMBEDDING_MODEL_ID
+
+    if ctx.config.storage.mode == "server":
+        return _semantic_search_server(ctx, query_vector, limit=limit, k=k)
 
     hits: list[SemanticHit] = []
     for source_id, source_path, conn in all_project_connections(ctx):

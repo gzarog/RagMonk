@@ -52,6 +52,22 @@ class SecurityViolationError(RagMonkError):
     exit_code = EXIT_SECURITY_RESTRICTION
 
 
+class LocalStorageModeRequiredError(RagMonkError):
+    """Raised when code that only makes sense for local per-project sqlite
+    (``AppContext.project_conn()`` and its established local-mode-only
+    siblings ``code.graph.all_project_connections``/``conn_for_source_path``)
+    is reached while ``storage.mode`` is anything other than ``"local"``.
+
+    Storage backend abstraction plan, Phase 6 established the rule this
+    exception now enforces uniformly: never silently fall back to local
+    SQLite in server mode. ``exit_code = EXIT_CONFIG_ERROR`` because the
+    root cause is always a storage-mode/call-site mismatch, not bad user
+    input or a genuine database fault.
+    """
+
+    exit_code = EXIT_CONFIG_ERROR
+
+
 class ContentChangedDuringProcessingError(RagMonkError):
     """Raised by a processor (indexing optimization plan, Phase P3) when
     a file's content changed between the coordinator's scan and this

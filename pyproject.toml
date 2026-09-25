@@ -147,6 +147,38 @@ dependencies = [
 copilot = [
     "github-copilot-sdk>=0.1,<1",
 ]
+# Storage backend abstraction plan, Phase 4: the official OpenSearch
+# Python client, an OPTIONAL runtime for `storage.mode="server"` with
+# `storage.server.engine="opensearch"`. Not a default dependency -- local
+# (SQLite) mode indexes and retrieves without it, and
+# `ragmonk.backends.opensearch`/`opensearch_client` import it lazily
+# inside function bodies, so only a user who opts into the OpenSearch
+# backend installs it (`pip install "ragmonk[opensearch]"`).
+opensearch = [
+    "opensearch-py>=2.4,<3",
+]
+# Storage backend abstraction plan, Phase 5: the official Elasticsearch
+# Python client, an OPTIONAL runtime for `storage.mode="server"` with
+# `storage.server.engine="elasticsearch"`. Not a default dependency --
+# local (SQLite) mode and the OpenSearch backend index/retrieve without
+# it, and `ragmonk.backends.elasticsearch`/`elasticsearch_client` import
+# it lazily inside function bodies, so only a user who opts into the
+# Elasticsearch backend installs it (`pip install "ragmonk[elasticsearch]"`).
+elasticsearch = [
+    "elasticsearch>=8,<9",
+]
+# Phase 9 (packaging): convenience extra for users who want to be able to
+# switch `storage.server.engine` between "opensearch" and "elasticsearch"
+# (or run both against separate projects) without a second `pip install`.
+# Self-referencing extras syntax (supported by hatchling/pip, PEP 508) --
+# this is NOT a third client library, just the union of the two extras
+# above; local (SQLite) mode remains fully installable without any of
+# this (`pip install ragmonk` alone stays lightweight, see the
+# `opensearch`/`elasticsearch` extras' own comments above).
+server = [
+    "ragmonk[opensearch]",
+    "ragmonk[elasticsearch]",
+]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
@@ -263,7 +295,7 @@ pythonpath = ["."]
 # diagnostic, not a correctness test, and its numbers are only
 # meaningful on real, unshared hardware (see benchmarks/search/
 # targets.py), so it is excluded from the default run the same way.
-addopts = "-ra -m 'not docling_pdf and not daemon_subprocess and not embedding_model and not reranker_model and not benchmark_search and not cli_startup_benchmark'"
+addopts = "-ra -m 'not docling_pdf and not daemon_subprocess and not embedding_model and not reranker_model and not benchmark_search and not cli_startup_benchmark and not opensearch_integration and not elasticsearch_integration'"
 markers = [
     "docling_pdf: exercises Docling's real PDF conversion pipeline (network + model download on first run); excluded from the default run, see CONTRIBUTING.md",
     "daemon_subprocess: spawns and signals a real detached `ragmonk daemon` process; excluded from the default run, see CONTRIBUTING.md",
@@ -271,4 +303,6 @@ markers = [
     "reranker_model: loads the real local cross-encoder reranker model (network + weight download on first run); excluded from the default run, see CONTRIBUTING.md",
     "benchmark_search: measures search latency against a synthetic corpus (benchmarks/search/); excluded from the default run, see CONTRIBUTING.md",
     "cli_startup_benchmark: measures CLI subprocess startup latency (benchmarks/cli_startup/); excluded from the default run, see CONTRIBUTING.md",
+    "opensearch_integration: exercises the OpenSearch adapter against a real cluster (OPENSEARCH_URL env var); excluded from the default run, skips cleanly when no cluster is reachable, see CONTRIBUTING.md",
+    "elasticsearch_integration: exercises the Elasticsearch adapter against a real cluster (ELASTICSEARCH_URL env var); excluded from the default run, skips cleanly when no cluster is reachable, see CONTRIBUTING.md",
 ]

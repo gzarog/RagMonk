@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from ragmonk.backends.local import LocalKnowledgeBackend
 from ragmonk.core.models import (
     Confidence,
     CrossLink,
@@ -216,6 +217,8 @@ def test_explicit_user_link_survives_automated_linking_pass(tmp_path: Path) -> N
         with transaction(conn):
             inserted = link_touched_files(
                 conn,
+                LocalKnowledgeBackend(conn=conn),
+                source_id="src1",
                 touched_code_file_ids=["code_f1"],
                 touched_document_file_ids=["doc_f1"],
             )
@@ -276,7 +279,11 @@ def test_code_only_pass_never_looks_up_other_code_files_in_the_project(
 
         with transaction(conn):
             link_touched_files(
-                conn, touched_code_file_ids=["code_f1"], touched_document_file_ids=[]
+                conn,
+                LocalKnowledgeBackend(conn=conn),
+                source_id="src1",
+                touched_code_file_ids=["code_f1"],
+                touched_document_file_ids=[],
             )
 
         assert seen_id_batches == [frozenset({"code_f1"})]

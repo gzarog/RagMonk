@@ -124,8 +124,13 @@ def run_upgrade(*, home: Path) -> UpgradeReport:
 
     with AppContext.bootstrap(home=home) as ctx:
         sources_after = current_version(ctx.sources_conn)
+        # control_plane=True: schema/version bookkeeping for each local
+        # project db file, not a knowledge-data read -- these local
+        # ``knowledge.db`` files (and their migrations) exist regardless
+        # of ``storage.mode`` (Phase 7), so ``ragmonk upgrade`` must be
+        # able to migrate them even when the configured mode is "server".
         projects_after = {
-            project_id: current_version(ctx.project_conn(project_id))
+            project_id: current_version(ctx.project_conn(project_id, control_plane=True))
             for project_id in projects_before
         }
         healthy_after = overall_status(run_checks(ctx)) != "UNHEALTHY"

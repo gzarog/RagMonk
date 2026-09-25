@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ragmonk.backends.base import KnowledgeBackend
+from ragmonk.backends.local import LocalKnowledgeBackend
 from ragmonk.code.processor import code_processor, code_version_stamp, prepare_code, publish_code
 from ragmonk.core import paths
 from ragmonk.core.config import RagMonkConfig
@@ -135,15 +137,44 @@ def run_source_pass(
     processors: ProcessorRegistry,
     *,
     scan_request: ScanRequest | None = None,
+    backend: KnowledgeBackend | None = None,
+    force_generation: int | None = None,
 ) -> SourcePassResult:
     """``scan_request`` (indexing optimization plan, Phase P2), when
     given and not ``full``, drives a targeted pass over just its
     ``changed_paths`` instead of a full scan -- see
     ``IndexCoordinator.run``. ``None`` (``ragmonk index`` and every
     pre-P2 caller) keeps the original full-scan behavior unchanged.
+
+    ``backend``/``force_generation`` (Storage backend abstraction plan,
+    Phase 7): a server-mode full rebuild (``ops/rebuild.py``) passes its
+    own ``KnowledgeBackend`` (the cached server adapter from
+    ``ctx.backend()``) plus the int form of the generation id
+    ``begin_generation`` returned, so this pass's writes land in the
+    server backend, tagged with that exact generation, instead of the
+    default local SQLite path below. ``None`` for both (every other
+    caller -- ``ragmonk index``, the daemon, a plain non-server
+    rebuild) keeps this pass's pre-Phase-7 behavior: a fresh
+    ``LocalKnowledgeBackend`` bound to this pass's own project
+    connection, and the usual per-file ``file.generation + 1`` bump.
     """
     project_id = paths.project_id_for_path(Path(source.path))
-    conn = ctx.project_conn(project_id)
+    # control_plane=True: even in server mode this pass still needs its
+    # own local ``conn`` -- the coordinator's scan/diff/generation
+    # bookkeeping and file-status tracking (Phase 3/7) live in local
+    # sqlite regardless of ``storage.mode``; only the *published*
+    # knowledge (entities/documents/embeddings) is redirected to the
+    # server backend, via the ``backend`` argument below, when one is
+    # supplied by a server-mode caller (``ops/rebuild.py``).
+    conn = ctx.project_conn(project_id, control_plane=True)
+    # Storage backend abstraction plan, Phase 3: one backend per pass,
+    # bound to this pass's own project connection -- handed to the
+    # coordinator (so every queued file's ``publish`` half writes
+    # through it) and reused below for the linking/embeddings stages,
+    # so a whole source pass's persistence goes through the same
+    # ``KnowledgeBackend`` instance/connection throughout.
+    if backend is None:
+        backend = LocalKnowledgeBackend(conn=conn)
     coordinator = IndexCoordinator(
         conn,
         source.id,
@@ -152,6 +183,8 @@ def run_source_pass(
         source.exclude_patterns,
         ctx.config,
         processors=processors,
+        backend=backend,
+        force_generation=force_generation,
     )
     changed_paths = (
         scan_request.changed_paths if scan_request is not None and not scan_request.full else None
@@ -208,6 +241,8 @@ def run_source_pass(
         with transaction(conn):
             linked = link_touched_files(
                 conn,
+                backend,
+                source_id=source.id,
                 touched_code_file_ids=result.touched_code_file_ids,
                 touched_document_file_ids=result.touched_document_file_ids,
             )
@@ -263,7 +298,9 @@ def run_source_pass(
         # V2 Phase P5 telemetry surface for that phase's own feature.
         cache_reused = prepared.cache_reused if prepared is not None else 0
         with transaction(conn):
-            embedded = publish_embeddings(conn, prepared) if prepared is not None else 0
+            embedded = (
+                publish_embeddings(conn, prepared, backend=backend) if prepared is not None else 0
+            )
         result.timings.embedding_seconds = time.monotonic() - _embedding_started
         if embedded:
             # Deliberately outside the transaction above: the ANN index

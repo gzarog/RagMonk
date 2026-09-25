@@ -11,8 +11,10 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
+from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.core import paths
 from ragmonk.core.config import RagMonkConfig, load_config
+from ragmonk.core.errors import LocalStorageModeRequiredError
 from ragmonk.storage.migrations import apply_migrations
 from ragmonk.storage.sqlite import connect
 from ragmonk.telemetry.logging import configure_logging
@@ -71,6 +73,12 @@ class AppContext:
     sources_conn: sqlite3.Connection
     _project_conns: dict[str, sqlite3.Connection] = field(default_factory=dict)
     _lock: RunLock | None = None
+    # Storage backend abstraction plan, Phase 6: one server ``KnowledgeBackend``
+    # per ``AppContext`` (process/session), lazily constructed and cached here
+    # -- see ``backend()`` below. Local mode never populates this; it always
+    # wraps the already-cached ``project_conn`` instead, so there is nothing
+    # to cache at this level for local mode.
+    _server_backend: KnowledgeBackend | None = None
 
     @classmethod
     def bootstrap(
@@ -106,7 +114,41 @@ class AppContext:
             update_background.maybe_launch_background_check(resolved_home, config.updates)
         return cls(config=config, home=resolved_home, cwd=resolved_cwd, sources_conn=sources_conn)
 
-    def project_conn(self, project_id: str) -> sqlite3.Connection:
+    def project_conn(self, project_id: str, *, control_plane: bool = False) -> sqlite3.Connection:
+        """The per-project local sqlite (``knowledge.db``) connection.
+
+        Independent review BLOCKER fix (storage.mode bypass): this is the
+        single choke point every call site in the codebase goes through to
+        reach local per-project sqlite, so the ``storage.mode`` guard lives
+        here rather than being copy-pasted into each of the many call
+        sites -- ``code.graph.all_project_connections``/
+        ``conn_for_source_path`` already established this exact pattern
+        (raise, never silently fall back to local sqlite in server mode);
+        this closes the gap where ``project_conn`` itself had no such
+        guard, so anything calling it directly bypassed those two
+        already-guarded functions entirely.
+
+        ``control_plane=True`` is a narrow, explicit opt-out for call
+        sites that are genuinely NOT reading/writing searchable knowledge
+        data, but the local, per-process bookkeeping that Phase 6/7/8's
+        own design keeps local even when ``storage.mode == "server"``
+        (schema/version bookkeeping, the indexing coordinator's own
+        scan/generation state, the local job queue). Every call site
+        passing it carries its own comment explaining why. Default
+        ``False`` is deliberately the safer failure mode: an oversight at
+        a new call site raises loudly in server mode instead of silently
+        returning wrong/stale knowledge data, per this plan's "never
+        silently fall back" rule.
+        """
+        if not control_plane and self.config.storage.mode != "local":
+            raise LocalStorageModeRequiredError(
+                "AppContext.project_conn(): storage.mode is "
+                f"{self.config.storage.mode!r}, not 'local' -- local "
+                "per-project sqlite must never be read/written for "
+                "knowledge data outside local mode (no silent local "
+                "fallback in server mode); callers must route through "
+                "ctx.backend() instead"
+            )
         conn = self._project_conns.get(project_id)
         if conn is None:
             paths.ensure_project_layout(project_id, self.home)
@@ -117,6 +159,44 @@ class AppContext:
             apply_migrations(conn, "knowledge")
             self._project_conns[project_id] = conn
         return conn
+
+    def backend(self, project_id: str | None = None) -> KnowledgeBackend:
+        """The single ``KnowledgeBackend`` CLI commands, MCP tools, and the
+        Admin UI must all read/write knowledge through (Storage backend
+        abstraction plan, Phase 6).
+
+        - ``storage.mode == "server"``: returns the SAME cached instance
+          (constructed once via ``backends.factory.create_backend``) on
+          every call, regardless of ``project_id`` -- a server backend is a
+          single source of truth across every source, not a per-project
+          handle, so ``project_id`` is accepted-and-ignored here purely so
+          call sites don't need an ``if server: ... else: ...`` branch just
+          to pick this method's arguments.
+        - ``storage.mode == "local"`` (default): wraps this context's
+          already-cached ``project_conn(project_id)`` in a fresh
+          ``LocalKnowledgeBackend(conn=...)`` -- the same "externally-owned
+          connection" shape P3's ``indexing/runner.py`` already uses, so a
+          call through this method lands in the exact same connection the
+          rest of that project's reads/writes use. ``project_id`` is
+          required in this mode: there is no single local connection that
+          spans every project.
+        """
+        if self.config.storage.mode == "server":
+            if self._server_backend is None:
+                from ragmonk.backends.factory import create_backend
+
+                self._server_backend = create_backend(self.config.storage, home=self.home)
+            return self._server_backend
+
+        if project_id is None:
+            raise ValueError(
+                "AppContext.backend(): project_id is required in local mode "
+                "(storage.mode == 'local') -- there is no single local "
+                "connection spanning every project"
+            )
+        from ragmonk.backends.local import LocalKnowledgeBackend
+
+        return LocalKnowledgeBackend(conn=self.project_conn(project_id))
 
     def close_project_conn(self, project_id: str) -> None:
         """Drops and closes one cached project connection, if open.
@@ -142,6 +222,9 @@ class AppContext:
         if self._lock is not None:
             self._lock.release()
             self._lock = None
+        if self._server_backend is not None:
+            self._server_backend.close()
+            self._server_backend = None
         self.sources_conn.close()
         for conn in self._project_conns.values():
             conn.close()
