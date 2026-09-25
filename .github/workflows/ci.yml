@@ -91,6 +91,120 @@ jobs:
         # below for that coverage, run non-blocking.
         run: pytest -q
 
+  # Completion plan F8: REAL server-backend acceptance, one job per
+  # engine. Each starts a genuine single-node cluster as a service
+  # container, installs the matching optional client extra, and runs every
+  # `<engine>_integration`-marked test: the adapter-level integration tests
+  # plus the full CLI acceptance flow in
+  # tests/integration/test_server_acceptance_live.py (init with real engine
+  # validation, source add, index, lexical search, symbol/callers/callees/
+  # references/impact/explore, incremental add/modify/delete/rename,
+  # outage handling, failed-rebuild preservation, atomic rebuild,
+  # doctor/status, source remove). RAGMONK_REQUIRE_LIVE_SERVER=1 turns
+  # "cluster unreachable" into a FAILURE instead of a silent skip. These
+  # jobs are blocking. Semantic/hybrid search (needs the embedding model
+  # download) runs as a separate non-blocking step. Normal local CI above
+  # is unchanged; Docker is only used by CI, never required at runtime.
+  opensearch-acceptance:
+    name: OpenSearch server acceptance
+    runs-on: ubuntu-latest
+    services:
+      opensearch:
+        image: opensearchproject/opensearch:2.15.0
+        env:
+          discovery.type: single-node
+          DISABLE_SECURITY_PLUGIN: "true"
+          DISABLE_INSTALL_DEMO_CONFIG: "true"
+          OPENSEARCH_INITIAL_ADMIN_PASSWORD: "RagMonk-CI-only-1!"
+          OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl -fs http://localhost:9200/_cluster/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      OPENSEARCH_URL: http://localhost:9200
+      RAGMONK_REQUIRE_LIVE_SERVER: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install CPU-only torch (Linux runners pull CUDA by default)
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - name: Install project with the OpenSearch extra
+        run: pip install -e ".[dev,opensearch]"
+      - name: Wait for OpenSearch
+        run: |
+          for i in $(seq 1 60); do
+            curl -fs "$OPENSEARCH_URL/_cluster/health?wait_for_status=yellow&timeout=5s" && exit 0
+            sleep 5
+          done
+          echo "OpenSearch did not become healthy" >&2
+          exit 1
+      - name: Pytest (opensearch_integration, full server acceptance)
+        run: pytest -m opensearch_integration -q -rs
+      - name: Semantic/hybrid acceptance (non-blocking, downloads embedding model)
+        continue-on-error: true
+        env:
+          RAGMONK_ACCEPTANCE_SEMANTIC: "1"
+        run: pytest -m opensearch_integration -q -rs tests/integration/test_server_acceptance_live.py -k semantic
+
+  elasticsearch-acceptance:
+    name: Elasticsearch server acceptance
+    runs-on: ubuntu-latest
+    services:
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl -fs http://localhost:9200/_cluster/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      ELASTICSEARCH_URL: http://localhost:9200
+      RAGMONK_REQUIRE_LIVE_SERVER: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install CPU-only torch (Linux runners pull CUDA by default)
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - name: Install project with the Elasticsearch extra
+        run: pip install -e ".[dev,elasticsearch]"
+      - name: Wait for Elasticsearch
+        run: |
+          for i in $(seq 1 60); do
+            curl -fs "$ELASTICSEARCH_URL/_cluster/health?wait_for_status=yellow&timeout=5s" && exit 0
+            sleep 5
+          done
+          echo "Elasticsearch did not become healthy" >&2
+          exit 1
+      - name: Pytest (elasticsearch_integration, full server acceptance)
+        run: pytest -m elasticsearch_integration -q -rs
+      - name: Semantic/hybrid acceptance (non-blocking, downloads embedding model)
+        continue-on-error: true
+        env:
+          RAGMONK_ACCEPTANCE_SEMANTIC: "1"
+        run: pytest -m elasticsearch_integration -q -rs tests/integration/test_server_acceptance_live.py -k semantic
+
   # Optional, non-blocking: actually runs Docling's PDF conversion (model
   # download from Hugging Face included). Kept separate from `test` above
   # so a slow/unavailable model download never gates a merge -- see

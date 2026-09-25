@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ragmonk.core import paths
-from ragmonk.core.errors import UsageError
+from ragmonk.core.errors import IndexingPartialFailureError, UsageError
 from ragmonk.core.lifecycle import AppContext
 from ragmonk.core.models import Source
 from ragmonk.indexing.coordinator import IndexRunResult, ProcessorRegistry
@@ -142,6 +142,7 @@ def _rebuild_source_server(
       on the old generation throughout.
     """
     backend = ctx.backend()
+    backend.ensure_schema()
     generation = backend.begin_generation(source.id)
     project_id = paths.project_id_for_path(Path(source.path))
     _wipe_project_db(ctx, project_id)
@@ -156,8 +157,40 @@ def _rebuild_source_server(
     except BaseException:
         backend.abort_generation(source.id, generation)
         raise
+    # Completion plan F6: a per-file failure (e.g. a bulk write that
+    # failed during a server outage) does not raise -- the coordinator
+    # records it and schedules a retry -- so "the pass returned" is not
+    # "the new generation is complete". Publishing it anyway would make
+    # those files vanish from search. Abort instead and keep the previous
+    # generation fully consistent and searchable.
+    incomplete = _incomplete_file_count(ctx, source)
+    if pass_result.result.source_offline or incomplete:
+        backend.abort_generation(source.id, generation)
+        reason = (
+            "source is offline"
+            if pass_result.result.source_offline
+            else f"{incomplete} file(s) did not index successfully"
+        )
+        raise IndexingPartialFailureError(
+            f"rebuild of {source.id} aborted: {reason}; the previously published "
+            "generation was kept and is still being served"
+        )
     backend.publish_generation(source.id, generation)
     return RebuildOutcome(source=source, result=pass_result.result, linked=pass_result.linked)
+
+
+def _incomplete_file_count(ctx: AppContext, source: Source) -> int:
+    from ragmonk.core.models import FileStatus
+    from ragmonk.storage.repositories import files_repo
+
+    project_id = paths.project_id_for_path(Path(source.path))
+    # control_plane=True: file status is local control-plane state.
+    conn = ctx.project_conn(project_id, control_plane=True)
+    return sum(
+        1
+        for record in files_repo.list_by_source(conn, source.id)
+        if record.status not in (FileStatus.INDEXED, FileStatus.SKIPPED_LIMIT)
+    )
 
 
 def rebuild(

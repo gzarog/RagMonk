@@ -92,7 +92,27 @@ def test_server_section_reports_unreachable_on_connection_failure() -> None:
 
 
 def test_server_section_redacts_userinfo_embedded_in_url() -> None:
-    config = _server_config(url=f"https://{_SECRET_USERNAME}:{_SECRET_PASSWORD}@opensearch.internal:9200")
+    """Defense in depth: completion plan F7 now rejects a credential-
+    bearing ``storage.server.url`` at config validation (see
+    ``test_config_rejects_credential_bearing_url``), so this bypasses
+    validation with ``model_construct`` to prove doctor's own redaction
+    still holds for a config that somehow got past it.
+    """
+    from ragmonk.core.config import ServerStorageConfig, StorageConfig
+
+    config = RagMonkConfig(
+        storage=StorageConfig(
+            mode="server",
+            server=ServerStorageConfig.model_construct(
+                engine="opensearch",
+                url=f"https://{_SECRET_USERNAME}:{_SECRET_PASSWORD}@opensearch.internal:9200",
+                index_prefix="ragmonk",
+                verify_tls=True,
+                request_timeout_seconds=30.0,
+                bulk=ServerStorageConfig().bulk,
+            ),
+        )
+    )
     fake = FakeOpenSearch(reachable=True)
     backend = OpenSearchKnowledgeBackend(config.storage.server, client=fake)
     section = doctor._server_section(_ctx_with_backend(config, backend))

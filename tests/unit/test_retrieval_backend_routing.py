@@ -122,6 +122,42 @@ class _StubBackend(KnowledgeBackend):
         self.graph_neighbor_calls.append((entity_id, direction))
         return list(self._neighbor_hits.get((entity_id, direction), []))
 
+    # Completion plan F4 targeted reads -- in-memory, keyed by id.
+    entities_by_id: dict[str, Any] = {}
+    files_by_id: dict[str, FileRecord] = {}
+    links: list[Any] = []
+    documents_by_id: dict[str, Any] = {}
+    units_by_id: dict[str, Any] = {}
+
+    def get_entities(self, entity_ids: list[str]) -> list[Any]:
+        return [self.entities_by_id[i] for i in entity_ids if i in self.entities_by_id]
+
+    def get_files(self, file_ids: list[str]) -> list[FileRecord]:
+        return [self.files_by_id[i] for i in file_ids if i in self.files_by_id]
+
+    def find_unresolved_relationships(
+        self,
+        symbols: list[str],
+        relationship_types: list[str] | None = None,
+        *,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        return []
+
+    def get_links(
+        self, *, entity_ids: list[str] | None = None, document_ids: list[str] | None = None
+    ) -> list[Any]:
+        wanted = set(entity_ids or [])
+        return [lk for lk in self.links if lk.entity_id in wanted]
+
+    def get_documents(self, document_ids: list[str]) -> list[Any]:
+        return [self.documents_by_id[i] for i in document_ids if i in self.documents_by_id]
+
+    def get_document_units(
+        self, *, document_id: str | None = None, unit_ids: list[str] | None = None
+    ) -> list[Any]:
+        return [self.units_by_id[i] for i in unit_ids or [] if i in self.units_by_id]
+
     def get_file(self, file_id: str) -> FileRecord | None:
         raise NotImplementedError
 
@@ -418,13 +454,14 @@ def test_references_routes_through_backend_both_directions(
     assert pairs == {("e2", "e1"), ("e1", "e3")}
 
 
-def test_resolved_incoming_outgoing_route_through_backend_with_no_neighbor_resolution(
+def test_resolved_incoming_outgoing_resolve_neighbors_through_backend(
     ragmonk_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Documents the specific gap: server-mode ``ResolvedEdge`` rows carry
-    ``neighbor_entity=None``/``neighbor_file=None`` (no "get entity by id"
-    backend primitive exists), same shape as a genuinely unresolved local
-    edge -- never local sqlite, and never a fabricated neighbor.
+    """Completion plan F4 (replaces the former "no neighbor resolution"
+    limitation test): server-mode ``ResolvedEdge`` rows carry the real
+    neighbor ``Entity``/``FileRecord``, resolved through the backend's
+    ``get_entities``/``get_files`` -- never local sqlite -- and the
+    tests signal works because the caller's file is known.
     """
     from ragmonk.core.models import RelationshipType
     from ragmonk.retrieval import graph as retrieval_graph
@@ -448,12 +485,27 @@ def test_resolved_incoming_outgoing_route_through_backend_with_no_neighbor_resol
         symbol_hits=[symbol_hit],
         neighbor_hits={("e1", "in"): [in_hit], ("e1", "out"): [out_hit]},
     )
+    caller = code_graph.entity_from_symbol_hit(
+        SearchHit(id="x", score=1.0, kind="entity", payload={
+            **_entity_payload("e2", "test_foo"), "file_id": "ftest"
+        })
+    )
+    callee = code_graph.entity_from_symbol_hit(
+        SearchHit(id="y", score=1.0, kind="entity", payload=_entity_payload("e3", "Bar"))
+    )
+    stub.entities_by_id = {"e2": caller, "e3": callee}
+    stub.files_by_id = {
+        "ftest": FileRecord(file_id="ftest", source_id="s1", path="tests/test_foo.py",
+                            content_hash="h"),
+        "f1": FileRecord(file_id="f1", source_id="s1", path="pkg/foo.py", content_hash="h"),
+    }
     ctx = _server_ctx(ragmonk_home, stub)
 
     def _boom(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("local sqlite must never run for server-mode resolved edges")
 
     monkeypatch.setattr(code_graph, "all_project_connections", _boom)
+    monkeypatch.setattr(code_graph, "conn_for_source_path", _boom)
     try:
         matches = code_graph.find_symbol_matches(ctx, "Foo")
         callers = retrieval_graph.resolved_incoming(
@@ -466,42 +518,73 @@ def test_resolved_incoming_outgoing_route_through_backend_with_no_neighbor_resol
     finally:
         ctx.close()
 
-    assert len(callers) == 1 and callers[0].neighbor_entity is None
-    assert len(callees) == 1 and callees[0].neighbor_entity is None
-    assert tests == []
+    assert len(callers) == 1
+    assert callers[0].neighbor_entity is not None and callers[0].neighbor_entity.id == "e2"
+    assert callers[0].neighbor_file is not None
+    assert callers[0].neighbor_file.path == "tests/test_foo.py"
+    assert len(callees) == 1
+    assert callees[0].neighbor_entity is not None and callees[0].neighbor_entity.name == "Bar"
+    assert callees[0].neighbor_file is not None and callees[0].neighbor_file.path == "pkg/foo.py"
+    assert [t.neighbor_entity.id for t in tests if t.neighbor_entity] == ["e2"]
 
 
-def test_impact_and_explore_skip_doc_links_in_server_mode_without_raising(
+def test_impact_and_explore_include_doc_links_in_server_mode(
     ragmonk_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``impact``'s/``explore``'s cross-document-link lookups have no
-    backend-contract equivalent (``publish_links`` is write-only) -- they
-    must skip explicitly in server mode rather than opening local sqlite
-    or raising and losing the rest of the command's otherwise-working
-    callers/callees/tests.
+    """Completion plan F4 (replaces the former "skip doc links" limitation
+    test): ``impact``/``explore`` read cross-domain links, their documents,
+    units and files through the backend in server mode, reporting the
+    same documentation evidence local mode does -- never local sqlite.
     """
+    from ragmonk.backends.models import DocumentRecord, DocumentUnitRecord, LinkRecord
     from ragmonk.cli import explore as explore_cli
     from ragmonk.cli import impact as impact_cli
     from ragmonk.code.graph import SourceMatch
-    from ragmonk.core.models import EntityType
+    from ragmonk.retrieval import planner
 
     entity = code_graph.entity_from_symbol_hit(
         SearchHit(id="s1:f1:e1", score=1.0, kind="entity", payload=_entity_payload("e1", "Foo"))
     )
-    assert entity.kind == EntityType.FUNCTION
     match = SourceMatch(source_id="s1", source_path="s1", entity=entity)
 
     stub = _StubBackend()
+    stub.files_by_id = {
+        "f1": FileRecord(file_id="f1", source_id="s1", path="pkg/foo.py", content_hash="h"),
+        "fd": FileRecord(file_id="fd", source_id="s1", path="docs/guide.md", content_hash="h"),
+    }
+    stub.links = [
+        LinkRecord(
+            entity_id="e1", document_id="d1", section_id="u1", link_type="documented_by",
+            resolver="exact_identifier", confidence="exact", evidence="Foo", source_id="s1",
+        )
+    ]
+    stub.documents_by_id = {
+        "d1": DocumentRecord(document_id="d1", source_id="s1", file_id="fd", title="Guide")
+    }
+    stub.units_by_id = {
+        "u1": DocumentUnitRecord(
+            unit_id="u1", document_id="d1", file_id="fd", source_id="s1", kind="paragraph",
+            text="Foo does things", heading_path=["Guide", "Foo"], page_start=None,
+        )
+    }
     ctx = _server_ctx(ragmonk_home, stub)
 
     def _boom(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("local sqlite must never run for server-mode doc-link lookups")
 
     monkeypatch.setattr(code_graph, "conn_for_source_path", _boom)
+    monkeypatch.setattr("ragmonk.knowledge.document_links.conn_for_source_path", _boom)
+    monkeypatch.setattr("ragmonk.cli.impact.conn_for_source_path", _boom)
     try:
-        assert impact_cli._defined_locations(ctx, [match]) == []
+        defined = impact_cli._defined_locations(ctx, [match])
+        assert defined[0]["path"] == "pkg/foo.py"
         documents, confidences = impact_cli._documentation(ctx, [match])
-        assert documents == [] and confidences == []
-        assert explore_cli._document_links(ctx, [match], strategies=()) == []
+        assert [d["path"] for d in documents] == ["docs/guide.md"]
+        assert documents[0]["location"]["section"] == "Guide > Foo"
+        assert [c.value for c in confidences] == ["exact"]
+        evidence = explore_cli._document_links(
+            ctx, [match], strategies=(planner.Strategy.DOCUMENTS,)
+        )
+        assert [e.path for e in evidence] == ["docs/guide.md"]
     finally:
         ctx.close()

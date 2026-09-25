@@ -563,6 +563,25 @@ class BulkConfig(BaseModel):
         return value
 
 
+def url_has_userinfo(url: str) -> bool:
+    """True when ``url``'s authority part carries a ``user[:password]@``
+    user-info component. Never raises.
+    """
+    if not url or "@" not in url:
+        return False
+    try:
+        from urllib.parse import urlsplit
+
+        netloc = urlsplit(url).netloc
+    except ValueError:
+        return True  # unparsable and contains "@": treat as unsafe
+    if netloc:
+        return "@" in netloc
+    # No scheme ("user:pw@host:9200"): urlsplit puts everything in path.
+    head = url.split("/", 1)[0]
+    return "@" in head
+
+
 class ServerStorageConfig(BaseModel):
     """Connection shape for a server-backed ``KnowledgeBackend`` (future
     phases). Deliberately holds no credential field -- ``username``,
@@ -597,6 +616,25 @@ class ServerStorageConfig(BaseModel):
     def _validate_timeout(cls, value: float) -> float:
         if value <= 0:
             raise ValueError("storage.server.request_timeout_seconds must be > 0")
+        return value
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url_has_no_userinfo(cls, value: str) -> str:
+        """Completion plan F7: ``storage.server.url`` must never carry
+        credentials (``https://user:password@host:9200``) -- they would be
+        persisted in plain text in ``config.yaml``. Credentials are only
+        ever read from the ``RAGMONK_<ENGINE>_USERNAME``/``_PASSWORD``/
+        ``_API_KEY`` env vars. The error message deliberately never
+        echoes the rejected value (see ``load_config``'s own redaction
+        of pydantic's ``input_value``).
+        """
+        if url_has_userinfo(value):
+            raise ValueError(
+                "storage.server.url must not contain credentials (user-info such as "
+                "'user:password@'); set RAGMONK_OPENSEARCH_USERNAME/_PASSWORD/_API_KEY "
+                "or RAGMONK_ELASTICSEARCH_USERNAME/_PASSWORD/_API_KEY instead"
+            )
         return value
 
 
@@ -742,7 +780,31 @@ def load_config(
     try:
         return RagMonkConfig.model_validate(merged)
     except Exception as exc:  # pydantic.ValidationError, kept broad for CLI-facing message
-        raise ConfigError(f"invalid configuration: {exc}") from exc
+        raise ConfigError(f"invalid configuration: {_redacted_validation_message(exc)}") from exc
+
+
+def _redacted_validation_message(exc: Exception) -> str:
+    """pydantic's ``ValidationError.__str__`` echoes each offending
+    ``input_value`` verbatim -- for a credential-bearing
+    ``storage.server.url`` that would print the password. Rebuild the
+    message from each error's location + message only (never its input),
+    and scrub any URL user-info that might still appear.
+    """
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
+        try:
+            parts = []
+            for err in errors():
+                loc = ".".join(str(p) for p in err.get("loc", ()))
+                parts.append(f"{loc}: {err.get('msg', '')}" if loc else str(err.get("msg", "")))
+            message = "; ".join(parts)
+        except Exception:  # pragma: no cover - defensive
+            message = type(exc).__name__
+    else:
+        message = str(exc)
+    import re
+
+    return re.sub(r"([a-zA-Z][a-zA-Z0-9+.\-]*://)[^\s/@]+@", r"\1", message)
 
 
 def write_user_config(config: RagMonkConfig, *, home: Path | None = None) -> Path:

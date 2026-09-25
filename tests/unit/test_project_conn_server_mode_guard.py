@@ -9,7 +9,8 @@ sqlite connection regardless of the configured storage mode. At least 6
 call sites bypassed the existing guards entirely by calling
 ``project_conn()`` directly:
 
-- ``service/knowledge_service.py::list_symbols``
+- ``service/knowledge_service.py::list_symbols`` (completion plan F3: now
+  reads the server backend instead of raising -- see below)
 - ``service/document_service.py::list_documents``/``document_detail``
 - ``service/index_service.py::indexing_overview``/``failed_files``
 - ``cli/link.py``'s ``add``/``remove``/``list`` commands
@@ -28,6 +29,7 @@ control-plane call site (``control_plane=True``) is unaffected.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -88,75 +90,102 @@ def test_local_mode_project_conn_still_works(ragmonk_home: Path, tmp_path: Path)
         ctx.close()
 
 
-# -- The 6 flagged bypass call sites -----------------------------------
+# -- The formerly-flagged Admin UI bypass call sites ------------------
+# Completion plan F3: these no longer raise in server mode -- they now
+# read searchable knowledge through ``ctx.backend()`` (documents,
+# chunks, symbols) or read genuine control-plane state (job queue /
+# file status) with an explicit ``control_plane=True``. The server
+# backend here is the real OpenSearch adapter over an in-memory fake, and
+# ``AppContext.project_conn`` is wrapped so any *knowledge* read of local
+# sqlite (control_plane=False) still fails the test.
 
 
-def test_knowledge_service_list_symbols_raises_in_server_mode(
-    ragmonk_home: Path, tmp_path: Path
+def _server_ctx_with_fake_backend(
+    ragmonk_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> AppContext:
+    from tests.unit._fake_opensearch import FakeOpenSearch
+
+    from ragmonk.backends.opensearch import OpenSearchKnowledgeBackend
+
+    ctx = _server_ctx(ragmonk_home)
+    backend = OpenSearchKnowledgeBackend(ctx.config.storage.server, client=FakeOpenSearch())
+    backend.ensure_schema()
+    ctx._server_backend = backend  # noqa: SLF001 - inject the fake engine
+    original = AppContext.project_conn
+
+    def _guarded(self: AppContext, project_id: str, *, control_plane: bool = False) -> Any:
+        assert control_plane, "server-mode UI service read local sqlite for knowledge"
+        return original(self, project_id, control_plane=control_plane)
+
+    monkeypatch.setattr(AppContext, "project_conn", _guarded)
+    return ctx
+
+
+def test_knowledge_service_list_symbols_reads_backend_in_server_mode(
+    ragmonk_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from ragmonk.service import knowledge_service
 
-    ctx = _server_ctx(ragmonk_home)
+    ctx = _server_ctx_with_fake_backend(ragmonk_home, monkeypatch)
     try:
         _register_source(ctx, tmp_path)
-        with pytest.raises(LocalStorageModeRequiredError):
-            knowledge_service.list_symbols(ctx)
+        assert knowledge_service.list_symbols(ctx) == []
+        assert knowledge_service.list_symbols(ctx, query="anything") == []
     finally:
         ctx.close()
 
 
-def test_document_service_list_documents_raises_in_server_mode(
-    ragmonk_home: Path, tmp_path: Path
+def test_document_service_list_documents_reads_backend_in_server_mode(
+    ragmonk_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from ragmonk.service import document_service
 
-    ctx = _server_ctx(ragmonk_home)
+    ctx = _server_ctx_with_fake_backend(ragmonk_home, monkeypatch)
     try:
         _register_source(ctx, tmp_path)
-        with pytest.raises(LocalStorageModeRequiredError):
-            document_service.list_documents(ctx)
+        listing = document_service.list_documents(ctx)
+        assert listing["total"] == 0 and listing["documents"] == []
     finally:
         ctx.close()
 
 
-def test_document_service_document_detail_raises_in_server_mode(
-    ragmonk_home: Path, tmp_path: Path
+def test_document_service_document_detail_reads_backend_in_server_mode(
+    ragmonk_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from ragmonk.service import document_service
 
-    ctx = _server_ctx(ragmonk_home)
+    ctx = _server_ctx_with_fake_backend(ragmonk_home, monkeypatch)
     try:
         source_id = _register_source(ctx, tmp_path)
-        with pytest.raises(LocalStorageModeRequiredError):
-            document_service.document_detail(ctx, source_id, "does-not-matter")
+        with pytest.raises(LookupError):
+            document_service.document_detail(ctx, source_id, "does-not-exist")
     finally:
         ctx.close()
 
 
-def test_index_service_indexing_overview_raises_in_server_mode(
-    ragmonk_home: Path, tmp_path: Path
+def test_index_service_indexing_overview_uses_control_plane_in_server_mode(
+    ragmonk_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from ragmonk.service import index_service
 
-    ctx = _server_ctx(ragmonk_home)
+    ctx = _server_ctx_with_fake_backend(ragmonk_home, monkeypatch)
     try:
         _register_source(ctx, tmp_path)
-        with pytest.raises(LocalStorageModeRequiredError):
-            index_service.indexing_overview(ctx)
+        overview = index_service.indexing_overview(ctx)
+        assert overview["queue_depth"] == 0
     finally:
         ctx.close()
 
 
-def test_index_service_failed_files_raises_in_server_mode(
-    ragmonk_home: Path, tmp_path: Path
+def test_index_service_failed_files_uses_control_plane_in_server_mode(
+    ragmonk_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from ragmonk.service import index_service
 
-    ctx = _server_ctx(ragmonk_home)
+    ctx = _server_ctx_with_fake_backend(ragmonk_home, monkeypatch)
     try:
         _register_source(ctx, tmp_path)
-        with pytest.raises(LocalStorageModeRequiredError):
-            index_service.failed_files(ctx)
+        assert index_service.failed_files(ctx) == []
     finally:
         ctx.close()
 

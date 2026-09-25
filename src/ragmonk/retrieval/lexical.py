@@ -486,7 +486,7 @@ def _merge(results: list[SearchResult]) -> list[SearchResult]:
     return sorted(best.values(), key=_sort_key)
 
 
-def _search_hit_to_result(hit: Any) -> SearchResult:
+def _search_hit_to_result(hit: Any, paths_by_file: dict[str, str] | None = None) -> SearchResult:
     """Maps a backend-neutral ``SearchHit`` (server mode) onto the same
     ``SearchResult`` shape local mode's FTS5 path produces, so every
     caller above this module (CLI/MCP/Admin UI) keeps seeing one stable
@@ -499,17 +499,29 @@ def _search_hit_to_result(hit: Any) -> SearchResult:
         "document",
         "chunk",
     ) else hit.kind
+    # Completion plan F4: the server payload carries ``file_id``, not the
+    # path -- resolve it through the backend's file records (published
+    # generation) so a server-mode hit shows the same path local mode does.
+    path = str(payload.get("path") or (paths_by_file or {}).get(str(payload.get("file_id")), ""))
+    heading = payload.get("heading_path") or []
     title = str(
-        payload.get("qualified_name") or payload.get("name") or payload.get("path") or hit.id
+        payload.get("qualified_name")
+        or payload.get("name")
+        or (" > ".join(heading) if heading else "")
+        or path
+        or hit.id
     )
+    snippet = payload.get("snippet")
+    if snippet is None and hit.kind == "chunk":
+        snippet = str(payload.get("content") or payload.get("search_text") or "")[:300] or None
     return SearchResult(
         kind=kind,
         tier=RankTier.FTS,
         id=hit.id,
         title=title,
-        path=str(payload.get("path", "")),
+        path=path,
         source_id=str(payload.get("source_id", "")),
-        snippet=payload.get("snippet"),
+        snippet=snippet,
         location=None,
         fts_rank=0,
         query_tier=LexicalTier.PHRASE,
@@ -525,8 +537,11 @@ def _search_with_timings_server(
     this phase's "no silent local fallback" rule.
     """
     started = time.perf_counter()
-    hits = ctx.backend().lexical_search(query, limit)
-    results = [_search_hit_to_result(hit) for hit in hits][:limit]
+    backend = ctx.backend()
+    hits = backend.lexical_search(query, limit)
+    file_ids = sorted({str(h.payload.get("file_id")) for h in hits if h.payload.get("file_id")})
+    paths_by_file = {f.file_id: f.path for f in backend.get_files(file_ids)} if file_ids else {}
+    results = [_search_hit_to_result(hit, paths_by_file) for hit in hits][:limit]
     elapsed_ms = (time.perf_counter() - started) * 1000
     return TimedSearchResult(
         results=results,

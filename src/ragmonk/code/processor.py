@@ -264,14 +264,53 @@ def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOut
     conn = ctx.conn
     this_file_id = ctx.file_id
 
-    def qualified_lookup(text: str) -> list[Entity]:
-        return [
-            e for e in entities_repo.find_by_qualified_name(conn, text)
-            if e.file_id != this_file_id
-        ]
+    if backend.is_server:
+        # Completion plan F1: in server mode the other files' entities
+        # live in the server backend (never local SQLite) -- resolve
+        # cross-file symbols there, reading exactly the generation this
+        # pass is writing so an in-progress rebuild resolves against its
+        # own freshly written entities, not the published ones.
+        server_backend = backend
+        source_id = ctx.source_id
+        write_generation = str(ctx.next_generation)
+        cache: dict[tuple[str, str], list[Entity]] = {}
 
-    def name_lookup(name: str) -> list[Entity]:
-        return [e for e in entities_repo.find_by_name(conn, name) if e.file_id != this_file_id]
+        def _server_lookup(field: str, text: str) -> list[Entity]:
+            key = (field, text)
+            if key not in cache:
+                found = (
+                    server_backend.find_entities_by_names(
+                        qualified_names=[text], source_id=source_id, generation=write_generation
+                    )
+                    if field == "qualified_name"
+                    else server_backend.find_entities_by_names(
+                        names=[text], source_id=source_id, generation=write_generation
+                    )
+                )
+                cache[key] = [
+                    e for e in found
+                    if e.file_id != this_file_id and getattr(e, field) == text
+                ]
+            return cache[key]
+
+        def qualified_lookup(text: str) -> list[Entity]:
+            return _server_lookup("qualified_name", text)
+
+        def name_lookup(name: str) -> list[Entity]:
+            return _server_lookup("name", name)
+
+    else:
+
+        def qualified_lookup(text: str) -> list[Entity]:
+            return [
+                e for e in entities_repo.find_by_qualified_name(conn, text)
+                if e.file_id != this_file_id
+            ]
+
+        def name_lookup(name: str) -> list[Entity]:
+            return [
+                e for e in entities_repo.find_by_name(conn, name) if e.file_id != this_file_id
+            ]
 
     entity_snippets = {
         entity.id: (extraction.entities[local_id].signature or entity.name)

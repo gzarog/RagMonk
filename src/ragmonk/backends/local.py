@@ -51,7 +51,10 @@ from typing import Any
 from ragmonk.backends.base import GraphDirection, KnowledgeBackend
 from ragmonk.backends.models import (
     BackendStats,
+    DocumentRecord,
+    DocumentUnitRecord,
     FileRecord,
+    LinkRecord,
     PreparedCode,
     PreparedDocument,
     PreparedEmbeddings,
@@ -59,7 +62,7 @@ from ragmonk.backends.models import (
     SearchHit,
 )
 from ragmonk.core import paths
-from ragmonk.core.models import CrossLink, Paragraph, Section, Table
+from ragmonk.core.models import CrossLink, Entity, Paragraph, Section, Table
 from ragmonk.documents.chunker import Chunk
 from ragmonk.storage.migrations import apply_migrations
 from ragmonk.storage.repositories import (
@@ -404,12 +407,16 @@ class LocalKnowledgeBackend(KnowledgeBackend):
             "LocalKnowledgeBackend.get_file: not yet wired (future phase)"
         )
 
-    def get_entities_for_files(self, file_ids: list[str]) -> list[dict[str, Any]]:
+    def get_entities_for_files(
+        self, file_ids: list[str], *, generation: str | None = None
+    ) -> list[dict[str, Any]]:
         raise NotImplementedError(
             "LocalKnowledgeBackend.get_entities_for_files: not yet wired (future phase)"
         )
 
-    def get_document_units_for_files(self, file_ids: list[str]) -> list[dict[str, Any]]:
+    def get_document_units_for_files(
+        self, file_ids: list[str], *, generation: str | None = None
+    ) -> list[dict[str, Any]]:
         raise NotImplementedError(
             "LocalKnowledgeBackend.get_document_units_for_files: not yet wired "
             "(future phase)"
@@ -420,10 +427,213 @@ class LocalKnowledgeBackend(KnowledgeBackend):
             "LocalKnowledgeBackend.count_stats: not yet wired (future phase)"
         )
 
+    # -- Completion plan F4: targeted read primitives ----------------------
+    # Thin projections over the existing repositories, against this
+    # backend's own (per-project) connection -- the local-mode side of
+    # the same contract the server adapters answer from the engine.
+    def get_files(self, file_ids: list[str]) -> list[FileRecord]:
+        records = files_repo.get_many(self._connection(), list(file_ids))
+        return [_file_record(records[fid]) for fid in file_ids if fid in records]
+
+    def list_files(self, source_id: str) -> list[FileRecord]:
+        return [_file_record(r) for r in files_repo.list_by_source(self._connection(), source_id)]
+
+    def get_entities(self, entity_ids: list[str]) -> list[Entity]:
+        conn = self._connection()
+        out: list[Entity] = []
+        for entity_id in dict.fromkeys(entity_ids):
+            entity = entities_repo.get(conn, entity_id)
+            if entity is not None:
+                out.append(entity)
+        return out
+
+    def list_entities(
+        self, *, source_id: str | None = None, query: str | None = None, limit: int = 100
+    ) -> list[Entity]:
+        conn = self._connection()
+        if query:
+            try:
+                entities = entities_repo.search_fts(conn, query, limit=limit)
+            except sqlite3.OperationalError:
+                entities = []
+        else:
+            entities = entities_repo.list_all(conn)
+        if source_id:
+            entities = [e for e in entities if e.source_id == source_id]
+        return entities[:limit]
+
+    def list_source_entities(
+        self, source_id: str, *, generation: str | None = None
+    ) -> list[Entity]:
+        return [e for e in entities_repo.list_all(self._connection()) if e.source_id == source_id]
+
+    def find_entities_by_names(
+        self,
+        *,
+        names: list[str] | None = None,
+        qualified_names: list[str] | None = None,
+        source_id: str | None = None,
+        generation: str | None = None,
+    ) -> list[Entity]:
+        conn = self._connection()
+        found: dict[str, Entity] = {}
+        for name in names or []:
+            for entity in entities_repo.find_by_name(conn, name):
+                found.setdefault(entity.id, entity)
+        for qualified in qualified_names or []:
+            for entity in entities_repo.find_by_qualified_name(conn, qualified):
+                found.setdefault(entity.id, entity)
+        out = list(found.values())
+        if source_id:
+            out = [e for e in out if e.source_id == source_id]
+        return out
+
+    def get_links(
+        self,
+        *,
+        entity_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
+    ) -> list[LinkRecord]:
+        conn = self._connection()
+        seen: set[str] = set()
+        out: list[LinkRecord] = []
+        links: list[CrossLink] = []
+        for entity_id in entity_ids or []:
+            links.extend(links_repo.list_by_entity(conn, entity_id))
+        for document_id in document_ids or []:
+            links.extend(links_repo.list_by_document(conn, document_id))
+        for link in links:
+            if link.id in seen:
+                continue
+            seen.add(link.id)
+            out.append(
+                LinkRecord(
+                    entity_id=link.entity_id,
+                    document_id=link.document_id,
+                    section_id=link.section_id,
+                    link_type=link.link_type.value,
+                    resolver=link.resolver,
+                    confidence=link.confidence.value,
+                    evidence=link.evidence or "",
+                )
+            )
+        return out
+
+    def get_documents(self, document_ids: list[str]) -> list[DocumentRecord]:
+        conn = self._connection()
+        out: list[DocumentRecord] = []
+        for document_id in dict.fromkeys(document_ids):
+            document = documents_repo.get_document(conn, document_id)
+            if document is not None:
+                out.append(_document_record(document))
+        return out
+
+    def list_documents(
+        self, *, source_id: str | None = None, limit: int | None = None
+    ) -> list[DocumentRecord]:
+        conn = self._connection()
+        documents = (
+            documents_repo.list_by_source(conn, source_id)
+            if source_id
+            else documents_repo.list_all(conn)
+        )
+        records = [_document_record(d) for d in documents]
+        return records if limit is None else records[:limit]
+
+    def get_document_units(
+        self,
+        *,
+        document_id: str | None = None,
+        unit_ids: list[str] | None = None,
+    ) -> list[DocumentUnitRecord]:
+        conn = self._connection()
+        if document_id is not None:
+            document = documents_repo.get_document(conn, document_id)
+            if document is None:
+                return []
+            units = documents_repo.list_units_by_file(conn, document.file_id)
+            return [_unit_record(u, document.source_id) for u in units]
+        out: list[DocumentUnitRecord] = []
+        for unit_id in dict.fromkeys(unit_ids or []):
+            unit = documents_repo.get_unit(conn, unit_id)
+            if unit is not None:
+                out.append(_unit_record(unit, ""))
+        return out
+
+    def list_source_document_units(
+        self, source_id: str, *, generation: str | None = None
+    ) -> list[DocumentUnitRecord]:
+        conn = self._connection()
+        file_ids = {f.id for f in files_repo.list_by_source(conn, source_id)}
+        return [
+            _unit_record(u, source_id)
+            for u in documents_repo.list_all_units(conn)
+            if u.file_id in file_ids
+        ]
+
+    def find_relationships_by_target_prefix(
+        self, source_id: str, prefix: str, *, generation: str | None = None
+    ) -> list[dict[str, Any]]:
+        return [
+            r.model_dump(mode="json")
+            for r in relationships_repo.find_by_target_symbol_prefix(self._connection(), prefix)
+        ]
+
     def clear_source(self, source_id: str) -> None:
         raise NotImplementedError(
             "LocalKnowledgeBackend.clear_source: not yet wired (future phase)"
         )
+
+
+def _file_record(record: Any) -> FileRecord:
+    return FileRecord(
+        file_id=record.id,
+        source_id=record.source_id,
+        path=record.path,
+        content_hash=record.content_hash or "",
+        size_bytes=record.size,
+        mtime=record.mtime,
+        metadata={
+            "kind": record.kind.value,
+            "status": record.status.value,
+            "last_indexed_at": record.last_indexed_at,
+            "updated_at": record.updated_at,
+        },
+    )
+
+
+def _document_record(document: Any) -> DocumentRecord:
+    return DocumentRecord(
+        document_id=document.id,
+        source_id=document.source_id,
+        file_id=document.file_id,
+        title=document.title or "",
+        format=document.format.value,
+        author=document.author,
+        page_count=document.page_count,
+        section_count=document.section_count,
+        paragraph_count=document.paragraph_count,
+        table_count=document.table_count,
+        is_scanned=document.is_scanned,
+        created_at=document.created_at,
+        updated_at=document.updated_at,
+    )
+
+
+def _unit_record(unit: Any, source_id: str) -> DocumentUnitRecord:
+    return DocumentUnitRecord(
+        unit_id=unit.id,
+        document_id=unit.document_id,
+        file_id=unit.file_id,
+        source_id=source_id,
+        kind=unit.kind.value,
+        text=unit.text,
+        heading_path=list(unit.heading_path),
+        page_start=unit.page_start,
+        page_end=unit.page_end,
+        embedding_text=unit.embedding_text,
+        has_embedding=bool(unit.embedding_text),
+    )
 
 
 def _insert_chunk(

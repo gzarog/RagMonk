@@ -110,6 +110,7 @@ class FakeElasticsearch:
         return {
             "version": {"number": self.version, "build_flavor": "default"},
             "cluster_name": "fake",
+            "tagline": "You Know, for Search",
         }
 
     def get(self, index: str, id: str) -> dict[str, Any]:  # noqa: A002
@@ -159,6 +160,8 @@ class FakeElasticsearch:
         size: int = 10,
         query: dict[str, Any] | None = None,
         knn: dict[str, Any] | None = None,
+        sort: list[dict[str, Any]] | None = None,
+        search_after: list[Any] | None = None,
     ) -> dict[str, Any]:
         docs = self.store.get(index, {})
         if knn is not None:
@@ -180,6 +183,7 @@ class FakeElasticsearch:
             for doc_id, source in docs.items()
             if _matches(effective_query, source)
         ]
+        matched = _apply_sort_and_page(matched, sort, search_after)
         return {"hits": {"hits": matched[:size], "total": {"value": len(matched)}}}
 
     def bulk(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
@@ -237,7 +241,10 @@ def _matches(query: dict[str, Any], source: dict[str, Any]) -> bool:
         (field, values), = query["terms"].items()
         return source.get(field) in values
     if "exists" in query:
-        return query["exists"]["field"] in source
+        return source.get(query["exists"]["field"]) is not None
+    if "prefix" in query:
+        (field, value), = query["prefix"].items()
+        return str(source.get(field) or "").startswith(str(value))
     if "bool" in query:
         clause = query["bool"]
         filters = clause.get("filter", [])
@@ -264,3 +271,28 @@ def _matches(query: dict[str, Any], source: dict[str, Any]) -> bool:
                 return False
         return True
     return False
+
+
+def _apply_sort_and_page(
+    matched: list[dict[str, Any]],
+    sort: list[dict[str, Any]] | None,
+    search_after: list[Any] | None,
+) -> list[dict[str, Any]]:
+    """Minimal ``sort`` (single keyword field, ascending) + ``search_after``
+    support -- enough for the adapters' paginated ``_scan`` helper.
+    """
+    if not sort:
+        return matched
+    (field, _order), = sort[0].items()
+    keyed = []
+    for hit in matched:
+        value = hit["_source"].get(field)
+        key = "" if value is None else str(value)
+        keyed.append((key, hit["_id"], hit))
+    keyed.sort(key=lambda t: (t[0], t[1]))
+    out = []
+    for key, doc_id, hit in keyed:
+        if search_after is not None and [key, doc_id] <= list(search_after):
+            continue
+        out.append({**hit, "sort": [key, doc_id]})
+    return out

@@ -107,6 +107,8 @@ def prepare_embeddings(
     touched_code_file_ids: Sequence[str],
     touched_document_file_ids: Sequence[str],
     batch_size: int | None = None,
+    backend: KnowledgeBackend | None = None,
+    generation: str | None = None,
 ) -> PreparedEmbeddings | None:
     """Gathers every non-empty-text entity/document-section belonging to
     a touched file and computes its vector -- pure reads plus model
@@ -136,7 +138,24 @@ def prepare_embeddings(
     # groups them back out per file itself.
     subjects: list[tuple[EmbeddingSubjectType, str, str, str]] = []
     entities_by_file: dict[str, list[Entity]] = {}
-    for entity in entities_repo.list_by_files(conn, list(touched_code_file_ids)):
+    # Completion plan F1: in server mode the entities/units just written
+    # live in the server backend (tagged with this pass's ``generation``),
+    # never in local SQLite -- read them back from there. Local SQLite
+    # stays the source only for the local backend.
+    server = backend is not None and backend.is_server
+    if server:
+        assert backend is not None
+        from ragmonk.backends.server_common import entity_from_payload
+
+        touched_entities = [
+            entity_from_payload(payload)
+            for payload in backend.get_entities_for_files(
+                list(touched_code_file_ids), generation=generation
+            )
+        ]
+    else:
+        touched_entities = entities_repo.list_by_files(conn, list(touched_code_file_ids))
+    for entity in touched_entities:
         entities_by_file.setdefault(entity.file_id, []).append(entity)
     for file_id in touched_code_file_ids:
         for entity in entities_by_file.get(file_id, []):
@@ -145,7 +164,17 @@ def prepare_embeddings(
                 subjects.append((EmbeddingSubjectType.ENTITY, entity.id, file_id, text))
 
     units_by_file: dict[str, list[documents_repo.DocumentUnit]] = {}
-    for unit in documents_repo.list_units_by_files(conn, list(touched_document_file_ids)):
+    if server:
+        assert backend is not None
+        touched_units = [
+            _unit_from_payload(payload)
+            for payload in backend.get_document_units_for_files(
+                list(touched_document_file_ids), generation=generation
+            )
+        ]
+    else:
+        touched_units = documents_repo.list_units_by_files(conn, list(touched_document_file_ids))
+    for unit in touched_units:
         units_by_file.setdefault(unit.file_id, []).append(unit)
     for file_id in touched_document_file_ids:
         for unit in units_by_file.get(file_id, []):
@@ -334,20 +363,25 @@ def publish_embeddings(
 
         backend = LocalKnowledgeBackend(conn=conn)
 
-    backend.publish_embeddings(
-        BackendPreparedEmbeddings(
-            source_id=prepared.source_id,
-            model_id=embedder.EMBEDDING_MODEL_ID,
-            code_embedding_text_version=CODE_EMBEDDING_TEXT_VERSION,
-            document_embedding_text_version=_document_embedding_text_version,
-            subjects=prepared.subjects,
-            vectors=prepared.vectors,
-            touched_code_file_ids=prepared.touched_code_file_ids,
-            touched_document_file_ids=prepared.touched_document_file_ids,
-            cache_entries=prepared.cache_entries,
-            cache_reused=prepared.cache_reused,
-        )
+    backend_prepared = BackendPreparedEmbeddings(
+        source_id=prepared.source_id,
+        model_id=embedder.EMBEDDING_MODEL_ID,
+        code_embedding_text_version=CODE_EMBEDDING_TEXT_VERSION,
+        document_embedding_text_version=_document_embedding_text_version,
+        subjects=prepared.subjects,
+        vectors=prepared.vectors,
+        touched_code_file_ids=prepared.touched_code_file_ids,
+        touched_document_file_ids=prepared.touched_document_file_ids,
+        cache_entries=prepared.cache_entries,
+        cache_reused=prepared.cache_reused,
     )
+    backend.publish_embeddings(backend_prepared)
+    if backend.is_server:
+        # Completion plan F1: vectors went to the server backend; the
+        # per-file embedding-version stamps (reuse bookkeeping) and the
+        # persistent embedding-reuse cache are local control-plane state
+        # and are still recorded locally, exactly as local mode does.
+        _record_embedding_control_plane(conn, backend_prepared)
 
     log_event(
         _logger,
@@ -356,6 +390,65 @@ def publish_embeddings(
         count=len(prepared.subjects),
     )
     return len(prepared.subjects)
+
+
+def _unit_from_payload(payload: dict[str, object]) -> documents_repo.DocumentUnit:
+    from ragmonk.backends.server_common import unit_record_from_payload
+    from ragmonk.core.models import SectionKind
+
+    record = unit_record_from_payload(dict(payload))
+    try:
+        kind = SectionKind(record.kind)
+    except ValueError:
+        kind = SectionKind.PARAGRAPH
+    return documents_repo.DocumentUnit(
+        id=record.unit_id,
+        document_id=record.document_id,
+        file_id=record.file_id,
+        kind=kind,
+        text=record.text,
+        heading_path=record.heading_path,
+        page_start=record.page_start,
+        page_end=record.page_end,
+        embedding_text=record.embedding_text,
+    )
+
+
+def _record_embedding_control_plane(
+    conn: sqlite3.Connection, prepared: BackendPreparedEmbeddings
+) -> None:
+    from datetime import UTC, datetime
+
+    from ragmonk.storage.repositories import files_repo
+
+    now = datetime.now(UTC).isoformat()
+    if prepared.touched_code_file_ids:
+        files_repo.update_embedding_version_many(
+            conn,
+            list(prepared.touched_code_file_ids),
+            embedding_model_id=prepared.model_id,
+            embedding_text_version=prepared.code_embedding_text_version,
+            updated_at=now,
+        )
+    if prepared.touched_document_file_ids:
+        files_repo.update_embedding_version_many(
+            conn,
+            list(prepared.touched_document_file_ids),
+            embedding_model_id=prepared.model_id,
+            embedding_text_version=prepared.document_embedding_text_version,
+            updated_at=now,
+        )
+    preprocessing_version = model_identity.preprocessing_fingerprint()
+    for hashed_text, embedding_text_version, vector in prepared.cache_entries:
+        embedding_cache_repo.put(
+            conn,
+            hashed_text,
+            model_id=prepared.model_id,
+            preprocessing_version=preprocessing_version,
+            embedding_text_version=embedding_text_version,
+            vector=vector,
+            created_at=now,
+        )
 
 
 def embed_touched_files(

@@ -15,27 +15,28 @@ read only from ``RAGMONK_<ENGINE>_USERNAME``/``_PASSWORD``/``_API_KEY`` at
 call time, purely to include as a preflight auth header if a caller sets
 them -- never written to the config file.
 
-Before writing a server-mode config, a real (not mocked) HTTP GET
-preflight against ``--storage-url`` is performed with a short timeout: no
-file is written if it fails, and no partially-written config is ever left
-behind (the write only happens after a successful preflight).
+Before writing a server-mode config, the selected engine is validated
+with its *real* client (completion plan F5 -- see
+``ragmonk.backends.validation``): reachability, authentication, engine
+identity (OpenSearch must not pass as Elasticsearch or vice versa, and a
+generic HTTP 200 server passes neither), supported version, and
+non-destructive permission checks. No file is written unless every check
+passes, and no error message ever contains a credential.
 """
 
 from __future__ import annotations
 
-import urllib.error
-import urllib.request
 from typing import Annotated
 
 import typer
 
-from ragmonk.backends.factory import credential_env_vars
 from ragmonk.core import paths
 from ragmonk.core.config import (
     RagMonkConfig,
     ServerStorageConfig,
     StorageConfig,
     load_config,
+    url_has_userinfo,
     write_user_config,
 )
 from ragmonk.core.errors import UsageError
@@ -44,60 +45,52 @@ from ragmonk.storage.sqlite import connect
 
 from ._common import cli_command, console
 
-_PREFLIGHT_TIMEOUT_SECONDS = 5.0
 
-
-def _preflight_server_url(url: str, *, engine: str, verify_tls: bool) -> None:
-    """A real, minimal HTTP GET against ``url``, raising ``UsageError`` on
-    any failure (unreachable host, timeout, non-2xx/3xx response). This is
-    a placeholder for a future engine-specific cluster health/version
-    check -- it proves the URL is reachable, nothing more.
+def _validated_server_storage(
+    *, engine: str, url: str, index_prefix: str, verify_tls: bool
+) -> StorageConfig:
+    """Builds and *really* validates the server storage config (see
+    module docstring). Raises ``UsageError`` -- never a raw pydantic
+    error, whose text would echo the URL -- on any failure.
     """
+    from ragmonk.backends.factory import redact_url
+    from ragmonk.backends.validation import validate_server_config
+
     if not url:
         raise UsageError("--storage-url is required when --storage-mode=server")
-
-    username_var, password_var, api_key_var = credential_env_vars(engine)
-    import os
-
-    headers: dict[str, str] = {}
-    api_key = os.environ.get(api_key_var)
-    username = os.environ.get(username_var)
-    password = os.environ.get(password_var)
-    if api_key:
-        headers["Authorization"] = f"ApiKey {api_key}"
-    elif username and password:
-        import base64
-
-        token = base64.b64encode(f"{username}:{password}".encode()).decode()
-        headers["Authorization"] = f"Basic {token}"
-
-    request = urllib.request.Request(url, headers=headers, method="GET")
-    ctx = None
-    if not verify_tls:
-        import ssl
-
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-
-    try:
-        with urllib.request.urlopen(
-            request, timeout=_PREFLIGHT_TIMEOUT_SECONDS, context=ctx
-        ) as response:
-            status = response.status
-    except urllib.error.HTTPError as exc:
-        status = exc.code
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+    if url_has_userinfo(url):
         raise UsageError(
-            f"storage preflight check failed: could not reach {url!r} ({exc}); "
-            "no config file was written"
-        ) from exc
-
-    if not (200 <= status < 400):
-        raise UsageError(
-            f"storage preflight check failed: {url!r} responded with HTTP {status}; "
+            "--storage-url must not contain credentials (user-info such as "
+            "'user:password@'); set RAGMONK_OPENSEARCH_USERNAME/_PASSWORD/_API_KEY or "
+            "RAGMONK_ELASTICSEARCH_USERNAME/_PASSWORD/_API_KEY instead; "
             "no config file was written"
         )
+    if engine not in ("opensearch", "elasticsearch"):
+        raise UsageError(
+            f"unknown --storage-engine {engine!r}; expected 'opensearch' or 'elasticsearch'"
+        )
+    try:
+        server = ServerStorageConfig(
+            engine=engine,  # type: ignore[arg-type]
+            url=url,
+            index_prefix=index_prefix,
+            verify_tls=verify_tls,
+        )
+    except Exception as exc:
+        raise UsageError(f"invalid server storage options ({type(exc).__name__})") from None
+    try:
+        result = validate_server_config(server)
+    except UsageError as exc:
+        raise UsageError(
+            f"storage validation failed: {exc}; no config file was written"
+        ) from None
+    for warning in result.warnings:
+        console.print(f"[yellow]warning:[/yellow] {warning}")
+    console.print(
+        f"[green]Storage validation OK[/green] -- {result.engine} {result.version} "
+        f"at {redact_url(url)}"
+    )
+    return StorageConfig(mode="server", server=server)
 
 
 @cli_command
@@ -177,20 +170,11 @@ def init(
             )
 
         if storage_mode == "server":
-            _preflight_server_url(
-                storage_url, engine=storage_engine, verify_tls=storage_verify_tls
-            )
-            storage = StorageConfig(
-                mode="server",
-                server=ServerStorageConfig(
-                    engine=storage_engine,  # type: ignore[arg-type]
-                    url=storage_url,
-                    index_prefix=storage_index_prefix,
-                    verify_tls=storage_verify_tls,
-                ),
-            )
-            console.print(
-                f"[green]Storage preflight OK[/green] -- {storage_engine} at {storage_url}"
+            storage = _validated_server_storage(
+                engine=storage_engine,
+                url=storage_url,
+                index_prefix=storage_index_prefix,
+                verify_tls=storage_verify_tls,
             )
         else:
             # Default/explicit local: identical resulting config shape to

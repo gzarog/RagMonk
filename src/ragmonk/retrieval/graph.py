@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from ragmonk.backends.base import GraphDirection
+from ragmonk.backends.models import FileRecord as BackendFileRecord
+from ragmonk.backends.models import SearchHit
 from ragmonk.code.graph import (
     DEFAULT_LIMIT,
     DEFAULT_MAX_DEPTH,
@@ -39,7 +41,7 @@ from ragmonk.code.graph import (
     unresolved_symbol_edges,
 )
 from ragmonk.core.lifecycle import AppContext
-from ragmonk.core.models import Entity, FileRecord, RelationshipType
+from ragmonk.core.models import Entity, FileKind, FileRecord, FileStatus, RelationshipType
 from ragmonk.storage.repositories import entities_repo, files_repo
 
 __all__ = [
@@ -196,28 +198,21 @@ def _resolved_server(
     relationship_types: tuple[RelationshipType, ...],
     max_depth: int,
     limit: int,
+    name: str | None = None,
 ) -> list[ResolvedEdge]:
     """Shared server-mode body for ``resolved_incoming``/``resolved_outgoing``.
 
-    Scope cut (documented, not forced): the current ``KnowledgeBackend``
-    contract has no "fetch entity/file by id" primitive -- ``symbol_search``
-    only matches by name/qualified-name text, and ``graph_neighbors``
-    returns relationship rows, never the neighboring entity's own record.
-    Without that primitive there is no way to resolve a
-    ``graph_neighbors`` edge's *other* end to an ``Entity``/``FileRecord``
-    the way local mode's ``entities_repo.get``/``files_repo.get`` do, so
-    every server-mode ``ResolvedEdge`` here carries
-    ``neighbor_entity=None``/``neighbor_file=None`` -- the same shape
-    local mode already uses for a genuinely unresolved (name-only) edge --
-    rather than raising or fabricating a name. Callers that key off
-    ``neighbor_entity`` (``impact``'s caller/callee/test name lists,
-    ``explore``'s dependency list) degrade to reporting none in server
-    mode until a ``get_entities``-shaped contract extension lands; this is
-    the specific, documented gap, not a silent wrong answer.
+    Completion plan F4: each ``graph_neighbors`` edge's *other* end is
+    resolved to a real ``Entity``/``FileRecord`` through the backend's
+    targeted read primitives (``get_entities``/``get_files``, both
+    batched and filtered to the published generation) -- parity with
+    local mode's ``entities_repo.get``/``files_repo.get``. Never local
+    SQLite. An edge whose neighbor id is genuinely unresolved (name-only
+    ``target_symbol``) still carries ``None``, exactly like local mode.
     """
     backend = ctx.backend()
     filters: dict[str, Any] = {"relationship_type": [rt.value for rt in relationship_types]}
-    out: list[ResolvedEdge] = []
+    raw: list[tuple[str, TraversalEdge]] = []
     seen_ids: set[str] = set()
     for match in matches:
         hits = backend.graph_neighbors(match.entity.id, backend_direction, max_depth, filters)
@@ -225,13 +220,88 @@ def _resolved_server(
             if hit.id in seen_ids:
                 continue
             seen_ids.add(hit.id)
-            edge = TraversalEdge(depth=1, relationship=relationship_from_search_hit(hit))
-            out.append(
-                ResolvedEdge(
-                    edge=edge, source_id=match.source_id, neighbor_entity=None, neighbor_file=None
-                )
+            relationship = relationship_from_search_hit(hit)
+            raw.append((match.source_id, TraversalEdge(depth=1, relationship=relationship)))
+    if backend_direction == "in":
+        # Parity with local ``resolved_incoming``: merge unresolved
+        # (name-only) edges recorded against each match's name. A caller
+        # file indexed before the callee's defining file stores its call
+        # by ``target_symbol`` alone (never retroactively upgraded), so
+        # ``graph_neighbors``' entity-id-keyed query cannot reach it --
+        # without this, callers silently depend on filesystem walk order.
+        by_source: dict[str, set[str]] = {}
+        for match in matches:
+            by_source.setdefault(match.source_id, set()).update(
+                {name, match.entity.name} if name else {match.entity.name}
             )
-    return out[:limit]
+        for source_id, symbols in by_source.items():
+            payloads = backend.find_unresolved_relationships(
+                sorted(symbols),
+                [rt.value for rt in relationship_types],
+                limit=limit,
+            )
+            for payload in payloads:
+                if payload.get("source_id") not in (None, source_id):
+                    continue
+                hit_id = str(payload.get("relationship_id") or "")
+                if not hit_id or hit_id in seen_ids:
+                    continue
+                seen_ids.add(hit_id)
+                relationship = relationship_from_search_hit(
+                    SearchHit(id=hit_id, score=0.0, kind="relationship", payload=payload)
+                )
+                raw.append((source_id, TraversalEdge(depth=1, relationship=relationship)))
+    raw = raw[:limit]
+    direction = "incoming" if backend_direction == "in" else "outgoing"
+    neighbor_ids = [
+        nid for _, edge in raw if (nid := _neighbor_id(edge, direction)) is not None
+    ]
+    entities = {e.id: e for e in backend.get_entities(neighbor_ids)} if neighbor_ids else {}
+    file_ids = sorted({e.file_id for e in entities.values()})
+    files = {f.file_id: f for f in backend.get_files(file_ids)} if file_ids else {}
+    out: list[ResolvedEdge] = []
+    for source_id, edge in raw:
+        nid = _neighbor_id(edge, direction)
+        entity = entities.get(nid) if nid else None
+        backend_file = files.get(entity.file_id) if entity is not None else None
+        out.append(
+            ResolvedEdge(
+                edge=edge,
+                source_id=source_id,
+                neighbor_entity=entity,
+                neighbor_file=_core_file_record(backend_file) if backend_file else None,
+            )
+        )
+    return out
+
+
+def _neighbor_id(edge: TraversalEdge, direction: str) -> str | None:
+    rel = edge.relationship
+    return rel.source_entity_id if direction == "incoming" else rel.target_entity_id
+
+
+def _core_file_record(record: BackendFileRecord) -> FileRecord:
+    """Backend-neutral ``FileRecord`` -> the core model impact/explore
+    render (path/size/status). Fields the server doesn't store fall back
+    to neutral defaults.
+    """
+    meta = record.metadata or {}
+    kind = meta.get("kind") or FileKind.CODE.value
+    status = meta.get("status") or FileStatus.INDEXED.value
+    updated = str(meta.get("updated_at") or "")
+    return FileRecord(
+        id=record.file_id,
+        source_id=record.source_id,
+        path=record.path,
+        kind=FileKind(kind),
+        size=record.size_bytes,
+        mtime=float(record.mtime or 0.0),
+        content_hash=record.content_hash or None,
+        status=FileStatus(status),
+        last_indexed_at=meta.get("last_indexed_at"),
+        created_at=updated,
+        updated_at=updated,
+    )
 
 
 def resolved_incoming(
@@ -262,7 +332,7 @@ def resolved_incoming(
     if ctx.config.storage.mode == "server":
         return _resolved_server(
             ctx, matches, backend_direction="in", relationship_types=relationship_types,
-            max_depth=max_depth, limit=limit,
+            max_depth=max_depth, limit=limit, name=name,
         )
     out: list[ResolvedEdge] = []
     seen: set[tuple[int, str]] = set()
@@ -360,12 +430,9 @@ def find_tests_referencing(
     ``edge.relationship.confidence``, which keeps meaning "how sure are
     we this call/reference itself is real".
 
-    In server mode this composes on top of ``resolved_incoming``'s own
-    documented gap: every edge's ``neighbor_file`` is ``None`` (no
-    "fetch entity/file by id" backend primitive exists yet -- see
-    ``_resolved_server``), so the ``is_test_file`` filter below can never
-    match and this always returns ``[]`` -- an honest empty result, not a
-    silent wrong answer, until that contract gap is closed.
+    In server mode ``resolved_incoming`` resolves each caller's real
+    file through the backend (completion plan F4), so this works the
+    same way in both modes.
     """
     incoming = resolved_incoming(
         ctx, matches, name, relationship_types=REFERENCE_TYPES, max_depth=max_depth, limit=limit

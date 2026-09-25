@@ -83,6 +83,16 @@ def build_client(
         raise OpenSearchConnectionError(
             "storage.server.url is empty; an OpenSearch backend needs a cluster URL"
         )
+    from ragmonk.core.config import url_has_userinfo
+
+    if url_has_userinfo(url):
+        # Completion plan F7 defense in depth (config validation already
+        # rejects this): never hand a credential-bearing URL to the client,
+        # and never echo it.
+        raise OpenSearchConnectionError(
+            "storage.server.url must not contain credentials (user-info); use the "
+            "RAGMONK_OPENSEARCH_USERNAME/_PASSWORD/_API_KEY env vars instead"
+        )
 
     http_auth, api_key = read_credentials(username_var, password_var, api_key_var)
     kwargs: dict[str, Any] = {

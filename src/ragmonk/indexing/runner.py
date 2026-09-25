@@ -10,17 +10,19 @@ from __future__ import annotations
 
 import logging
 import time
+import zlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.backends.local import LocalKnowledgeBackend
+from ragmonk.backends.models import FileRecord as BackendFileRecord
 from ragmonk.code.processor import code_processor, code_version_stamp, prepare_code, publish_code
 from ragmonk.core import paths
 from ragmonk.core.config import RagMonkConfig
 from ragmonk.core.lifecycle import AppContext
-from ragmonk.core.models import FileKind, Source, SourceStatus
+from ragmonk.core.models import FileKind, FileRecord, FileStatus, Source, SourceStatus
 from ragmonk.indexing.coordinator import (
     IndexCoordinator,
     IndexRunResult,
@@ -31,7 +33,12 @@ from ragmonk.indexing.coordinator import (
 from ragmonk.indexing.embedding_indexer import prepare_embeddings, publish_embeddings
 from ragmonk.knowledge.linker import link_touched_files
 from ragmonk.retrieval import ann, embedder
-from ragmonk.storage.repositories import embeddings_repo, sources_repo, vector_items_repo
+from ragmonk.storage.repositories import (
+    embeddings_repo,
+    files_repo,
+    sources_repo,
+    vector_items_repo,
+)
 from ragmonk.storage.sqlite import transaction
 from ragmonk.telemetry.logging import get_logger, log_event
 
@@ -131,7 +138,193 @@ class SourcePassResult:
     embedding_cache_reused: int = 0
 
 
+def generation_as_int(generation: str) -> int:
+    """The int form of a backend generation id, for
+    ``ProcessorContext.next_generation``/``PreparedCode.generation``.
+    Generation ids are decimal strings in practice; a non-decimal id
+    (defensive) maps to a stable crc32 so the same string always yields
+    the same int.
+    """
+    try:
+        return int(generation)
+    except ValueError:
+        return zlib.crc32(generation.encode("utf-8"))
+
+
+def select_pass_backend(ctx: AppContext, conn: object) -> KnowledgeBackend:
+    """Completion plan F1/F2: the ONE place indexing picks its
+    searchable-knowledge writer when none is injected explicitly.
+
+    - ``storage.mode == "local"``: a ``LocalKnowledgeBackend`` bound to
+      the pass's own per-project SQLite connection (unchanged behavior).
+    - ``storage.mode == "server"``: ``ctx.backend()`` -- the configured
+      OpenSearch/Elasticsearch adapter. Local SQLite is then only the
+      control plane (scan/diff state, file status, jobs, retries,
+      version/embedding bookkeeping), never a searchable-knowledge store.
+    """
+    if ctx.config.storage.mode == "server":
+        return ctx.backend()
+    import sqlite3
+
+    assert isinstance(conn, sqlite3.Connection)
+    return LocalKnowledgeBackend(conn=conn)
+
+
 def run_source_pass(
+    ctx: AppContext,
+    source: Source,
+    processors: ProcessorRegistry,
+    *,
+    scan_request: ScanRequest | None = None,
+    backend: KnowledgeBackend | None = None,
+    force_generation: int | None = None,
+) -> SourcePassResult:
+    """The single shared indexing entrypoint for ``ragmonk index``, the
+    daemon, the Admin UI background indexer and ``ragmonk rebuild``.
+
+    Completion plan F1/F2: backend selection is centralized here. With no
+    ``backend`` injected, ``select_pass_backend`` picks the local SQLite
+    backend in local mode and the configured server backend in server
+    mode -- every caller gets the right writer automatically. An explicit
+    ``backend``/``force_generation`` (``ops/rebuild.py``'s generation-
+    wrapped server rebuild, tests) is honored as-is.
+
+    Server mode, no explicit generation: the pass writes into the
+    source's *published* generation (an incremental update, immediately
+    visible), except when nothing has ever been published for the source
+    -- then the whole first pass runs inside a fresh generation
+    (``begin_generation`` -> pass -> ``publish_generation``, or
+    ``abort_generation`` on any raised failure) so a half-finished first
+    index is never observable.
+    """
+    if backend is not None or ctx.config.storage.mode != "server":
+        return _run_source_pass(
+            ctx,
+            source,
+            processors,
+            scan_request=scan_request,
+            backend=backend,
+            force_generation=force_generation,
+        )
+
+    server_backend = ctx.backend()
+    server_backend.ensure_schema()
+    published = server_backend.published_generation(source.id)
+    if published is not None:
+        return _run_source_pass(
+            ctx,
+            source,
+            processors,
+            scan_request=scan_request,
+            backend=server_backend,
+            force_generation=generation_as_int(published),
+        )
+
+    # First publication for this source: the local control-plane scan
+    # state may still claim files are indexed (e.g. a switch from local
+    # mode, or an earlier aborted first pass) -- reset it so every file is
+    # (re)published into the new generation, exactly like a rebuild.
+    _reset_control_plane(ctx, source)
+    generation = server_backend.begin_generation(source.id)
+    try:
+        pass_result = _run_source_pass(
+            ctx,
+            source,
+            processors,
+            scan_request=None,
+            backend=server_backend,
+            force_generation=generation_as_int(generation),
+        )
+    except BaseException:
+        server_backend.abort_generation(source.id, generation)
+        raise
+    if pass_result.result.source_offline:
+        server_backend.abort_generation(source.id, generation)
+    else:
+        server_backend.publish_generation(source.id, generation)
+    return pass_result
+
+
+def _reset_control_plane(ctx: AppContext, source: Source) -> None:
+    project_id = paths.project_id_for_path(Path(source.path))
+    ctx.close_project_conn(project_id)
+    db_path = paths.project_db_path(project_id, ctx.home)
+    for suffix in ("", "-wal", "-shm"):
+        db_path.with_name(db_path.name + suffix).unlink(missing_ok=True)
+
+
+def _sync_server_files(
+    conn: object,
+    backend: KnowledgeBackend,
+    source_id: str,
+    generation: int,
+    *,
+    allow_deletes: bool,
+) -> None:
+    """Completion plan F1/F6: mirror the local control-plane file table
+    for ``source_id`` into the server backend's (generation-tagged) file
+    records -- upserting new/changed/renamed files and deleting every
+    server artifact of a file the control plane no longer has (the
+    server-side equivalent of local mode's ``files`` FK cascade).
+    ``allow_deletes`` is False for a pass whose scan was incomplete or
+    whose source went offline (never infer "missing means deleted").
+    """
+    import sqlite3
+
+    assert isinstance(conn, sqlite3.Connection)
+    local_files = files_repo.list_by_source(conn, source_id)
+    local_by_id: dict[str, FileRecord] = {f.id: f for f in local_files}
+    published = backend.published_generation(source_id)
+    if published is None or generation_as_int(published) != generation:
+        # Writing a *new* (unpublished) generation -- a rebuild or a
+        # first publication: it starts empty, so every local file is
+        # upserted into it and nothing is deleted. The published
+        # generation's records (possibly under different file ids, since
+        # a rebuild resets the control plane) must stay untouched until
+        # ``publish_generation`` swaps and garbage-collects them.
+        server_by_id: dict[str, BackendFileRecord] = {}
+        allow_deletes = False
+    else:
+        server_by_id = {r.file_id: r for r in backend.list_files(source_id)}
+    gen_int = generation
+    upserts: list[BackendFileRecord] = []
+    for record in local_files:
+        if record.status not in (FileStatus.INDEXED, FileStatus.SKIPPED_LIMIT):
+            continue
+        existing = server_by_id.get(record.id)
+        if (
+            existing is not None
+            and existing.path == record.path
+            and existing.content_hash == (record.content_hash or "")
+            and existing.generation == gen_int
+            and (existing.metadata or {}).get("status") == record.status.value
+        ):
+            continue
+        upserts.append(
+            BackendFileRecord(
+                file_id=record.id,
+                source_id=source_id,
+                path=record.path,
+                content_hash=record.content_hash or "",
+                size_bytes=record.size,
+                mtime=record.mtime,
+                metadata={
+                    "kind": record.kind.value,
+                    "status": record.status.value,
+                    "last_indexed_at": record.last_indexed_at,
+                    "updated_at": record.updated_at,
+                },
+                generation=gen_int,
+            )
+        )
+    backend.upsert_files(upserts)
+    if allow_deletes:
+        for file_id in server_by_id:
+            if file_id not in local_by_id:
+                backend.delete_file(source_id, file_id)
+
+
+def _run_source_pass(
     ctx: AppContext,
     source: Source,
     processors: ProcessorRegistry,
@@ -174,7 +367,13 @@ def run_source_pass(
     # so a whole source pass's persistence goes through the same
     # ``KnowledgeBackend`` instance/connection throughout.
     if backend is None:
-        backend = LocalKnowledgeBackend(conn=conn)
+        backend = select_pass_backend(ctx, conn)
+    server = backend.is_server
+    if server and force_generation is None:
+        # Explicit server backend but no generation (a direct caller):
+        # write into the source's published generation.
+        published = backend.published_generation(source.id)
+        force_generation = generation_as_int(published) if published is not None else 0
     coordinator = IndexCoordinator(
         conn,
         source.id,
@@ -198,6 +397,16 @@ def run_source_pass(
     trigger_reason = scan_request.reason if scan_request is not None else "manual"
     result = coordinator.run(changed_paths=changed_paths)
     now = datetime.now(UTC).isoformat()
+
+    if server:
+        assert force_generation is not None
+        _sync_server_files(
+            conn,
+            backend,
+            source.id,
+            force_generation,
+            allow_deletes=not result.source_offline and not result.scan_incomplete,
+        )
 
     if result.source_offline:
         became_offline = source.status is not SourceStatus.OFFLINE
@@ -245,6 +454,7 @@ def run_source_pass(
                 source_id=source.id,
                 touched_code_file_ids=result.touched_code_file_ids,
                 touched_document_file_ids=result.touched_document_file_ids,
+                generation=force_generation if server else None,
             )
         result.timings.linking_seconds = time.monotonic() - _linking_started
 
@@ -276,7 +486,9 @@ def run_source_pass(
         # discover on its own which ids just went stale, so this is the
         # only place that "before" snapshot is still available (blueprint
         # section 14).
-        stale_vector_ids = vector_items_repo.list_vector_ids_by_file(conn, touched_file_ids)
+        stale_vector_ids = (
+            [] if server else vector_items_repo.list_vector_ids_by_file(conn, touched_file_ids)
+        )
         # Indexing optimization plan, Phase P5: model inference
         # (``prepare_embeddings``, potentially the slowest step in a
         # source pass) runs here, *before* the write transaction opens --
@@ -291,6 +503,8 @@ def run_source_pass(
             touched_code_file_ids=embed_code_file_ids,
             touched_document_file_ids=embed_document_file_ids,
             batch_size=ctx.config.indexing.embedding_batch_size,
+            backend=backend,
+            generation=str(force_generation) if server else None,
         )
         # Indexing optimization plan V2, Phase P3: how many of this
         # batch's unique texts were served from the persistent
@@ -302,7 +516,9 @@ def run_source_pass(
                 publish_embeddings(conn, prepared, backend=backend) if prepared is not None else 0
             )
         result.timings.embedding_seconds = time.monotonic() - _embedding_started
-        if embedded:
+        if embedded and not server:
+            # Server mode: the vectors live in the server engine's own
+            # kNN index -- there is no local ANN index to sync.
             # Deliberately outside the transaction above: the ANN index
             # is a separate on-disk file, not part of the SQLite
             # transaction's atomicity guarantee -- SQLite (already

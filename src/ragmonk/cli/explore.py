@@ -16,14 +16,14 @@ from typing import Annotated, Any
 
 import typer
 
-from ragmonk.code.graph import SourceMatch, conn_for_source_path, find_symbol_matches
+from ragmonk.code.graph import SourceMatch, find_symbol_matches
 from ragmonk.core.lifecycle import AppContext
 from ragmonk.core.models import Confidence, RelationshipType
 from ragmonk.knowledge import evidence as evidence_mod
+from ragmonk.knowledge.document_links import linked_document_evidence
 from ragmonk.knowledge.evidence import Evidence, EvidenceLocation
 from ragmonk.retrieval import context_builder, lexical, planner, semantic
 from ragmonk.retrieval import graph as retrieval_graph
-from ragmonk.storage.repositories import documents_repo, files_repo, links_repo
 
 from ._common import cli_command, console, print_json
 
@@ -127,40 +127,12 @@ def _graph_path(
 def _document_links(
     ctx: AppContext, matches: list[SourceMatch], strategies: tuple[planner.Strategy, ...]
 ) -> list[Evidence]:
-    """Local-mode only: reads cross-links via ``links_repo``/
-    ``documents_repo`` (local sqlite) -- see ``cli/impact.py``'s
-    ``_documentation`` for why this has no backend-contract equivalent
-    yet. Skipped explicitly in server mode rather than opening local
-    sqlite or raising and losing the rest of ``explore``'s otherwise-
-    working symbols/callers/callees/tests.
+    """Documentation evidence via cross-domain links, in both storage
+    modes (completion plan F4 -- see ``knowledge/document_links.py``).
     """
     if not matches or planner.Strategy.DOCUMENTS not in strategies:
         return []
-    if ctx.config.storage.mode == "server":
-        return []
-    out: list[Evidence] = []
-    seen: set[tuple[str, str | None]] = set()
-    for match in matches:
-        conn = conn_for_source_path(ctx, match.source_path)
-        for link in links_repo.list_by_entity(conn, match.entity.id):
-            key = (link.document_id, link.section_id)
-            if key in seen:
-                continue
-            seen.add(key)
-            document = documents_repo.get_document(conn, link.document_id)
-            if document is None:
-                continue
-            file = files_repo.get(conn, document.file_id)
-            unit = documents_repo.get_unit(conn, link.section_id) if link.section_id else None
-            out.append(
-                evidence_mod.from_cross_link(
-                    link,
-                    entity=match.entity,
-                    document_path=file.path if file is not None else document.id,
-                    unit=unit,
-                )
-            )
-    return out
+    return [ev for ev, _ in linked_document_evidence(ctx, matches)]
 
 
 def _run(ctx: AppContext, query_plan: planner.QueryPlan) -> dict[str, Any]:
