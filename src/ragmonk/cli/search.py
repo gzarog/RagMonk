@@ -155,6 +155,15 @@ def _expand_document_contexts(
     doc_hits = [r for r in results if r.kind == "document"]
     if not doc_hits:
         return {}
+    if ctx.config.storage.mode != "local":
+        # Storage backend abstraction plan, Phase 6: sibling/parent chunk
+        # expansion is local-sqlite-shaped (``context_builder.
+        # expand_chunk_context`` walks ``document_sections``/document
+        # tables by connection) and has no server-mode equivalent yet --
+        # a documented gap, not a silent local fallback: server-mode
+        # ``search`` simply returns hits without expanded context rather
+        # than reaching for local per-project sqlite.
+        return {}
 
     conns: dict[str, sqlite3.Connection] = {
         source_id: conn for source_id, _source_path, conn in all_project_connections(ctx)

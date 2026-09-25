@@ -486,6 +486,58 @@ def _merge(results: list[SearchResult]) -> list[SearchResult]:
     return sorted(best.values(), key=_sort_key)
 
 
+def _search_hit_to_result(hit: Any) -> SearchResult:
+    """Maps a backend-neutral ``SearchHit`` (server mode) onto the same
+    ``SearchResult`` shape local mode's FTS5 path produces, so every
+    caller above this module (CLI/MCP/Admin UI) keeps seeing one stable
+    result schema regardless of ``storage.mode`` (Storage backend
+    abstraction plan, Phase 6 acceptance criterion: "Result JSON schema
+    stays stable unless explicitly versioned").
+    """
+    payload = hit.payload
+    kind = "entity" if hit.kind == "entity" else "document" if hit.kind in (
+        "document",
+        "chunk",
+    ) else hit.kind
+    title = str(
+        payload.get("qualified_name") or payload.get("name") or payload.get("path") or hit.id
+    )
+    return SearchResult(
+        kind=kind,
+        tier=RankTier.FTS,
+        id=hit.id,
+        title=title,
+        path=str(payload.get("path", "")),
+        source_id=str(payload.get("source_id", "")),
+        snippet=payload.get("snippet"),
+        location=None,
+        fts_rank=0,
+        query_tier=LexicalTier.PHRASE,
+    )
+
+
+def _search_with_timings_server(
+    ctx: AppContext, query: str, *, limit: int = DEFAULT_LIMIT
+) -> TimedSearchResult:
+    """Server-mode counterpart of ``search_with_timings``: routes through
+    ``ctx.backend().lexical_search`` (a real OpenSearch/Elasticsearch call,
+    P4/P5) instead of the local FTS5 query plan -- never local SQLite, per
+    this phase's "no silent local fallback" rule.
+    """
+    started = time.perf_counter()
+    hits = ctx.backend().lexical_search(query, limit)
+    results = [_search_hit_to_result(hit) for hit in hits][:limit]
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    return TimedSearchResult(
+        results=results,
+        timings=[
+            StageTiming(
+                name="server_lexical_search", hits=len(results), duration_ms=elapsed_ms
+            )
+        ],
+    )
+
+
 def search(ctx: AppContext, query: str, *, limit: int = DEFAULT_LIMIT) -> list[SearchResult]:
     return search_with_timings(ctx, query, limit=limit).results
 
@@ -507,6 +559,9 @@ def search_with_timings(
     query = query.strip()
     if not query:
         return TimedSearchResult(results=[])
+
+    if ctx.config.storage.mode == "server":
+        return _search_with_timings_server(ctx, query, limit=limit)
 
     connections = list(all_project_connections(ctx))
     cache_config = ctx.config.search.cache

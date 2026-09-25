@@ -89,7 +89,28 @@ def traverse(
 
 
 def all_project_connections(ctx: AppContext) -> list[tuple[str, str, sqlite3.Connection]]:
-    """(source_id, source_path, conn) for every registered source."""
+    """(source_id, source_path, conn) for every registered source.
+
+    Storage backend abstraction plan, Phase 6: this is the one place that
+    enumerates local per-project ``knowledge.db`` files, and every retrieval
+    call site that used to open sqlite directly (``retrieval/lexical.py``,
+    ``retrieval/semantic.py``, ``find_symbol_matches``/``traverse_symbol``
+    below) still funnels through it for local mode. That makes it the
+    single choke point for this phase's "never silently fall back to local
+    SQLite in server mode" rule: raising here, rather than in each of those
+    call sites individually, is what guarantees none of them can
+    accidentally enumerate local databases when ``storage.mode == "server"``
+    -- a server backend is the single source of truth across sources, and
+    this per-project-sqlite pattern is meaningless for it.
+    """
+    if ctx.config.storage.mode != "local":
+        raise RuntimeError(
+            "all_project_connections: storage.mode is "
+            f"{ctx.config.storage.mode!r}, not 'local' -- local per-project "
+            "sqlite enumeration must never run outside local mode (no "
+            "silent local fallback in server mode); callers must route "
+            "through ctx.backend() instead"
+        )
     registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
     return [
         (source.id, source.path, ctx.project_conn(paths.project_id_for_path(Path(source.path))))
