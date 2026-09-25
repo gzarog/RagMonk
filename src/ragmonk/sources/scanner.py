@@ -6,12 +6,45 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ragmonk.core.errors import SecurityViolationError
 from ragmonk.core.models import ScannedFile
 from ragmonk.security.path_guard import PathGuard
 from ragmonk.sources.ignore import IgnoreMatcher
+
+
+@dataclass(frozen=True)
+class ScanError:
+    """One subtree/file this pass could not fully see -- a directory
+    ``os.walk`` could not list (permission denied, a race with a
+    delete, an unmounted remote path mid-walk) or a file whose
+    ``stat()`` failed after being listed. Either way, this run's scan
+    result cannot be trusted as "every file under root, no more no
+    less": indexing optimization plan finding F6.
+    """
+
+    path: str
+    message: str
+
+
+@dataclass
+class ScanOutcome:
+    """Mutated in place while ``scan()``'s generator is consumed --
+    complete and accurate only once the caller has fully exhausted the
+    iterator, exactly like ``result.scanned`` on ``IndexRunResult``
+    (``indexing/coordinator.py``). Passed in by the caller (rather than
+    returned) so ``scan()`` can stay a plain generator of
+    ``ScannedFile`` -- its existing, most-used shape -- while still
+    reporting completeness to the one caller that needs it.
+    """
+
+    errors: list[ScanError] = field(default_factory=list)
+
+    @property
+    def complete(self) -> bool:
+        return not self.errors
 
 
 def check_root_accessible(root: Path) -> str | None:
@@ -49,8 +82,19 @@ def scan(
     guard: PathGuard,
     ignore_matcher: IgnoreMatcher,
     follow_symlinks: bool = False,
+    outcome: ScanOutcome | None = None,
 ) -> Iterator[ScannedFile]:
-    """``seen_dirs``/``seen_files`` (resolved, real paths, not the
+    """``outcome`` (indexing optimization plan, Phase P1 / finding F6):
+    when given, is mutated in place with one ``ScanError`` per
+    directory ``os.walk`` could not list (its default ``onerror`` is a
+    no-op -- see ``check_root_accessible``'s own docstring above for
+    why that matters) and per file whose ``stat()`` failed after being
+    listed. ``outcome.complete`` is only meaningful once this generator
+    has been fully consumed; the caller (``indexing/coordinator.py``)
+    must not trust a scan with errors for deletion reconciliation --
+    an unreadable subtree must never look like "these files are gone".
+
+    ``seen_dirs``/``seen_files`` (resolved, real paths, not the
     as-walked ones) guard against the same real file being yielded more
     than once in a single pass -- which ``IndexCoordinator.run()``
     (``indexing/coordinator.py``) would otherwise misclassify as "new"
@@ -71,7 +115,16 @@ def scan(
     root = root.resolve()
     seen_dirs: set[str] = {str(root)}
     seen_files: set[str] = set()
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=follow_symlinks):
+
+    def _onerror(exc: OSError) -> None:
+        if outcome is not None:
+            outcome.errors.append(
+                ScanError(path=exc.filename or str(root), message=str(exc))
+            )
+
+    for dirpath, dirnames, filenames in os.walk(
+        root, followlinks=follow_symlinks, onerror=_onerror
+    ):
         current = Path(dirpath)
         kept_dirs = []
         for dirname in dirnames:
@@ -107,6 +160,8 @@ def scan(
             seen_files.add(resolved_str)
             try:
                 stat = resolved.stat()
-            except OSError:
+            except OSError as exc:
+                if outcome is not None:
+                    outcome.errors.append(ScanError(path=resolved_str, message=str(exc)))
                 continue
             yield ScannedFile(path=resolved_str, size=stat.st_size, mtime=stat.st_mtime)

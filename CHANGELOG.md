@@ -8,24 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
-Phase P0: reproducible, fully-offline benchmarks measuring the existing
-indexing implementation before any optimization changes are made. See
-`docs/indexing_benchmarks.md`.
+Phase P1: scan completeness and coalesced daemon scheduling.
 
 ### Added
 
-- `benchmarks/indexing/`: a synthetic-fixture generator (deterministic
-  code/document corpora, no real-world data) and a benchmark runner that
-  drives the real `run_source_pass` entry point through cold-index,
-  warm-unchanged, single-edit, 1%-change, burst, rename and delete
-  scenarios, recording wall time, hash-call counts/bytes, CPU time, peak
-  RSS and correctness counts. Run with `python -m benchmarks.indexing
-  --tier <tiny|small|medium|large|scale>`.
-- `benchmarks/indexing/baseline_small.json` and `baseline_medium.json`:
-  measured baseline results against the pre-optimization implementation
-  (commit `d8a5fad`), for later phases' before/after comparison.
-- `docs/indexing_benchmarks.md` documents how to run and extend the
-  suite.
+- `sources.scanner.scan()` now accepts an optional `outcome:
+  ScanOutcome` that records every directory `os.walk` could not list
+  and every file whose `stat()` failed, instead of `os.walk`'s default
+  silent no-op (`onerror=None`). `IndexCoordinator.run()` uses this to
+  skip deletion reconciliation entirely whenever a scan is incomplete
+  -- an unreadable subtree can no longer make its files look deleted
+  (finding F6). New/changed files found in whatever *was* successfully
+  scanned are still processed; only "missing means deleted" is
+  suppressed. `IndexRunResult` gains `scan_incomplete` and
+  `scan_errors`; `ragmonk index` prints a warning when this happens.
+- `Daemon.enqueue_source()` now coalesces a burst of triggers for the
+  same source into at most one queued pass plus at most one follow-up
+  pass for whatever arrived while a pass was already running (findings
+  F1/F3) -- previously every watcher event queued its own independent
+  full pass, so N rapid edits to one source could queue N full
+  scan+diff passes. `enqueue_source` also takes an optional `reason`
+  for telemetry (`daemon_pass_completed`/`source_pass_queued` log
+  events), and `daemon_pass_completed` now logs `scan_incomplete`.
+
+### Fixed
+
+- An inaccessible subtree during a scan (permission denied, a race
+  with a delete, a remote path unmounting mid-walk) could previously
+  cause every file under it to be deleted from the index on the next
+  pass, since `os.walk`'s default behavior silently treats an
+  unlistable directory as empty. It is now treated as "scan
+  incomplete, retry" instead.
 
 Admin UI plan: a built-in, **local-first administration web interface**,
 started with `ragmonk ui`.

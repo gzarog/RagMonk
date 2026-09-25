@@ -62,6 +62,12 @@ def index(
                     f"failed={result.failed} linked={pass_result.linked} "
                     f"embedded={pass_result.embedded}"
                 )
+                if result.scan_incomplete:
+                    console.print(
+                        f"[yellow]{source.id}[/yellow]: scan was incomplete "
+                        f"({len(result.scan_errors)} unreadable path(s)); "
+                        "deletion reconciliation skipped this pass, will retry"
+                    )
 
             if total_failed:
                 raise IndexingPartialFailureError(
