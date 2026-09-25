@@ -25,11 +25,53 @@ from ragmonk.code.resolver import ResolvedTarget, resolve_reference
 from ragmonk.core.errors import ContentChangedDuringProcessingError, RagMonkError
 from ragmonk.core.models import Confidence, Entity, FileStatus, Relationship, RelationshipType
 from ragmonk.indexing.coordinator import ProcessingOutcome, ProcessorContext
+from ragmonk.indexing.incremental import VersionStamp
 from ragmonk.sources.fingerprint import stat_unchanged
 from ragmonk.storage.repositories import entities_repo, relationships_repo
 from ragmonk.storage.sqlite import transaction
 
 EntityLookup = Callable[[str], list[Entity]]
+
+# Indexing optimization plan V2, Phase P1: the code parser/extractor's own
+# derivation identity, independent of a source file's content_hash. Bump
+# this string whenever a change to ``code/parser.py``, ``code/extractor.py``,
+# ``code/resolver.py`` or ``code/framework_rules.py`` could produce
+# different entities/relationships/code_fts for a file whose *bytes* did
+# not change (a Tree-sitter grammar upgrade, an extraction heuristic fix,
+# a new relationship kind, ...). ``code_version_stamp`` below is compared
+# against a previously-indexed file's stored ``parser_version`` column
+# (``indexing/incremental.decide_reprocessing``) the same way the document
+# pipeline's own ``parser_version``/``chunker_version`` already are; a
+# mismatch forces exactly the same full reprocess a genuinely CHANGED file
+# gets, once, even though ``classify_change`` alone would have called the
+# file UNCHANGED.
+CODE_DERIVATION_VERSION = "1"
+
+
+def code_version_stamp() -> VersionStamp:
+    """The code pipeline's current derivation identity (see
+    ``CODE_DERIVATION_VERSION``'s docstring above).
+
+    ``chunker_version`` has no code-side equivalent -- Tree-sitter always
+    reparses the *whole* file from source on any genuinely CHANGED file
+    already, so there is no separate "chunk boundary" axis distinct from
+    content_hash the way a document's chunker has -- so it stays ``None``
+    (``VersionStamp``'s docstring: ``None`` on the *current* side means
+    "this kind has no such axis", never itself grounds for a rebuild).
+
+    ``embedding_model_id``/``embedding_text_version`` are deliberately
+    left ``None`` here too: code embedding invalidation already has its
+    own narrower path (``indexing/embedding_indexer.py``'s
+    ``CODE_EMBEDDING_TEXT_VERSION``), kept independent of this structural
+    reprocess so a model-only change never forces a full re-parse/
+    re-extract of every code file, only a re-embed.
+    """
+    return VersionStamp(
+        parser_version=CODE_DERIVATION_VERSION,
+        chunker_version=None,
+        embedding_model_id=None,
+        embedding_text_version=None,
+    )
 
 
 class CodeParseError(RagMonkError):

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ragmonk.code.processor import code_processor, prepare_code, publish_code
+from ragmonk.code.processor import code_processor, code_version_stamp, prepare_code, publish_code
 from ragmonk.core import paths
 from ragmonk.core.config import RagMonkConfig
 from ragmonk.core.lifecycle import AppContext
@@ -43,7 +43,13 @@ def build_processor_registry(config: RagMonkConfig) -> ProcessorRegistry:
     # config.indexing.code_extraction_workers, default 1 (serial),
     # which never even looks at prepare/publish and keeps calling
     # code_processor exactly as before this phase.
-    registry.register(FileKind.CODE, code_processor, prepare=prepare_code, publish=publish_code)
+    registry.register(
+        FileKind.CODE,
+        code_processor,
+        prepare=prepare_code,
+        publish=publish_code,
+        version_provider=code_version_stamp,
+    )
     # Respects documents.enabled (core/config.py) -- when off, document-kind
     # files still index via the default raw processor (recorded, marked
     # INDEXED) just without Docling-derived content. Import deferred to here
@@ -56,16 +62,21 @@ def build_processor_registry(config: RagMonkConfig) -> ProcessorRegistry:
         registry.register(
             FileKind.DOCUMENT, document_processor, version_provider=document_version_stamp
         )
-    # code_processor deliberately registers no version_provider (Search
-    # Quality Improvement Plan, Phase 12): unlike the document pipeline, a
-    # code file has no separate "chunker"/"parser" axis distinct from its
-    # own content -- Tree-sitter reparses the whole file from source
-    # (code/parser.py) on every CHANGED file already, so entities/
-    # relationships/code_fts are always current the moment content_hash
-    # changes, with nothing left for a version stamp to catch. Its
-    # embeddings still get a narrower rebuild when only the model changes
-    # (see indexing/embedding_indexer.py's CODE_EMBEDDING_TEXT_VERSION),
-    # just not driven through IndexCoordinator's version-comparison path.
+    # Indexing optimization plan V2, Phase P1: code_processor now also
+    # registers a version_provider (code.processor.code_version_stamp).
+    # Content_hash still catches every genuinely CHANGED file exactly as
+    # before -- Tree-sitter reparses the whole file from source
+    # (code/parser.py) any time content_hash changes -- but a parser/
+    # extractor *code* change (with source bytes unchanged) previously had
+    # no way to invalidate already-indexed entities/relationships/
+    # code_fts at all. This closes that gap using the same generic
+    # version-stamp comparison the document pipeline already exercises
+    # (indexing/incremental.decide_reprocessing), scoped to CODE's own
+    # parser_version axis. Its embeddings still get their own narrower
+    # rebuild when only the model changes (see
+    # indexing/embedding_indexer.py's CODE_EMBEDDING_TEXT_VERSION),
+    # deliberately kept independent of this structural reprocess -- see
+    # code_version_stamp's docstring.
     return registry
 
 
