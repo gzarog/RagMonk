@@ -121,6 +121,12 @@ class SourcePassResult:
     # every steady-state ACTIVE/ACTIVE or OFFLINE/OFFLINE pass.
     became_offline: bool
     became_online: bool
+    # Indexing optimization plan V2, Phase P6: exposes P3's persistent
+    # embedding-cache reuse count on the returned struct too, not only
+    # the DEBUG stage_timings log line -- lets a benchmark harness (or
+    # any other in-process caller) read it without enabling debug
+    # logging or parsing JSON log lines.
+    embedding_cache_reused: int = 0
 
 
 def run_source_pass(
@@ -340,4 +346,5 @@ def run_source_pass(
         embedded=embedded,
         became_offline=False,
         became_online=became_online,
+        embedding_cache_reused=cache_reused,
     )

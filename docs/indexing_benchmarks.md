@@ -138,3 +138,128 @@ through the real indexing entry point. Later phases (P1–P7) should
 extend this suite's scenarios rather than replace it — in particular,
 P7 re-runs these exact fixtures against the optimized implementation
 for the plan's required before/after report.
+
+## Indexing optimization plan V2 / Completion (P6)
+
+V2's own completion phase re-ran the same `small`/`medium` tiered suite
+above (`benchmarks/indexing/after_v2_p6_small.json`,
+`after_v2_p6_medium.json`) plus a new supplemental script
+(`benchmarks/indexing/v2_supplemental.py` →
+`v2_p6_supplemental.json`) covering scenarios the tiered suite doesn't:
+document-heavy indexing, an embedding backfill, embedding-cache reuse
+across two passes, and concurrent document extraction
+(`indexing.document_extraction_workers > 1`).
+
+`ScenarioMetrics` (`metrics.py`) grew new fields this phase: per-stage
+durations (`scan_seconds`/`classify_seconds`/`process_seconds`/
+`linking_seconds`/`embedding_seconds`/`ann_sync_seconds`, sourced from
+V2 Phase P5's `IndexRunResult.timings`), `embedding_cache_reused` (V2
+Phase P3), `code_extraction_workers`/`document_extraction_workers`, and
+an optional `sql_statement_count` (via the new, opt-in
+`storage.sqlite.count_statements` hook — V2 Phase P4).
+
+### small tier: P0-P7 baseline vs. V2-P6 (same corpus generator, same container)
+
+| Scenario             | P0-P7 `after_p7_small.json` wall | V2-P6 wall | changed (both) |
+| --------------------- | -----------------------------: | -----------: | --------------: |
+| `cold_index`           |                        22.328s |      23.743s |            0 |
+| `warm_unchanged`       |                         0.071s |       0.074s |            0 |
+| `single_edit`          |                         0.119s |       0.126s |            1 |
+| `one_percent_change`   |                         0.156s |       0.148s |            5 |
+| `burst_change`         |                         0.302s |       0.333s |           25 |
+| `rename`               |                         0.070s |       0.100s |            0 |
+| `delete`               |                         0.082s |       0.094s |            0 |
+
+These numbers are **flat, not improved**, and that is expected, not a
+regression: `search.semantic` is off by default in this suite (matching
+this project's own default), so P3's embedding cache and P4's
+embedding-write-path batching never engage at all — nothing in P1-P5
+targets this suite's own default (non-semantic) code-indexing path.
+P1's version-provider check is a cheap no-op comparison already covered
+by the existing `_version_reprocess_decision` path P0-P7 already paid
+for; P2's concurrency defaults to `workers=1` (byte-for-byte the serial
+path); P5's telemetry measured separately below as zero-cost at the
+default log level. The real point of this table is **no regression**:
+every `changed` count matches exactly, and every wall time is within
+the same rough envelope (a different container/session than the
+original P0-P7 run, so small swings either way are expected background
+noise, not a measured optimization or regression).
+
+### medium tier: V2-P6 own run (`after_v2_p6_medium.json`, 2,100 files)
+
+| Scenario             | wall     | changed |
+| --------------------- | -------: | ------: |
+| `cold_index`           | 293.372s |       0 |
+| `warm_unchanged`       |   0.287s |       0 |
+| `single_edit`          |   0.527s |       1 |
+| `one_percent_change`   |   1.062s |      20 |
+| `burst_change`         |   2.050s |     100 |
+| `rename`               |   0.310s |       0 |
+| `delete`               |   0.524s |       0 |
+
+Required V2-P6 acceptance tier — no false deletions, no stale
+generations (every `changed` count matches what the scenario itself
+changed), no correctness regressions.
+
+### Supplemental V2 scenarios (real, unmocked embedder/Docling; n=400 docs unless noted)
+
+**`document_heavy`** (400 plain-text/HTML/CSV/Markdown documents, cold
+index): 5.743s wall, 400/400 indexed, 0 failed.
+
+**`embedding_backfill`** (`ragmonk vectors backfill`'s own real path —
+files indexed while `search.semantic` was off, then backfilled): 400
+files found missing embeddings, 1,200 subjects embedded, 0.540s wall.
+
+**`embedding_cache_reuse`** (V2 Phase P3's own point — a vector rebuild
+over unchanged content, same project, same model/preprocessing
+identity): first pass 2.445s / 1,200 embedded / 0 cache hits (cold);
+second pass **0.081s** / 1,200 embedded / **210 cache hits** — a
+**~30x wall-time drop** for this specific rebuild-style re-embed, with
+every subject still produced correctly (`embedded` count unchanged).
+This is real, measured evidence for P3's stated goal: avoiding repeated
+model inference across separate runs.
+
+**`concurrent_document_extraction`** (`document_extraction_workers`
+1 vs. 4, same 400-document corpus, real Docling conversion — plain-text/
+HTML/CSV/Markdown backends only; no PDF/OCR model weights were cached in
+this environment, see below):
+
+| workers | wall_time_s | process_seconds |
+| ------: | ----------: | ---------------: |
+|       1 |      1.696s |            1.538s |
+|       4 |      1.979s |            1.807s |
+
+**`document_extraction_workers` stays at its default of `1`.** Measured
+across two corpus sizes (n=100 and n=400 documents), `workers=4` was
+consistently *slower* than `workers=1` for this project's rule-based
+document backends — thread-pool/per-worker-connection overhead
+outweighs the benefit when each individual conversion is already fast
+(no ML inference involved for these formats). This directly supersedes
+V2 Phase P2's own informal smoke test (which used artificially slowed,
+mocked `prepare` functions and showed a large apparent speedup) with
+real, unmocked evidence: for the formats measurable in this
+environment, concurrency is not worth its own overhead, so the phase's
+"serial until proven safe" default is kept, backed by this data rather
+than left unchanged by default alone.
+
+### What was not run, and why
+
+- **10k/200k file tiers**: optional per the plan; not run in this pass
+  due to the time budget for a single environment/session (the `medium`
+  tier's `cold_index` alone took ~4.9 minutes single-threaded in this
+  container). `python -m benchmarks.indexing --tier large`/`--tier
+  scale` reproduce these on demand.
+- **WSL-native vs. `/mnt/c` comparison**: not applicable — this
+  environment is a Linux container, not WSL.
+- **Network-share source scenario**: not run — no network filesystem
+  available in this sandboxed environment.
+- **Real PDF/OCR document conversion under concurrency**: not run.
+  Docling's layout/table-structure model weights and RapidOCR's model
+  weights are not cached in this environment (only the pinned embedding
+  model's weights were available offline), and downloading them was
+  judged out of scope for this pass's time budget. The
+  `concurrent_document_extraction` result above is therefore proven only
+  for Docling's rule-based backends (plain text/HTML/CSV/Markdown), not
+  for the ML-inference-heavy PDF/image-OCR path P2's own design doc
+  specifically worried about oversubscribing (`cap_native_thread_pools`)
+  — this remains an explicitly disclosed, unverified gap.

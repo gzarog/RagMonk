@@ -59,9 +59,13 @@ def _run_tier(tier: str, n_files: int, *, keep: bool) -> list[dict]:
     fixtures.generate_mixed_document_corpus(source_root, doc_count)
     all_records: list[dict] = []
 
-    def _record(scenario: str) -> None:
+    def _record(scenario: str, *, count_sql: bool = False) -> None:
         metrics, correctness = run_scenario(
-            home=home, source_path=source_root, scenario=scenario, corpus_tier=tier
+            home=home,
+            source_path=source_root,
+            scenario=scenario,
+            corpus_tier=tier,
+            count_sql=count_sql,
         )
         row = metrics.to_dict()
         row["entities_total"] = correctness.entities
@@ -74,17 +78,25 @@ def _run_tier(tier: str, n_files: int, *, keep: bool) -> list[dict]:
         )
 
     _record("cold_index")
-    _record("warm_unchanged")
+    # V2 Phase P6: statement-counted for the scenarios the plan
+    # specifically calls out (warm unchanged, single edit, burst,
+    # rename, delete) -- cold_index/one_percent_change stay uncounted to
+    # keep this default run's own overhead down (count_statements is
+    # opt-in/lightweight per Phase P4, but a full-corpus cold index's
+    # statement count is the least interesting of these: everything is
+    # new, so it is not where P1-P4's reuse/batching optimizations
+    # apply).
+    _record("warm_unchanged", count_sql=True)
     fixtures.apply_single_edit(code_files, seed=1)
-    _record("single_edit")
+    _record("single_edit", count_sql=True)
     fixtures.apply_percent_change(code_files, 0.01, seed=2)
     _record("one_percent_change")
     fixtures.apply_percent_change(code_files, 0.05, seed=3)
-    _record("burst_change")
+    _record("burst_change", count_sql=True)
     fixtures.apply_rename(code_files, seed=4)
-    _record("rename")
+    _record("rename", count_sql=True)
     fixtures.apply_delete(code_files, max(1, n_files // 100), seed=5)
-    _record("delete")
+    _record("delete", count_sql=True)
 
     if not keep:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -99,14 +111,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--keep-workdir", action="store_true", help="do not delete the generated fixture corpus"
     )
+    parser.add_argument(
+        "--plan-id",
+        default="ragmonk-indexing-performance-v1",
+        help="plan id recorded in the output JSON (V2 Phase P6 runs pass "
+        "ragmonk-indexing-optimization-v2-completion)",
+    )
+    parser.add_argument(
+        "--phase", default="P0", help="phase label recorded in the output JSON"
+    )
     args = parser.parse_args(argv)
 
     n_files = TIER_SIZES[args.tier]
     scenarios = _run_tier(args.tier, n_files, keep=args.keep_workdir)
 
     payload = {
-        "plan_id": "ragmonk-indexing-performance-v1",
-        "phase": "P0",
+        "plan_id": args.plan_id,
+        "phase": args.phase,
         "generated_at": datetime.now(UTC).isoformat(),
         "tier": args.tier,
         "n_files_requested": n_files,
