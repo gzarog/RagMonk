@@ -42,7 +42,7 @@ from ragmonk.security.path_guard import PathGuard
 from ragmonk.sources import detector
 from ragmonk.sources.fingerprint import hash_file
 from ragmonk.sources.ignore import IgnoreMatcher
-from ragmonk.sources.scanner import check_root_accessible, scan
+from ragmonk.sources.scanner import ScanOutcome, check_root_accessible, scan
 from ragmonk.storage.repositories import errors_repo, files_repo, jobs_repo
 from ragmonk.telemetry.logging import get_logger, log_event
 
@@ -213,6 +213,19 @@ class IndexRunResult:
     # was unreachable", not "one file in it was bad".
     source_offline: bool = False
     offline_reason: str | None = None
+    # Indexing optimization plan, Phase P1 / finding F6: set when
+    # ``scan()`` could not fully list every subtree (a directory read
+    # failure mid-walk, or a file whose stat() failed after being
+    # listed) -- distinct from ``source_offline`` above, which means the
+    # root itself was never reachable at all. Deletion reconciliation
+    # (``find_deleted``) is skipped whenever this is true: a scan that
+    # silently dropped part of the tree must never be trusted to tell a
+    # genuinely deleted file apart from one merely unreadable this run.
+    # New/changed files found in whatever *was* successfully scanned are
+    # still processed -- only inferring "missing means deleted" is
+    # unsafe, not the whole pass.
+    scan_incomplete: bool = False
+    scan_errors: list[str] = field(default_factory=list)
 
 
 class IndexCoordinator:
@@ -343,15 +356,28 @@ class IndexCoordinator:
         ignore_matcher = IgnoreMatcher(
             root=self._root, extra_patterns=self._exclude, include_patterns=self._include
         )
+        scan_outcome = ScanOutcome()
         scanned = list(
             scan(
                 self._root,
                 guard=guard,
                 ignore_matcher=ignore_matcher,
                 follow_symlinks=self._config.indexing.follow_symlinks,
+                outcome=scan_outcome,
             )
         )
         result.scanned = len(scanned)
+        result.scan_incomplete = not scan_outcome.complete
+        result.scan_errors = [f"{e.path}: {e.message}" for e in scan_outcome.errors]
+        if result.scan_incomplete:
+            log_event(
+                _logger,
+                "scan_incomplete",
+                level=logging.WARNING,
+                source_id=self._source_id,
+                error_count=len(scan_outcome.errors),
+                errors=result.scan_errors[:10],
+            )
 
         existing = files_repo.list_by_source(self._conn, self._source_id)
         existing_by_path = {rec.path: rec for rec in existing}
@@ -366,9 +392,16 @@ class IndexCoordinator:
         # classify_change below instead of hashing the same file twice.
         precomputed_hashes = self._reconcile_renames(result, scanned, existing_by_path, algorithm)
 
-        for rec in find_deleted(existing_by_path, scanned):
-            files_repo.delete(self._conn, rec.id)
-            result.deleted += 1
+        # Indexing optimization plan, Phase P1 / finding F6: an
+        # incomplete scan must never drive deletion reconciliation -- a
+        # subtree ``scan()`` could not list would otherwise make every
+        # file under it look deleted. New/changed files found in
+        # whatever *was* successfully scanned are still processed below;
+        # only "missing means deleted" is unsafe on a partial scan.
+        if not result.scan_incomplete:
+            for rec in find_deleted(existing_by_path, scanned):
+                files_repo.delete(self._conn, rec.id)
+                result.deleted += 1
 
         max_size_bytes = self._config.indexing.max_file_size_mb * 1024 * 1024
 

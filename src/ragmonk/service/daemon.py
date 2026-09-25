@@ -65,6 +65,20 @@ class Daemon:
         self._worker_thread: threading.Thread | None = None
         self._reconciliation_thread: threading.Thread | None = None
 
+        # Indexing optimization plan, Phase P1: per-source scheduling
+        # state, guarded by ``_state_lock`` below. "queued" means a pass
+        # is sitting in ``self._queue`` but hasn't started; "running"
+        # means ``_run_pass`` is currently executing for it; "running_
+        # followup" means a *further* trigger arrived while it was
+        # running, so exactly one more pass is queued the moment the
+        # current one finishes. A source id absent from this dict has no
+        # pending or in-flight work at all. This collapses an arbitrary
+        # burst of watcher events for the same source into at most one
+        # queued pass plus at most one follow-up pass -- never the
+        # unbounded one-``queue.put`` per event the plain ``Queue`` above
+        # allowed before this phase (finding F1/F3).
+        self._pending_state: dict[str, str] = {}
+
         # ``ctx.sources_conn`` (and, transitively, each project
         # connection ``run_source_pass`` opens) is shared across the
         # worker thread, the reconciliation thread and whichever thread
@@ -105,7 +119,7 @@ class Daemon:
         # until the first watcher event or the first reconciliation tick,
         # up to `reconciliation_interval_seconds` away.
         for source_id in list(self._online):
-            self.enqueue_source(source_id)
+            self.enqueue_source(source_id, reason="startup")
 
         self._write_health()
         log_event(_logger, "daemon_started", sources=len(self._online))
@@ -151,9 +165,29 @@ class Daemon:
 
     # -- triggers -----------------------------------------------------------
 
-    def enqueue_source(self, source_id: str) -> None:
+    def enqueue_source(self, source_id: str, *, reason: str = "trigger") -> None:
+        """Coalesces a burst of triggers for the same source into at
+        most one queued pass plus at most one follow-up pass -- see
+        ``_pending_state``'s docstring above. ``reason`` is telemetry
+        only (a watcher event, a reconciliation tick, daemon startup,
+        ...); it never affects scheduling.
+        """
         if self._stop_event.is_set():
             return
+        with self._state_lock:
+            state = self._pending_state.get(source_id)
+            if state is None:
+                self._pending_state[source_id] = "queued"
+            elif state == "queued":
+                # Already sitting in the queue, not yet started -- this
+                # trigger is absorbed into that pending pass.
+                return
+            elif state == "running":
+                self._pending_state[source_id] = "running_followup"
+                return
+            else:  # "running_followup" -- a follow-up is already scheduled
+                return
+        log_event(_logger, "source_pass_queued", source_id=source_id, reason=reason)
         self._queue.put(source_id)
 
     def reconcile_now(self) -> None:
@@ -171,7 +205,7 @@ class Daemon:
         for source in sources:
             if source.source_type is SourceType.LOCAL and source.id not in self._local_watchers:
                 self._attach_watcher(source)
-            self.enqueue_source(source.id)
+            self.enqueue_source(source.id, reason="reconciliation")
         with self._state_lock:
             self._last_reconciliation_at = health.now_iso()
         self._write_health()
@@ -180,13 +214,13 @@ class Daemon:
 
     def _network_trigger(self, source_id: str) -> Callable[[], None]:
         def _trigger() -> None:
-            self.enqueue_source(source_id)
+            self.enqueue_source(source_id, reason="network_watcher")
 
         return _trigger
 
     def _local_trigger(self, source_id: str) -> Callable[[Path], None]:
         def _trigger(_path: Path) -> None:
-            self.enqueue_source(source_id)
+            self.enqueue_source(source_id, reason="local_watcher")
 
         return _trigger
 
@@ -237,6 +271,8 @@ class Daemon:
                 if self._stop_event.is_set():
                     return
                 continue
+            with self._state_lock:
+                self._pending_state[source_id] = "running"
             try:
                 self._run_pass(source_id)
             except Exception:
@@ -248,7 +284,23 @@ class Daemon:
                     exc_info=True,
                 )
             finally:
+                self._settle_pending_state(source_id)
                 self._queue.task_done()
+
+    def _settle_pending_state(self, source_id: str) -> None:
+        """Runs once a pass for ``source_id`` has finished (successfully
+        or not): if a follow-up trigger arrived while it was running,
+        queue exactly one more pass now; otherwise the source has no
+        pending work left. See ``_pending_state``'s docstring.
+        """
+        requeue = False
+        with self._state_lock:
+            state = self._pending_state.pop(source_id, None)
+            if state == "running_followup":
+                self._pending_state[source_id] = "queued"
+                requeue = True
+        if requeue:
+            self._queue.put(source_id)
 
     def _run_pass(self, source_id: str) -> None:
         pass_result = None
@@ -279,6 +331,7 @@ class Daemon:
             indexed=pass_result.result.indexed,
             deleted=pass_result.result.deleted,
             failed=pass_result.result.failed,
+            scan_incomplete=pass_result.result.scan_incomplete,
         )
         self._write_health()
 
