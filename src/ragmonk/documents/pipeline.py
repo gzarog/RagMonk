@@ -19,7 +19,7 @@ import uuid
 from datetime import UTC, datetime
 
 from ragmonk.core.config import ChunkingConfig
-from ragmonk.core.errors import RagMonkError
+from ragmonk.core.errors import ContentChangedDuringProcessingError, RagMonkError
 from ragmonk.core.models import Document, DocumentFormat, FileStatus, Paragraph, Section, Table
 from ragmonk.documents import chunker, docling_adapter, normalizer
 from ragmonk.documents.chunker import Chunk
@@ -28,7 +28,7 @@ from ragmonk.documents.metadata import extract_metadata
 from ragmonk.indexing.coordinator import ProcessingOutcome, ProcessorContext
 from ragmonk.indexing.incremental import VersionStamp
 from ragmonk.retrieval import embedder
-from ragmonk.sources.fingerprint import hash_file
+from ragmonk.sources.fingerprint import stat_unchanged, verified_hash
 from ragmonk.storage.repositories import documents_repo
 from ragmonk.storage.sqlite import transaction
 from ragmonk.telemetry.logging import get_logger, log_event
@@ -166,11 +166,22 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
         if page_count > ctx.max_document_pages:
             return ProcessingOutcome(status=FileStatus.SKIPPED_LIMIT)
 
+    # Indexing optimization plan, Phase P3 / finding F4: reuses the
+    # coordinator's already-computed digest (via ``ctx.file_identity``)
+    # instead of this processor independently re-reading and re-hashing
+    # the whole file, as long as a cheap stat still matches what the
+    # coordinator saw. Threaded into ``convert`` below too, so the PDF
+    # conversion cache's own lookup (``docling_adapter._convert_pdf``)
+    # doesn't hash the file a third time.
+    content_hash = verified_hash(ctx.path, expected=ctx.file_identity)
+
     # ``ctx.ocr`` is ``None`` for any ``ProcessorContext`` built outside
     # the real coordinator (unit tests, mainly) -- falls back to "off",
     # Phase 3's original, only behavior, exactly like the coordinator's
     # own docstring for this field promises.
-    conversion = docling_adapter.convert(ctx.path, conn=ctx.conn, ocr_mode=ctx.ocr or "off")
+    conversion = docling_adapter.convert(
+        ctx.path, conn=ctx.conn, ocr_mode=ctx.ocr or "off", content_hash=content_hash
+    )
     normalized = normalizer.normalize(conversion.document, doc_format)
     # Metadata (title, in particular) is extracted before chunking rather
     # than after, unlike pre-Phase-3: `chunk_document` now bakes the
@@ -189,6 +200,29 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
     )
     _log_chunking_diagnostics(ctx, chunking_config, chunk_diagnostics)
 
+    # Indexing optimization plan, Phase P3: a final, cheap check that
+    # the file is still the one the coordinator scanned and this
+    # processor just spent potentially real time converting/chunking --
+    # a narrow but real race (a concurrent write landing mid-extraction)
+    # must never end in silently publishing content derived from a file
+    # that no longer looks like that on disk. Only meaningful when the
+    # coordinator supplied an identity in the first place; a
+    # coordinator-external ``ProcessorContext`` has nothing to compare
+    # against and keeps its pre-P3 behavior.
+    if ctx.file_identity is not None:
+        try:
+            post_stat = ctx.path.stat()
+        except OSError as exc:
+            raise ContentChangedDuringProcessingError(
+                f"{ctx.path}: file became unreadable during processing: {exc}"
+            ) from exc
+        if not stat_unchanged(
+            ctx.file_identity.size, ctx.file_identity.mtime, post_stat.st_size, post_stat.st_mtime
+        ):
+            raise ContentChangedDuringProcessingError(
+                f"{ctx.path}: file changed during processing; will be retried"
+            )
+
     now = _now()
     document_id = uuid.uuid4().hex
     chunk_ids = [uuid.uuid4().hex for _ in chunks]
@@ -205,7 +239,7 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
         paragraph_count=sum(1 for c in chunks if c.kind == "paragraph"),
         table_count=sum(1 for c in chunks if c.kind == "table"),
         is_scanned=meta.is_scanned,
-        content_hash=hash_file(ctx.path),
+        content_hash=content_hash,
         generation=ctx.next_generation,
         created_at=now,
         updated_at=now,

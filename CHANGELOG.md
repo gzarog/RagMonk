@@ -8,6 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
+Phase P3: one verified file fingerprint, reused instead of independently
+re-hashed at every downstream stage.
+
+### Added
+
+- `sources.fingerprint.FileIdentity`/`verified_hash`: `IndexCoordinator`
+  now computes a file's content hash once during scan/classify and
+  threads it (plus the exact size/mtime it was verified against)
+  through `ProcessorContext.file_identity`. `documents.pipeline.
+  document_processor` and `documents.docling_adapter.convert`/
+  `_convert_pdf` reuse it via `verified_hash` -- a cheap `stat()`
+  comparison, not a re-read -- instead of each independently hashing
+  the whole file again (finding F4: the coordinator, the document
+  pipeline and the PDF conversion cache previously did this
+  independently, up to three full-file hashes for one PDF). A stat
+  mismatch (the file changed since the coordinator's scan) still falls
+  back to a full re-hash, exactly as if no identity had been supplied.
+- `core.errors.ContentChangedDuringProcessingError`: `document_processor`
+  now re-stats the file immediately before publishing and raises this
+  if it no longer matches the identity it started with, instead of
+  committing content derived from a file that changed mid-extraction.
+  Handled by the existing per-file retry/backoff path like any other
+  processor exception.
+
+### Changed
+
+- `documents.docling_adapter.convert`/`_convert_pdf` and
+  `documents.pipeline.document_processor` gain an optional
+  `content_hash` parameter/field; every caller that doesn't supply one
+  (direct calls, most existing tests) keeps hashing the file itself,
+  unchanged from before this phase.
+
+---
+
+Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
 Phase P1: scan completeness and coalesced daemon scheduling.
 
 ### Added

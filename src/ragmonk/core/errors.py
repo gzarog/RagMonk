@@ -50,3 +50,16 @@ class HealthCheckError(RagMonkError):
 
 class SecurityViolationError(RagMonkError):
     exit_code = EXIT_SECURITY_RESTRICTION
+
+
+class ContentChangedDuringProcessingError(RagMonkError):
+    """Raised by a processor (indexing optimization plan, Phase P3) when
+    a file's content changed between the coordinator's scan and this
+    processor finishing its extraction -- a narrow but real race (a
+    concurrent write landing mid-conversion). Never left to reach a CLI
+    exit code: ``IndexCoordinator._process_queue`` catches every
+    processor exception per file and retries/backs off exactly as it
+    does for any other failure, which is the correct response here too
+    -- publishing what was just extracted would silently commit content
+    derived from a file that no longer looks like that on disk.
+    """
