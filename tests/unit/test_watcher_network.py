@@ -44,7 +44,7 @@ def test_poll_once_seeds_baseline_but_start_does_not_trigger_on_first_tick(
     (tmp_path / "a.txt").write_text("hello")
     triggered = []
     watcher = NetworkSourceWatcher(
-        tmp_path, interval_seconds=60, on_trigger=lambda: triggered.append(True)
+        tmp_path, interval_seconds=60, on_trigger=lambda changed: triggered.append(changed)
     )
     watcher.start()
     try:
@@ -58,13 +58,18 @@ def test_poll_once_detects_a_change_made_between_polls(tmp_path: Path) -> None:
     (tmp_path / "a.txt").write_text("hello")
     triggered = []
     watcher = NetworkSourceWatcher(
-        tmp_path, interval_seconds=60, on_trigger=lambda: triggered.append(True)
+        tmp_path, interval_seconds=60, on_trigger=lambda changed: triggered.append(changed)
     )
     watcher.start()
     try:
-        (tmp_path / "b.txt").write_text("new file")
+        new_file = tmp_path / "b.txt"
+        new_file.write_text("new file")
         assert watcher.poll_once() is True
-        assert triggered == [True]
+        assert len(triggered) == 1
+        # Indexing optimization plan, Phase P2: on_trigger now receives
+        # the exact changed-path set this tick's diff computed, not
+        # just a bare "something changed" signal.
+        assert triggered[0] == {str(new_file.resolve())}
         assert watcher.poll_once() is False  # nothing changed since the last poll
     finally:
         watcher.stop(timeout=5.0)
@@ -75,7 +80,9 @@ def test_background_loop_respects_the_configured_interval(tmp_path: Path) -> Non
     triggered = []
     interval = 0.2
     watcher = NetworkSourceWatcher(
-        tmp_path, interval_seconds=interval, on_trigger=lambda: triggered.append(time.monotonic())
+        tmp_path,
+        interval_seconds=interval,
+        on_trigger=lambda changed: triggered.append(time.monotonic()),
     )
     watcher.start()
     try:
@@ -94,7 +101,7 @@ def test_background_loop_respects_the_configured_interval(tmp_path: Path) -> Non
 
 
 def test_stop_joins_the_background_thread(tmp_path: Path) -> None:
-    watcher = NetworkSourceWatcher(tmp_path, interval_seconds=0.05, on_trigger=lambda: None)
+    watcher = NetworkSourceWatcher(tmp_path, interval_seconds=0.05, on_trigger=lambda changed: None)
     watcher.start()
     assert watcher.is_alive
     watcher.stop(timeout=5.0)

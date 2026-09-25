@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
+Phase P2: targeted local updates and reused network snapshots.
+
+### Added
+
+- `IndexCoordinator.run()` accepts an optional `changed_paths` and
+  `indexing.coordinator.ScanRequest` (`full`/`changed_paths`/`reason`)
+  drives a *targeted* pass over exactly those paths instead of walking
+  the whole source tree (findings F1/F2). Deletion stays precise (only
+  a named, now-missing path with an existing record is ever deleted --
+  never inferred from a walk), and rename identity is preserved when
+  both halves of a move land in the same batch (the common case for a
+  local editor/`git mv`, thanks to the watcher's own debouncing); a
+  rename split across batches degrades to delete-then-recreate, a
+  disclosed trade-off. `run_source_pass` gained a matching optional
+  `scan_request` parameter; every existing caller (`ragmonk index`)
+  keeps its original full-scan behavior unchanged.
+- `Daemon` now accumulates each source's touched paths between passes
+  and hands them to the coordinator as a targeted `ScanRequest` --
+  a single local edit no longer triggers a full source scan. Startup
+  and periodic reconciliation passes, and any batch larger than 200
+  paths (a watcher-overflow proxy), still force a full scan, as does an
+  offline/unreachable source (`IndexCoordinator._run_targeted` runs the
+  same `check_root_accessible` check the full-scan path does before
+  trusting anything).
+- `NetworkSourceWatcher.on_trigger` now receives the exact changed-path
+  set its poll tick already computed (finding F2) instead of firing
+  with no arguments, so a detected network change reuses that diff for
+  a targeted pass instead of the coordinator walking the network tree
+  a second time from scratch.
+
+---
+
+Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
 Phase P3: one verified file fingerprint, reused instead of independently
 re-hashed at every downstream stage.
 

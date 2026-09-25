@@ -21,6 +21,7 @@ from ragmonk.indexing.coordinator import (
     IndexCoordinator,
     IndexRunResult,
     ProcessorRegistry,
+    ScanRequest,
     default_registry,
 )
 from ragmonk.indexing.embedding_indexer import embed_touched_files
@@ -78,8 +79,18 @@ class SourcePassResult:
 
 
 def run_source_pass(
-    ctx: AppContext, source: Source, processors: ProcessorRegistry
+    ctx: AppContext,
+    source: Source,
+    processors: ProcessorRegistry,
+    *,
+    scan_request: ScanRequest | None = None,
 ) -> SourcePassResult:
+    """``scan_request`` (indexing optimization plan, Phase P2), when
+    given and not ``full``, drives a targeted pass over just its
+    ``changed_paths`` instead of a full scan -- see
+    ``IndexCoordinator.run``. ``None`` (``ragmonk index`` and every
+    pre-P2 caller) keeps the original full-scan behavior unchanged.
+    """
     project_id = paths.project_id_for_path(Path(source.path))
     conn = ctx.project_conn(project_id)
     coordinator = IndexCoordinator(
@@ -91,7 +102,10 @@ def run_source_pass(
         ctx.config,
         processors=processors,
     )
-    result = coordinator.run()
+    changed_paths = (
+        scan_request.changed_paths if scan_request is not None and not scan_request.full else None
+    )
+    result = coordinator.run(changed_paths=changed_paths)
     now = datetime.now(UTC).isoformat()
 
     if result.source_offline:
