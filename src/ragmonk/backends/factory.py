@@ -21,6 +21,7 @@ to be installed.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -42,6 +43,44 @@ _CREDENTIAL_ENV_VARS: dict[str, tuple[str, str, str]] = {
         "RAGMONK_ELASTICSEARCH_API_KEY",
     ),
 }
+
+
+_URL_USERINFO_RE = re.compile(r"([a-zA-Z][a-zA-Z0-9+.\-]*://)[^\s/@]+@")
+
+
+def redact_urls_in_text(text: str) -> str:
+    """Defensive backstop for the CLI's top-level exception boundary
+    (``cli/_common.py``'s ``cli_command`` wrapper) and any other place a
+    raw, unstructured message might get printed -- unlike
+    :func:`redact_url`, which strips userinfo from one already-parsed
+    URL, this scrubs *every* URL-shaped substring found anywhere inside
+    an arbitrary string.
+
+    Independent review follow-up: most of this codebase's own
+    server-adapter code never puts a credential in a URL (see
+    ``ServerStorageConfig``'s docstring -- credentials are env-var-only)
+    and always logs failures via ``type(exc).__name__`` rather than
+    ``str(exc)`` (``opensearch_client.py``/``elasticsearch_client.py``).
+    But an HTTP client library's own exception ``__str__`` is outside
+    this codebase's control (``opensearchpy.ConnectionError.__str__``,
+    for one, echoes its wrapped ``urllib3`` exception's message
+    verbatim, which does include the request URL) and could reach the
+    CLI's catch-all unwrapped from a call site that -- unlike
+    ``cluster_health``/``build_client`` -- does not itself pre-sanitize
+    (``client.bulk``/``client.search``/etc. inside the write/read
+    paths). If a user ever puts ``user:pass@`` in ``storage.server.url``
+    despite the docs saying not to (the exact scenario ``redact_url``
+    itself guards against), that is the one way a credential could ride
+    along inside such an exception's message -- this closes that same
+    gap at the last point before anything reaches the terminal. Never
+    raises.
+    """
+    if not text:
+        return text
+    try:
+        return _URL_USERINFO_RE.sub(lambda m: m.group(1), text)
+    except Exception:  # pragma: no cover - defensive, regex sub on str never raises
+        return text
 
 
 def redact_url(url: str) -> str:

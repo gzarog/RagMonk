@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from ragmonk.backends.base import KnowledgeBackend
-from ragmonk.backends.factory import create_backend, credential_env_vars
+from ragmonk.backends.factory import create_backend, credential_env_vars, redact_urls_in_text
 from ragmonk.backends.local import LocalKnowledgeBackend
 from ragmonk.core.config import RagMonkConfig, ServerStorageConfig, StorageConfig
 from ragmonk.core.errors import ConfigError
@@ -144,3 +144,32 @@ def test_local_backend_unwired_methods_raise_not_implemented(
         local_backend.lexical_search("query", 10)
     with pytest.raises(NotImplementedError):
         local_backend.count_stats()
+
+
+# -- redact_urls_in_text: credential-leak fuzzing follow-up ----------------
+
+
+def test_redact_urls_in_text_strips_userinfo_from_every_embedded_url() -> None:
+    text = (
+        "ConnectionError caused by NewConnectionError("
+        "'https://admin:s3cr3t@opensearch:9200/_bulk') and also "
+        "http://user@es.example.com:9243/_search failed"
+    )
+    scrubbed = redact_urls_in_text(text)
+    assert "s3cr3t" not in scrubbed
+    assert "admin:" not in scrubbed
+    assert "user@" not in scrubbed
+    assert "opensearch:9200/_bulk" in scrubbed
+    assert "es.example.com:9243/_search" in scrubbed
+
+
+def test_redact_urls_in_text_leaves_plain_text_untouched() -> None:
+    text = "OpenSearch cluster is unreachable or rejected the request: ConnectionError"
+    assert redact_urls_in_text(text) == text
+
+
+def test_redact_urls_in_text_never_raises_on_empty_or_odd_input() -> None:
+    assert redact_urls_in_text("") == ""
+    assert redact_urls_in_text("not a url at all @ symbol here") == (
+        "not a url at all @ symbol here"
+    )
