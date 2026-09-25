@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ragmonk.core.config import ChunkingConfig, RagMonkConfig
+from ragmonk.core.errors import SecurityViolationError
 from ragmonk.core.models import FileKind, FileRecord, FileStatus, ScannedFile
 from ragmonk.indexing import retry
 from ragmonk.indexing.incremental import (
@@ -236,6 +237,31 @@ class IndexRunResult:
     # unsafe, not the whole pass.
     scan_incomplete: bool = False
     scan_errors: list[str] = field(default_factory=list)
+    # Indexing optimization plan, Phase P2: True when this run only
+    # examined ``ScanRequest.changed_paths`` rather than walking the
+    # whole source tree -- telemetry only (see ``daemon_pass_completed``
+    # in ``service/daemon.py``), never something a caller branches on.
+    targeted: bool = False
+
+
+# Indexing optimization plan, Phase P2: the unit of work a caller hands
+# ``IndexCoordinator`` -- either "walk and diff the whole tree"
+# (``full=True``, the only mode that existed before this phase and the
+# only one ``run_source_pass``'s own callers get unless they explicitly
+# opt in) or "these specific paths changed, work from that instead"
+# (``full=False`` with ``changed_paths`` set). ``reason`` is telemetry
+# only (which trigger produced this request), matching ``Daemon.
+# enqueue_source``'s own ``reason`` parameter.
+@dataclass(frozen=True)
+class ScanRequest:
+    source_id: str
+    reason: str = "manual"
+    changed_paths: frozenset[str] | None = None
+    full: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.full and not self.changed_paths:
+            raise ValueError("a non-full ScanRequest needs at least one changed path")
 
 
 class IndexCoordinator:
@@ -351,7 +377,15 @@ class IndexCoordinator:
         )
         return decide_reprocessing(existing_versions, current)
 
-    def run(self) -> IndexRunResult:
+    def run(self, *, changed_paths: frozenset[str] | None = None) -> IndexRunResult:
+        """``changed_paths`` (Phase P2), when given and non-empty, skips
+        the full tree walk entirely and instead examines exactly these
+        paths -- see ``_run_targeted``. ``None`` (every pre-P2 caller)
+        keeps this method's original full-scan behavior unchanged.
+        """
+        if changed_paths:
+            return self._run_targeted(changed_paths)
+
         result = IndexRunResult()
         self._pending_identities = {}
 
@@ -493,6 +527,220 @@ class IndexCoordinator:
                 content_hash=content_hash, size=sf.size, mtime=sf.mtime
             )
             jobs_repo.enqueue(self._conn, source_id=self._source_id, file_id=file_id)
+
+        self._process_queue(result, max_size_bytes)
+        return result
+
+    def _run_targeted(self, changed_paths: frozenset[str]) -> IndexRunResult:
+        """Indexing optimization plan, Phase P2: examines exactly
+        ``changed_paths`` instead of walking the whole source tree.
+
+        Safe by construction against finding F6 -- there is no directory
+        walk to silently truncate; every path's fate is decided by its
+        own individually-checked ``stat()``. Deletion is equally
+        precise: only a path explicitly named here, with an existing
+        record, is ever deleted, never inferred from absence in a walk.
+
+        Rename identity (``files_repo.rename``, keeping the same file
+        id and therefore every derived row) is preserved only when both
+        halves of a rename -- the old path going missing, the new path
+        appearing, with byte-identical content -- land in this same
+        batch, which the watcher's own debouncing makes the common case
+        for a local editor/``git mv``. A rename split across two
+        separate targeted batches degrades to delete-then-recreate for
+        this pass, exactly as an unrelated new file at that path would;
+        periodic full reconciliation does not retroactively undo that
+        (its own rename detection needs the *old* row still present).
+        This is an accepted, disclosed trade-off for this phase -- see
+        the plan's own "force full scan on ... ambiguous rename"
+        guidance, read here as "only resolve the unambiguous, same-
+        batch case; anything else keeps working, just without identity
+        preservation".
+        """
+        result = IndexRunResult(targeted=True)
+        self._pending_identities = {}
+
+        # Same check the full-scan path makes before trusting anything
+        # else -- a network source flickering offline between the
+        # watcher's diff and this call must never be treated as "every
+        # missing path was deleted" (exactly finding F6's concern, just
+        # via a different trigger than an unreadable subtree). Bailing
+        # out here also means a reconnect's large "everything looks new
+        # again" diff is never processed while still offline; the very
+        # next successful pass (targeted or, once the daemon's own size
+        # guard kicks in, full) reconciles it correctly regardless.
+        offline_reason = check_root_accessible(self._root)
+        if offline_reason is not None:
+            result.source_offline = True
+            result.offline_reason = offline_reason
+            return result
+
+        jobs_repo.recover_stuck(self._conn)
+
+        guard = PathGuard([self._root])
+        ignore_matcher = IgnoreMatcher(
+            root=self._root, extra_patterns=self._exclude, include_patterns=self._include
+        )
+        follow_symlinks = self._config.indexing.follow_symlinks
+        algorithm = self._config.indexing.hash_algorithm
+        max_size_bytes = self._config.indexing.max_file_size_mb * 1024 * 1024
+        now = _now()
+
+        present: dict[str, ScannedFile] = {}
+        missing: set[str] = set()
+        for raw_path in changed_paths:
+            candidate = Path(raw_path)
+            if not follow_symlinks and candidate.is_symlink():
+                continue
+            try:
+                resolved = guard.resolve(candidate)
+            except SecurityViolationError:
+                continue
+            resolved_str = str(resolved)
+            try:
+                stat = resolved.stat()
+            except OSError:
+                missing.add(resolved_str)
+                continue
+            if resolved.is_dir():
+                # Directory events carry no information a contained
+                # file event doesn't already provide -- matches
+                # scan()/LocalSourceWatcher's own "directories are
+                # ignored" rule.
+                continue
+            if ignore_matcher.is_ignored(resolved, is_dir=False):
+                continue
+            present[resolved_str] = ScannedFile(
+                path=resolved_str, size=stat.st_size, mtime=stat.st_mtime
+            )
+
+        result.scanned = len(present) + len(missing)
+
+        missing_records: dict[str, FileRecord] = {}
+        for path in missing:
+            record = files_repo.get_by_path(self._conn, self._source_id, path)
+            if record is not None:
+                missing_records[path] = record
+
+        new_paths: dict[str, ScannedFile] = {}
+        existing_records: dict[str, FileRecord] = {}
+        for path, sf in present.items():
+            record = files_repo.get_by_path(self._conn, self._source_id, path)
+            if record is None:
+                new_paths[path] = sf
+            else:
+                existing_records[path] = record
+
+        # Same-batch rename reconciliation (see docstring): a `missing`
+        # path with an existing record, whose content hash matches
+        # exactly one `new` path's, is a move -- reuse that row's id in
+        # place instead of delete+recreate. Ambiguous matches (0 or 2+
+        # candidates, or a kind change) are left alone, falling back to
+        # today's delete+recreate, exactly like ``_reconcile_renames``.
+        renamed_from: set[str] = set()
+        if missing_records and new_paths:
+            missing_by_hash: dict[str, list[FileRecord]] = {}
+            for record in missing_records.values():
+                if record.content_hash is not None:
+                    missing_by_hash.setdefault(record.content_hash, []).append(record)
+            for path in list(new_paths):
+                sf = new_paths[path]
+                content_hash = hash_file(Path(path), algorithm)
+                kind = detector.classify(Path(path))
+                candidates = missing_by_hash.get(content_hash, [])
+                if len(candidates) != 1 or candidates[0].kind is not kind:
+                    continue
+                old = candidates[0]
+                candidates.pop()
+                files_repo.rename(
+                    self._conn, old.id, new_path=path, size=sf.size, mtime=sf.mtime, updated_at=now
+                )
+                renamed_from.add(old.path)
+                result.moved += 1
+                del new_paths[path]
+                # Content is confirmed byte-identical to the old row
+                # (that's the match condition above) -- nothing left to
+                # reprocess for content, only a possible version-
+                # triggered reprocess (Phase 12), exactly like a
+                # full-scan rename gets via the main scan loop.
+                reprocess = self._version_reprocess_decision(old, kind)
+                if reprocess is ReprocessDecision.EMBEDDINGS_ONLY:
+                    result.unchanged += 1
+                    if kind is FileKind.CODE:
+                        result.embeddings_stale_code_file_ids.append(old.id)
+                    else:
+                        result.embeddings_stale_document_file_ids.append(old.id)
+                elif reprocess is ReprocessDecision.FULL:
+                    files_repo.update_status(self._conn, old.id, FileStatus.QUEUED, updated_at=now)
+                    result.changed += 1
+                    self._pending_identities[old.id] = FileIdentity(
+                        content_hash=content_hash, size=sf.size, mtime=sf.mtime
+                    )
+                    jobs_repo.enqueue(self._conn, source_id=self._source_id, file_id=old.id)
+                else:
+                    result.unchanged += 1
+
+        for path, record in missing_records.items():
+            if path in renamed_from:
+                continue
+            files_repo.delete(self._conn, record.id)
+            result.deleted += 1
+
+        for path, sf in new_paths.items():
+            kind = detector.classify(Path(path))
+            content_hash = hash_file(Path(path), algorithm)
+            file_id = uuid.uuid4().hex
+            new_record = FileRecord(
+                id=file_id,
+                source_id=self._source_id,
+                path=path,
+                kind=kind,
+                size=sf.size,
+                mtime=sf.mtime,
+                content_hash=content_hash,
+                status=FileStatus.QUEUED,
+                generation=0,
+                created_at=now,
+                updated_at=now,
+            )
+            files_repo.insert(self._conn, new_record)
+            result.new += 1
+            self._pending_identities[file_id] = FileIdentity(
+                content_hash=content_hash, size=sf.size, mtime=sf.mtime
+            )
+            jobs_repo.enqueue(self._conn, source_id=self._source_id, file_id=file_id)
+
+        for path, record in existing_records.items():
+            sf = present[path]
+            kind = detector.classify(Path(path))
+
+            def _lazy_hash(p: str = path, algo: str = algorithm) -> str:
+                return hash_file(Path(p), algo)
+
+            change, content_hash = classify_change(record, sf.size, sf.mtime, _lazy_hash)
+
+            if change is ChangeType.UNCHANGED:
+                reprocess = self._version_reprocess_decision(record, kind)
+                if reprocess is ReprocessDecision.EMBEDDINGS_ONLY:
+                    result.unchanged += 1
+                    if kind is FileKind.CODE:
+                        result.embeddings_stale_code_file_ids.append(record.id)
+                    else:
+                        result.embeddings_stale_document_file_ids.append(record.id)
+                    continue
+                if reprocess is ReprocessDecision.FULL:
+                    change = ChangeType.CHANGED
+
+            if change is ChangeType.UNCHANGED:
+                result.unchanged += 1
+                continue
+
+            files_repo.update_status(self._conn, record.id, FileStatus.QUEUED, updated_at=now)
+            result.changed += 1
+            self._pending_identities[record.id] = FileIdentity(
+                content_hash=content_hash, size=sf.size, mtime=sf.mtime
+            )
+            jobs_repo.enqueue(self._conn, source_id=self._source_id, file_id=record.id)
 
         self._process_queue(result, max_size_bytes)
         return result

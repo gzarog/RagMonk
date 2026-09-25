@@ -66,11 +66,13 @@ class NetworkSourceWatcher:
     """Polls one network source root on a fixed interval and fires
     ``on_trigger`` at most once per tick that finds any change.
 
-    Fires with no arguments (unlike ``LocalSourceWatcher``, which fires
-    per touched path): a poll tick already re-fingerprints the *whole*
-    source to detect a change at all, and ``IndexCoordinator.run()`` re-
-    diffs and reconciles the whole source in one pass regardless, so
-    there is no cheaper unit of work a per-file trigger here could buy.
+    Indexing optimization plan, Phase P2: ``on_trigger`` now receives
+    the exact set of changed paths this tick's diff already computed
+    (previously it fired with no arguments) -- a poll tick already re-
+    fingerprints the whole source to detect a change at all, so handing
+    that diff to the caller lets ``IndexCoordinator`` reuse it for a
+    targeted pass (finding F2) instead of walking the network tree a
+    second time from scratch.
     """
 
     def __init__(
@@ -80,7 +82,7 @@ class NetworkSourceWatcher:
         include_patterns: list[str] | None = None,
         exclude_patterns: list[str] | None = None,
         interval_seconds: float,
-        on_trigger: Callable[[], None],
+        on_trigger: Callable[[set[str]], None],
         follow_symlinks: bool = False,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -113,7 +115,7 @@ class NetworkSourceWatcher:
         changed = diff(self._last_fingerprint, current)
         self._last_fingerprint = current
         if changed:
-            self._on_trigger()
+            self._on_trigger(changed)
             return True
         return False
 

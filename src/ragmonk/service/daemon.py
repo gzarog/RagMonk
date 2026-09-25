@@ -34,6 +34,7 @@ from ragmonk.core import paths
 from ragmonk.core.errors import UsageError
 from ragmonk.core.lifecycle import AppContext, RunLock
 from ragmonk.core.models import Source, SourceStatus, SourceType
+from ragmonk.indexing.coordinator import ScanRequest
 from ragmonk.indexing.runner import build_processor_registry, run_source_pass
 from ragmonk.service import health
 from ragmonk.sources.registry import SourceRegistry
@@ -47,6 +48,21 @@ _logger = get_logger("daemon")
 # once the queue is empty. Not a user-facing setting -- short enough that
 # `daemon stop` never feels slow, long enough not to busy-loop.
 _WORKER_POLL_SECONDS = 0.2
+
+# Indexing optimization plan, Phase P2: a batch of touched paths larger
+# than this forces a full scan instead of a targeted one -- both a
+# watcher-overflow proxy (a burst this large plausibly means something
+# structural changed, not N individually-meaningful edits) and a bound
+# on per-pass work, matching the plan's "force full scan on watcher
+# overflow" guidance without needing to detect a real watchdog-queue
+# overflow event specifically.
+_MAX_TARGETED_PATHS = 200
+
+# Reasons that always force a full scan+diff pass regardless of what
+# (if anything) was accumulated in ``_touched_paths`` -- the periodic
+# correctness fallback (P1) and the one-time startup sweep must never
+# be narrowed to "whatever happened to be touched since".
+_FORCE_FULL_REASONS = frozenset({"startup", "reconciliation"})
 
 
 class Daemon:
@@ -78,6 +94,16 @@ class Daemon:
         # unbounded one-``queue.put`` per event the plain ``Queue`` above
         # allowed before this phase (finding F1/F3).
         self._pending_state: dict[str, str] = {}
+        # Indexing optimization plan, Phase P2: paths accumulated for
+        # this source's *next* pass (guarded by ``_state_lock``,
+        # cleared/consumed in ``_build_scan_request`` right before that
+        # pass starts) and whether that next pass must be full
+        # regardless -- set whenever any trigger contributing to it was
+        # a startup/reconciliation sweep (``_FORCE_FULL_REASONS``).
+        # Coalescing (``_pending_state`` above) decides *whether* a pass
+        # runs; this decides *what kind* once it does.
+        self._touched_paths: dict[str, set[str]] = {}
+        self._force_full: dict[str, bool] = {}
 
         # ``ctx.sources_conn`` (and, transitively, each project
         # connection ``run_source_pass`` opens) is shared across the
@@ -175,6 +201,8 @@ class Daemon:
         if self._stop_event.is_set():
             return
         with self._state_lock:
+            if reason in _FORCE_FULL_REASONS:
+                self._force_full[source_id] = True
             state = self._pending_state.get(source_id)
             if state is None:
                 self._pending_state[source_id] = "queued"
@@ -212,14 +240,23 @@ class Daemon:
 
     # -- internals ----------------------------------------------------------
 
-    def _network_trigger(self, source_id: str) -> Callable[[], None]:
-        def _trigger() -> None:
+    def _network_trigger(self, source_id: str) -> Callable[[set[str]], None]:
+        def _trigger(changed_paths: set[str]) -> None:
+            # Indexing optimization plan, Phase P2 / finding F2: the
+            # poll tick that detected this change already computed
+            # exactly which paths changed (see ``NetworkSourceWatcher.
+            # poll_once``) -- reused for a targeted pass instead of the
+            # coordinator walking the network tree a second time.
+            with self._state_lock:
+                self._touched_paths.setdefault(source_id, set()).update(changed_paths)
             self.enqueue_source(source_id, reason="network_watcher")
 
         return _trigger
 
     def _local_trigger(self, source_id: str) -> Callable[[Path], None]:
-        def _trigger(_path: Path) -> None:
+        def _trigger(path: Path) -> None:
+            with self._state_lock:
+                self._touched_paths.setdefault(source_id, set()).add(str(path))
             self.enqueue_source(source_id, reason="local_watcher")
 
         return _trigger
@@ -302,7 +339,24 @@ class Daemon:
         if requeue:
             self._queue.put(source_id)
 
+    def _build_scan_request(self, source_id: str) -> ScanRequest:
+        """Consumes (pops) this source's accumulated touched-paths/
+        force-full state for the pass about to run -- whatever arrives
+        after this point starts a fresh accumulation for the *next*
+        pass, exactly like ``_settle_pending_state`` scopes coalescing
+        to one pass at a time.
+        """
+        with self._state_lock:
+            touched = self._touched_paths.pop(source_id, None)
+            force_full = self._force_full.pop(source_id, False)
+        if force_full or not touched or len(touched) > _MAX_TARGETED_PATHS:
+            return ScanRequest(source_id=source_id, reason="daemon", full=True)
+        return ScanRequest(
+            source_id=source_id, reason="daemon", changed_paths=frozenset(touched), full=False
+        )
+
     def _run_pass(self, source_id: str) -> None:
+        scan_request = self._build_scan_request(source_id)
         pass_result = None
         with self._db_lock:
             try:
@@ -313,7 +367,9 @@ class Daemon:
                 lock = RunLock(paths.locks_dir(self._ctx.home) / "index.lock")
                 lock.acquire()
                 try:
-                    pass_result = run_source_pass(self._ctx, source, self._processors)
+                    pass_result = run_source_pass(
+                        self._ctx, source, self._processors, scan_request=scan_request
+                    )
                 finally:
                     lock.release()
 
@@ -332,6 +388,7 @@ class Daemon:
             deleted=pass_result.result.deleted,
             failed=pass_result.result.failed,
             scan_incomplete=pass_result.result.scan_incomplete,
+            targeted=pass_result.result.targeted,
         )
         self._write_health()
 
