@@ -72,6 +72,23 @@ def delete_by_file(conn: sqlite3.Connection, file_id: str) -> None:
     conn.execute("DELETE FROM embeddings WHERE file_id = ?", (file_id,))
 
 
+def delete_by_files(conn: sqlite3.Connection, file_ids: Sequence[str]) -> None:
+    """Same as ``delete_by_file``, for several files in one statement --
+    indexing optimization plan V2, Phase P4 (measured):
+    ``embedding_indexer.publish_embeddings`` deletes every touched file's
+    previous-generation embeddings inside one already-held transaction
+    covering the whole batch (unchanged from Phase P5), so folding N
+    single-file ``DELETE``s into one ``IN (...)`` delete changes nothing
+    about failure semantics -- see ``files_repo.
+    update_embedding_version_many``'s identical rationale. A no-op for an
+    empty ``file_ids``.
+    """
+    if not file_ids:
+        return
+    placeholders = ", ".join("?" for _ in file_ids)
+    conn.execute(f"DELETE FROM embeddings WHERE file_id IN ({placeholders})", tuple(file_ids))
+
+
 def insert(
     conn: sqlite3.Connection,
     *,

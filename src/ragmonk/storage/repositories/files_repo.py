@@ -287,6 +287,40 @@ def update_embedding_version(
     )
 
 
+def update_embedding_version_many(
+    conn: sqlite3.Connection,
+    file_ids: Sequence[str],
+    *,
+    embedding_model_id: str,
+    embedding_text_version: str,
+    updated_at: str,
+) -> None:
+    """Same stamp as ``update_embedding_version``, for every id in
+    ``file_ids`` at once -- indexing optimization plan V2, Phase P4
+    (measured): ``embedding_indexer.publish_embeddings`` stamps every
+    touched file with the *same* ``embedding_model_id``/
+    ``embedding_text_version`` for its whole code-file group (and,
+    separately, its whole document-file group) in one call each, rather
+    than one ``UPDATE`` per file -- exactly the "batch independent
+    writes, preserve per-file atomicity" case this phase's plan calls
+    for: this was already inside one caller-held transaction covering
+    every touched file (unchanged from Phase P5's own design), so folding
+    N single-row ``UPDATE``s into one multi-row ``UPDATE ... WHERE id IN
+    (...)`` changes nothing about failure semantics -- the whole batch
+    still commits or rolls back together, exactly as before. A no-op for
+    an empty ``file_ids`` (this function is called once per subject-kind
+    group, and a source pass need not have touched both kinds).
+    """
+    if not file_ids:
+        return
+    placeholders = ", ".join("?" for _ in file_ids)
+    conn.execute(
+        f"UPDATE files SET embedding_model_id = ?, embedding_text_version = ?, "
+        f"updated_at = ? WHERE id IN ({placeholders})",
+        (embedding_model_id, embedding_text_version, updated_at, *file_ids),
+    )
+
+
 def list_missing_embeddings(
     conn: sqlite3.Connection, source_id: str, *, model_id: str
 ) -> list[FileRecord]:

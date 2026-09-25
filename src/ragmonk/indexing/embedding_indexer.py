@@ -128,14 +128,33 @@ def prepare_embeddings(
     if not touched_code_file_ids and not touched_document_file_ids:
         return None
 
+    # Indexing optimization plan V2, Phase P4 (measured): both loops
+    # below used to call list_by_file/list_units_by_file once *per
+    # touched file* -- N round trips for N touched files. Measured on a
+    # synthetic 300-file batch: 300 individual SELECTs each, confirmed by
+    # SQLite statement counting (see this phase's commit message for the
+    # full before/after numbers and the EXPLAIN QUERY PLAN check that
+    # ruled out an index -- both were already simple, single-table
+    # equality-filtered scans; the fix is call count, not query plan).
+    # entities_repo.list_by_files/documents_repo.list_units_by_files
+    # (mirroring files_repo.get_many's identical Phase P6 precedent) get
+    # every touched file's rows in one query each, then this function
+    # groups them back out per file itself.
     subjects: list[tuple[EmbeddingSubjectType, str, str, str]] = []
+    entities_by_file: dict[str, list[Entity]] = {}
+    for entity in entities_repo.list_by_files(conn, list(touched_code_file_ids)):
+        entities_by_file.setdefault(entity.file_id, []).append(entity)
     for file_id in touched_code_file_ids:
-        for entity in entities_repo.list_by_file(conn, file_id):
+        for entity in entities_by_file.get(file_id, []):
             text = _entity_text(entity)
             if text.strip():
                 subjects.append((EmbeddingSubjectType.ENTITY, entity.id, file_id, text))
+
+    units_by_file: dict[str, list[documents_repo.DocumentUnit]] = {}
+    for unit in documents_repo.list_units_by_files(conn, list(touched_document_file_ids)):
+        units_by_file.setdefault(unit.file_id, []).append(unit)
     for file_id in touched_document_file_ids:
-        for unit in documents_repo.list_units_by_file(conn, file_id):
+        for unit in units_by_file.get(file_id, []):
             # `embedding_text` (search-quality plan Phase 3) is the
             # document-title + heading-path-contextualized rendering of
             # `text` computed at chunk time (`chunker.Chunk.
@@ -302,33 +321,58 @@ def publish_embeddings(conn: sqlite3.Connection, prepared: PreparedEmbeddings) -
 
     now = datetime.now(UTC).isoformat()
     document_touched = prepared.touched_document_file_ids
-    touched_files = prepared.touched_code_file_ids | document_touched
-    for file_id in touched_files:
-        embeddings_repo.delete_by_file(conn, file_id)
-        # Mirrors embeddings_repo.delete_by_file: vector_items is the ANN
-        # index's own id-mapping table (blueprint section 13), regenerated
-        # in lockstep with embeddings so the two never drift apart.
-        vector_items_repo.delete_by_file(conn, file_id)
-        # Search Quality Improvement Plan, Phase 12 (extended by Phase
-        # P5's prepare/publish split): stamp this file's embedding reuse
-        # identity only here, inside the same transaction as the vectors
-        # themselves -- never speculatively before ``prepare_embeddings``
-        # succeeded, so a failed/unavailable model run (which returns
-        # ``None`` and never reaches this function at all) never claims a
-        # rebuild that didn't happen, and a mid-transaction failure here
-        # rolls the stamp back right along with the rows it describes.
-        files_repo.update_embedding_version(
-            conn,
-            file_id,
-            embedding_model_id=embedder.EMBEDDING_MODEL_ID,
-            embedding_text_version=(
-                _document_embedding_text_version
-                if file_id in document_touched
-                else CODE_EMBEDDING_TEXT_VERSION
-            ),
-            updated_at=now,
-        )
+    code_touched = prepared.touched_code_file_ids
+    touched_files = code_touched | document_touched
 
+    # Indexing optimization plan V2, Phase P4 (measured): the delete and
+    # version-stamp steps below used to run once *per touched file* --
+    # measured (see this phase's commit message) at 600 statements for a
+    # 300-file batch (300 deletes across two tables + 300 UPDATEs).
+    # Already inside one caller-held transaction covering the whole
+    # batch (unchanged from Phase P5), so folding these into a handful
+    # of multi-row statements changes only statement count, never
+    # failure semantics -- the whole batch still commits or rolls back
+    # together exactly as before.
+    embeddings_repo.delete_by_files(conn, list(touched_files))
+    # Mirrors embeddings_repo.delete_by_files: vector_items is the ANN
+    # index's own id-mapping table (blueprint section 13), regenerated
+    # in lockstep with embeddings so the two never drift apart.
+    vector_items_repo.delete_by_files(conn, list(touched_files))
+    # Search Quality Improvement Plan, Phase 12 (extended by Phase P5's
+    # prepare/publish split): stamp every touched file's embedding reuse
+    # identity only here, inside the same transaction as the vectors
+    # themselves -- never speculatively before ``prepare_embeddings``
+    # succeeded, so a failed/unavailable model run (which returns
+    # ``None`` and never reaches this function at all) never claims a
+    # rebuild that didn't happen, and a mid-transaction failure here
+    # rolls the stamp back right along with the rows it describes. Split
+    # into (at most) two batched calls -- one per embedding_text_version
+    # group -- rather than N per-file ones, mirroring the deletes above.
+    files_repo.update_embedding_version_many(
+        conn,
+        list(code_touched),
+        embedding_model_id=embedder.EMBEDDING_MODEL_ID,
+        embedding_text_version=CODE_EMBEDDING_TEXT_VERSION,
+        updated_at=now,
+    )
+    files_repo.update_embedding_version_many(
+        conn,
+        list(document_touched),
+        embedding_model_id=embedder.EMBEDDING_MODEL_ID,
+        embedding_text_version=_document_embedding_text_version,
+        updated_at=now,
+    )
+
+    # Phase P4 measured and *rejected* executemany here (see this
+    # phase's commit message): per-row INSERT via a Python loop vs.
+    # ``executemany`` showed no reliable wall-time difference for this
+    # table shape (~2000-row synthetic batch, both ~20-30ms, noise-level
+    # apart) -- unlike the DELETE/UPDATE batching above, an
+    # ``executemany`` INSERT still executes one prepared-statement run
+    # per row under the hood (confirmed via ``sqlite3.Connection.
+    # set_trace_callback`` statement counting: identical statement count
+    # to the loop, not reduced), so there was no real win to keep here.
+    # Left as the original per-subject loop.
     for (subject_type, subject_id, file_id, _text), vector in zip(
         prepared.subjects, prepared.vectors, strict=True
     ):
@@ -363,7 +407,9 @@ def publish_embeddings(conn: sqlite3.Connection, prepared: PreparedEmbeddings) -
     # describe a vector that was never actually published, and the ANN
     # sync that runs after a successful commit (``indexing/runner.py``'s
     # ``run_source_pass``, unchanged by this phase) still has SQLite as
-    # its sole, self-healing source of truth either way.
+    # its sole, self-healing source of truth either way. Left as a
+    # per-entry loop -- same measured-and-rejected executemany finding
+    # as the inserts immediately above applies here too.
     preprocessing_version = model_identity.preprocessing_fingerprint()
     for hashed_text, embedding_text_version, vector in prepared.cache_entries:
         embedding_cache_repo.put(
