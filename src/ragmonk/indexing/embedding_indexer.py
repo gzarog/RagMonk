@@ -46,12 +46,14 @@ from ragmonk.core.models import EmbeddingSubjectType, Entity
 from ragmonk.retrieval import embedder
 from ragmonk.storage.repositories import (
     documents_repo,
+    embedding_cache_repo,
     embeddings_repo,
     entities_repo,
     files_repo,
     vector_items_repo,
 )
 from ragmonk.telemetry.logging import get_logger, log_event
+from ragmonk.tokenization import model_identity
 
 _logger = get_logger("embeddings")
 
@@ -90,6 +92,18 @@ class PreparedEmbeddings:
     vectors: list[list[float]]
     touched_code_file_ids: frozenset[str]
     touched_document_file_ids: frozenset[str]
+    # Indexing optimization plan V2, Phase P3: every distinct text this
+    # batch embedded (whether reused from the persistent cache or freshly
+    # computed), ready for ``publish_embeddings`` to upsert into
+    # ``embedding_cache`` -- (text_hash, embedding_text_version, vector).
+    # Upserting a text that was already cached (a cache hit) is a
+    # harmless no-op write, kept for simplicity rather than tracking
+    # hit/miss separately through this struct.
+    cache_entries: list[tuple[str, str, list[float]]]
+    # Telemetry only (V2 Phase P5 wiring point): how many of this batch's
+    # *unique* texts were served from the persistent cache without
+    # calling the model at all.
+    cache_reused: int
 
 
 def prepare_embeddings(
@@ -154,17 +168,79 @@ def prepare_embeddings(
             unique_texts[text] = len(unique_texts)
     ordered_texts = list(unique_texts)
 
-    try:
-        unique_vectors = embedder.embed_texts(ordered_texts, batch_size=batch_size)
-    except embedder.EmbeddingModelUnavailableError as exc:
-        log_event(
-            _logger,
-            "embedding_model_unavailable",
-            level=logging.WARNING,
-            source_id=source_id,
-            error=str(exc),
+    # Indexing optimization plan V2, Phase P3: which text-assembly
+    # version produced each unique text -- CODE_EMBEDDING_TEXT_VERSION
+    # for an entity, documents/chunker.EMBEDDING_TEXT_VERSION for a
+    # document section -- keyed by the *first* subject that produced each
+    # text, mirroring the batch-level dedup immediately above (which
+    # already merges same-text subjects across kinds into one shared
+    # vector regardless of type; this cache never introduces a finer
+    # distinction than that pre-existing behavior already makes). The
+    # document chunker import stays lazy, and only actually happens when
+    # this batch has a document subject at all -- see
+    # CODE_EMBEDDING_TEXT_VERSION's own docstring for why that cost must
+    # be conditional.
+    text_versions: dict[str, str] = {}
+    document_text_version: str | None = None
+    for subject_type, _subject_id, _file_id, text in subjects:
+        if text in text_versions:
+            continue
+        if subject_type is EmbeddingSubjectType.DOCUMENT_SECTION:
+            if document_text_version is None:
+                from ragmonk.documents.chunker import (
+                    EMBEDDING_TEXT_VERSION as _document_embedding_text_version,
+                )
+
+                document_text_version = _document_embedding_text_version
+            text_versions[text] = document_text_version
+        else:
+            text_versions[text] = CODE_EMBEDDING_TEXT_VERSION
+
+    # Indexing optimization plan V2, Phase P3: reuse a persistent,
+    # project-local vector for any of this batch's unique texts whose
+    # full identity (exact text + model + preprocessing + embedding-text
+    # version) already has a cached row, instead of paying for model
+    # inference on it again -- this project's own single-project-per-
+    # database layout (``core/lifecycle.AppContext.project_conn``) is
+    # what makes "project-local" free: this connection can only ever read
+    # this one project's ``embedding_cache`` table. Layered *on top of*
+    # the within-batch dedup immediately above, never replacing it -- a
+    # text still costs at most one cache lookup and, on a miss, one model
+    # call, regardless of how many subjects in this batch share it.
+    preprocessing_version = model_identity.preprocessing_fingerprint()
+    cached_vectors: dict[str, list[float]] = {}
+    for text in ordered_texts:
+        cached = embedding_cache_repo.get(
+            conn,
+            embedding_cache_repo.text_hash(text),
+            model_id=embedder.EMBEDDING_MODEL_ID,
+            preprocessing_version=preprocessing_version,
+            embedding_text_version=text_versions[text],
         )
-        return None
+        if cached is not None:
+            cached_vectors[text] = cached
+
+    texts_to_embed = [text for text in ordered_texts if text not in cached_vectors]
+    if texts_to_embed:
+        try:
+            freshly_computed = embedder.embed_texts(texts_to_embed, batch_size=batch_size)
+        except embedder.EmbeddingModelUnavailableError as exc:
+            log_event(
+                _logger,
+                "embedding_model_unavailable",
+                level=logging.WARNING,
+                source_id=source_id,
+                error=str(exc),
+            )
+            return None
+    else:
+        freshly_computed = []
+    computed_by_text = dict(zip(texts_to_embed, freshly_computed, strict=True))
+
+    unique_vectors = [
+        cached_vectors[text] if text in cached_vectors else computed_by_text[text]
+        for text in ordered_texts
+    ]
 
     reused = len(subjects) - len(ordered_texts)
     if reused:
@@ -175,8 +251,24 @@ def prepare_embeddings(
             unique=len(ordered_texts),
             reused=reused,
         )
+    if cached_vectors:
+        log_event(
+            _logger,
+            "embeddings_cache_reused",
+            source_id=source_id,
+            reused=len(cached_vectors),
+            computed=len(texts_to_embed),
+        )
 
     vectors = [unique_vectors[unique_texts[s[3]]] for s in subjects]
+    cache_entries = [
+        (
+            embedding_cache_repo.text_hash(text),
+            text_versions[text],
+            unique_vectors[unique_texts[text]],
+        )
+        for text in ordered_texts
+    ]
 
     return PreparedEmbeddings(
         source_id=source_id,
@@ -184,6 +276,8 @@ def prepare_embeddings(
         vectors=vectors,
         touched_code_file_ids=frozenset(touched_code_file_ids),
         touched_document_file_ids=frozenset(touched_document_file_ids),
+        cache_entries=cache_entries,
+        cache_reused=len(cached_vectors),
     )
 
 
@@ -254,6 +348,32 @@ def publish_embeddings(conn: sqlite3.Connection, prepared: PreparedEmbeddings) -
             file_id=file_id,
             source_id=prepared.source_id,
             model_id=embedder.EMBEDDING_MODEL_ID,
+        )
+
+    # Indexing optimization plan V2, Phase P3: upsert every unique text
+    # this batch embedded (whether served from the cache or freshly
+    # computed -- see PreparedEmbeddings.cache_entries's docstring for why
+    # re-upserting a hit is a harmless no-op) into the persistent,
+    # project-local cache, in the *same* transaction as the
+    # embeddings/vector_items rows just written above. This is what keeps
+    # the cache consistent with the existing SQLite/ANN convergence
+    # mechanism: an interrupted publish (an exception before this
+    # transaction's COMMIT) rolls the cache writes back right along with
+    # the vectors they were derived alongside, so a cache row can never
+    # describe a vector that was never actually published, and the ANN
+    # sync that runs after a successful commit (``indexing/runner.py``'s
+    # ``run_source_pass``, unchanged by this phase) still has SQLite as
+    # its sole, self-healing source of truth either way.
+    preprocessing_version = model_identity.preprocessing_fingerprint()
+    for hashed_text, embedding_text_version, vector in prepared.cache_entries:
+        embedding_cache_repo.put(
+            conn,
+            hashed_text,
+            model_id=embedder.EMBEDDING_MODEL_ID,
+            preprocessing_version=preprocessing_version,
+            embedding_text_version=embedding_text_version,
+            vector=vector,
+            created_at=now,
         )
 
     log_event(

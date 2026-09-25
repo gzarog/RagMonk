@@ -74,3 +74,20 @@ def tokenizer_fingerprint() -> str:
         f"{name}:{digest}" for name, digest in sorted(TOKENIZER_ASSET_MANIFEST.items())
     )
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def preprocessing_fingerprint() -> str:
+    """The exact tokenizer/preprocessing identity that shapes how raw
+    text becomes model input: the pinned revision, the bundled asset
+    fingerprint, and the model's real maximum sequence length -- the same
+    three inputs ``documents/pipeline.py``'s ``_tokenizer_index_identity``
+    folds into a document's ``chunker_version`` stamp (Exact Tokenizer
+    plan, Phase 4), centralized here so a second caller (indexing
+    optimization plan V2, Phase P3's persistent embedding-reuse cache --
+    see ``indexing/embedding_cache.py``) never has to re-derive or risk
+    drifting from that same string shape. Read live (never cached) so a
+    test's monkeypatch of e.g. ``TOKENIZER_REVISION`` takes effect on
+    this function's very next call, exactly like ``tokenizer_fingerprint``
+    above.
+    """
+    return f"tok:{TOKENIZER_REVISION}:{tokenizer_fingerprint()}:max{MAX_SEQUENCE_TOKENS}"
