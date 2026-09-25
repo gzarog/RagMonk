@@ -18,17 +18,23 @@ adapter module should keep those imports inside its own methods (or behind
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ragmonk.backends.models import (
     BackendStats,
+    DocumentRecord,
+    DocumentUnitRecord,
     FileRecord,
+    LinkRecord,
     PreparedCode,
     PreparedDocument,
     PreparedEmbeddings,
     PreparedLinks,
     SearchHit,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ragmonk.core.models import Entity
 
 GraphDirection = Literal["in", "out", "both"]
 
@@ -125,13 +131,109 @@ class KnowledgeBackend(ABC):
     def get_file(self, file_id: str) -> FileRecord | None: ...
 
     @abstractmethod
-    def get_entities_for_files(self, file_ids: list[str]) -> list[dict[str, Any]]: ...
+    def get_entities_for_files(
+        self, file_ids: list[str], *, generation: str | None = None
+    ) -> list[dict[str, Any]]:
+        """``generation`` (completion plan F1/F6): a server backend reads
+        exactly that write generation instead of the published one -- used
+        only by the indexing pass writing it. Ignored by local mode."""
 
     @abstractmethod
-    def get_document_units_for_files(self, file_ids: list[str]) -> list[dict[str, Any]]: ...
+    def get_document_units_for_files(
+        self, file_ids: list[str], *, generation: str | None = None
+    ) -> list[dict[str, Any]]:
+        """See ``get_entities_for_files`` for ``generation``."""
 
     @abstractmethod
     def count_stats(self) -> BackendStats: ...
 
     @abstractmethod
     def clear_source(self, source_id: str) -> None: ...
+
+    # -- Completion plan F4: targeted read primitives ----------------------
+    # Concrete (not abstract) so existing test doubles that only implement
+    # the original contract keep working; every *real* backend
+    # (``LocalKnowledgeBackend``, ``OpenSearchKnowledgeBackend``,
+    # ``ElasticsearchKnowledgeBackend``) overrides all of them -- enforced
+    # by ``tests/unit/test_backend_read_contract.py``. A server backend
+    # answers every one of these from the server engine itself, filtered
+    # to each source's published generation -- never from local SQLite.
+
+    @property
+    def is_server(self) -> bool:
+        """True for a remote search-engine backend (searchable knowledge
+        lives outside local SQLite)."""
+        return False
+
+    def published_generation(self, source_id: str) -> str | None:
+        """The source's currently published generation id, or ``None``
+        if nothing has ever been published for it (local mode: always
+        ``None`` -- local rebuild safety is file-backup based)."""
+        return None
+
+    def upsert_files(self, file_records: list[FileRecord]) -> None:
+        for record in file_records:
+            self.upsert_file(record)
+
+    def get_files(self, file_ids: list[str]) -> list[FileRecord]:
+        raise NotImplementedError(f"{type(self).__name__}.get_files")
+
+    def list_files(self, source_id: str) -> list[FileRecord]:
+        raise NotImplementedError(f"{type(self).__name__}.list_files")
+
+    def get_entities(self, entity_ids: list[str]) -> list[Entity]:
+        raise NotImplementedError(f"{type(self).__name__}.get_entities")
+
+    def list_entities(
+        self, *, source_id: str | None = None, query: str | None = None, limit: int = 100
+    ) -> list[Entity]:
+        raise NotImplementedError(f"{type(self).__name__}.list_entities")
+
+    def list_source_entities(
+        self, source_id: str, *, generation: str | None = None
+    ) -> list[Entity]:
+        raise NotImplementedError(f"{type(self).__name__}.list_source_entities")
+
+    def find_entities_by_names(
+        self,
+        *,
+        names: list[str] | None = None,
+        qualified_names: list[str] | None = None,
+        source_id: str | None = None,
+        generation: str | None = None,
+    ) -> list[Entity]:
+        raise NotImplementedError(f"{type(self).__name__}.find_entities_by_names")
+
+    def get_links(
+        self,
+        *,
+        entity_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
+    ) -> list[LinkRecord]:
+        raise NotImplementedError(f"{type(self).__name__}.get_links")
+
+    def get_documents(self, document_ids: list[str]) -> list[DocumentRecord]:
+        raise NotImplementedError(f"{type(self).__name__}.get_documents")
+
+    def list_documents(
+        self, *, source_id: str | None = None, limit: int | None = None
+    ) -> list[DocumentRecord]:
+        raise NotImplementedError(f"{type(self).__name__}.list_documents")
+
+    def get_document_units(
+        self,
+        *,
+        document_id: str | None = None,
+        unit_ids: list[str] | None = None,
+    ) -> list[DocumentUnitRecord]:
+        raise NotImplementedError(f"{type(self).__name__}.get_document_units")
+
+    def list_source_document_units(
+        self, source_id: str, *, generation: str | None = None
+    ) -> list[DocumentUnitRecord]:
+        raise NotImplementedError(f"{type(self).__name__}.list_source_document_units")
+
+    def find_relationships_by_target_prefix(
+        self, source_id: str, prefix: str, *, generation: str | None = None
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError(f"{type(self).__name__}.find_relationships_by_target_prefix")

@@ -75,6 +75,7 @@ from ragmonk.backends.opensearch_client import (
     build_client,
     cluster_health,
 )
+from ragmonk.backends.server_common import ServerReadMixin
 from ragmonk.core.config import ServerStorageConfig
 from ragmonk.core.models import EmbeddingSubjectType
 
@@ -88,7 +89,7 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-class OpenSearchKnowledgeBackend(KnowledgeBackend):
+class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
     """A ``KnowledgeBackend`` backed by a real OpenSearch cluster.
 
     Never falls back to local storage: every method either performs a
@@ -121,6 +122,40 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                 api_key_var=api_key_var,
             )
         return self._client
+
+    # -- ServerReadMixin hooks (completion plan F4/F6) -----------------------
+    @property
+    def is_server(self) -> bool:
+        return True
+
+    def _index_names(self) -> tuple[str, str, str]:
+        return (
+            mappings.files_index(self._prefix),
+            mappings.content_index(self._prefix),
+            mappings.relationships_index(self._prefix),
+        )
+
+    def _search_raw(
+        self,
+        index: str,
+        query: dict[str, Any],
+        size: int,
+        sort: list[dict[str, Any]] | None = None,
+        search_after: list[Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        body: dict[str, Any] = {"size": size, "query": query}
+        if sort is not None:
+            body["sort"] = sort
+        if search_after is not None:
+            body["search_after"] = search_after
+        response = self._get_client().search(index=index, body=body)
+        hits: list[dict[str, Any]] = response.get("hits", {}).get("hits", [])
+        return hits
+
+    def _delete_by_query_raw(self, index: str, query: dict[str, Any]) -> None:
+        self._get_client().delete_by_query(
+            index=index, body={"query": query}, refresh=True, conflicts="proceed"
+        )
 
     # -- lifecycle -----------------------------------------------------
     def health(self) -> bool:
@@ -296,68 +331,95 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         )
         for index in mappings.all_indices(self._prefix):
             client.indices.refresh(index=index)
+        # Completion plan F6: the marker flip above is the single atomic
+        # visibility switch; only afterwards are the now-unreadable older
+        # generations' documents (files, content, relationships, links)
+        # reclaimed. A failure here leaves only invisible garbage.
+        self._gc_other_generations(source_id, generation)
 
     def abort_generation(self, source_id: str, generation: str) -> None:
-        client = self._get_client()
-        query = {
-            "query": {
-                "bool": {
-                    "filter": [
-                        {"term": {"source_id": source_id}},
-                        {"term": {"generation": generation}},
-                    ]
-                }
-            }
-        }
-        for index in (
-            mappings.content_index(self._prefix),
-            mappings.relationships_index(self._prefix),
-        ):
-            client.delete_by_query(index=index, body=query, refresh=True, conflicts="proceed")
+        """Deletes every artifact tagged with the aborted ``generation``
+        in *every* index -- file records and cross-domain links included
+        (completion plan F6), not just content/relationships -- without
+        touching the marker, so the previously published generation stays
+        exactly as it was.
+        """
+        self._delete_generation(source_id, generation)
 
     # -- writes -----------------------------------------------------------
     def upsert_file(self, file_record: FileRecord) -> None:
-        action = BulkAction(
-            op="index",
-            index=mappings.files_index(self._prefix),
-            doc_id=ids.file_doc_id(file_record.source_id, file_record.file_id),
-            source={
-                "doc_kind": "file",
-                "source_id": file_record.source_id,
-                "file_id": file_record.file_id,
-                "path": file_record.path,
-                "content_hash": file_record.content_hash,
-                "size_bytes": file_record.size_bytes,
-                "mtime": file_record.mtime,
-                "metadata": file_record.metadata,
-            },
-        )
-        run_bulk_or_raise(self._get_client(), [action], self._config.bulk)
+        self.upsert_files([file_record])
+
+    def upsert_files(self, file_records: list[FileRecord]) -> None:
+        """Completion plan F6: file records are generation-tagged (and
+        their ``_id`` includes the generation) so a rebuild writes a
+        *separate* file listing that only becomes visible on publish.
+        """
+        if not file_records:
+            return
+        generations: dict[str, str] = {}
+        actions: list[BulkAction] = []
+        for record in file_records:
+            key = f"{record.source_id}\x1f{record.generation}"
+            if key not in generations:
+                generations[key] = self._write_generation(record.source_id, record.generation)
+            generation = generations[key]
+            actions.append(
+                BulkAction(
+                    op="index",
+                    index=mappings.files_index(self._prefix),
+                    doc_id=ids.file_doc_id(record.source_id, record.file_id, generation),
+                    source={
+                        "doc_kind": "file",
+                        "source_id": record.source_id,
+                        "file_id": record.file_id,
+                        "generation": generation,
+                        "path": record.path,
+                        "content_hash": record.content_hash,
+                        "size_bytes": record.size_bytes,
+                        "mtime": record.mtime,
+                        "metadata": record.metadata,
+                    },
+                )
+            )
+        run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
         self._get_client().indices.refresh(index=mappings.files_index(self._prefix))
 
     def delete_file(self, source_id: str, file_id: str) -> None:
+        """Removes ``file_id``'s file record, entities, chunks, document,
+        relationships and every cross-domain link that references one of
+        its entities/documents -- across all generations (a deleted file
+        must not survive in any of them).
+        """
         client = self._get_client()
-        client.delete(
-            index=mappings.files_index(self._prefix),
-            id=ids.file_doc_id(source_id, file_id),
-            ignore=[404],
-        )
-        query = {
-            "query": {
-                "bool": {
-                    "filter": [
-                        {"term": {"source_id": source_id}},
-                        {"term": {"file_id": file_id}},
-                    ]
-                }
+        scoped = {
+            "bool": {
+                "filter": [
+                    {"term": {"source_id": source_id}},
+                    {"term": {"file_id": file_id}},
+                ]
             }
         }
-        for index in (
-            mappings.content_index(self._prefix),
-            mappings.relationships_index(self._prefix),
-        ):
-            client.delete_by_query(index=index, body=query, refresh=True, conflicts="proceed")
-        client.indices.refresh(index=mappings.files_index(self._prefix))
+        for index in mappings.all_indices(self._prefix):
+            client.delete_by_query(
+                index=index, body={"query": scoped}, refresh=True, conflicts="proceed"
+            )
+        links = {
+            "bool": {
+                "filter": [{"term": {"source_id": source_id}}, {"term": {"doc_kind": "link"}}],
+                "should": [
+                    {"term": {"entity_file_id": file_id}},
+                    {"term": {"document_file_id": file_id}},
+                ],
+                "minimum_should_match": 1,
+            }
+        }
+        client.delete_by_query(
+            index=mappings.relationships_index(self._prefix),
+            body={"query": links},
+            refresh=True,
+            conflicts="proceed",
+        )
 
     def publish_code(self, prepared_code: PreparedCode) -> None:
         """Deletes this file's previous-generation entities/relationships
@@ -367,14 +429,25 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         """
         source_id = prepared_code.source_id
         file_id = prepared_code.file_id
-        self._delete_file_scoped(mappings.content_index(self._prefix), source_id, file_id, "entity")
+        # Completion plan F6: the delete half is scoped to the generation
+        # being *written* -- a rebuild writing generation N+1 must never
+        # remove generation N's documents (still the published, readable
+        # ones until ``publish_generation``).
+        generation = str(prepared_code.generation)
         self._delete_file_scoped(
-            mappings.relationships_index(self._prefix), source_id, file_id, "relationship"
+            mappings.content_index(self._prefix), source_id, file_id, "entity", generation
         )
+        self._delete_file_scoped(
+            mappings.relationships_index(self._prefix),
+            source_id,
+            file_id,
+            "relationship",
+            generation,
+        )
+        self._delete_links_for_file(source_id, file_id, "entity_file_id", generation)
         if prepared_code.clear_only:
             return
 
-        generation = str(prepared_code.generation)
         actions: list[BulkAction] = []
         for entity in prepared_code.entities:
             snippet = prepared_code.entity_snippets.get(entity.id, entity.name)
@@ -395,8 +468,12 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                         "language": entity.language,
                         "content": snippet,
                         "snippet": snippet,
+                        "signature": entity.signature,
+                        "parent_id": entity.parent_id,
                         "start_line": entity.start_line,
                         "end_line": entity.end_line,
+                        "start_col": entity.start_col,
+                        "end_col": entity.end_col,
                         "created_at": entity.created_at,
                         "updated_at": entity.updated_at,
                     },
@@ -413,6 +490,7 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                         "source_id": source_id,
                         "file_id": file_id,
                         "generation": generation,
+                        "relationship_id": relationship.id,
                         "relationship_type": str(relationship.relationship_type),
                         "source_entity_id": relationship.source_entity_id,
                         "target_entity_id": relationship.target_entity_id,
@@ -420,6 +498,7 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                         "resolver": relationship.resolver,
                         "confidence": str(relationship.confidence),
                         "evidence": relationship.evidence,
+                        "source_location": relationship.source_location,
                         "created_at": relationship.created_at,
                     },
                 )
@@ -432,19 +511,20 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         source_id = prepared_document.source_id
         file_id = prepared_document.file_id
         content_index = mappings.content_index(self._prefix)
-        self._delete_file_scoped(content_index, source_id, file_id, "document")
-        self._delete_file_scoped(content_index, source_id, file_id, "chunk")
+        generation = str(prepared_document.generation)
+        self._delete_file_scoped(content_index, source_id, file_id, "document", generation)
+        self._delete_file_scoped(content_index, source_id, file_id, "chunk", generation)
+        self._delete_links_for_file(source_id, file_id, "document_file_id", generation)
         if prepared_document.delete_only or prepared_document.document is None:
             return
 
-        generation = str(prepared_document.generation)
         document = prepared_document.document
         doc_title = prepared_document.doc_title
         actions = [
             BulkAction(
                 op="index",
                 index=mappings.content_index(self._prefix),
-                doc_id=ids.document_doc_id(source_id, file_id),
+                doc_id=ids.document_doc_id(source_id, file_id, generation),
                 source={
                     "doc_kind": "document",
                     "source_id": source_id,
@@ -455,6 +535,7 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                     "name": doc_title,
                     "content": doc_title,
                     "search_text": doc_title,
+                    "doc_meta": _document_meta(document),
                     "created_at": document.created_at,
                     "updated_at": document.updated_at,
                 },
@@ -479,6 +560,9 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                         "heading_path": list(chunk.heading_path),
                         "content": chunk.text,
                         "search_text": chunk.search_text,
+                        "embedding_text": chunk.contextual_text,
+                        "page_start": chunk.page_start,
+                        "page_end": chunk.page_end,
                         "created_at": document.created_at,
                         "updated_at": document.updated_at,
                     },
@@ -530,6 +614,14 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         if not prepared_links.candidates:
             return 0
         source_id = prepared_links.source_id
+        # Completion plan F6: links are generation-versioned like every
+        # other derived artifact, and carry the file ids of both ends so
+        # a re-published/deleted file's stale links can be removed.
+        generation = self._write_generation(source_id, prepared_links.generation)
+        entity_files = self._entity_file_ids([c.entity_id for c in prepared_links.candidates])
+        document_files = self._document_file_ids(
+            [c.document_id for c in prepared_links.candidates]
+        )
         actions = [
             BulkAction(
                 op="index",
@@ -541,10 +633,14 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                     candidate.section_id,
                     str(candidate.link_type),
                     candidate.resolver,
+                    generation,
                 ),
                 source={
                     "doc_kind": "link",
                     "source_id": source_id,
+                    "generation": generation,
+                    "entity_file_id": entity_files.get(candidate.entity_id, ""),
+                    "document_file_id": document_files.get(candidate.document_id, ""),
                     "relationship_type": str(candidate.link_type),
                     "entity_id": candidate.entity_id,
                     "document_id": candidate.document_id,
@@ -587,7 +683,9 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
             client.delete_by_query(index=index, body=query, refresh=True, conflicts="proceed")
 
     # -- internal helpers ---------------------------------------------------
-    def _delete_file_scoped(self, index: str, source_id: str, file_id: str, doc_kind: str) -> None:
+    def _delete_file_scoped(
+        self, index: str, source_id: str, file_id: str, doc_kind: str, generation: str
+    ) -> None:
         client = self._get_client()
         query = {
             "query": {
@@ -596,11 +694,39 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                         {"term": {"source_id": source_id}},
                         {"term": {"file_id": file_id}},
                         {"term": {"doc_kind": doc_kind}},
+                        {"term": {"generation": generation}},
                     ]
                 }
             }
         }
         client.delete_by_query(index=index, body=query, refresh=True, conflicts="proceed")
+
+    def _delete_links_for_file(
+        self, source_id: str, file_id: str, field: str, generation: str
+    ) -> None:
+        """Removes this generation's cross-domain links whose code
+        (``entity_file_id``) or document (``document_file_id``) end
+        belongs to ``file_id`` -- the server equivalent of local mode's
+        ``links`` FK cascade when a file's entities/sections are replaced.
+        """
+        query = {
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"term": {"source_id": source_id}},
+                        {"term": {"doc_kind": "link"}},
+                        {"term": {field: file_id}},
+                        {"term": {"generation": generation}},
+                    ]
+                }
+            }
+        }
+        self._get_client().delete_by_query(
+            index=mappings.relationships_index(self._prefix),
+            body=query,
+            refresh=True,
+            conflicts="proceed",
+        )
 
     def _refresh_content_and_relationships(self) -> None:
         client = self._get_client()
@@ -705,28 +831,15 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         return results
 
     def get_file(self, file_id: str) -> FileRecord | None:
-        """Not generation-filtered: file identity documents (written by
-        ``upsert_file``) carry no ``generation`` field -- see this
-        module's docstring for why file existence/metadata isn't itself
-        version-guarded by the generation mechanism.
+        """Generation-filtered (completion plan F6): only the published
+        generation's file record is visible.
         """
-        body = {"size": 1, "query": {"term": {"file_id": file_id}}}
-        response = self._get_client().search(index=mappings.files_index(self._prefix), body=body)
-        hits = response.get("hits", {}).get("hits", [])
-        if not hits:
-            return None
-        source = hits[0]["_source"]
-        return FileRecord(
-            file_id=source["file_id"],
-            source_id=source["source_id"],
-            path=source.get("path", ""),
-            content_hash=source.get("content_hash", ""),
-            size_bytes=source.get("size_bytes", 0),
-            mtime=source.get("mtime"),
-            metadata=source.get("metadata") or {},
-        )
+        records = self.get_files([file_id])
+        return records[0] if records else None
 
-    def get_entities_for_files(self, file_ids: list[str]) -> list[dict[str, Any]]:
+    def get_entities_for_files(
+        self, file_ids: list[str], *, generation: str | None = None
+    ) -> list[dict[str, Any]]:
         if not file_ids:
             return []
         body = {
@@ -736,7 +849,11 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                     "filter": [
                         {"term": {"doc_kind": "entity"}},
                         {"terms": {"file_id": file_ids}},
-                        self._generation_filter_clause(),
+                        (
+                            {"term": {"generation": generation}}
+                            if generation is not None
+                            else self._generation_filter_clause()
+                        ),
                     ]
                 }
             },
@@ -744,7 +861,9 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         response = self._get_client().search(index=mappings.content_index(self._prefix), body=body)
         return [hit["_source"] for hit in response.get("hits", {}).get("hits", [])]
 
-    def get_document_units_for_files(self, file_ids: list[str]) -> list[dict[str, Any]]:
+    def get_document_units_for_files(
+        self, file_ids: list[str], *, generation: str | None = None
+    ) -> list[dict[str, Any]]:
         if not file_ids:
             return []
         body = {
@@ -754,7 +873,11 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                     "filter": [
                         {"term": {"doc_kind": "chunk"}},
                         {"terms": {"file_id": file_ids}},
-                        self._generation_filter_clause(),
+                        (
+                            {"term": {"generation": generation}}
+                            if generation is not None
+                            else self._generation_filter_clause()
+                        ),
                     ]
                 }
             },
@@ -769,11 +892,14 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         generation's content, same as every other content-index read.
         """
         client = self._get_client()
+        generation_clause = self._generation_filter_clause()
         files_count = client.count(
-            index=mappings.files_index(self._prefix), body={"query": {"term": {"doc_kind": "file"}}}
+            index=mappings.files_index(self._prefix),
+            body={
+                "query": {"bool": {"filter": [{"term": {"doc_kind": "file"}}, generation_clause]}}
+            },
         )["count"]
         content_index = mappings.content_index(self._prefix)
-        generation_clause = self._generation_filter_clause()
         entities_count = client.count(
             index=content_index,
             body={
@@ -813,6 +939,17 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
             else:
                 clauses.append({"term": {key: value}})
         return clauses
+
+
+def _document_meta(document: Any) -> dict[str, Any]:
+    return {
+        "author": getattr(document, "author", None),
+        "page_count": getattr(document, "page_count", None),
+        "section_count": getattr(document, "section_count", 0),
+        "paragraph_count": getattr(document, "paragraph_count", 0),
+        "table_count": getattr(document, "table_count", 0),
+        "is_scanned": bool(getattr(document, "is_scanned", False)),
+    }
 
 
 def _hits_to_search_hits(response: dict[str, Any]) -> list[SearchHit]:

@@ -1,6 +1,7 @@
 """``ragmonk init`` storage-mode scaffolding (Storage backend abstraction
-plan, Phase 1, P2): backward-compatible default behavior, and real HTTP
-preflight validation for server-mode init.
+plan, Phase 1, P2): backward-compatible default behavior. Server-mode
+validation itself (completion plan F5) is covered in depth by
+``test_init_server_validation.py``.
 """
 
 from __future__ import annotations
@@ -83,9 +84,14 @@ def test_init_server_mode_unreachable_url_fails_cleanly(
     assert not config_path.is_file(), "no config file must be written on preflight failure"
 
 
-def test_init_server_mode_reachable_stub_succeeds(
-    ragmonk_home: Path, runner: CliRunner, stub_http_server: str
+@pytest.mark.parametrize("engine", ["opensearch", "elasticsearch"])
+def test_init_server_mode_generic_http_200_stub_is_rejected(
+    ragmonk_home: Path, runner: CliRunner, stub_http_server: str, engine: str
 ) -> None:
+    """Completion plan F5: a generic HTTP server answering ``200 {}`` used
+    to pass the old urllib preflight. Real engine validation must reject
+    it (no version/identity), and no config may be written.
+    """
     config_path = paths.user_config_path(ragmonk_home)
     result = runner.invoke(
         app,
@@ -94,25 +100,15 @@ def test_init_server_mode_reachable_stub_succeeds(
             "--storage-mode",
             "server",
             "--storage-engine",
-            "opensearch",
+            engine,
             "--storage-url",
             stub_http_server,
             "--storage-index-prefix",
             "myproj",
         ],
     )
-    assert result.exit_code == 0, result.output
-    assert config_path.is_file()
-
-    raw = config_path.read_text()
-    data = yaml.safe_load(raw)
-    assert data["storage"]["mode"] == "server"
-    assert data["storage"]["server"]["engine"] == "opensearch"
-    assert data["storage"]["server"]["url"] == stub_http_server
-    assert data["storage"]["server"]["index_prefix"] == "myproj"
-
-    for forbidden in ("username", "password", "api_key", "Authorization"):
-        assert forbidden not in raw, f"credential-shaped key {forbidden!r} leaked into config"
+    assert result.exit_code != 0, result.output
+    assert not config_path.is_file(), "no config file must be written on validation failure"
 
 
 def test_init_server_mode_requires_url(ragmonk_home: Path, runner: CliRunner) -> None:

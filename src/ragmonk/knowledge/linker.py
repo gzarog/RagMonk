@@ -50,15 +50,17 @@ import re
 import sqlite3
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from ragmonk.backends.base import KnowledgeBackend
-from ragmonk.backends.models import LinkCandidate, PreparedLinks
+from ragmonk.backends.models import DocumentUnitRecord, LinkCandidate, PreparedLinks
 from ragmonk.core.models import (
     Confidence,
     Entity,
     EntityType,
     Relationship,
     RelationshipType,
+    SectionKind,
 )
 from ragmonk.storage.repositories import (
     documents_repo,
@@ -272,7 +274,12 @@ def _group_units_by_file(units: Sequence[DocumentUnit]) -> dict[str, list[Docume
     return grouped
 
 
-def _store(backend: KnowledgeBackend, source_id: str, candidates: Sequence[LinkCandidate]) -> int:
+def _store(
+    backend: KnowledgeBackend,
+    source_id: str,
+    candidates: Sequence[LinkCandidate],
+    generation: int | None = None,
+) -> int:
     """Storage backend abstraction plan, Phase 3: the write half --
     previously built ``CrossLink`` rows and called ``links_repo.insert``
     directly here; now hands the same candidates to
@@ -283,7 +290,44 @@ def _store(backend: KnowledgeBackend, source_id: str, candidates: Sequence[LinkC
     """
     if not candidates:
         return 0
-    return backend.publish_links(PreparedLinks(source_id=source_id, candidates=list(candidates)))
+    return backend.publish_links(
+        PreparedLinks(source_id=source_id, candidates=list(candidates), generation=generation)
+    )
+
+
+def _unit_from_record(record: DocumentUnitRecord) -> DocumentUnit:
+    try:
+        kind = SectionKind(record.kind)
+    except ValueError:
+        kind = SectionKind.PARAGRAPH
+    return DocumentUnit(
+        id=record.unit_id,
+        document_id=record.document_id,
+        file_id=record.file_id,
+        kind=kind,
+        text=record.text,
+        heading_path=list(record.heading_path),
+        page_start=record.page_start,
+        page_end=record.page_end,
+        embedding_text=record.embedding_text,
+    )
+
+
+def _relationship_from_payload(payload: dict[str, Any]) -> Relationship:
+    return Relationship(
+        id=str(payload.get("id") or payload.get("relationship_id") or ""),
+        relationship_type=RelationshipType(payload["relationship_type"]),
+        source_entity_id=str(payload.get("source_entity_id") or ""),
+        target_entity_id=payload.get("target_entity_id"),
+        target_symbol=payload.get("target_symbol"),
+        resolver=str(payload.get("resolver", "")),
+        confidence=Confidence(payload["confidence"]),
+        file_id=str(payload.get("file_id", "")),
+        source_location=payload.get("source_location"),
+        evidence=payload.get("evidence"),
+        generation=int(payload.get("generation") or 0),
+        created_at=str(payload.get("created_at", "")),
+    )
 
 
 def link_touched_files(
@@ -293,6 +337,7 @@ def link_touched_files(
     source_id: str,
     touched_code_file_ids: Sequence[str],
     touched_document_file_ids: Sequence[str],
+    generation: int | None = None,
 ) -> int:
     """Cross-domain linking pass for one project, run once per source
     after its per-file processor queue has fully drained (see
@@ -320,13 +365,33 @@ def link_touched_files(
     if not touched_code_file_ids and not touched_document_file_ids:
         return 0
 
-    all_entities = entities_repo.list_all(conn)
-    all_units = documents_repo.list_all_units(conn)
+    if backend.is_server:
+        # Completion plan F1: in server mode the corpus to match against
+        # lives in the server backend -- read it from there, scoped to
+        # this source and to the generation this pass is writing. ``conn``
+        # is then only used for control-plane file paths (``files_repo``).
+        read_generation = str(generation) if generation is not None else None
+        all_entities = backend.list_source_entities(source_id, generation=read_generation)
+        all_units = [
+            _unit_from_record(record)
+            for record in backend.list_source_document_units(
+                source_id, generation=read_generation
+            )
+        ]
+        route_relationships = [
+            _relationship_from_payload(payload)
+            for payload in backend.find_relationships_by_target_prefix(
+                source_id, _ROUTE_TARGET_PREFIX, generation=read_generation
+            )
+        ]
+    else:
+        all_entities = entities_repo.list_all(conn)
+        all_units = documents_repo.list_all_units(conn)
+        route_relationships = relationships_repo.find_by_target_symbol_prefix(
+            conn, _ROUTE_TARGET_PREFIX
+        )
     entities_by_file = _group_entities_by_file(all_entities)
     units_by_file = _group_units_by_file(all_units)
-    route_relationships = relationships_repo.find_by_target_symbol_prefix(
-        conn, _ROUTE_TARGET_PREFIX
-    )
 
     inserted = 0
 
@@ -356,7 +421,7 @@ def link_touched_files(
             *match_filename(namespace_entity, filename_candidates, all_units),
             *match_route_heuristic(file_routes, all_units),
         ]
-        inserted += _store(backend, source_id, candidates)
+        inserted += _store(backend, source_id, candidates, generation)
 
     # Indexing optimization plan, Phase P6: this whole per-project-file
     # ``namespace_by_file`` map (used only by the document-side loop
@@ -390,6 +455,6 @@ def link_touched_files(
         ]
         for namespace_entity, filename_candidates in namespace_by_file.values():
             candidates.extend(match_filename(namespace_entity, filename_candidates, file_units))
-        inserted += _store(backend, source_id, candidates)
+        inserted += _store(backend, source_id, candidates, generation)
 
     return inserted

@@ -26,6 +26,23 @@ def list_symbols(
 ) -> list[dict[str, Any]]:
     registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
     rows: list[dict[str, Any]] = []
+    if ctx.config.storage.mode == "server":
+        # Completion plan F3: symbols come from the server backend
+        # (published generation only), never local SQLite.
+        for entity in ctx.backend().list_entities(query=query or None, limit=limit):
+            rows.append(
+                {
+                    "id": entity.id,
+                    "name": entity.name,
+                    "qualified_name": entity.qualified_name,
+                    "kind": entity.kind.value,
+                    "language": entity.language,
+                    "source_id": entity.source_id,
+                    "start_line": entity.start_line,
+                }
+            )
+        rows.sort(key=lambda r: r["qualified_name"])
+        return rows[:limit]
     for source in registry.list():
         # Independent review BLOCKER fix: genuine knowledge-data read (the
         # symbol list itself) -- deliberately left as the default

@@ -41,6 +41,12 @@ class FileRecord:
     size_bytes: int = 0
     mtime: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Completion plan F6: the write generation this file record belongs
+    # to on a server backend (``None`` = the source's currently published
+    # generation). File metadata visibility tracks publication exactly
+    # like entities/chunks do, so a failed rebuild never exposes a
+    # half-written file listing.
+    generation: int | None = None
 
 
 @dataclass(slots=True)
@@ -139,6 +145,9 @@ class PreparedLinks:
 
     source_id: str
     candidates: list[LinkCandidate] = field(default_factory=list)
+    # Completion plan F6: cross-domain links are generation-versioned on
+    # server backends too (``None`` = the source's published generation).
+    generation: int | None = None
 
 
 @dataclass(slots=True)
@@ -160,3 +169,63 @@ class BackendStats:
     document_units: int = 0
     embeddings: int = 0
     extra: dict[str, Any] = field(default_factory=dict)
+
+
+# -- Completion plan F4: targeted read-contract records --------------------
+# Small, backend-neutral projections returned by the targeted read
+# primitives added to ``KnowledgeBackend`` (``get_documents``/
+# ``list_documents``/``get_document_units``/``get_links``). Every server
+# adapter builds these from its own stored payloads, and
+# ``LocalKnowledgeBackend`` from its SQLite rows, so a caller (graph
+# resolution, impact/explore, the Admin UI) never needs to know which
+# backend produced them.
+
+
+@dataclass(slots=True)
+class DocumentRecord:
+    """One indexed document's metadata (no chunk bodies)."""
+
+    document_id: str
+    source_id: str
+    file_id: str
+    title: str = ""
+    format: str = ""
+    author: str | None = None
+    page_count: int | None = None
+    section_count: int = 0
+    paragraph_count: int = 0
+    table_count: int = 0
+    is_scanned: bool = False
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass(slots=True)
+class DocumentUnitRecord:
+    """One document chunk/section/table unit."""
+
+    unit_id: str
+    document_id: str
+    file_id: str
+    source_id: str
+    kind: str
+    text: str
+    heading_path: list[str] = field(default_factory=list)
+    page_start: int | None = None
+    page_end: int | None = None
+    embedding_text: str = ""
+    has_embedding: bool = False
+
+
+@dataclass(slots=True)
+class LinkRecord:
+    """One stored cross-domain (code entity <-> document) link."""
+
+    entity_id: str
+    document_id: str
+    section_id: str | None
+    link_type: str
+    resolver: str
+    confidence: str
+    evidence: str
+    source_id: str = ""

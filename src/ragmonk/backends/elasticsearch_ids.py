@@ -37,9 +37,18 @@ def _digest(*parts: str) -> str:
     return hashlib.sha1(joined.encode("utf-8")).hexdigest()  # noqa: S324 -- id derivation, not security
 
 
-def file_doc_id(source_id: str, file_id: str) -> str:
+def _with_generation(parts: tuple[str, ...], generation: str | None) -> tuple[str, ...]:
+    """Completion plan F6: ids of documents that are otherwise stable
+    across generations (file record, document row, link) include the
+    generation so a rebuild's write never overwrites the published
+    generation's copy in place. ``None`` keeps the pre-F6 id.
+    """
+    return parts if generation is None else (*parts, "gen", generation)
+
+
+def file_doc_id(source_id: str, file_id: str, generation: str | None = None) -> str:
     """The ``{prefix}-files`` document id for one file's identity record."""
-    return _digest("file", source_id, file_id)
+    return _digest(*_with_generation(("file", source_id, file_id), generation))
 
 
 def generation_marker_id(source_id: str) -> str:
@@ -50,9 +59,9 @@ def generation_marker_id(source_id: str) -> str:
     return _digest("generation-marker", source_id)
 
 
-def document_doc_id(source_id: str, file_id: str) -> str:
+def document_doc_id(source_id: str, file_id: str, generation: str | None = None) -> str:
     """The ``{prefix}-content`` id for a file's ``Document`` row."""
-    return _digest("document", source_id, file_id)
+    return _digest(*_with_generation(("document", source_id, file_id), generation))
 
 
 def entity_doc_id(source_id: str, file_id: str, entity_id: str) -> str:
@@ -79,6 +88,7 @@ def link_doc_id(
     section_id: str | None,
     link_type: str,
     resolver: str,
+    generation: str | None = None,
 ) -> str:
     """The ``{prefix}-relationships`` id for one cross-domain link.
 
@@ -88,5 +98,8 @@ def link_doc_id(
     same candidate twice overwrites rather than duplicates.
     """
     return _digest(
-        "link", source_id, entity_id, document_id, section_id or "", link_type, resolver
+        *_with_generation(
+            ("link", source_id, entity_id, document_id, section_id or "", link_type, resolver),
+            generation,
+        )
     )

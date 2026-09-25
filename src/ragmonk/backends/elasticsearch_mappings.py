@@ -35,6 +35,31 @@ _KEYWORD = {"type": "keyword"}
 _TEXT = {"type": "text"}
 _INT = {"type": "integer"}
 
+# Completion plan F4/F6: fields added after the first server-backend
+# release. ``ensure_schema`` also puts these onto an *existing* index
+# (an additive, non-destructive mapping update), so an index created by
+# an earlier RagMonk version gains them without a reindex.
+_FILES_ADDITIVE_FIELDS: dict[str, Any] = {
+    "generation": _KEYWORD,
+    "last_begun_generation": _KEYWORD,
+}
+_CONTENT_ADDITIVE_FIELDS: dict[str, Any] = {
+    "signature": {"type": "text", "index": False},
+    "parent_id": _KEYWORD,
+    "start_col": _INT,
+    "end_col": _INT,
+    "embedding_text": {"type": "text", "index": False},
+    "page_start": _INT,
+    "page_end": _INT,
+    "doc_meta": {"type": "object", "enabled": False},
+}
+_RELATIONSHIPS_ADDITIVE_FIELDS: dict[str, Any] = {
+    "relationship_id": _KEYWORD,
+    "entity_file_id": _KEYWORD,
+    "document_file_id": _KEYWORD,
+    "source_location": _KEYWORD,
+}
+
 
 def files_index(prefix: str) -> str:
     return f"{prefix}-files"
@@ -65,7 +90,9 @@ def files_mapping() -> dict[str, Any]:
                 "size_bytes": _INT,
                 "mtime": {"type": "double"},
                 "metadata": {"type": "object", "enabled": False},
+                "generation": _KEYWORD,
                 "active_generation": _KEYWORD,
+                "last_begun_generation": _KEYWORD,
             }
         },
     }
@@ -99,6 +126,7 @@ def content_mapping() -> dict[str, Any]:
                 "end_line": _INT,
                 "created_at": _KEYWORD,
                 "updated_at": _KEYWORD,
+                **_CONTENT_ADDITIVE_FIELDS,
             }
         },
     }
@@ -124,6 +152,7 @@ def relationships_mapping() -> dict[str, Any]:
                 "confidence": _KEYWORD,
                 "evidence": _TEXT,
                 "created_at": _KEYWORD,
+                **_RELATIONSHIPS_ADDITIVE_FIELDS,
             }
         },
     }
@@ -143,6 +172,16 @@ def ensure_schema(client: Any, prefix: str) -> None:
             settings = body["settings"]
             mappings = body["mappings"]
             client.indices.create(index=name, settings=settings, mappings=mappings)
+        else:
+            additive = _ADDITIVE_BY_KIND[name.rsplit("-", 1)[-1]]
+            client.indices.put_mapping(index=name, properties=additive)
+
+
+_ADDITIVE_BY_KIND: dict[str, dict[str, Any]] = {
+    "files": _FILES_ADDITIVE_FIELDS,
+    "content": _CONTENT_ADDITIVE_FIELDS,
+    "relationships": _RELATIONSHIPS_ADDITIVE_FIELDS,
+}
 
 
 def ensure_vector_field(client: Any, prefix: str, dims: int) -> None:
