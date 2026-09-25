@@ -236,3 +236,49 @@ def test_explicit_user_link_survives_automated_linking_pass(tmp_path: Path) -> N
         assert all(link.confidence is not Confidence.EXACT for link in auto_rows)
     finally:
         conn.close()
+
+
+def test_code_only_pass_never_looks_up_other_code_files_in_the_project(
+    tmp_path: Path, monkeypatch  # noqa: ANN001
+) -> None:
+    """Indexing optimization plan, Phase P6: a pass that touched only
+    code files (no document files) must never build (or pay any query
+    cost for) the document-side ``namespace_by_file`` map at all -- the
+    pre-P6 shape unconditionally issued one ``files_repo.get()`` round
+    trip per code file in the *entire* project on every such pass, for a
+    result nothing then read. Seeds several untouched code files besides
+    the one touched file and asserts ``files_repo.get_many`` is called
+    with exactly the touched file's id, never the untouched ones'.
+    """
+    from ragmonk.storage.repositories import files_repo as files_repo_module
+
+    conn = connect(tmp_path / "knowledge.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        _seed_code_file(conn, file_id="code_f1", path="/repo/pkg/dog.py")
+        for i in range(5):
+            _seed_code_file(conn, file_id=f"other_f{i}", path=f"/repo/pkg/other_{i}.py")
+        with transaction(conn):
+            entities_repo.insert(conn, _entity("e1"), snippet="def bark(self): ...")
+            for i in range(5):
+                entities_repo.insert(
+                    conn, _entity(f"oe{i}", file_id=f"other_f{i}"), snippet="def bark(self): ..."
+                )
+
+        seen_id_batches: list[frozenset[str]] = []
+        original_get_many = files_repo_module.get_many
+
+        def _spying_get_many(conn, file_ids):  # noqa: ANN001, ANN202
+            seen_id_batches.append(frozenset(file_ids))
+            return original_get_many(conn, file_ids)
+
+        monkeypatch.setattr(files_repo_module, "get_many", _spying_get_many)
+
+        with transaction(conn):
+            link_touched_files(
+                conn, touched_code_file_ids=["code_f1"], touched_document_file_ids=[]
+            )
+
+        assert seen_id_batches == [frozenset({"code_f1"})]
+    finally:
+        conn.close()
