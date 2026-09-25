@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.backends.local import LocalKnowledgeBackend
 from ragmonk.code.processor import code_processor, code_version_stamp, prepare_code, publish_code
 from ragmonk.core import paths
@@ -136,12 +137,26 @@ def run_source_pass(
     processors: ProcessorRegistry,
     *,
     scan_request: ScanRequest | None = None,
+    backend: KnowledgeBackend | None = None,
+    force_generation: int | None = None,
 ) -> SourcePassResult:
     """``scan_request`` (indexing optimization plan, Phase P2), when
     given and not ``full``, drives a targeted pass over just its
     ``changed_paths`` instead of a full scan -- see
     ``IndexCoordinator.run``. ``None`` (``ragmonk index`` and every
     pre-P2 caller) keeps the original full-scan behavior unchanged.
+
+    ``backend``/``force_generation`` (Storage backend abstraction plan,
+    Phase 7): a server-mode full rebuild (``ops/rebuild.py``) passes its
+    own ``KnowledgeBackend`` (the cached server adapter from
+    ``ctx.backend()``) plus the int form of the generation id
+    ``begin_generation`` returned, so this pass's writes land in the
+    server backend, tagged with that exact generation, instead of the
+    default local SQLite path below. ``None`` for both (every other
+    caller -- ``ragmonk index``, the daemon, a plain non-server
+    rebuild) keeps this pass's pre-Phase-7 behavior: a fresh
+    ``LocalKnowledgeBackend`` bound to this pass's own project
+    connection, and the usual per-file ``file.generation + 1`` bump.
     """
     project_id = paths.project_id_for_path(Path(source.path))
     conn = ctx.project_conn(project_id)
@@ -151,7 +166,8 @@ def run_source_pass(
     # through it) and reused below for the linking/embeddings stages,
     # so a whole source pass's persistence goes through the same
     # ``KnowledgeBackend`` instance/connection throughout.
-    backend = LocalKnowledgeBackend(conn=conn)
+    if backend is None:
+        backend = LocalKnowledgeBackend(conn=conn)
     coordinator = IndexCoordinator(
         conn,
         source.id,
@@ -161,6 +177,7 @@ def run_source_pass(
         ctx.config,
         processors=processors,
         backend=backend,
+        force_generation=force_generation,
     )
     changed_paths = (
         scan_request.changed_paths if scan_request is not None and not scan_request.full else None

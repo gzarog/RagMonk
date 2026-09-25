@@ -467,6 +467,7 @@ class IndexCoordinator:
         *,
         processors: ProcessorRegistry | None = None,
         backend: KnowledgeBackend | None = None,
+        force_generation: int | None = None,
     ) -> None:
         self._conn = conn
         self._source_id = source_id
@@ -484,6 +485,17 @@ class IndexCoordinator:
         # nothing here changes behavior for a caller that doesn't pass
         # one explicitly.
         self._backend = backend
+        # Storage backend abstraction plan, Phase 7: when set, every
+        # queued file's ``ProcessorContext.next_generation`` is pinned to
+        # this value instead of the usual ``file.generation + 1`` bump
+        # (see ``_start_job``). A server-mode full rebuild sets this to
+        # the backend's ``begin_generation(source_id)`` id (as an int) so
+        # every entity/relationship/chunk document this pass writes is
+        # tagged with the exact generation ``abort_generation`` would
+        # need to delete on failure -- see ``ops/rebuild.py``. ``None``
+        # (every other caller) keeps the pre-Phase-7 per-file bump
+        # unchanged.
+        self._force_generation = force_generation
         # Indexing optimization plan, Phase P3: this run's file_id ->
         # verified FileIdentity, populated during the scan loop below
         # and consumed (popped) in ``_process_queue`` when building each
@@ -1018,7 +1030,11 @@ class IndexCoordinator:
             file_id=file.id,
             source_root=self._root,
             backend=self._backend,
-            next_generation=file.generation + 1,
+            next_generation=(
+                self._force_generation
+                if self._force_generation is not None
+                else file.generation + 1
+            ),
             max_document_pages=self._config.documents.max_pages,
             chunking=self._config.documents.chunking,
             ocr=self._config.documents.ocr,

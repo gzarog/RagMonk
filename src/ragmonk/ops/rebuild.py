@@ -13,6 +13,7 @@ pipeline" wrapper rather than a second indexer.
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,7 +21,7 @@ from ragmonk.core import paths
 from ragmonk.core.errors import UsageError
 from ragmonk.core.lifecycle import AppContext
 from ragmonk.core.models import Source
-from ragmonk.indexing.coordinator import IndexRunResult
+from ragmonk.indexing.coordinator import IndexRunResult, ProcessorRegistry
 from ragmonk.indexing.runner import build_processor_registry, run_source_pass
 from ragmonk.sources.registry import SourceRegistry
 
@@ -86,6 +87,79 @@ def _restore_backup(ctx: AppContext, project_id: str, moved: list[tuple[Path, Pa
             backup.replace(original)
 
 
+def _generation_as_int(generation: str) -> int:
+    """Coerces a backend-issued generation id to the ``int`` shape
+    ``PreparedCode.generation``/``PreparedDocument.generation`` (and
+    ``IndexCoordinator``'s ``force_generation``) require.
+
+    ``OpenSearchKnowledgeBackend.begin_generation``/
+    ``ElasticsearchKnowledgeBackend.begin_generation`` normally return a
+    plain incrementing decimal string ("1", "2", ...), which round-trips
+    through ``int()`` exactly. Their own fallback (a ``uuid4().hex`` id,
+    only reached if the stored marker's ``active_generation`` field is
+    somehow not int-parseable) is not decimal, so this falls back to a
+    stable, deterministic non-negative hash of the string instead of
+    raising -- any two calls with the same generation string must
+    produce the same int, since this value is later compared for
+    equality against what ``abort_generation``'s delete-by-query targets.
+    """
+    try:
+        return int(generation)
+    except ValueError:
+        return zlib.crc32(generation.encode("utf-8"))
+
+
+def _rebuild_source_server(
+    ctx: AppContext, source: Source, processors: ProcessorRegistry
+) -> RebuildOutcome:
+    """Server-mode full rebuild for one source (Storage backend
+    abstraction plan, Phase 7): wraps the whole re-index pass in a new
+    write generation obtained from ``ctx.backend()`` so a reader never
+    observes a half-rebuilt source.
+
+    - ``begin_generation`` opens a new generation before anything is
+      touched.
+    - The local per-project ``knowledge.db`` scan-state (the file/job
+      tables ``IndexCoordinator`` diffs against) is wiped first, exactly
+      like the non-``--fresh`` local path below, so every file classifies
+      as NEW and is fully reprocessed rather than skipped as UNCHANGED --
+      a full rebuild must republish every file's content, not just
+      touched ones.
+    - The pass runs through ``ctx.backend()`` (the cached server
+      adapter), with every file's generation pinned to the new
+      generation's int form, so every entity/relationship/document/chunk
+      document this pass writes is tagged with exactly the generation
+      ``abort_generation`` would need to delete.
+    - On full success, ``publish_generation`` atomically makes the new
+      generation the active one.
+    - On ANY exception (a raised, non-per-file failure -- a per-file
+      processing error is recorded in ``result.failed``/``errors_repo``
+      and does not raise, matching this same distinction the existing
+      local ``--fresh`` path already draws), ``abort_generation`` deletes
+      this generation's incomplete documents and re-raises; the
+      previously published generation's documents (any file this pass
+      never reached) are never touched, so the source stays searchable
+      on the old generation throughout.
+    """
+    backend = ctx.backend()
+    generation = backend.begin_generation(source.id)
+    project_id = paths.project_id_for_path(Path(source.path))
+    _wipe_project_db(ctx, project_id)
+    try:
+        pass_result = run_source_pass(
+            ctx,
+            source,
+            processors,
+            backend=backend,
+            force_generation=_generation_as_int(generation),
+        )
+    except BaseException:
+        backend.abort_generation(source.id, generation)
+        raise
+    backend.publish_generation(source.id, generation)
+    return RebuildOutcome(source=source, result=pass_result.result, linked=pass_result.linked)
+
+
 def rebuild(
     ctx: AppContext, *, source_id: str | None = None, fresh: bool = False
 ) -> list[RebuildOutcome]:
@@ -100,6 +174,14 @@ def rebuild(
     previously active index, so a failed ``rebuild --fresh`` never leaves a
     source with no usable index. Registered source roots are verified
     reachable before anything is touched.
+
+    In server mode (``ctx.config.storage.mode == "server"``), rebuild-
+    safety instead goes through the backend's generation lifecycle (see
+    ``_rebuild_source_server``) rather than this ``*.old`` file-backup
+    scheme, which only makes sense for the local per-project SQLite
+    files -- ``fresh`` is accepted-and-ignored in that mode since a
+    server-mode rebuild is *always* recoverable via its generation
+    marker, unlike local mode where that safety is opt-in.
     """
     registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
     if source_id is not None:
@@ -110,7 +192,7 @@ def rebuild(
     if not sources:
         raise UsageError("no sources to rebuild")
 
-    if fresh:
+    if fresh and ctx.config.storage.mode != "server":
         unreachable = [s for s in sources if not Path(s.path).exists()]
         if unreachable:
             listed = ", ".join(f"{s.id} ({s.path})" for s in unreachable)
@@ -121,6 +203,10 @@ def rebuild(
             )
 
     processors = build_processor_registry(ctx.config)
+
+    if ctx.config.storage.mode == "server":
+        return [_rebuild_source_server(ctx, source, processors) for source in sources]
+
     outcomes: list[RebuildOutcome] = []
     for source in sources:
         project_id = paths.project_id_for_path(Path(source.path))
