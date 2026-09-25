@@ -7,6 +7,7 @@ OpenSearch/Elasticsearch backend-contract tests can extend (see
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -14,12 +15,12 @@ import pytest
 from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.backends.factory import create_backend, credential_env_vars
 from ragmonk.backends.local import LocalKnowledgeBackend
-from ragmonk.core.config import RagMonkConfig, StorageConfig
+from ragmonk.core.config import RagMonkConfig, ServerStorageConfig, StorageConfig
 from ragmonk.core.errors import ConfigError
 
 
 @pytest.fixture
-def local_backend(tmp_path: Path) -> KnowledgeBackend:
+def local_backend(tmp_path: Path) -> Iterator[KnowledgeBackend]:
     """Shared fixture: a real LocalKnowledgeBackend against a scratch
     runtime dir. Future backend-contract test modules (OpenSearch,
     Elasticsearch) can mirror this fixture's shape -- construct their own
@@ -47,7 +48,7 @@ def test_factory_server_mode_raises_not_implemented() -> None:
 
 
 def test_factory_server_mode_elasticsearch_raises_not_implemented() -> None:
-    config = StorageConfig(mode="server", server={"engine": "elasticsearch"})
+    config = StorageConfig(mode="server", server=ServerStorageConfig(engine="elasticsearch"))
     with pytest.raises(NotImplementedError, match="elasticsearch"):
         create_backend(config)
 
