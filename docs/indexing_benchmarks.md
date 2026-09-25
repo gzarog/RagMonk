@@ -75,6 +75,61 @@ numbers on different hardware — they are not portable performance
 guarantees, only a reproducible reference point for regression
 comparison.
 
+## Phase P7: before/after report
+
+`benchmarks/indexing/after_p7_small.json` is the **measured "after"**
+run, same `small` tier, same corpus generator, captured on the same
+CI/dev container as `baseline_small.json` after every optimization
+phase (P1–P6) plus one correctness fix P7 itself found and fixed (see
+below) had landed.
+
+| Scenario             | before: `changed` | after: `changed` | before: wall | after: wall |
+| --------------------- | -----------------: | -----------------: | -------------: | ------------: |
+| `cold_index`           |                  0 |                  0 |        28.4s   |       22.3s   |
+| `warm_unchanged`       |                  0 |                  0 |        0.109s  |       0.071s  |
+| `single_edit`          |                  1 |                  1 |        0.135s  |       0.119s  |
+| `one_percent_change`   |                  6 |                  5 |        0.240s  |       0.156s  |
+| `burst_change`         |                 31 |                 25 |        0.659s  |       0.302s  |
+| `rename`               |             **31** |              **0** |    **0.583s**  |   **0.070s**  |
+| `delete`               |             **31** |              **0** |    **0.774s**  |   **0.082s**  |
+
+`hash_calls` moves in exact lockstep with `changed` in both runs (P3's
+reuse already ensures one hash per genuinely changed file, never more)
+— the story here is entirely in how many files `changed` should have
+been, not in per-file hashing cost.
+
+### The bug P7 found
+
+Every phase before P7 validated its own change in isolation — one edit,
+one rerun. Phase P7's job (this file's own `## Extending it` note,
+below, always said P7 would run the full suite end-to-end) surfaced
+something none of them could: **a genuinely pre-existing bug, present
+in `baseline_small.json`'s own pre-P1 numbers above and therefore
+predating this entire optimization plan.**
+
+`IndexCoordinator`'s scan loop computed a changed file's new size/mtime/
+content_hash correctly, but only ever persisted its `status` to the
+`files` table — never the new stat. The next file to read that row
+(`_process_queue`'s `files_repo.get()`) got back the *old* size/mtime/
+content_hash, and `mark_indexed` dutifully wrote those stale values
+straight back at the end. The practical effect: **every edited file
+looked "changed" again on every subsequent `ragmonk index` run,
+forever** — regardless of Phase P3's content-hash reuse or Phase P2's
+targeted scanning, both of which were correctly detecting a real
+mismatch against data that was itself wrong. The `rename`/`delete`
+scenarios' `changed: 31` above (pre-fix) is this bug in action: files
+"changed" by an earlier scenario in the same run never actually
+cleared.
+
+Fixed in `files_repo.update_status()` (now accepts optional `size`/
+`mtime`/`content_hash`, `COALESCE`d against the stored value like
+`mark_indexed`'s own version-stamp params) and its three call sites in
+`indexing/coordinator.py` (the full-scan path and both targeted-scan
+branches). See `tests/unit/test_index_coordinator_changed_file_stat_
+persistence.py` and `tests/integration/test_indexing_optimization_
+regression.py` for the regression coverage, and this file's own git
+history for the full before/after story.
+
 ## Extending it
 
 `fixtures.py` holds the corpus generator; `metrics.py` holds the

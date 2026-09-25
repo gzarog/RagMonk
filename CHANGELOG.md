@@ -8,6 +8,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
+Phase P7 (final phase): end-to-end regression, measured rollout, docs.
+
+This phase's job was to run the whole optimized pipeline (P1–P6)
+together, not each phase's own change in isolation, and report real
+before/after numbers. It found a real, previously-undetected bug that
+predates this entire plan.
+
+### Fixed
+
+- **A changed file's new size/mtime/content_hash was never persisted**,
+  only its status. `IndexCoordinator`'s scan loop correctly computed a
+  changed file's new stat during scanning, but only wrote `status` to
+  its `files` row (`files_repo.update_status`, no stat fields). The next
+  step to read that row (`_process_queue`'s `files_repo.get()`) got back
+  the *old*, pre-edit size/mtime/content_hash, and `mark_indexed`
+  dutifully wrote those stale values straight back at the end of
+  processing. Net effect: **an edited file looked "changed" again on
+  every subsequent `ragmonk index` run, forever** — silently
+  reprocessing it (parse, chunk, embed) every single pass, regardless of
+  Phase P3's content-hash reuse or Phase P2's targeted scanning (both
+  were correctly detecting a real mismatch against data that was itself
+  wrong, so neither could have caught this on its own). Confirmed
+  present in the plan's own pre-P1 baseline
+  (`benchmarks/indexing/baseline_small.json`, captured against commit
+  `d8a5fad`) — this bug predates the whole optimization plan and was
+  only surfaced by Phase P7's end-to-end regression test chaining an
+  edit + delete + rename into the same scenario sequence a real project
+  would see, then asserting a *second* consecutive run sees no further
+  change. Fixed by extending `files_repo.update_status()` with optional
+  `size`/`mtime`/`content_hash` params (`COALESCE`d against the stored
+  value, same pattern as `mark_indexed`'s version-stamp params) and
+  passing the freshly-scanned values at all three call sites that
+  transition an existing file to `QUEUED` (the full-scan path and both
+  Phase P2 targeted-scan branches).
+- Measured impact on the `small`-tier benchmark (see
+  `docs/indexing_benchmarks.md` for the full before/after table): the
+  `rename` scenario dropped from `changed=31` (25 files falsely still
+  "changed" from an earlier scenario, plus its own genuine edit) and
+  `wall=0.583s` to `changed=0` and `wall=0.070s`; `delete` similarly
+  dropped from `changed=31`/`0.774s` to `changed=0`/`0.082s`.
+
+### Added
+
+- `tests/integration/test_indexing_optimization_regression.py`: a new
+  end-to-end regression test running the real CLI with P1–P6's features
+  turned on *together* (bounded parallel code extraction, an edit +
+  delete + rename in one pass, cross-link formation, and an embeddings
+  backfill for a project indexed before `search.semantic` was enabled)
+  against one realistic project — the combined-pipeline check no single
+  phase's own tests exercised.
+- `tests/unit/test_index_coordinator_changed_file_stat_persistence.py`
+  and two new `files_repo` unit tests: focused regression coverage for
+  the bug above, at both the coordinator and repository layers.
+- `docs/indexing_benchmarks.md`: Phase P7's before/after comparison
+  table and a writeup of the bug this phase found and fixed.
+- `benchmarks/indexing/after_p7_small.json`: the measured "after" run
+  the table above is drawn from.
+
+---
+
+Indexing performance optimization plan (`ragmonk-indexing-performance-v1`),
 Phase P6: measured SQLite and cross-link optimizations.
 
 ### Fixed
