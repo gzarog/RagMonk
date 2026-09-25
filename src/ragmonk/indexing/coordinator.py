@@ -1132,10 +1132,15 @@ class IndexCoordinator:
         if code_workers > 1 and self._processors.supports_parallel_prepare(FileKind.CODE):
             prepare_code = self._processors.get_prepare(FileKind.CODE)
             root = self._root
-            parallel_kinds[FileKind.CODE] = (
-                code_workers,
-                lambda ctx, _prepare=prepare_code, _root=root: _prepare(ctx.path, _root),
-            )
+
+            def _run_prepare_code(
+                ctx: ProcessorContext,
+                _prepare: Callable[..., Any] = prepare_code,
+                _root: Path = root,
+            ) -> Any:
+                return _prepare(ctx.path, _root)
+
+            parallel_kinds[FileKind.CODE] = (code_workers, _run_prepare_code)
 
         if document_workers > 1 and self._processors.supports_parallel_prepare(FileKind.DOCUMENT):
             prepare_setup = self._processors.get_prepare_setup(FileKind.DOCUMENT)
@@ -1149,12 +1154,15 @@ class IndexCoordinator:
                 self._document_cache_db_path(),
                 cache_size_mb=self._config.runtime.sqlite_cache_size_mb,
             )
-            parallel_kinds[FileKind.DOCUMENT] = (
-                document_workers,
-                lambda ctx, _prepare=prepare_document, _pool=cache_pool: _prepare(
-                    ctx, cache_conn=_pool.get()
-                ),
-            )
+
+            def _run_prepare_document(
+                ctx: ProcessorContext,
+                _prepare: Callable[..., Any] = prepare_document,
+                _pool: _PerThreadConnections = cache_pool,
+            ) -> Any:
+                return _prepare(ctx, cache_conn=_pool.get())
+
+            parallel_kinds[FileKind.DOCUMENT] = (document_workers, _run_prepare_document)
 
         if parallel_kinds:
             self._process_queue_with_parallel(result, max_size_bytes, parallel_kinds, cache_pool)
