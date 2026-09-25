@@ -8,6 +8,8 @@ instead of a parallel reimplementation.
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +31,9 @@ from ragmonk.knowledge.linker import link_touched_files
 from ragmonk.retrieval import ann, embedder
 from ragmonk.storage.repositories import embeddings_repo, sources_repo, vector_items_repo
 from ragmonk.storage.sqlite import transaction
+from ragmonk.telemetry.logging import get_logger, log_event
+
+_logger = get_logger("indexing")
 
 
 def build_processor_registry(config: RagMonkConfig) -> ProcessorRegistry:
@@ -145,6 +150,13 @@ def run_source_pass(
     changed_paths = (
         scan_request.changed_paths if scan_request is not None and not scan_request.full else None
     )
+    # Indexing optimization plan V2, Phase P5: the real trigger reason
+    # for this pass -- "manual" for every ``scan_request``-less caller
+    # (``ragmonk index``, matching ``ScanRequest.reason``'s own default),
+    # otherwise whatever the daemon actually recorded (Phase P5 also
+    # fixed ``service/daemon.py``'s own ``_build_scan_request``, which
+    # previously discarded this into a constant ``"daemon"`` string).
+    trigger_reason = scan_request.reason if scan_request is not None else "manual"
     result = coordinator.run(changed_paths=changed_paths)
     now = datetime.now(UTC).isoformat()
 
@@ -157,6 +169,14 @@ def run_source_pass(
             last_error=result.offline_reason,
             status=SourceStatus.OFFLINE,
             updated_at=now,
+        )
+        log_event(
+            _logger,
+            "stage_timings",
+            level=logging.DEBUG,
+            source_id=source.id,
+            trigger_reason=trigger_reason,
+            source_offline=True,
         )
         return SourcePassResult(
             source=source,
@@ -178,12 +198,14 @@ def run_source_pass(
     # documents/ directly).
     linked = 0
     if result.touched_code_file_ids or result.touched_document_file_ids:
+        _linking_started = time.monotonic()
         with transaction(conn):
             linked = link_touched_files(
                 conn,
                 touched_code_file_ids=result.touched_code_file_ids,
                 touched_document_file_ids=result.touched_document_file_ids,
             )
+        result.timings.linking_seconds = time.monotonic() - _linking_started
 
     # Phase 9: same touched-files scoping and same "run after the queue
     # has drained" placement as the linking pass above, gated behind
@@ -205,6 +227,7 @@ def run_source_pass(
         *result.embeddings_stale_document_file_ids,
     ]
     embedded = 0
+    cache_reused = 0
     if ctx.config.search.semantic and (embed_code_file_ids or embed_document_file_ids):
         touched_file_ids = [*embed_code_file_ids, *embed_document_file_ids]
         # Captured *before* the transaction below deletes-and-reinserts
@@ -220,6 +243,7 @@ def run_source_pass(
         # below actually holds ``BEGIN IMMEDIATE``, unlike the pre-P5
         # shape where a single ``embed_touched_files`` call held that
         # write lock for as long as the model itself took to run.
+        _embedding_started = time.monotonic()
         prepared = prepare_embeddings(
             conn,
             source_id=source.id,
@@ -227,8 +251,14 @@ def run_source_pass(
             touched_document_file_ids=embed_document_file_ids,
             batch_size=ctx.config.indexing.embedding_batch_size,
         )
+        # Indexing optimization plan V2, Phase P3: how many of this
+        # batch's unique texts were served from the persistent
+        # embedding-reuse cache without calling the model at all --
+        # V2 Phase P5 telemetry surface for that phase's own feature.
+        cache_reused = prepared.cache_reused if prepared is not None else 0
         with transaction(conn):
             embedded = publish_embeddings(conn, prepared) if prepared is not None else 0
+        result.timings.embedding_seconds = time.monotonic() - _embedding_started
         if embedded:
             # Deliberately outside the transaction above: the ANN index
             # is a separate on-disk file, not part of the SQLite
@@ -240,6 +270,7 @@ def run_source_pass(
             # a corrupt or half-written knowledge.db.
             dim = embeddings_repo.get_dim_for_model(conn, embedder.EMBEDDING_MODEL_ID)
             if dim is not None:
+                _ann_started = time.monotonic()
                 ann.sync_index_for_files(
                     conn,
                     project_id=project_id,
@@ -251,6 +282,7 @@ def run_source_pass(
                     touched_file_ids=touched_file_ids,
                     rebuild_deleted_ratio=ctx.config.search.vector.rebuild_deleted_ratio,
                 )
+                result.timings.ann_sync_seconds = time.monotonic() - _ann_started
 
     sources_repo.update_scan_result(
         ctx.sources_conn,
@@ -260,6 +292,47 @@ def run_source_pass(
         status=SourceStatus.ACTIVE,
         updated_at=now,
     )
+
+    # Indexing optimization plan V2, Phase P5: one structured, DEBUG-level
+    # event per pass carrying every stage duration plus the context
+    # needed to explain them -- the real trigger reason (see
+    # trigger_reason above), targeted/full mode and changed-path count
+    # (Phase P2), worker counts (Phase P4/V2-P2), and embedding cache
+    # reuse (V2 Phase P3). DEBUG, not INFO: ``configure_logging``'s
+    # default level is "info" (``core/config.py``'s ``RuntimeConfig.
+    # log_level``), so this never reaches the log file -- let alone the
+    # console, which only ever surfaces WARNING+ regardless -- unless a
+    # project explicitly sets ``runtime.log_level: debug``, matching this
+    # codebase's one existing mechanism for "detailed but off by
+    # default" telemetry rather than inventing a second config flag.
+    # Building this dict of already-computed, cheap values (durations,
+    # counts) costs nothing measurable even when the level check below
+    # discards it -- see this phase's commit message for a timing check
+    # confirming that.
+    log_event(
+        _logger,
+        "stage_timings",
+        level=logging.DEBUG,
+        source_id=source.id,
+        trigger_reason=trigger_reason,
+        targeted=result.targeted,
+        changed_path_count=(len(changed_paths) if changed_paths is not None else None),
+        scan_seconds=result.timings.scan_seconds,
+        classify_seconds=result.timings.classify_seconds,
+        hash_seconds=result.timings.hash_seconds,
+        hash_calls=result.timings.hash_calls,
+        process_seconds=result.timings.process_seconds,
+        linking_seconds=result.timings.linking_seconds,
+        embedding_seconds=result.timings.embedding_seconds,
+        ann_sync_seconds=result.timings.ann_sync_seconds,
+        code_extraction_workers=ctx.config.indexing.code_extraction_workers,
+        document_extraction_workers=ctx.config.indexing.document_extraction_workers,
+        embedding_cache_reused=cache_reused,
+        indexed=result.indexed,
+        linked=linked,
+        embedded=embedded,
+    )
+
     return SourcePassResult(
         source=source,
         result=result,

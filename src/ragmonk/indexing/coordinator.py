@@ -244,6 +244,67 @@ def default_registry() -> ProcessorRegistry:
 
 
 @dataclass
+class StageTimings:
+    """Indexing optimization plan V2, Phase P5: wall-clock duration of
+    each stage a source pass naturally already goes through, so a slow
+    run's dominant stage is visible without attaching a profiler.
+    Populated at the boundaries the coordinator/runner code already has
+    (this phase added no new intermediate steps to time, only timers
+    around existing ones):
+
+    - ``scan``: the tree walk (full mode, ``sources.scanner.scan``) or
+      the per-path re-stat loop (targeted mode, Phase P2) that turns a
+      trigger into a list of candidate files.
+    - ``classify``: ``indexing.incremental.classify_change`` plus every
+      version-reprocess-decision check, rename reconciliation, and the
+      new/changed/unchanged bookkeeping/job-enqueue loop -- includes
+      ``hash`` below as a sub-cost, not a separate pass over the files.
+    - ``hash``: the ``hash_calls``/``hash_seconds`` subset of
+      ``classify`` actually spent inside ``sources.fingerprint.hash_file``
+      -- broken out because it is classify's one genuinely IO-bound part
+      (Phase P3's ``verified_hash`` reuse already avoids a second,
+      independent hash of the same file downstream in the document/code
+      processors; this is the coordinator's own, first hash).
+    - ``process``: ``_process_queue``'s prepare+publish work for every
+      queued file this pass -- not split further into "prepare" and
+      "publish" sub-timings: Phase P2/P4's bounded-parallel path already
+      interleaves many files' prepare calls with the single writer
+      thread's publish calls (see ``_process_queue_with_parallel``), so
+      there is no single clean boundary between the two to time
+      separately without either misleading numbers (attributing a
+      worker's idle wait time to "publish") or real, non-trivial
+      per-file instrumentation this phase's own "use boundaries that
+      already exist" rule argues against inventing. A future phase with
+      an actual need for that finer split should add it deliberately,
+      not as a byproduct of this one.
+    - ``linking``: ``knowledge.linker.link_touched_files``
+      (``indexing/runner.py``'s ``run_source_pass``, unchanged boundary
+      from Phase 4/P6).
+    - ``embedding``: ``indexing.embedding_indexer.prepare_embeddings`` +
+      ``publish_embeddings`` combined (``run_source_pass`` again) --
+      the P5(v1)/P3(v2) split between model inference and the write
+      transaction is a *safety* boundary (write-lock duration), not a
+      cost one; both still count as "the embedding stage" here.
+    - ``ann_sync``: ``retrieval.ann.sync_index_for_files``
+      (``run_source_pass``, gated the same way ``embedding`` is, behind
+      ``search.semantic``).
+
+    All zero for a pass that never reaches that stage (e.g.
+    ``ann_sync_seconds`` stays ``0.0`` whenever ``search.semantic`` is
+    off, or nothing was embedded this pass).
+    """
+
+    scan_seconds: float = 0.0
+    classify_seconds: float = 0.0
+    hash_seconds: float = 0.0
+    hash_calls: int = 0
+    process_seconds: float = 0.0
+    linking_seconds: float = 0.0
+    embedding_seconds: float = 0.0
+    ann_sync_seconds: float = 0.0
+
+
+@dataclass
 class IndexRunResult:
     scanned: int = 0
     new: int = 0
@@ -308,6 +369,9 @@ class IndexRunResult:
     # whole source tree -- telemetry only (see ``daemon_pass_completed``
     # in ``service/daemon.py``), never something a caller branches on.
     targeted: bool = False
+    # Indexing optimization plan V2, Phase P5: per-stage wall-clock
+    # durations for this pass -- see ``StageTimings``'s own docstring.
+    timings: StageTimings = field(default_factory=StageTimings)
 
 
 # Indexing optimization plan, Phase P2: the unit of work a caller hands
@@ -453,7 +517,7 @@ class IndexCoordinator:
         for sf in scanned:
             if sf.path in existing_by_path:
                 continue
-            content_hash = hash_file(Path(sf.path), algorithm)
+            content_hash = self._timed_hash(result, sf.path, algorithm)
             precomputed[sf.path] = content_hash
             candidates = missing_by_hash.get(content_hash, [])
             if len(candidates) != 1:
@@ -472,9 +536,22 @@ class IndexCoordinator:
             result.moved += 1
         return precomputed
 
-    def _version_reprocess_decision(
-        self, prev: FileRecord, kind: FileKind
-    ) -> ReprocessDecision:
+    def _timed_hash(self, result: IndexRunResult, path: str, algorithm: str) -> str:
+        """``sources.fingerprint.hash_file``, with its cost folded into
+        ``result.timings.hash_seconds``/``hash_calls`` (Phase P5) --
+        every direct ``hash_file`` call in this class goes through this
+        one method instead, so the two counters always describe every
+        hash this coordinator itself performed, regardless of which of
+        the several call sites (full scan, targeted new/changed/renamed
+        paths) needed it.
+        """
+        started = time.monotonic()
+        digest = hash_file(Path(path), algorithm)
+        result.timings.hash_seconds += time.monotonic() - started
+        result.timings.hash_calls += 1
+        return digest
+
+    def _version_reprocess_decision(self, prev: FileRecord, kind: FileKind) -> ReprocessDecision:
         """``ReprocessDecision.NONE`` whenever ``kind`` has no registered
         version provider (see ``ProcessorRegistry.get_version_provider``)
         -- today, every kind except ``FileKind.DOCUMENT`` -- preserving
@@ -524,6 +601,7 @@ class IndexCoordinator:
             root=self._root, extra_patterns=self._exclude, include_patterns=self._include
         )
         scan_outcome = ScanOutcome()
+        _scan_started = time.monotonic()
         scanned = list(
             scan(
                 self._root,
@@ -533,6 +611,7 @@ class IndexCoordinator:
                 outcome=scan_outcome,
             )
         )
+        result.timings.scan_seconds = time.monotonic() - _scan_started
         result.scanned = len(scanned)
         result.scan_incomplete = not scan_outcome.complete
         result.scan_errors = [f"{e.path}: {e.message}" for e in scan_outcome.errors]
@@ -546,6 +625,7 @@ class IndexCoordinator:
                 errors=result.scan_errors[:10],
             )
 
+        _classify_started = time.monotonic()
         existing = files_repo.list_by_source(self._conn, self._source_id)
         existing_by_path = {rec.path: rec for rec in existing}
 
@@ -581,7 +661,7 @@ class IndexCoordinator:
             def _lazy_hash(
                 path: str = sf.path, algo: str = algorithm, cached: str | None = cached_hash
             ) -> str:
-                return cached if cached is not None else hash_file(Path(path), algo)
+                return cached if cached is not None else self._timed_hash(result, path, algo)
 
             change, content_hash = classify_change(prev, sf.size, sf.mtime, _lazy_hash)
 
@@ -651,7 +731,10 @@ class IndexCoordinator:
             )
             jobs_repo.enqueue(self._conn, source_id=self._source_id, file_id=file_id)
 
+        result.timings.classify_seconds = time.monotonic() - _classify_started
+        _process_started = time.monotonic()
         self._process_queue(result, max_size_bytes)
+        result.timings.process_seconds = time.monotonic() - _process_started
         return result
 
     def _run_targeted(self, changed_paths: frozenset[str]) -> IndexRunResult:
@@ -709,6 +792,7 @@ class IndexCoordinator:
         max_size_bytes = self._config.indexing.max_file_size_mb * 1024 * 1024
         now = _now()
 
+        _scan_started = time.monotonic()
         present: dict[str, ScannedFile] = {}
         missing: set[str] = set()
         for raw_path in changed_paths:
@@ -737,8 +821,10 @@ class IndexCoordinator:
                 path=resolved_str, size=stat.st_size, mtime=stat.st_mtime
             )
 
+        result.timings.scan_seconds = time.monotonic() - _scan_started
         result.scanned = len(present) + len(missing)
 
+        _classify_started = time.monotonic()
         missing_records: dict[str, FileRecord] = {}
         for path in missing:
             record = files_repo.get_by_path(self._conn, self._source_id, path)
@@ -768,7 +854,7 @@ class IndexCoordinator:
                     missing_by_hash.setdefault(record.content_hash, []).append(record)
             for path in list(new_paths):
                 sf = new_paths[path]
-                content_hash = hash_file(Path(path), algorithm)
+                content_hash = self._timed_hash(result, path, algorithm)
                 kind = detector.classify(Path(path))
                 candidates = missing_by_hash.get(content_hash, [])
                 if len(candidates) != 1 or candidates[0].kind is not kind:
@@ -819,7 +905,7 @@ class IndexCoordinator:
 
         for path, sf in new_paths.items():
             kind = detector.classify(Path(path))
-            content_hash = hash_file(Path(path), algorithm)
+            content_hash = self._timed_hash(result, path, algorithm)
             file_id = uuid.uuid4().hex
             new_record = FileRecord(
                 id=file_id,
@@ -846,7 +932,7 @@ class IndexCoordinator:
             kind = detector.classify(Path(path))
 
             def _lazy_hash(p: str = path, algo: str = algorithm) -> str:
-                return hash_file(Path(p), algo)
+                return self._timed_hash(result, p, algo)
 
             change, content_hash = classify_change(record, sf.size, sf.mtime, _lazy_hash)
 
@@ -881,7 +967,10 @@ class IndexCoordinator:
             )
             jobs_repo.enqueue(self._conn, source_id=self._source_id, file_id=record.id)
 
+        result.timings.classify_seconds = time.monotonic() - _classify_started
+        _process_started = time.monotonic()
         self._process_queue(result, max_size_bytes)
+        result.timings.process_seconds = time.monotonic() - _process_started
         return result
 
     def _start_job(self, file: FileRecord, max_size_bytes: int) -> ProcessorContext:
