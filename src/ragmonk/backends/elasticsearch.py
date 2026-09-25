@@ -23,13 +23,27 @@ re-publishing the same file is an idempotent overwrite, not a duplicate.
 Generation (rebuild-safety) design: exactly the same generation-marker-
 document approach as the OpenSearch adapter (see that module's docstring
 for the full rationale -- avoiding one physical index per generation).
-Every content/relationship document is tagged with a ``generation``
-keyword field, and each source's *currently active* generation is
-recorded in one small "generation marker" document in the files index
-(id derived by ``elasticsearch_ids.generation_marker_id``). Every read
-method that cares about generation-correctness resolves that marker
-first; ``abort_generation`` deletes the incomplete generation's documents
-(``delete_by_query``) without touching the marker.
+Every content/relationship document written by ``publish_code``/
+``publish_document`` is tagged with a ``generation`` keyword field, and
+each source's *currently active* generation is recorded in one small
+"generation marker" document in the files index (id derived by
+``elasticsearch_ids.generation_marker_id``, a single by-id ``get``, not
+a search). Every read method that queries the content or relationships
+index (``lexical_search``/``semantic_search``/``symbol_search``/
+``graph_neighbors``/``get_entities_for_files``/
+``get_document_units_for_files``/``count_stats``) builds a filter clause
+via ``_active_generations_map``/``_generation_filter_clause`` that
+constrains matches to each source's currently-published generation, so
+an in-progress (not yet published) generation's documents are never
+returned by any read. A cross-domain link document (``publish_links``)
+carries no ``generation`` field -- those aren't rebuild-versioned -- and
+always passes the filter. File identity documents (``upsert_file``)
+likewise carry no ``generation`` field, and ``get_file``/the files count
+in ``count_stats`` are correspondingly not generation-filtered.
+``abort_generation`` deletes the incomplete generation's documents
+(``delete_by_query``) without touching the marker. ``clear_source`` is
+deliberately NOT generation-filtered -- a full-source delete must remove
+every generation, not just the active one.
 
 This module and ``opensearch.py`` are deliberately NOT shared beyond the
 backend-neutral models/config -- Elasticsearch's client library, bulk
@@ -161,6 +175,59 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
         doc_dict = dict(doc) if not isinstance(doc, dict) else doc
         source = doc_dict.get("_source", {})
         return str(source.get("active_generation", _DEFAULT_ACTIVE_GENERATION))
+
+    def _active_generations_map(self) -> dict[str, str]:
+        """Every source's currently-active generation, keyed by
+        ``source_id``. A single bounded search over the (small) set of
+        generation-marker documents in the files index -- not one call
+        per source -- so a read method that isn't pre-scoped to a
+        specific source can resolve every relevant source's active
+        generation in one round trip.
+        """
+        client = self._get_client()
+        try:
+            response = client.search(
+                index=mappings.files_index(self._prefix),
+                size=10_000,
+                query={"term": {"doc_kind": "generation_marker"}},
+            )
+        except Exception:
+            return {}
+        response_dict = dict(response) if not isinstance(response, dict) else response
+        hits = response_dict.get("hits", {}).get("hits", [])
+        result: dict[str, str] = {}
+        for hit in hits:
+            source = hit.get("_source", {})
+            source_id = source.get("source_id")
+            if source_id:
+                result[str(source_id)] = str(
+                    source.get("active_generation", _DEFAULT_ACTIVE_GENERATION)
+                )
+        return result
+
+    def _generation_filter_clause(self) -> dict[str, Any]:
+        """A query clause that constrains matches to each source's
+        currently-published generation -- same semantics as the
+        OpenSearch adapter's ``_generation_filter_clause`` (see that
+        module's docstring): known sources match on
+        ``(source_id, generation)``, an unmarked source falls back to
+        ``_DEFAULT_ACTIVE_GENERATION``, and a document with no
+        ``generation`` field at all (a cross-domain link) always
+        matches.
+        """
+        gen_map = self._active_generations_map()
+        should: list[dict[str, Any]] = [
+            {"bool": {"filter": [{"term": {"source_id": sid}}, {"term": {"generation": gen}}]}}
+            for sid, gen in gen_map.items()
+        ]
+        default_clause: dict[str, Any] = {
+            "bool": {"filter": [{"term": {"generation": _DEFAULT_ACTIVE_GENERATION}}]}
+        }
+        if gen_map:
+            default_clause["bool"]["must_not"] = [{"terms": {"source_id": list(gen_map)}}]
+        should.append(default_clause)
+        should.append({"bool": {"must_not": [{"exists": {"field": "generation"}}]}})
+        return {"bool": {"should": should, "minimum_should_match": 1}}
 
     def begin_generation(self, source_id: str) -> str:
         current = self._active_generation(source_id)
@@ -465,7 +532,12 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
     def clear_source(self, source_id: str) -> None:
         """Deletes every document belonging to ``source_id`` across all
         three indices -- files, content, and relationships -- so no stale
-        record for that source survives anywhere.
+        record for that source survives anywhere. Deliberately NOT
+        generation-filtered: this is a full-source delete, so it must
+        remove every generation's documents (including any in-progress,
+        unpublished one), not just the currently active generation's --
+        a different operation from the read-time isolation the other
+        methods on this class implement.
         """
         client = self._get_client()
         query = {"term": {"source_id": source_id}}
@@ -498,10 +570,11 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
         must = [
             {"multi_match": {"query": query, "fields": ["content^2", "search_text", "name"]}}
         ]
+        filter_clauses = self._filter_clauses(filters) + [self._generation_filter_clause()]
         response = self._get_client().search(
             index=mappings.content_index(self._prefix),
             size=limit,
-            query={"bool": {"must": must, "filter": self._filter_clauses(filters)}},
+            query={"bool": {"must": must, "filter": filter_clauses}},
         )
         return _hits_to_search_hits(response)
 
@@ -520,9 +593,8 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
             "k": limit,
             "num_candidates": max(limit * 10, limit),
         }
-        filter_clauses = self._filter_clauses(filters)
-        if filter_clauses:
-            knn["filter"] = {"bool": {"filter": filter_clauses}}
+        filter_clauses = self._filter_clauses(filters) + [self._generation_filter_clause()]
+        knn["filter"] = {"bool": {"filter": filter_clauses}}
         response = client.search(
             index=mappings.content_index(self._prefix),
             size=limit,
@@ -537,10 +609,11 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
             {"term": {"doc_kind": "entity"}},
             {"bool": {"should": [{"term": {"name": name}}, {"term": {"qualified_name": name}}]}},
         ]
+        filter_clauses = self._filter_clauses(filters) + [self._generation_filter_clause()]
         response = self._get_client().search(
             index=mappings.content_index(self._prefix),
             size=50,
-            query={"bool": {"must": must, "filter": self._filter_clauses(filters)}},
+            query={"bool": {"must": must, "filter": filter_clauses}},
         )
         return _hits_to_search_hits(response)
 
@@ -556,6 +629,9 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
         seen: set[str] = {entity_id}
         frontier = {entity_id}
         results: list[SearchHit] = []
+        # Resolved once per call, not once per depth: the active-generation
+        # map is the same across all depths of a single traversal.
+        filter_clauses = self._filter_clauses(filters) + [self._generation_filter_clause()]
         for _ in range(max(depth, 1)):
             if not frontier:
                 break
@@ -574,7 +650,7 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
                     "bool": {
                         "should": should,
                         "minimum_should_match": 1,
-                        "filter": self._filter_clauses(filters),
+                        "filter": filter_clauses,
                     }
                 },
             )
@@ -593,6 +669,11 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
         return results
 
     def get_file(self, file_id: str) -> FileRecord | None:
+        """Not generation-filtered: file identity documents (written by
+        ``upsert_file``) carry no ``generation`` field -- see this
+        module's docstring for why file existence/metadata isn't itself
+        version-guarded by the generation mechanism.
+        """
         response = self._get_client().search(
             index=mappings.files_index(self._prefix),
             size=1,
@@ -624,6 +705,7 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
                     "filter": [
                         {"term": {"doc_kind": "entity"}},
                         {"terms": {"file_id": file_ids}},
+                        self._generation_filter_clause(),
                     ]
                 }
             },
@@ -642,6 +724,7 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
                     "filter": [
                         {"term": {"doc_kind": "chunk"}},
                         {"terms": {"file_id": file_ids}},
+                        self._generation_filter_clause(),
                     ]
                 }
             },
@@ -650,14 +733,32 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
         return [hit["_source"] for hit in response_dict.get("hits", {}).get("hits", [])]
 
     def count_stats(self) -> BackendStats:
+        """``files_count`` is not generation-filtered (file identity
+        documents carry no ``generation`` field); the entity/chunk/
+        embedding counts are, so they reflect only the active
+        generation's content, same as every other content-index read.
+        """
         client = self._get_client()
         files_count = _count(
             client, mappings.files_index(self._prefix), {"term": {"doc_kind": "file"}}
         )
         content_index = mappings.content_index(self._prefix)
-        entities_count = _count(client, content_index, {"term": {"doc_kind": "entity"}})
-        document_units_count = _count(client, content_index, {"term": {"doc_kind": "chunk"}})
-        embeddings_count = _count(client, content_index, {"exists": {"field": "embedding"}})
+        generation_clause = self._generation_filter_clause()
+        entities_count = _count(
+            client,
+            content_index,
+            {"bool": {"filter": [{"term": {"doc_kind": "entity"}}, generation_clause]}},
+        )
+        document_units_count = _count(
+            client,
+            content_index,
+            {"bool": {"filter": [{"term": {"doc_kind": "chunk"}}, generation_clause]}},
+        )
+        embeddings_count = _count(
+            client,
+            content_index,
+            {"bool": {"filter": [{"exists": {"field": "embedding"}}, generation_clause]}},
+        )
         return BackendStats(
             files=files_count,
             entities=entities_count,

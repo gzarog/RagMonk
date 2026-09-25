@@ -20,21 +20,34 @@ overwrite, not a duplicate.
 Generation (rebuild-safety) design: rather than swapping index aliases
 (which would require one physical index *per generation*, expensive to
 create/drop for every incremental re-index of a single file), every
-content/relationship document is tagged with a ``generation`` keyword
-field, and each source's *currently active* generation is recorded in one
-small "generation marker" document in the files index (id derived by
-``opensearch_ids.generation_marker_id``). Every read method that cares
-about generation-correctness (``lexical_search``/``symbol_search``/
-``graph_neighbors``/``get_entities_for_files``/
-``get_document_units_for_files``) resolves that marker first and filters
-its query to ``generation == active_generation`` for the relevant
-source(s), so an in-progress (not yet published) generation's documents
-are simply never matched by any query -- the same externally-visible
-effect as an alias swap, achieved with a single atomic document write
-(``publish_generation``) instead of an index-level operation.
+content/relationship document written by ``publish_code``/
+``publish_document`` is tagged with a ``generation`` keyword field, and
+each source's *currently active* generation is recorded in one small
+"generation marker" document in the files index (id derived by
+``opensearch_ids.generation_marker_id``, so resolving it is a single
+by-id ``get``, not a search). Every read method that queries the content
+or relationships index (``lexical_search``/``semantic_search``/
+``symbol_search``/``graph_neighbors``/``get_entities_for_files``/
+``get_document_units_for_files``/``count_stats``) builds a filter clause
+from ``_active_generations_map``/``_generation_filter_clause`` that
+constrains matches to each source's currently-published generation, so
+an in-progress (not yet published) generation's documents are never
+returned by any read -- the same externally-visible effect as an alias
+swap, achieved with a single atomic document write
+(``publish_generation``) instead of an index-level operation. A cross-
+domain link document (``publish_links``) carries no ``generation`` field
+at all -- those aren't rebuild-versioned -- so the filter clause always
+passes documents with no ``generation`` field through unfiltered. File
+identity documents (``upsert_file``) likewise carry no ``generation``
+field and ``get_file`` is not generation-filtered: file existence/
+metadata is not itself version-guarded by this mechanism, only the
+entities/chunks/relationships derived from a file's content are.
 ``abort_generation`` deletes the incomplete generation's documents
 (``delete_by_query``) without touching the marker, so the previously
-published generation stays exactly as it was.
+published generation stays exactly as it was. ``clear_source`` is
+deliberately NOT generation-filtered -- it is a full-source delete
+(files + every generation of content/relationships), a different
+operation from read-time isolation.
 """
 
 from __future__ import annotations
@@ -152,6 +165,62 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
             return _DEFAULT_ACTIVE_GENERATION
         source = doc.get("_source", {}) if isinstance(doc, dict) else {}
         return str(source.get("active_generation", _DEFAULT_ACTIVE_GENERATION))
+
+    def _active_generations_map(self) -> dict[str, str]:
+        """Every source's currently-active generation, keyed by
+        ``source_id``. A single bounded search over the (small) set of
+        generation-marker documents in the files index -- not one call
+        per source -- so a read method that isn't pre-scoped to a
+        specific source (``lexical_search``/``semantic_search``/etc.)
+        can still resolve every relevant source's active generation in
+        one round trip.
+        """
+        client = self._get_client()
+        body = {"size": 10_000, "query": {"term": {"doc_kind": "generation_marker"}}}
+        try:
+            response = client.search(index=mappings.files_index(self._prefix), body=body)
+        except Exception:
+            return {}
+        hits = response.get("hits", {}).get("hits", [])
+        result: dict[str, str] = {}
+        for hit in hits:
+            source = hit.get("_source", {})
+            source_id = source.get("source_id")
+            if source_id:
+                result[str(source_id)] = str(
+                    source.get("active_generation", _DEFAULT_ACTIVE_GENERATION)
+                )
+        return result
+
+    def _generation_filter_clause(self) -> dict[str, Any]:
+        """A query clause that constrains matches to each source's
+        currently-published generation.
+
+        For every source with an explicit marker, only documents tagged
+        with that source's active generation match. For a source with
+        no marker yet (never published), the default active generation
+        (``_DEFAULT_ACTIVE_GENERATION``) is used -- matching
+        ``_active_generation``'s fallback, so a first-ever rebuild's
+        pre-publish documents (tagged with generation ``"1"``) are
+        correctly invisible until ``publish_generation`` runs, exactly
+        like an established source's in-progress rebuild. A document
+        with no ``generation`` field at all (a cross-domain link, which
+        is not rebuild-versioned) always matches, since there is no
+        generation for it to be stale against.
+        """
+        gen_map = self._active_generations_map()
+        should: list[dict[str, Any]] = [
+            {"bool": {"filter": [{"term": {"source_id": sid}}, {"term": {"generation": gen}}]}}
+            for sid, gen in gen_map.items()
+        ]
+        default_clause: dict[str, Any] = {
+            "bool": {"filter": [{"term": {"generation": _DEFAULT_ACTIVE_GENERATION}}]}
+        }
+        if gen_map:
+            default_clause["bool"]["must_not"] = [{"terms": {"source_id": list(gen_map)}}]
+        should.append(default_clause)
+        should.append({"bool": {"must_not": [{"exists": {"field": "generation"}}]}})
+        return {"bool": {"should": should, "minimum_should_match": 1}}
 
     def begin_generation(self, source_id: str) -> str:
         current = self._active_generation(source_id)
@@ -452,7 +521,12 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
     def clear_source(self, source_id: str) -> None:
         """Deletes every document belonging to ``source_id`` across all
         three indices -- files, content, and relationships -- so no stale
-        record for that source survives anywhere.
+        record for that source survives anywhere. Deliberately NOT
+        generation-filtered: this is a full-source delete, so it must
+        remove every generation's documents (including any in-progress,
+        unpublished one), not just the currently active generation's --
+        a different operation from the read-time isolation the other
+        methods on this class implement.
         """
         client = self._get_client()
         query = {"query": {"term": {"source_id": source_id}}}
@@ -487,9 +561,10 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         must = [
             {"multi_match": {"query": query, "fields": ["content^2", "search_text", "name"]}}
         ]
+        filter_clauses = self._filter_clauses(filters) + [self._generation_filter_clause()]
         body = {
             "size": limit,
-            "query": {"bool": {"must": must, "filter": self._filter_clauses(filters)}},
+            "query": {"bool": {"must": must, "filter": filter_clauses}},
         }
         response = self._get_client().search(index=mappings.content_index(self._prefix), body=body)
         return _hits_to_search_hits(response)
@@ -497,12 +572,13 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
     def semantic_search(
         self, vector: list[float], limit: int, filters: dict[str, Any] | None = None
     ) -> list[SearchHit]:
+        filter_clauses = self._filter_clauses(filters) + [self._generation_filter_clause()]
         body = {
             "size": limit,
             "query": {
                 "bool": {
                     "must": [{"knn": {"embedding": {"vector": vector, "k": limit}}}],
-                    "filter": self._filter_clauses(filters),
+                    "filter": filter_clauses,
                 }
             },
         }
@@ -516,9 +592,10 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
             {"term": {"doc_kind": "entity"}},
             {"bool": {"should": [{"term": {"name": name}}, {"term": {"qualified_name": name}}]}},
         ]
+        filter_clauses = self._filter_clauses(filters) + [self._generation_filter_clause()]
         body = {
             "size": 50,
-            "query": {"bool": {"must": must, "filter": self._filter_clauses(filters)}},
+            "query": {"bool": {"must": must, "filter": filter_clauses}},
         }
         response = self._get_client().search(index=mappings.content_index(self._prefix), body=body)
         return _hits_to_search_hits(response)
@@ -535,6 +612,9 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         seen: set[str] = {entity_id}
         frontier = {entity_id}
         results: list[SearchHit] = []
+        # Resolved once per call, not once per depth: the active-generation
+        # map is the same across all depths of a single traversal.
+        filter_clauses = self._filter_clauses(filters) + [self._generation_filter_clause()]
         for _ in range(max(depth, 1)):
             if not frontier:
                 break
@@ -552,7 +632,7 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                     "bool": {
                         "should": should,
                         "minimum_should_match": 1,
-                        "filter": self._filter_clauses(filters),
+                        "filter": filter_clauses,
                     }
                 },
             }
@@ -572,6 +652,11 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         return results
 
     def get_file(self, file_id: str) -> FileRecord | None:
+        """Not generation-filtered: file identity documents (written by
+        ``upsert_file``) carry no ``generation`` field -- see this
+        module's docstring for why file existence/metadata isn't itself
+        version-guarded by the generation mechanism.
+        """
         body = {"size": 1, "query": {"term": {"file_id": file_id}}}
         response = self._get_client().search(index=mappings.files_index(self._prefix), body=body)
         hits = response.get("hits", {}).get("hits", [])
@@ -598,6 +683,7 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                     "filter": [
                         {"term": {"doc_kind": "entity"}},
                         {"terms": {"file_id": file_ids}},
+                        self._generation_filter_clause(),
                     ]
                 }
             },
@@ -615,6 +701,7 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
                     "filter": [
                         {"term": {"doc_kind": "chunk"}},
                         {"terms": {"file_id": file_ids}},
+                        self._generation_filter_clause(),
                     ]
                 }
             },
@@ -623,19 +710,38 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         return [hit["_source"] for hit in response.get("hits", {}).get("hits", [])]
 
     def count_stats(self) -> BackendStats:
+        """``files_count`` is not generation-filtered (file identity
+        documents carry no ``generation`` field); the entity/chunk/
+        embedding counts are, so they reflect only the active
+        generation's content, same as every other content-index read.
+        """
         client = self._get_client()
         files_count = client.count(
             index=mappings.files_index(self._prefix), body={"query": {"term": {"doc_kind": "file"}}}
         )["count"]
         content_index = mappings.content_index(self._prefix)
+        generation_clause = self._generation_filter_clause()
         entities_count = client.count(
-            index=content_index, body={"query": {"term": {"doc_kind": "entity"}}}
+            index=content_index,
+            body={
+                "query": {
+                    "bool": {"filter": [{"term": {"doc_kind": "entity"}}, generation_clause]}
+                }
+            },
         )["count"]
         document_units_count = client.count(
-            index=content_index, body={"query": {"term": {"doc_kind": "chunk"}}}
+            index=content_index,
+            body={
+                "query": {"bool": {"filter": [{"term": {"doc_kind": "chunk"}}, generation_clause]}}
+            },
         )["count"]
         embeddings_count = client.count(
-            index=content_index, body={"query": {"exists": {"field": "embedding"}}}
+            index=content_index,
+            body={
+                "query": {
+                    "bool": {"filter": [{"exists": {"field": "embedding"}}, generation_clause]}
+                }
+            },
         )["count"]
         return BackendStats(
             files=files_count,
