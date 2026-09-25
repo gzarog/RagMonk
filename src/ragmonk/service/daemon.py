@@ -30,6 +30,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
+from ragmonk.backends.factory import redact_url
 from ragmonk.core import paths
 from ragmonk.core.errors import UsageError
 from ragmonk.core.lifecycle import AppContext, RunLock
@@ -135,6 +136,35 @@ class Daemon:
     # -- lifecycle --------------------------------------------------------
 
     def start(self) -> None:
+        # Storage backend abstraction plan, Phase 8: in server mode, the
+        # daemon's every pass ultimately writes through
+        # ``ctx.backend()`` (P4-P7) -- an unreachable server discovered
+        # only mid-pass would surface as a confusing per-file indexing
+        # failure repeated for every touched file, rather than the one
+        # clear "storage backend unreachable" diagnostic a bad
+        # config/down cluster deserves. This project's stated policy is
+        # "never silently fall back" (there is no local SQLite fallback
+        # for server mode to silently drop into either), so this fails
+        # startup outright rather than entering a degraded/partial
+        # state -- a daemon that starts anyway and then either silently
+        # skips indexing or retries indefinitely would be a worse
+        # surprise than a startup that just doesn't happen. ``ragmonk
+        # daemon start`` (``cli/daemon.py``) already treats this the same
+        # way a crash-on-import would: the child process exits before
+        # ever writing a health snapshot, so its own poll loop reports
+        # "daemon did not report healthy" and points at this process's
+        # log file, which carries this exception's message in full
+        # (never a credential value -- see ``HealthCheckError``'s
+        # subclasses' own docstrings).
+        if self._ctx.config.storage.mode == "server" and not self._ctx.backend().health():
+            server_config = self._ctx.config.storage.server
+            raise UsageError(
+                "daemon startup aborted: storage.server backend "
+                f"({server_config.engine} at {redact_url(server_config.url)}) "
+                "is unreachable. Fix the cluster/connection "
+                "(see `ragmonk doctor`) and retry."
+            )
+
         self._stop_event.clear()
         with self._db_lock:
             sources = self._registry.list(enabled_only=True)
