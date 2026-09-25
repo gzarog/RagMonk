@@ -22,6 +22,7 @@ to be installed.
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.core.config import StorageConfig
@@ -41,6 +42,29 @@ _CREDENTIAL_ENV_VARS: dict[str, tuple[str, str, str]] = {
         "RAGMONK_ELASTICSEARCH_API_KEY",
     ),
 }
+
+
+def redact_url(url: str) -> str:
+    """Strips any embedded userinfo (``user:pass@``) from ``url`` before
+    it is ever printed/logged. ``ServerStorageConfig.url`` should never
+    itself carry credentials (see that class's docstring -- they're read
+    from env vars only, via :func:`credential_env_vars`), but this is a
+    defensive backstop against someone putting one there anyway, shared
+    by every diagnostic/log call site (``ragmonk doctor``'s server
+    section, the daemon's server-mode startup check) so none of them can
+    forget it. Never raises: an unparsable ``url`` degrades to a
+    best-effort ``@``-split rather than surfacing an exception here.
+    """
+    if not url:
+        return url
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url.rsplit("@", 1)[-1] if "@" in url else url
+    if "@" not in parts.netloc:
+        return url
+    host = parts.netloc.rsplit("@", 1)[-1]
+    return urlunsplit((parts.scheme, host, parts.path, parts.query, parts.fragment))
 
 
 def credential_env_vars(engine: str) -> tuple[str, str, str]:

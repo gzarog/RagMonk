@@ -154,6 +154,20 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
     def ensure_schema(self) -> None:
         mappings.ensure_schema(self._get_client(), self._prefix)
 
+    def index_status(self) -> dict[str, bool]:
+        """Whether each expected index (files/content/relationships) that
+        ``ensure_schema`` would create already exists -- a lightweight
+        ``doctor``-only existence check, not a full mapping validation.
+        Storage backend abstraction plan, Phase 8.
+        """
+        client = self._get_client()
+        names = (
+            mappings.files_index(self._prefix),
+            mappings.content_index(self._prefix),
+            mappings.relationships_index(self._prefix),
+        )
+        return {name: bool(client.indices.exists(index=name)) for name in names}
+
     def close(self) -> None:
         client = self._client
         if client is not None and self._client_override is None:
