@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
+from ragmonk.backends.models import PreparedCode as BackendPreparedCode
 from ragmonk.code import framework_rules
 from ragmonk.code.extractor import ExtractionResult, default_namespace_for_path, extract
 from ragmonk.code.parser import detect_language, parse
@@ -27,7 +28,7 @@ from ragmonk.core.models import Confidence, Entity, FileStatus, Relationship, Re
 from ragmonk.indexing.coordinator import ProcessingOutcome, ProcessorContext
 from ragmonk.indexing.incremental import VersionStamp
 from ragmonk.sources.fingerprint import stat_unchanged
-from ragmonk.storage.repositories import entities_repo, relationships_repo
+from ragmonk.storage.repositories import entities_repo
 from ragmonk.storage.sqlite import transaction
 
 EntityLookup = Callable[[str], list[Entity]]
@@ -161,15 +162,33 @@ def prepare_code(path: Path, source_root: Path) -> PreparedCode:
 
 
 def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOutcome:
-    """Writes ``prepared``'s entities/relationships -- cross-file symbol
-    resolution (``qualified_lookup``/``name_lookup`` below, reading
-    ``entities_repo`` against the live connection) and the atomic
-    delete-old-generation/insert-new-generation write all happen here,
+    """Resolves ``prepared``'s cross-file relationships and hands the
+    final entities/relationships to ``KnowledgeBackend.publish_code``
+    for the atomic delete-old-generation/insert-new-generation write --
     on whichever thread calls this, which the coordinator guarantees is
     always its single writer thread, never a parallel prepare worker
     (Phase P4's "one transactional publisher" rule).
+
+    Storage backend abstraction plan, Phase 3: only the *write* moved
+    behind the backend contract (see ``LocalKnowledgeBackend.
+    publish_code``). ``qualified_lookup``/``name_lookup`` below still
+    read ``entities_repo`` directly against ``ctx.conn`` -- a query
+    against the live project database to resolve *this* file's
+    relationships, not a write of authoritative state, so it stays out
+    of this phase's persistence-boundary scope (mirrors retrieval/search
+    staying direct -- see ``LocalKnowledgeBackend``'s module docstring).
+    ``ctx.backend`` is used when the coordinator supplied one; a
+    coordinator-external caller (most unit tests) gets a
+    ``LocalKnowledgeBackend`` constructed on demand, bound to the same
+    ``ctx.conn``, so nothing about this function's public behavior
+    changes for such a caller.
     """
     assert ctx.conn is not None and ctx.file_id is not None and ctx.source_id is not None
+    backend = ctx.backend
+    if backend is None:
+        from ragmonk.backends.local import LocalKnowledgeBackend
+
+        backend = LocalKnowledgeBackend(conn=ctx.conn)
 
     if ctx.file_identity is not None:
         # Indexing optimization plan, Phase P4: a bounded parallel
@@ -197,7 +216,11 @@ def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOut
         # has no grammar for yet -- index the file without entities
         # rather than failing the run.
         with transaction(ctx.conn):
-            entities_repo.delete_by_file(ctx.conn, ctx.file_id)
+            backend.publish_code(
+                BackendPreparedCode(
+                    file_id=ctx.file_id, source_id=ctx.source_id, clear_only=True
+                )
+            )
         return ProcessingOutcome(status=FileStatus.INDEXED)
 
     assert prepared.extraction is not None and prepared.namespace_local_id is not None
@@ -238,26 +261,24 @@ def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOut
         i for i, e in enumerate(extraction.entities) if e.kind.value == "namespace"
     )
 
+    conn = ctx.conn
+    this_file_id = ctx.file_id
+
+    def qualified_lookup(text: str) -> list[Entity]:
+        return [
+            e for e in entities_repo.find_by_qualified_name(conn, text)
+            if e.file_id != this_file_id
+        ]
+
+    def name_lookup(name: str) -> list[Entity]:
+        return [e for e in entities_repo.find_by_name(conn, name) if e.file_id != this_file_id]
+
+    entity_snippets = {
+        entity.id: (extraction.entities[local_id].signature or entity.name)
+        for local_id, entity in enumerate(entities)
+    }
+
     with transaction(ctx.conn):
-        entities_repo.delete_by_file(ctx.conn, ctx.file_id)
-        for local_id, entity in enumerate(entities):
-            snippet = extraction.entities[local_id].signature or entity.name
-            entities_repo.insert(ctx.conn, entity, snippet=snippet)
-
-        conn = ctx.conn
-        this_file_id = ctx.file_id
-
-        def qualified_lookup(text: str) -> list[Entity]:
-            return [
-                e for e in entities_repo.find_by_qualified_name(conn, text)
-                if e.file_id != this_file_id
-            ]
-
-        def name_lookup(name: str) -> list[Entity]:
-            return [
-                e for e in entities_repo.find_by_name(conn, name) if e.file_id != this_file_id
-            ]
-
         relationships = _build_relationships(
             ctx=ctx,
             extraction=extraction,
@@ -268,8 +289,16 @@ def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOut
             qualified_lookup=qualified_lookup,
             name_lookup=name_lookup,
         )
-        for relationship in relationships:
-            relationships_repo.insert(ctx.conn, relationship)
+        backend.publish_code(
+            BackendPreparedCode(
+                file_id=ctx.file_id,
+                source_id=ctx.source_id,
+                generation=ctx.next_generation,
+                entities=entities,
+                entity_snippets=entity_snippets,
+                relationships=relationships,
+            )
+        )
 
     return ProcessingOutcome(status=FileStatus.INDEXED)
 

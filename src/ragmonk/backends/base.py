@@ -87,7 +87,14 @@ class KnowledgeBackend(ABC):
     def publish_embeddings(self, prepared_embeddings: PreparedEmbeddings) -> None: ...
 
     @abstractmethod
-    def publish_links(self, prepared_links: PreparedLinks) -> None: ...
+    def publish_links(self, prepared_links: PreparedLinks) -> int:
+        """Writes ``prepared_links``'s candidates as ``CrossLink`` rows,
+        deduplicating exactly like the pre-Phase-3 ``knowledge.linker._store``
+        did (a link's natural-key uniqueness is enforced by the storage
+        layer, not here), and returns how many were newly inserted --
+        needed by ``knowledge.linker.link_touched_files``'s own return
+        value/telemetry, which a plain ``None`` can't carry.
+        """
 
     # -- reads / search ---------------------------------------------------
     @abstractmethod

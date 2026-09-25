@@ -19,9 +19,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from ragmonk.backends.models import PreparedDocument as BackendPreparedDocument
 from ragmonk.core.config import ChunkingConfig
 from ragmonk.core.errors import ContentChangedDuringProcessingError, RagMonkError
-from ragmonk.core.models import Document, DocumentFormat, FileStatus, Paragraph, Section, Table
+from ragmonk.core.models import Document, DocumentFormat, FileStatus
 from ragmonk.documents import chunker, docling_adapter, normalizer
 from ragmonk.documents.chunker import Chunk, ChunkingDiagnostics
 from ragmonk.documents.docling_adapter import UnsupportedDocumentFormatError
@@ -30,7 +31,6 @@ from ragmonk.indexing.coordinator import ProcessingOutcome, ProcessorContext
 from ragmonk.indexing.incremental import VersionStamp
 from ragmonk.retrieval import embedder
 from ragmonk.sources.fingerprint import stat_unchanged, verified_hash
-from ragmonk.storage.repositories import documents_repo
 from ragmonk.storage.sqlite import transaction
 from ragmonk.telemetry.logging import get_logger, log_event
 
@@ -252,15 +252,29 @@ def prepare_document(
 
 
 def publish_document(ctx: ProcessorContext, prepared: PreparedDocument) -> ProcessingOutcome:
-    """Writes ``prepared``'s document/sections/paragraphs/tables -- the
-    atomic delete-old-generation/insert-new-generation transaction --
-    always on whichever thread calls this, which the coordinator
-    guarantees is always its single writer thread, never a parallel
-    prepare worker (Phase P2's "one transactional publisher per project"
-    rule, mirroring ``code.processor.publish_code``).
+    """Builds ``prepared``'s ``Document``/chunks and hands them to
+    ``KnowledgeBackend.publish_document`` for the atomic delete-old-
+    generation/insert-new-generation write -- always on whichever thread
+    calls this, which the coordinator guarantees is always its single
+    writer thread, never a parallel prepare worker (Phase P2's "one
+    transactional publisher per project" rule, mirroring
+    ``code.processor.publish_code``).
+
+    Storage backend abstraction plan, Phase 3: only the write moved
+    behind the backend contract -- see ``LocalKnowledgeBackend.
+    publish_document``. ``ctx.backend`` is used when the coordinator
+    supplied one; a coordinator-external caller (most unit tests) gets a
+    ``LocalKnowledgeBackend`` constructed on demand, bound to the same
+    ``ctx.conn``.
     """
     if ctx.conn is None or ctx.file_id is None or ctx.source_id is None:
         raise RagMonkError("DocumentProcessor requires a coordinator-provided ProcessorContext")
+
+    backend = ctx.backend
+    if backend is None:
+        from ragmonk.backends.local import LocalKnowledgeBackend
+
+        backend = LocalKnowledgeBackend(conn=ctx.conn)
 
     if prepared.status is not None:
         return ProcessingOutcome(status=prepared.status)
@@ -271,7 +285,11 @@ def publish_document(ctx: ProcessorContext, prepared: PreparedDocument) -> Proce
         # either, matching document_processor's pre-P2 behavior, which
         # never reached the check for these two cases.
         with transaction(ctx.conn):
-            documents_repo.delete_by_file(ctx.conn, ctx.file_id)
+            backend.publish_document(
+                BackendPreparedDocument(
+                    file_id=ctx.file_id, source_id=ctx.source_id, delete_only=True
+                )
+            )
         return ProcessingOutcome(status=FileStatus.INDEXED)
 
     assert (
@@ -336,22 +354,17 @@ def publish_document(ctx: ProcessorContext, prepared: PreparedDocument) -> Proce
     doc_title = meta.title or ""
 
     with transaction(ctx.conn):
-        documents_repo.delete_by_file(ctx.conn, ctx.file_id)
-        documents_repo.insert_document(ctx.conn, document)
-        for index, (chunk_id, chunk) in enumerate(zip(chunk_ids, chunks, strict=True)):
-            parent_id = chunk_ids[chunk.parent_index] if chunk.parent_index is not None else None
-            _insert_chunk(
-                ctx.conn,
-                chunk_id=chunk_id,
-                document_id=document_id,
+        backend.publish_document(
+            BackendPreparedDocument(
                 file_id=ctx.file_id,
-                parent_id=parent_id,
-                order_index=index,
-                chunk=chunk,
+                source_id=ctx.source_id,
                 generation=ctx.next_generation,
-                created_at=now,
+                document=document,
+                chunk_ids=chunk_ids,
+                chunks=chunks,
                 doc_title=doc_title,
             )
+        )
 
     return ProcessingOutcome(status=FileStatus.INDEXED)
 
@@ -379,83 +392,3 @@ def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
     prepared = prepare_document(ctx, cache_conn=ctx.conn)
     return publish_document(ctx, prepared)
 
-
-def _insert_chunk(
-    conn: sqlite3.Connection,
-    *,
-    chunk_id: str,
-    document_id: str,
-    file_id: str,
-    parent_id: str | None,
-    order_index: int,
-    chunk: Chunk,
-    generation: int,
-    created_at: str,
-    doc_title: str,
-) -> None:
-    heading_path = list(chunk.heading_path)
-    if chunk.kind == "heading":
-        documents_repo.insert_section(
-            conn,
-            Section(
-                id=chunk_id,
-                document_id=document_id,
-                file_id=file_id,
-                heading_level=chunk.heading_level or 0,
-                text=chunk.text,
-                heading_path=heading_path,
-                parent_id=parent_id,
-                order_index=order_index,
-                page_start=chunk.page_start,
-                page_end=chunk.page_end,
-                generation=generation,
-                created_at=created_at,
-            ),
-            doc_title=doc_title,
-            search_text=chunk.search_text,
-            embedding_text=chunk.contextual_text,
-        )
-    elif chunk.kind == "table":
-        rows = [list(row) for row in (chunk.table_rows or ())]
-        documents_repo.insert_table(
-            conn,
-            Table(
-                id=chunk_id,
-                document_id=document_id,
-                file_id=file_id,
-                heading_path=heading_path,
-                parent_id=parent_id,
-                rows=rows,
-                num_rows=len(rows),
-                num_cols=len(rows[0]) if rows else 0,
-                caption=chunk.caption,
-                order_index=order_index,
-                page_start=chunk.page_start,
-                page_end=chunk.page_end,
-                generation=generation,
-                created_at=created_at,
-            ),
-            doc_title=doc_title,
-            search_text=chunk.search_text,
-            embedding_text=chunk.contextual_text,
-        )
-    else:
-        documents_repo.insert_paragraph(
-            conn,
-            Paragraph(
-                id=chunk_id,
-                document_id=document_id,
-                file_id=file_id,
-                text=chunk.text,
-                heading_path=heading_path,
-                parent_id=parent_id,
-                order_index=order_index,
-                page_start=chunk.page_start,
-                page_end=chunk.page_end,
-                generation=generation,
-                created_at=created_at,
-            ),
-            doc_title=doc_title,
-            search_text=chunk.search_text,
-            embedding_text=chunk.contextual_text,
-        )

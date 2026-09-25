@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ragmonk.backends.local import LocalKnowledgeBackend
 from ragmonk.code.processor import code_processor, code_version_stamp, prepare_code, publish_code
 from ragmonk.core import paths
 from ragmonk.core.config import RagMonkConfig
@@ -144,6 +145,13 @@ def run_source_pass(
     """
     project_id = paths.project_id_for_path(Path(source.path))
     conn = ctx.project_conn(project_id)
+    # Storage backend abstraction plan, Phase 3: one backend per pass,
+    # bound to this pass's own project connection -- handed to the
+    # coordinator (so every queued file's ``publish`` half writes
+    # through it) and reused below for the linking/embeddings stages,
+    # so a whole source pass's persistence goes through the same
+    # ``KnowledgeBackend`` instance/connection throughout.
+    backend = LocalKnowledgeBackend(conn=conn)
     coordinator = IndexCoordinator(
         conn,
         source.id,
@@ -152,6 +160,7 @@ def run_source_pass(
         source.exclude_patterns,
         ctx.config,
         processors=processors,
+        backend=backend,
     )
     changed_paths = (
         scan_request.changed_paths if scan_request is not None and not scan_request.full else None
@@ -208,6 +217,8 @@ def run_source_pass(
         with transaction(conn):
             linked = link_touched_files(
                 conn,
+                backend,
+                source_id=source.id,
                 touched_code_file_ids=result.touched_code_file_ids,
                 touched_document_file_ids=result.touched_document_file_ids,
             )
@@ -263,7 +274,9 @@ def run_source_pass(
         # V2 Phase P5 telemetry surface for that phase's own feature.
         cache_reused = prepared.cache_reused if prepared is not None else 0
         with transaction(conn):
-            embedded = publish_embeddings(conn, prepared) if prepared is not None else 0
+            embedded = (
+                publish_embeddings(conn, prepared, backend=backend) if prepared is not None else 0
+            )
         result.timings.embedding_seconds = time.monotonic() - _embedding_started
         if embedded:
             # Deliberately outside the transaction above: the ANN index

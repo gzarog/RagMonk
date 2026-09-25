@@ -32,6 +32,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
+from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.core.config import ChunkingConfig, RagMonkConfig
 from ragmonk.core.errors import SecurityViolationError
 from ragmonk.core.models import FileKind, FileRecord, FileStatus, IndexJob, ScannedFile
@@ -75,6 +76,17 @@ class ProcessorContext:
     source_id: str | None = None
     file_id: str | None = None
     source_root: Path | None = None
+    # Storage backend abstraction plan, Phase 3: the ``KnowledgeBackend``
+    # a kind's ``publish`` half writes entities/document units/links
+    # through, instead of touching ``storage/repositories`` directly.
+    # ``None`` here (a coordinator-external ``ProcessorContext``, e.g. a
+    # unit test that only sets ``conn``) means "no backend was supplied";
+    # ``code.processor.publish_code``/``documents.pipeline.
+    # publish_document`` fall back to constructing a
+    # ``LocalKnowledgeBackend`` bound to ``conn`` on demand in that case
+    # (see each function's own docstring), so a test built the old way
+    # (``ProcessorContext(conn=...)``) still works unchanged.
+    backend: KnowledgeBackend | None = None
     # ``config.documents.max_pages`` -- Phase 3's DocumentProcessor checks
     # this itself (cheaply, before any heavy conversion) rather than the
     # coordinator pre-filtering by page count, since page count is not
@@ -454,6 +466,7 @@ class IndexCoordinator:
         config: RagMonkConfig,
         *,
         processors: ProcessorRegistry | None = None,
+        backend: KnowledgeBackend | None = None,
     ) -> None:
         self._conn = conn
         self._source_id = source_id
@@ -462,6 +475,15 @@ class IndexCoordinator:
         self._exclude = exclude_patterns
         self._config = config
         self._processors = processors or default_registry()
+        # Storage backend abstraction plan, Phase 3: the backend every
+        # queued file's ``ProcessorContext.backend`` is set to (see
+        # ``_start_job``) -- ``None`` (every pre-Phase-3 caller, and
+        # every test that constructs an ``IndexCoordinator`` directly)
+        # means each kind's ``publish`` half falls back to its own
+        # on-demand ``LocalKnowledgeBackend(conn=self._conn)``, so
+        # nothing here changes behavior for a caller that doesn't pass
+        # one explicitly.
+        self._backend = backend
         # Indexing optimization plan, Phase P3: this run's file_id ->
         # verified FileIdentity, populated during the scan loop below
         # and consumed (popped) in ``_process_queue`` when building each
@@ -995,6 +1017,7 @@ class IndexCoordinator:
             source_id=self._source_id,
             file_id=file.id,
             source_root=self._root,
+            backend=self._backend,
             next_generation=file.generation + 1,
             max_document_pages=self._config.documents.max_pages,
             chunking=self._config.documents.chunking,

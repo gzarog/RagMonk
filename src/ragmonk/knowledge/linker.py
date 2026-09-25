@@ -48,15 +48,13 @@ from __future__ import annotations
 
 import re
 import sqlite3
-import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 
+from ragmonk.backends.base import KnowledgeBackend
+from ragmonk.backends.models import LinkCandidate, PreparedLinks
 from ragmonk.core.models import (
     Confidence,
-    CrossLink,
     Entity,
     EntityType,
     Relationship,
@@ -66,28 +64,12 @@ from ragmonk.storage.repositories import (
     documents_repo,
     entities_repo,
     files_repo,
-    links_repo,
     relationships_repo,
 )
 from ragmonk.storage.repositories.documents_repo import DocumentUnit
 
 _ROUTE_TARGET_PREFIX = "http_endpoint:"
 _MIN_ALIAS_SEGMENTS = 3
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-@dataclass(frozen=True)
-class LinkCandidate:
-    entity_id: str
-    document_id: str
-    section_id: str | None
-    link_type: RelationshipType
-    resolver: str
-    confidence: Confidence
-    evidence: str
 
 
 def _needle_pattern(needle: str) -> re.Pattern[str] | None:
@@ -290,29 +272,25 @@ def _group_units_by_file(units: Sequence[DocumentUnit]) -> dict[str, list[Docume
     return grouped
 
 
-def _store(conn: sqlite3.Connection, candidates: Sequence[LinkCandidate]) -> int:
-    now = _now()
-    inserted = 0
-    for c in candidates:
-        link = CrossLink(
-            id=uuid.uuid4().hex,
-            link_type=c.link_type,
-            entity_id=c.entity_id,
-            document_id=c.document_id,
-            section_id=c.section_id,
-            resolver=c.resolver,
-            confidence=c.confidence,
-            evidence=c.evidence,
-            created_at=now,
-        )
-        if links_repo.insert(conn, link):
-            inserted += 1
-    return inserted
+def _store(backend: KnowledgeBackend, source_id: str, candidates: Sequence[LinkCandidate]) -> int:
+    """Storage backend abstraction plan, Phase 3: the write half --
+    previously built ``CrossLink`` rows and called ``links_repo.insert``
+    directly here; now hands the same candidates to
+    ``KnowledgeBackend.publish_links``, which does that same insert (see
+    ``LocalKnowledgeBackend.publish_links``) and returns how many were
+    newly inserted (a link's natural-key uniqueness dedupes exactly as
+    before).
+    """
+    if not candidates:
+        return 0
+    return backend.publish_links(PreparedLinks(source_id=source_id, candidates=list(candidates)))
 
 
 def link_touched_files(
     conn: sqlite3.Connection,
+    backend: KnowledgeBackend,
     *,
+    source_id: str,
     touched_code_file_ids: Sequence[str],
     touched_document_file_ids: Sequence[str],
 ) -> int:
@@ -378,7 +356,7 @@ def link_touched_files(
             *match_filename(namespace_entity, filename_candidates, all_units),
             *match_route_heuristic(file_routes, all_units),
         ]
-        inserted += _store(conn, candidates)
+        inserted += _store(backend, source_id, candidates)
 
     # Indexing optimization plan, Phase P6: this whole per-project-file
     # ``namespace_by_file`` map (used only by the document-side loop
@@ -412,6 +390,6 @@ def link_touched_files(
         ]
         for namespace_entity, filename_candidates in namespace_by_file.values():
             candidates.extend(match_filename(namespace_entity, filename_candidates, file_units))
-        inserted += _store(conn, candidates)
+        inserted += _store(backend, source_id, candidates)
 
     return inserted
