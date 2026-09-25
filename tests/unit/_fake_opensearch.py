@@ -180,8 +180,11 @@ def _matches(query: dict[str, Any], source: dict[str, Any]) -> bool:
         filters = clause.get("filter", [])
         musts = clause.get("must", [])
         shoulds = clause.get("should", [])
+        must_nots = clause.get("must_not", [])
         minimum_should_match = clause.get("minimum_should_match", 1 if shoulds else 0)
         if not all(_matches(f, source) for f in filters):
+            return False
+        if any(_matches(mn, source) for mn in must_nots):
             return False
         for m in musts:
             if "multi_match" in m:

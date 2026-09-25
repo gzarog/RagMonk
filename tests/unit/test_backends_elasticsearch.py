@@ -295,10 +295,13 @@ def test_delete_file_removes_file_and_scoped_docs() -> None:
 
 def test_publish_code_indexes_entities_and_relationships() -> None:
     backend = _backend()
+    # generation=0: the default active generation for a source with no
+    # marker doc yet -- these reads go through the generation-filtered
+    # query path added for read-time generation isolation.
     prepared = PreparedCode(
         file_id="f1",
         source_id="s1",
-        generation=1,
+        generation=0,
         entities=[_entity()],
         entity_snippets={"e1": "def do_thing(): ..."},
         relationships=[_relationship()],
@@ -320,10 +323,10 @@ def test_publish_code_indexes_entities_and_relationships() -> None:
 def test_publish_code_clear_only_removes_previous_generation() -> None:
     backend = _backend()
     backend.publish_code(
-        PreparedCode(file_id="f1", source_id="s1", generation=1, entities=[_entity()])
+        PreparedCode(file_id="f1", source_id="s1", generation=0, entities=[_entity()])
     )
     assert backend.get_entities_for_files(["f1"]) != []
-    backend.publish_code(PreparedCode(file_id="f1", source_id="s1", generation=2, clear_only=True))
+    backend.publish_code(PreparedCode(file_id="f1", source_id="s1", generation=1, clear_only=True))
     assert backend.get_entities_for_files(["f1"]) == []
 
 
@@ -332,7 +335,7 @@ def test_publish_code_reindex_is_idempotent_not_duplicating() -> None:
     deterministic ids, never accumulate duplicates.
     """
     backend = _backend()
-    prepared = PreparedCode(file_id="f1", source_id="s1", generation=1, entities=[_entity()])
+    prepared = PreparedCode(file_id="f1", source_id="s1", generation=0, entities=[_entity()])
     backend.publish_code(prepared)
     backend.publish_code(prepared)
     assert len(backend.get_entities_for_files(["f1"])) == 1
@@ -348,7 +351,7 @@ def test_publish_document_indexes_document_and_chunks() -> None:
         source_id="s1",
         file_id="f1",
         format=DocumentFormat.MARKDOWN,
-        generation=1,
+        generation=0,
         created_at="2024-01-01T00:00:00Z",
         updated_at="2024-01-01T00:00:00Z",
     )
@@ -365,7 +368,7 @@ def test_publish_document_indexes_document_and_chunks() -> None:
     prepared = PreparedDocument(
         file_id="f1",
         source_id="s1",
-        generation=1,
+        generation=0,
         document=document,
         chunk_ids=["c1"],
         chunks=[chunk],
@@ -406,7 +409,7 @@ def test_publish_document_delete_only_clears_previous_generation() -> None:
         PreparedDocument(
             file_id="f1",
             source_id="s1",
-            generation=1,
+            generation=0,
             document=document,
             chunk_ids=["c1"],
             chunks=[chunk],
@@ -414,7 +417,7 @@ def test_publish_document_delete_only_clears_previous_generation() -> None:
     )
     assert backend.get_document_units_for_files(["f1"]) != []
     backend.publish_document(
-        PreparedDocument(file_id="f1", source_id="s1", generation=2, delete_only=True)
+        PreparedDocument(file_id="f1", source_id="s1", generation=1, delete_only=True)
     )
     assert backend.get_document_units_for_files(["f1"]) == []
 
@@ -425,7 +428,7 @@ def test_publish_document_delete_only_clears_previous_generation() -> None:
 def test_publish_embeddings_updates_existing_entity_without_wiping_fields() -> None:
     backend = _backend()
     backend.publish_code(
-        PreparedCode(file_id="f1", source_id="s1", generation=1, entities=[_entity()])
+        PreparedCode(file_id="f1", source_id="s1", generation=0, entities=[_entity()])
     )
     embeddings = PreparedEmbeddings(
         source_id="s1",
@@ -470,7 +473,7 @@ def test_publish_embeddings_adds_dense_vector_field_once() -> None:
 def test_semantic_search_returns_hits_with_embedding() -> None:
     backend = _backend()
     backend.publish_code(
-        PreparedCode(file_id="f1", source_id="s1", generation=1, entities=[_entity()])
+        PreparedCode(file_id="f1", source_id="s1", generation=0, entities=[_entity()])
     )
     backend.publish_embeddings(
         PreparedEmbeddings(
@@ -613,7 +616,7 @@ def test_count_stats_reports_real_counts() -> None:
     backend = _backend()
     backend.upsert_file(FileRecord(file_id="f1", source_id="s1", path="a.py", content_hash="h"))
     backend.publish_code(
-        PreparedCode(file_id="f1", source_id="s1", generation=1, entities=[_entity()])
+        PreparedCode(file_id="f1", source_id="s1", generation=0, entities=[_entity()])
     )
     stats = backend.count_stats()
     assert isinstance(stats, BackendStats)
