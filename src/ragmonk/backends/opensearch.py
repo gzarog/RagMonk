@@ -34,20 +34,25 @@ constrains matches to each source's currently-published generation, so
 an in-progress (not yet published) generation's documents are never
 returned by any read -- the same externally-visible effect as an alias
 swap, achieved with a single atomic document write
-(``publish_generation``) instead of an index-level operation. A cross-
-domain link document (``publish_links``) carries no ``generation`` field
-at all -- those aren't rebuild-versioned -- so the filter clause always
-passes documents with no ``generation`` field through unfiltered. File
-identity documents (``upsert_file``) likewise carry no ``generation``
-field and ``get_file`` is not generation-filtered: file existence/
-metadata is not itself version-guarded by this mechanism, only the
-entities/chunks/relationships derived from a file's content are.
-``abort_generation`` deletes the incomplete generation's documents
-(``delete_by_query``) without touching the marker, so the previously
-published generation stays exactly as it was. ``clear_source`` is
-deliberately NOT generation-filtered -- it is a full-source delete
-(files + every generation of content/relationships), a different
-operation from read-time isolation.
+(``publish_generation``) instead of an index-level operation.
+
+Completion plan F6: *every* derived artifact is generation-tagged --
+file records (``upsert_file(s)``) and cross-domain links
+(``publish_links``) included -- and the ids of documents that are
+otherwise stable across generations (file record, document row, link)
+include the generation, so a rebuild never overwrites the published
+copy. A write only deletes the previous documents *of the generation it
+is writing*; ``publish_generation`` flips the marker and then
+garbage-collects every other generation of that source; and
+``abort_generation`` deletes every artifact of the aborted generation in
+all three indices, leaving the published one untouched. Documents with no
+``generation`` field (written by a pre-F6 release) still pass the read
+filter. ``clear_source`` is deliberately NOT generation-filtered -- it is
+a full-source delete of every generation.
+
+Targeted read primitives (completion plan F4 -- ``get_entities``,
+``get_files``, ``get_links``, ``get_documents``, ...) come from
+``server_common.ServerReadMixin``, shared with the Elasticsearch adapter.
 """
 
 from __future__ import annotations
@@ -637,6 +642,15 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                 ),
                 source={
                     "doc_kind": "link",
+                    "link_key": ids.link_doc_id(
+                        source_id,
+                        candidate.entity_id,
+                        candidate.document_id,
+                        candidate.section_id,
+                        str(candidate.link_type),
+                        candidate.resolver,
+                        generation,
+                    ),
                     "source_id": source_id,
                     "generation": generation,
                     "entity_file_id": entity_files.get(candidate.entity_id, ""),

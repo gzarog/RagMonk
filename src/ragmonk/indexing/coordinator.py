@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from ragmonk.backends.base import KnowledgeBackend
+from ragmonk.backends.factory import redact_urls_in_text
 from ragmonk.core.config import ChunkingConfig, RagMonkConfig
 from ragmonk.core.errors import SecurityViolationError
 from ragmonk.core.models import FileKind, FileRecord, FileStatus, IndexJob, ScannedFile
@@ -1063,24 +1064,29 @@ class IndexCoordinator:
         except Exception as exc:  # noqa: BLE001 - a poisoned file must not abort the run
             attempt = job.attempt_count + 1
             permanent = retry.is_permanent(attempt)
+            # Completion plan F7: a server client's exception text may echo
+            # request details -- scrub before it is persisted/surfaced.
+            safe_message = redact_urls_in_text(str(exc))
             jobs_repo.fail_with_backoff(
                 self._conn,
                 job.id,
                 error_code=type(exc).__name__,
-                error_message=str(exc),
+                error_message=safe_message,
                 next_attempt_at=None if permanent else retry.next_attempt_at(attempt),
                 permanent=permanent,
             )
             duration_ms = round((time.monotonic() - started) * 1000, 2)
             if permanent:
-                files_repo.mark_failed(self._conn, file.id, error=str(exc), updated_at=_now())
+                files_repo.mark_failed(
+                    self._conn, file.id, error=safe_message, updated_at=_now()
+                )
                 errors_repo.record(
                     self._conn,
                     source_id=self._source_id,
                     file_id=file.id,
                     path=file.path,
                     error_code=type(exc).__name__,
-                    error_message=str(exc),
+                    error_message=safe_message,
                 )
                 result.failed += 1
                 log_event(

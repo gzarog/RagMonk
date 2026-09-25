@@ -48,6 +48,7 @@ _CONTENT_ADDITIVE_FIELDS: dict[str, Any] = {
 }
 _RELATIONSHIPS_ADDITIVE_FIELDS: dict[str, Any] = {
     "relationship_id": _KEYWORD,
+    "link_key": _KEYWORD,
     "entity_file_id": _KEYWORD,
     "document_file_id": _KEYWORD,
     "source_location": _KEYWORD,

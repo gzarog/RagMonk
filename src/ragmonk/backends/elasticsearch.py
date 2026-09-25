@@ -35,18 +35,17 @@ index (``lexical_search``/``semantic_search``/``symbol_search``/
 via ``_active_generations_map``/``_generation_filter_clause`` that
 constrains matches to each source's currently-published generation, so
 an in-progress (not yet published) generation's documents are never
-returned by any read. A cross-domain link document (``publish_links``)
-carries no ``generation`` field -- those aren't rebuild-versioned -- and
-always passes the filter. File identity documents (``upsert_file``)
-likewise carry no ``generation`` field, and ``get_file``/the files count
-in ``count_stats`` are correspondingly not generation-filtered.
-``abort_generation`` deletes the incomplete generation's documents
-(``delete_by_query``) without touching the marker. ``clear_source`` is
-deliberately NOT generation-filtered -- a full-source delete must remove
-every generation, not just the active one.
+returned by any read. File records and cross-domain links are
+generation-tagged too, publishing garbage-collects older generations and
+aborting removes every artifact of the aborted generation (completion
+plan F6 -- see ``opensearch.py``'s docstring for the full design).
+``clear_source`` is deliberately NOT generation-filtered -- a full-source
+delete must remove every generation, not just the active one.
 
 This module and ``opensearch.py`` are deliberately NOT shared beyond the
-backend-neutral models/config -- Elasticsearch's client library, bulk
+backend-neutral models/config and ``server_common.ServerReadMixin`` (the
+engine-neutral targeted reads, built on a per-engine ``_search_raw``
+hook) -- Elasticsearch's client library, bulk
 response shape (structurally similar but a genuinely separate library),
 and vector-field mapping syntax (native ``dense_vector``/``knn`` vs.
 OpenSearch's k-NN-plugin ``knn_vector``) are treated as separate
@@ -625,6 +624,15 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                 ),
                 source={
                     "doc_kind": "link",
+                    "link_key": ids.link_doc_id(
+                        source_id,
+                        candidate.entity_id,
+                        candidate.document_id,
+                        candidate.section_id,
+                        str(candidate.link_type),
+                        candidate.resolver,
+                        generation,
+                    ),
                     "source_id": source_id,
                     "generation": generation,
                     "entity_file_id": entity_files.get(candidate.entity_id, ""),

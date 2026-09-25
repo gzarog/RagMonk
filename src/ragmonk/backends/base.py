@@ -1,12 +1,12 @@
 """The ``KnowledgeBackend`` abstract contract.
 
-Storage backend abstraction plan, Phase 1: this is the target interface
-retrieval/indexing code will eventually be routed through instead of
-calling SQLite-specific repositories directly. That routing is a *future*
-phase -- today only :class:`ragmonk.backends.local.LocalKnowledgeBackend`
-implements it, as a thin wrapper, and several methods there are
-``NotImplementedError`` stubs where the current local code doesn't yet
-cleanly map onto this shape (see that module's docstring for which).
+Storage backend abstraction plan: implemented by
+:class:`ragmonk.backends.local.LocalKnowledgeBackend` (local SQLite; its
+search/stats methods remain ``NotImplementedError`` because local-mode
+retrieval reads SQLite directly), and by the OpenSearch and Elasticsearch
+adapters, through which *all* server-mode indexing and retrieval flows.
+Completion plan F4 added the targeted read primitives at the bottom of the
+class (entity/file/link/document reads by id), implemented by all three.
 
 Nothing here imports a server-client SDK. A future OpenSearch/Elasticsearch
 adapter module should keep those imports inside its own methods (or behind

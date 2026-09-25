@@ -353,7 +353,7 @@ ragmonk init --storage-mode server \
 ragmonk init --interactive
 ```
 
-`ragmonk init` performs a real preflight HTTP check against `--storage-url` before writing anything — no config file is written if the cluster is unreachable. Storage mode is fixed at init time for a given `~/.ragmonk` runtime directory; there is no in-place migration between local and server storage.
+`ragmonk init` validates the selected engine with its real client before writing anything: the endpoint must be reachable, credentials (if any) must be accepted, the cluster must actually be the selected engine (an OpenSearch cluster never passes as Elasticsearch, or vice versa, and a generic HTTP server answering `200` passes neither), the version must be supported (OpenSearch 2.0+, Elasticsearch 8.0+), and non-destructive permission checks must succeed. No config file is written if any check fails. `--storage-url` must not contain credentials (`https://user:password@host` is rejected) — use the env vars below. Storage mode is fixed at init time for a given `~/.ragmonk` runtime directory; there is no in-place migration between local and server storage.
 
 Install the matching client library first — these are optional extras, never installed by plain `pip install ragmonk`:
 
@@ -388,10 +388,10 @@ Both expose port `9200`. To run this project's own integration test suites again
 
 ```bash
 OPENSEARCH_URL=http://localhost:9200 \
-    pytest -m opensearch_integration tests/unit/test_backends_opensearch_integration.py
+    pytest -m opensearch_integration
 
 ELASTICSEARCH_URL=http://localhost:9200 \
-    pytest -m elasticsearch_integration tests/unit/test_backends_elasticsearch_integration.py
+    pytest -m elasticsearch_integration
 ```
 
 (Note: these test-suite env vars, `OPENSEARCH_URL`/`ELASTICSEARCH_URL`, are separate from the `RAGMONK_*` credential env vars above — the compose clusters have security disabled and need no credentials at all.)
@@ -402,10 +402,17 @@ ELASTICSEARCH_URL=http://localhost:9200 \
 - `ragmonk daemon start` fails startup clearly, with an explicit error, if the configured server backend is unreachable — it does not silently fall back to local storage or start in a half-working state.
 - `ragmonk rebuild` publishes each source's rebuilt content as a new **generation**, atomically switching reads over only once the rebuild finishes. If a rebuild fails partway through, the **previous generation stays active and searchable** — a failed rebuild degrades to "stale but consistent," never to "partially indexed."
 
+### How server mode stores data
+
+- **Searchable knowledge** (files, code entities, relationships, documents, chunks, embeddings, cross-domain links) is written only to the configured OpenSearch/Elasticsearch cluster — by `ragmonk index`, the daemon, the Admin UI indexer and `ragmonk rebuild` alike. There is no silent local fallback: if the cluster is unreachable, commands fail with an explicit error.
+- **Local SQLite remains the control plane** only: scan/diff state, file status, the job queue and retries, content fingerprints and version/embedding bookkeeping. It is never used to answer a search or graph query in server mode.
+- **Generations**: every artifact is tagged with its source's write generation, and every read is filtered to the published one. A source's first index and every `ragmonk rebuild` run inside a new generation that becomes visible atomically on success; a failed rebuild (including one where any file fails to index) is aborted and the previous generation keeps being served. Incremental passes update the published generation in place, file by file.
+- Switching an existing runtime directory from local to server mode re-indexes each source into the server on its first `ragmonk index`, resetting that source's local control-plane state.
+
 ### Known limitations in server mode
 
-- **Neighbor-name resolution in `impact`/`explore`**: the current `KnowledgeBackend` contract has no "fetch entity/file by id" primitive, so graph traversal results (caller/callee lists, dependency lists) that would normally resolve to a neighboring symbol or file's name can come back unresolved (`neighbor_entity=None`) in server mode, where local mode resolves them via direct SQLite lookups. This is a documented gap, not a silent wrong answer — see `src/ragmonk/retrieval/graph.py`.
-- **File-metadata generation filtering**: unlike content, relationship, and embedding documents, file-identity documents (written by `upsert_file`) are not generation-tagged, so `get_file` and the files count in backend stats are not scoped to a specific rebuild generation the way other reads are. See the OpenSearch/Elasticsearch adapter module docstrings for the exact scope.
+- `ragmonk link` and `ragmonk docs` still read local SQLite and refuse to run in server mode (explicit `LocalStorageModeRequiredError`, never a wrong answer); use the Admin UI Documents page, `impact` or `explore` instead.
+- Graph traversal in server mode reports every edge at depth 1 (the backend returns one flattened frontier per call), and name-only (unresolved) call edges recorded before the target symbol existed are only found through a resolved entity.
 
 ---
 

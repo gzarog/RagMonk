@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server backends completion (OpenSearch/Elasticsearch, completion plan V2)
+
+- **Fixed: server-mode indexing.** `ragmonk index`, the daemon, and the
+  Admin UI indexer now publish through the configured server backend
+  (`indexing.runner.run_source_pass` is the single place the writer is
+  selected); local SQLite is control-plane only in server mode. Cross-file
+  symbol resolution, linking and embeddings read back from the server.
+  A source's first server index runs inside a generation.
+- **Fixed: Admin UI in server mode.** Document list/detail, symbol
+  listing, impact/graph views and indexing status work in server mode.
+- **Added: targeted backend read primitives** (`get_entities`,
+  `get_files`, `list_files`, `get_links`, `get_documents`,
+  `list_documents`, `get_document_units`, ...) implemented by the local,
+  OpenSearch and Elasticsearch backends. Server-mode callers/callees/
+  impact/explore now resolve real neighbor entities/files and include
+  documentation links.
+- **Changed: `ragmonk init` server validation** uses the selected engine's
+  real client (identity, auth, version, non-destructive permissions)
+  instead of a generic HTTP GET; a generic HTTP 200 no longer passes.
+- **Fixed: generation isolation.** File records and cross-domain links are
+  generation-tagged; writes only replace the generation being written;
+  publishing garbage-collects older generations; aborting removes every
+  artifact; a rebuild with failed files aborts instead of publishing.
+- **Security: `storage.server.url` rejects user-info credentials**, config
+  errors never echo the rejected value, and persisted/printed error text is
+  scrubbed of URL user-info and configured credential values.
+- **CI: real OpenSearch and Elasticsearch acceptance jobs** run the
+  `*_integration` suites plus a full CLI acceptance flow against live
+  service containers.
+
 Storage backend abstraction plan ([PR #72](https://github.com/gzarog/RagMonk/pull/72)):
 adds optional OpenSearch/Elasticsearch server storage backends alongside
 the existing local SQLite/FTS5/USearch mode, behind a backend-neutral

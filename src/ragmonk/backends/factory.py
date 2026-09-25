@@ -78,9 +78,27 @@ def redact_urls_in_text(text: str) -> str:
     if not text:
         return text
     try:
-        return _URL_USERINFO_RE.sub(lambda m: m.group(1), text)
+        text = _URL_USERINFO_RE.sub(lambda m: m.group(1), text)
+        # Completion plan F7: also a scheme-less ``user:password@host``
+        # and the literal value of any configured credential env var.
+        text = _BARE_USERINFO_RE.sub("", text)
+        return _redact_credential_env_values(text)
     except Exception:  # pragma: no cover - defensive, regex sub on str never raises
         return text
+
+
+_BARE_USERINFO_RE = re.compile(r"(?<![\w/@])[^\s/@:]+:[^\s/@]+@(?=[\w.\-\[])")
+
+
+def _redact_credential_env_values(text: str) -> str:
+    import os
+
+    for names in _CREDENTIAL_ENV_VARS.values():
+        for name in names:
+            value = os.environ.get(name)
+            if value and len(value) >= 4 and value in text:
+                text = text.replace(value, "***")
+    return text
 
 
 def redact_url(url: str) -> str:

@@ -186,6 +186,9 @@ class ServerReadMixin:
         """Every matching document's ``_source``, paginated with
         ``search_after`` on a keyword ``sort_field`` so a large source is
         never silently truncated at the engine's ``max_result_window``.
+        ``sort_field`` must be unique among the matched documents (every
+        caller passes a per-generation-unique id field) -- ``search_after``
+        on a non-unique key could skip ties across a page boundary.
         """
         out: list[dict[str, Any]] = []
         search_after: list[Any] | None = None
@@ -371,7 +374,7 @@ class ServerReadMixin:
         for field, values in (("entity_id", entity_ids or []), ("document_id", document_ids or [])):
             for batch in _batches(list(values)):
                 query = self._filtered({"term": {"doc_kind": "link"}}, {"terms": {field: batch}})
-                for payload in self._scan(rel_index, query, "entity_id"):
+                for payload in self._scan(rel_index, query, "link_key"):
                     record = link_record_from_payload(payload)
                     key = (
                         record.entity_id,
@@ -451,7 +454,7 @@ class ServerReadMixin:
             {"prefix": {"target_symbol": prefix}},
             generation=generation,
         )
-        return self._scan(rel_index, query, "source_entity_id")
+        return self._scan(rel_index, query, "relationship_id")
 
     # -- write helpers shared by both adapters ------------------------------
     def _entity_file_ids(self, entity_ids: list[str]) -> dict[str, str]:

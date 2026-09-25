@@ -275,6 +275,20 @@ pip install "ragmonk[opensearch]"
 OPENSEARCH_URL=https://localhost:9200 pytest -m opensearch_integration -q
 ```
 
+The same markers (`opensearch_integration` / `elasticsearch_integration`)
+also select `tests/integration/test_server_acceptance_live.py`, the full
+server-mode CLI acceptance flow (init with real engine validation, index,
+search, code intelligence, incremental changes, outage, failed and
+successful rebuilds, doctor/status, source removal). CI runs both engines
+against real service containers (`opensearch-acceptance` /
+`elasticsearch-acceptance` jobs) with `RAGMONK_REQUIRE_LIVE_SERVER=1`,
+which turns "cluster unreachable" into a failure instead of a skip.
+`RAGMONK_ACCEPTANCE_SEMANTIC=1` additionally runs the semantic/hybrid
+check (downloads the embedding model). Without a cluster, the default
+suite still covers the same flows against in-memory engine fakes
+(`tests/integration/test_server_mode_e2e.py`,
+`test_server_generation_safety.py`, `test_server_secret_leaks.py`).
+
 ### The install scripts (`install.sh` / `install.ps1`)
 
 `install.sh` and `install.ps1` at the repo root are what `README.md`'s
