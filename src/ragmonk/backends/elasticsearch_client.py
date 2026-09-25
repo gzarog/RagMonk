@@ -146,7 +146,9 @@ def cluster_health(client: Elasticsearch) -> tuple[str, str]:
 
     info_dict = dict(info) if not isinstance(info, dict) else info
     version_block = info_dict.get("version", {}) if isinstance(info_dict, dict) else {}
-    name = str(version_block.get("build_flavor") or info_dict.get("cluster_name") or "elasticsearch")
+    name = str(
+        version_block.get("build_flavor") or info_dict.get("cluster_name") or "elasticsearch"
+    )
     version = str(version_block.get("number", "unknown"))
     _validate_version(version)
 

@@ -56,10 +56,19 @@ def test_factory_server_mode_opensearch_returns_opensearch_backend() -> None:
     assert isinstance(backend, OpenSearchKnowledgeBackend)
 
 
-def test_factory_server_mode_elasticsearch_raises_not_implemented() -> None:
+def test_factory_server_mode_elasticsearch_returns_elasticsearch_backend() -> None:
+    """Storage backend abstraction plan, Phase 5: ``mode="server"`` with
+    ``engine="elasticsearch"`` now returns a real, working
+    ``ElasticsearchKnowledgeBackend`` instead of raising. This only needs
+    the ``elasticsearch`` package installed to *construct*; it does not
+    connect (no method that talks to a cluster is called here).
+    """
+    pytest.importorskip("elasticsearch")
+    from ragmonk.backends.elasticsearch import ElasticsearchKnowledgeBackend
+
     config = StorageConfig(mode="server", server=ServerStorageConfig(engine="elasticsearch"))
-    with pytest.raises(NotImplementedError, match="elasticsearch"):
-        create_backend(config)
+    backend = create_backend(config)
+    assert isinstance(backend, ElasticsearchKnowledgeBackend)
 
 
 def test_credential_env_vars_known_engines() -> None:

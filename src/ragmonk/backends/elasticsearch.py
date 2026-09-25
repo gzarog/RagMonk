@@ -222,11 +222,19 @@ class ElasticsearchKnowledgeBackend(KnowledgeBackend):
 
     def delete_file(self, source_id: str, file_id: str) -> None:
         client = self._get_client()
-        client.delete(
-            index=mappings.files_index(self._prefix),
-            id=ids.file_doc_id(source_id, file_id),
-            ignore_unavailable=True,
-        )
+        try:
+            client.delete(
+                index=mappings.files_index(self._prefix),
+                id=ids.file_doc_id(source_id, file_id),
+            )
+        except Exception as exc:
+            # The `elasticsearch` client raises a typed NotFoundError for a
+            # missing document (there is no `ignore=[404]` kwarg on
+            # `delete`, unlike opensearch-py) -- deleting an already-
+            # absent file is a no-op, not an error; any other failure
+            # (connection error, auth, etc.) still propagates.
+            if type(exc).__name__ != "NotFoundError":
+                raise
         query = {
             "bool": {
                 "filter": [
