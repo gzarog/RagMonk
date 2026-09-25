@@ -49,6 +49,17 @@ class IndexingConfig(BaseModel):
     # watcher events, catching whatever a missed/coalesced OS event or a
     # dropped poll tick missed -- see service/daemon.py.
     reconciliation_interval_seconds: int = 900
+    # Indexing optimization plan, Phase P4: how many files' code
+    # extraction (Tree-sitter parse + entity/relationship extraction --
+    # the pure, read-only "prepare" half of ``code.processor``) may run
+    # concurrently in a bounded thread pool. ``1`` (the default) is
+    # fully serial -- byte-for-byte today's pre-P4 behavior -- matching
+    # the plan's own "default to serial until proven safe" and "keep
+    # experimental concurrency opt-in pending test and benchmark
+    # evidence" rules. The transactional write ("publish") half always
+    # runs on the single coordinator writer thread regardless of this
+    # setting; see ``indexing/coordinator.py``'s ``_process_queue``.
+    code_extraction_workers: int = 1
 
 
 class ChunkingConfig(BaseModel):

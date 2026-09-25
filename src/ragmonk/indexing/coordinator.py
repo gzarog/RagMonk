@@ -23,13 +23,16 @@ import sqlite3
 import time
 import uuid
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
+from typing import Any
 
 from ragmonk.core.config import ChunkingConfig, RagMonkConfig
 from ragmonk.core.errors import SecurityViolationError
-from ragmonk.core.models import FileKind, FileRecord, FileStatus, ScannedFile
+from ragmonk.core.models import FileKind, FileRecord, FileStatus, IndexJob, ScannedFile
 from ragmonk.indexing import retry
 from ragmonk.indexing.incremental import (
     ChangeType,
@@ -131,6 +134,21 @@ ProcessorFunc = Callable[[ProcessorContext], ProcessingOutcome]
 # monkeypatch) is always seen -- see ``VersionStamp``'s and
 # ``decide_reprocessing``'s docstrings in ``indexing/incremental.py``.
 VersionProviderFunc = Callable[[], VersionStamp]
+# Indexing optimization plan, Phase P4: the optional split a kind can
+# register instead of (or alongside) a plain ``ProcessorFunc`` --
+# ``PrepareFunc`` is pure/read-only (path, source_root) -> an opaque
+# prepared result, safe to run concurrently across files in a bounded
+# worker pool; ``PublishFunc`` takes that result and does the
+# transactional write, always on the coordinator's single writer
+# thread. See ``code.processor``'s ``prepare_code``/``publish_code``
+# for the first (and so far only) real implementation. The prepared
+# value's type is deliberately opaque to the coordinator (typed
+# ``Any`` rather than a concrete union): it flows straight from one
+# kind's prepare to that same kind's publish, and the coordinator
+# itself never inspects it -- only the matching publish function ever
+# does.
+PrepareFunc = Callable[[Path, Path], Any]
+PublishFunc = Callable[[ProcessorContext, Any], ProcessingOutcome]
 
 
 def raw_processor(ctx: ProcessorContext) -> ProcessingOutcome:
@@ -143,6 +161,8 @@ class ProcessorRegistry:
     def __init__(self) -> None:
         self._processors: dict[FileKind, ProcessorFunc] = {}
         self._version_providers: dict[FileKind, VersionProviderFunc] = {}
+        self._prepare_funcs: dict[FileKind, PrepareFunc] = {}
+        self._publish_funcs: dict[FileKind, PublishFunc] = {}
 
     def register(
         self,
@@ -150,10 +170,22 @@ class ProcessorRegistry:
         processor: ProcessorFunc,
         *,
         version_provider: VersionProviderFunc | None = None,
+        prepare: PrepareFunc | None = None,
+        publish: PublishFunc | None = None,
     ) -> None:
         self._processors[kind] = processor
         if version_provider is not None:
             self._version_providers[kind] = version_provider
+        # Indexing optimization plan, Phase P4: both halves or neither --
+        # a kind with only one of the two would leave the coordinator's
+        # parallel path with no way to publish (or nothing to prepare
+        # ahead of time), so a kind not offering the full split is
+        # simply never eligible for it (see ``ProcessorRegistry.
+        # supports_parallel_prepare``), falling back to ``processor``
+        # exactly like today.
+        if prepare is not None and publish is not None:
+            self._prepare_funcs[kind] = prepare
+            self._publish_funcs[kind] = publish
 
     def get(self, kind: FileKind) -> ProcessorFunc:
         return self._processors.get(kind, raw_processor)
@@ -168,6 +200,15 @@ class ProcessorRegistry:
         exactly today's pre-Phase-12 behavior.
         """
         return self._version_providers.get(kind)
+
+    def supports_parallel_prepare(self, kind: FileKind) -> bool:
+        return kind in self._prepare_funcs
+
+    def get_prepare(self, kind: FileKind) -> PrepareFunc:
+        return self._prepare_funcs[kind]
+
+    def get_publish(self, kind: FileKind) -> PublishFunc:
+        return self._publish_funcs[kind]
 
 
 def default_registry() -> ProcessorRegistry:
@@ -745,7 +786,151 @@ class IndexCoordinator:
         self._process_queue(result, max_size_bytes)
         return result
 
+    def _start_job(self, file: FileRecord, max_size_bytes: int) -> ProcessorContext:
+        """Marks ``file`` PROCESSING and builds its ``ProcessorContext``
+        -- shared by the serial and bounded-parallel paths below, called
+        at the same point in each (right after a job is claimed) so
+        both have identical PROCESSING-stamp and identity-consumption
+        timing.
+        """
+        files_repo.update_status(self._conn, file.id, FileStatus.PROCESSING, updated_at=_now())
+        # Indexing optimization plan, Phase P3: popped (not just read)
+        # so a same-pass immediate retry of this file_id (identity
+        # already consumed) safely falls back to re-hashing the file
+        # itself, rather than reusing a possibly-stale identity twice.
+        identity = self._pending_identities.pop(file.id, None)
+        return ProcessorContext(
+            path=Path(file.path),
+            size=file.size,
+            kind=file.kind,
+            max_size_bytes=max_size_bytes,
+            conn=self._conn,
+            source_id=self._source_id,
+            file_id=file.id,
+            source_root=self._root,
+            next_generation=file.generation + 1,
+            max_document_pages=self._config.documents.max_pages,
+            chunking=self._config.documents.chunking,
+            ocr=self._config.documents.ocr,
+            image_ocr=self._config.documents.image_ocr,
+            file_identity=identity,
+        )
+
+    def _finish_job(
+        self,
+        result: IndexRunResult,
+        job: IndexJob,
+        file: FileRecord,
+        started: float,
+        run: Callable[[], ProcessingOutcome],
+    ) -> None:
+        """Runs ``run()`` (either ``processor(ctx)`` directly, or --
+        Phase P4's bounded-parallel path -- ``publish(ctx,
+        future.result())``, which blocks for the matching prepare
+        future and re-raises its exception here on the writer thread if
+        it failed) and handles the outcome exactly as the pre-P4
+        ``_process_queue`` always did: identical failure/retry/success
+        bookkeeping regardless of which path produced ``run``.
+        """
+        try:
+            outcome = run()
+        except Exception as exc:  # noqa: BLE001 - a poisoned file must not abort the run
+            attempt = job.attempt_count + 1
+            permanent = retry.is_permanent(attempt)
+            jobs_repo.fail_with_backoff(
+                self._conn,
+                job.id,
+                error_code=type(exc).__name__,
+                error_message=str(exc),
+                next_attempt_at=None if permanent else retry.next_attempt_at(attempt),
+                permanent=permanent,
+            )
+            duration_ms = round((time.monotonic() - started) * 1000, 2)
+            if permanent:
+                files_repo.mark_failed(self._conn, file.id, error=str(exc), updated_at=_now())
+                errors_repo.record(
+                    self._conn,
+                    source_id=self._source_id,
+                    file_id=file.id,
+                    path=file.path,
+                    error_code=type(exc).__name__,
+                    error_message=str(exc),
+                )
+                result.failed += 1
+                log_event(
+                    _logger,
+                    "file_failed",
+                    level=logging.WARNING,
+                    source_id=self._source_id,
+                    file_id=file.id,
+                    duration_ms=duration_ms,
+                    error_code=type(exc).__name__,
+                )
+            else:
+                files_repo.update_status(self._conn, file.id, FileStatus.RETRY, updated_at=_now())
+                log_event(
+                    _logger,
+                    "file_retry_scheduled",
+                    level=logging.INFO,
+                    source_id=self._source_id,
+                    file_id=file.id,
+                    attempt=attempt,
+                )
+        else:
+            # Search Quality Improvement Plan, Phase 12: stamp the
+            # version-set that just produced this file's derived rows
+            # -- but only when the processor actually produced any
+            # (SKIPPED_LIMIT means it didn't touch document_sections/
+            # entities at all, so stamping a version here would claim
+            # a rebuild that never happened).
+            provider = self._processors.get_version_provider(file.kind)
+            versions = (
+                provider()
+                if provider is not None and outcome.status is not FileStatus.SKIPPED_LIMIT
+                else None
+            )
+            files_repo.mark_indexed(
+                self._conn,
+                file.id,
+                size=file.size,
+                mtime=file.mtime,
+                content_hash=file.content_hash,
+                status=outcome.status,
+                indexed_at=_now(),
+                parser_version=versions.parser_version if versions else None,
+                chunker_version=versions.chunker_version if versions else None,
+            )
+            jobs_repo.complete(self._conn, job.id)
+            duration_ms = round((time.monotonic() - started) * 1000, 2)
+            if outcome.status is FileStatus.SKIPPED_LIMIT:
+                result.skipped_limit += 1
+            else:
+                result.indexed += 1
+                if file.kind is FileKind.CODE:
+                    result.touched_code_file_ids.append(file.id)
+                elif file.kind is FileKind.DOCUMENT:
+                    result.touched_document_file_ids.append(file.id)
+            log_event(
+                _logger,
+                "file_indexed",
+                source_id=self._source_id,
+                file_id=file.id,
+                duration_ms=duration_ms,
+                status=outcome.status.value,
+            )
+
     def _process_queue(self, result: IndexRunResult, max_size_bytes: int) -> None:
+        # Indexing optimization plan, Phase P4: bounded parallel
+        # extraction is opt-in (config default 1 = fully serial,
+        # byte-for-byte the pre-P4 path below) and only ever applies to
+        # a kind that registered the full prepare/publish split (today,
+        # only FileKind.CODE -- see ``code.processor``). Every other
+        # kind always goes through the plain synchronous path.
+        code_workers = max(1, self._config.indexing.code_extraction_workers)
+        if code_workers > 1 and self._processors.supports_parallel_prepare(FileKind.CODE):
+            self._process_queue_with_parallel_code(result, max_size_bytes, code_workers)
+            return
+
         while True:
             job = jobs_repo.claim_next(self._conn)
             if job is None:
@@ -754,117 +939,68 @@ class IndexCoordinator:
             if file is None:
                 jobs_repo.complete(self._conn, job.id)
                 continue
-
-            files_repo.update_status(self._conn, file.id, FileStatus.PROCESSING, updated_at=_now())
+            ctx = self._start_job(file, max_size_bytes)
             processor = self._processors.get(file.kind)
-            # Indexing optimization plan, Phase P3: popped (not just
-            # read) so a same-pass immediate retry of this file_id
-            # (identity already consumed) safely falls back to a
-            # processor re-hashing the file itself, rather than reusing
-            # a possibly-stale identity a second time.
-            identity = self._pending_identities.pop(file.id, None)
-            ctx = ProcessorContext(
-                path=Path(file.path),
-                size=file.size,
-                kind=file.kind,
-                max_size_bytes=max_size_bytes,
-                conn=self._conn,
-                source_id=self._source_id,
-                file_id=file.id,
-                source_root=self._root,
-                next_generation=file.generation + 1,
-                max_document_pages=self._config.documents.max_pages,
-                chunking=self._config.documents.chunking,
-                ocr=self._config.documents.ocr,
-                image_ocr=self._config.documents.image_ocr,
-                file_identity=identity,
-            )
             started = time.monotonic()
-            try:
-                outcome = processor(ctx)
-            except Exception as exc:  # noqa: BLE001 - a poisoned file must not abort the run
-                attempt = job.attempt_count + 1
-                permanent = retry.is_permanent(attempt)
-                jobs_repo.fail_with_backoff(
-                    self._conn,
-                    job.id,
-                    error_code=type(exc).__name__,
-                    error_message=str(exc),
-                    next_attempt_at=None if permanent else retry.next_attempt_at(attempt),
-                    permanent=permanent,
-                )
-                duration_ms = round((time.monotonic() - started) * 1000, 2)
-                if permanent:
-                    files_repo.mark_failed(self._conn, file.id, error=str(exc), updated_at=_now())
-                    errors_repo.record(
-                        self._conn,
-                        source_id=self._source_id,
-                        file_id=file.id,
-                        path=file.path,
-                        error_code=type(exc).__name__,
-                        error_message=str(exc),
-                    )
-                    result.failed += 1
-                    log_event(
-                        _logger,
-                        "file_failed",
-                        level=logging.WARNING,
-                        source_id=self._source_id,
-                        file_id=file.id,
-                        duration_ms=duration_ms,
-                        error_code=type(exc).__name__,
-                    )
+            self._finish_job(result, job, file, started, partial(processor, ctx))
+
+    def _process_queue_with_parallel_code(
+        self, result: IndexRunResult, max_size_bytes: int, code_workers: int
+    ) -> None:
+        """Phase P4: ``FileKind.CODE`` jobs get their pure/read-only
+        "prepare" half (Tree-sitter parse + entity/relationship
+        extraction -- no database access) submitted to a bounded thread
+        pool, up to ``code_workers`` in flight at once; the
+        transactional "publish" half always runs synchronously here, on
+        this method's own thread -- the coordinator's single writer,
+        exactly the "one transactional publisher" safety rule. Every
+        other kind (documents, unknown/raw) is unaffected: encountering
+        one flushes whatever code jobs are still in flight first, then
+        processes it through the exact same synchronous path
+        ``_process_queue`` always used, keeping cross-kind ordering
+        simple and auditable rather than interleaving two pipelines.
+        """
+        prepare = self._processors.get_prepare(FileKind.CODE)
+        pending: list[tuple[IndexJob, FileRecord, ProcessorContext, float, Future]] = []
+
+        def flush_one() -> None:
+            job, file, ctx, started, future = pending.pop(0)
+            publish = self._processors.get_publish(file.kind)
+
+            def run() -> ProcessingOutcome:
+                # ``future.result()`` blocks for this file's prepare to
+                # finish (if it hasn't already) and re-raises whatever
+                # exception it raised -- caught by ``_finish_job`` here,
+                # on the writer thread, exactly like a synchronous
+                # processor's own exception.
+                prepared = future.result()
+                return publish(ctx, prepared)
+
+            self._finish_job(result, job, file, started, run)
+
+        with ThreadPoolExecutor(max_workers=code_workers) as executor:
+            while True:
+                job = jobs_repo.claim_next(self._conn)
+                if job is None:
+                    while pending:
+                        flush_one()
+                    break
+                file = files_repo.get(self._conn, job.file_id)
+                if file is None:
+                    jobs_repo.complete(self._conn, job.id)
+                    continue
+
+                if file.kind is FileKind.CODE:
+                    ctx = self._start_job(file, max_size_bytes)
+                    started = time.monotonic()
+                    future = executor.submit(prepare, ctx.path, self._root)
+                    pending.append((job, file, ctx, started, future))
+                    if len(pending) >= code_workers:
+                        flush_one()
                 else:
-                    files_repo.update_status(
-                        self._conn, file.id, FileStatus.RETRY, updated_at=_now()
-                    )
-                    log_event(
-                        _logger,
-                        "file_retry_scheduled",
-                        level=logging.INFO,
-                        source_id=self._source_id,
-                        file_id=file.id,
-                        attempt=attempt,
-                    )
-            else:
-                # Search Quality Improvement Plan, Phase 12: stamp the
-                # version-set that just produced this file's derived rows
-                # -- but only when the processor actually produced any
-                # (SKIPPED_LIMIT means it didn't touch document_sections/
-                # entities at all, so stamping a version here would claim
-                # a rebuild that never happened).
-                provider = self._processors.get_version_provider(file.kind)
-                versions = (
-                    provider()
-                    if provider is not None and outcome.status is not FileStatus.SKIPPED_LIMIT
-                    else None
-                )
-                files_repo.mark_indexed(
-                    self._conn,
-                    file.id,
-                    size=file.size,
-                    mtime=file.mtime,
-                    content_hash=file.content_hash,
-                    status=outcome.status,
-                    indexed_at=_now(),
-                    parser_version=versions.parser_version if versions else None,
-                    chunker_version=versions.chunker_version if versions else None,
-                )
-                jobs_repo.complete(self._conn, job.id)
-                duration_ms = round((time.monotonic() - started) * 1000, 2)
-                if outcome.status is FileStatus.SKIPPED_LIMIT:
-                    result.skipped_limit += 1
-                else:
-                    result.indexed += 1
-                    if file.kind is FileKind.CODE:
-                        result.touched_code_file_ids.append(file.id)
-                    elif file.kind is FileKind.DOCUMENT:
-                        result.touched_document_file_ids.append(file.id)
-                log_event(
-                    _logger,
-                    "file_indexed",
-                    source_id=self._source_id,
-                    file_id=file.id,
-                    duration_ms=duration_ms,
-                    status=outcome.status.value,
-                )
+                    while pending:
+                        flush_one()
+                    ctx = self._start_job(file, max_size_bytes)
+                    processor = self._processors.get(file.kind)
+                    started = time.monotonic()
+                    self._finish_job(result, job, file, started, partial(processor, ctx))
