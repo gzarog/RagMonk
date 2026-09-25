@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 import time
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
@@ -48,6 +50,7 @@ from ragmonk.sources.fingerprint import FileIdentity, hash_file
 from ragmonk.sources.ignore import IgnoreMatcher
 from ragmonk.sources.scanner import ScanOutcome, check_root_accessible, scan
 from ragmonk.storage.repositories import errors_repo, files_repo, jobs_repo
+from ragmonk.storage.sqlite import connect as sqlite_connect
 from ragmonk.telemetry.logging import get_logger, log_event
 
 _logger = get_logger("indexer")
@@ -134,21 +137,36 @@ ProcessorFunc = Callable[[ProcessorContext], ProcessingOutcome]
 # monkeypatch) is always seen -- see ``VersionStamp``'s and
 # ``decide_reprocessing``'s docstrings in ``indexing/incremental.py``.
 VersionProviderFunc = Callable[[], VersionStamp]
-# Indexing optimization plan, Phase P4: the optional split a kind can
-# register instead of (or alongside) a plain ``ProcessorFunc`` --
-# ``PrepareFunc`` is pure/read-only (path, source_root) -> an opaque
-# prepared result, safe to run concurrently across files in a bounded
-# worker pool; ``PublishFunc`` takes that result and does the
-# transactional write, always on the coordinator's single writer
-# thread. See ``code.processor``'s ``prepare_code``/``publish_code``
-# for the first (and so far only) real implementation. The prepared
-# value's type is deliberately opaque to the coordinator (typed
-# ``Any`` rather than a concrete union): it flows straight from one
-# kind's prepare to that same kind's publish, and the coordinator
-# itself never inspects it -- only the matching publish function ever
-# does.
-PrepareFunc = Callable[[Path, Path], Any]
+# Indexing optimization plan, Phase P4 (CODE) / V2 Phase P2 (DOCUMENT): the
+# optional split a kind can register instead of (or alongside) a plain
+# ``ProcessorFunc`` -- a "prepare" half, safe to run concurrently across
+# files in a bounded worker pool, and a "publish" half that takes its
+# result and does the transactional write, always on the coordinator's
+# single writer thread. See ``code.processor``'s ``prepare_code``
+# (``(path, source_root) -> PreparedCode``) and ``documents.pipeline``'s
+# ``prepare_document`` (``(ctx, *, cache_conn) -> PreparedDocument``) for
+# the two real implementations -- deliberately typed ``Callable[...,
+# Any]`` here rather than one fixed signature, since each kind's own
+# prepare function needs different inputs (CODE needs no database access
+# at all; DOCUMENT needs the document-conversion cache, via a dedicated
+# per-worker connection -- see ``_PerThreadConnections`` -- never the
+# coordinator's own shared ``self._conn``, which is not safe to use
+# concurrently from multiple threads). ``_process_queue_with_parallel``
+# below is what actually knows how to call each kind's prepare function;
+# ``ProcessorRegistry`` itself never inspects either the callable's
+# signature or its opaque prepared-value's type, both of which flow
+# straight from one kind's prepare to that same kind's publish.
+PrepareFunc = Callable[..., Any]
 PublishFunc = Callable[[ProcessorContext, Any], ProcessingOutcome]
+# V2 Phase P2: an optional one-time setup hook, called with the
+# configured worker count the first time a kind's parallel prepare path
+# is actually engaged for a run -- e.g. ``documents.docling_adapter.
+# cap_native_thread_pools``, which caps torch's intra-op thread pool so
+# ``document_extraction_workers`` concurrent Docling conversions don't
+# each try to claim every CPU core. ``None`` (CODE's registration, and
+# every kind that has no native worker pool of its own to worry about)
+# means no setup is needed.
+PrepareSetupFunc = Callable[[int], None]
 
 
 def raw_processor(ctx: ProcessorContext) -> ProcessingOutcome:
@@ -163,6 +181,7 @@ class ProcessorRegistry:
         self._version_providers: dict[FileKind, VersionProviderFunc] = {}
         self._prepare_funcs: dict[FileKind, PrepareFunc] = {}
         self._publish_funcs: dict[FileKind, PublishFunc] = {}
+        self._prepare_setup_funcs: dict[FileKind, PrepareSetupFunc] = {}
 
     def register(
         self,
@@ -172,6 +191,7 @@ class ProcessorRegistry:
         version_provider: VersionProviderFunc | None = None,
         prepare: PrepareFunc | None = None,
         publish: PublishFunc | None = None,
+        prepare_setup: PrepareSetupFunc | None = None,
     ) -> None:
         self._processors[kind] = processor
         if version_provider is not None:
@@ -186,6 +206,8 @@ class ProcessorRegistry:
         if prepare is not None and publish is not None:
             self._prepare_funcs[kind] = prepare
             self._publish_funcs[kind] = publish
+            if prepare_setup is not None:
+                self._prepare_setup_funcs[kind] = prepare_setup
 
     def get(self, kind: FileKind) -> ProcessorFunc:
         return self._processors.get(kind, raw_processor)
@@ -209,6 +231,9 @@ class ProcessorRegistry:
 
     def get_publish(self, kind: FileKind) -> PublishFunc:
         return self._publish_funcs[kind]
+
+    def get_prepare_setup(self, kind: FileKind) -> PrepareSetupFunc | None:
+        return self._prepare_setup_funcs.get(kind)
 
 
 def default_registry() -> ProcessorRegistry:
@@ -303,6 +328,55 @@ class ScanRequest:
     def __post_init__(self) -> None:
         if not self.full and not self.changed_paths:
             raise ValueError("a non-full ScanRequest needs at least one changed path")
+
+
+class _PerThreadConnections:
+    """Indexing optimization plan V2, Phase P2: lazily opens one extra
+    ``sqlite3.Connection`` to the *same* database file per worker thread
+    that calls ``get()`` -- used only by a parallel-eligible kind's
+    prepare function for its own read/write needs during the prepare
+    phase (today, only ``documents.pipeline.prepare_document``'s
+    document-conversion cache lookup/store), never for the coordinator's
+    own ``self._conn``, which stays the single writer connection used
+    exclusively by ``publish`` calls on this method's own thread.
+
+    A ``sqlite3.Connection`` object is not safe to use concurrently from
+    more than one thread, so handing every parallel worker the *same*
+    connection object (even just for reads) risks exactly the
+    "sqlite shared-connection/thread errors" this phase's acceptance
+    criteria rule out. Opening a genuinely separate connection per thread
+    instead is safe under this project's standard WAL + busy-timeout
+    setup (``storage/sqlite.connect``) -- the same precedent
+    ``storage/sqlite.py``'s own docstring already establishes for the
+    Phase 7 daemon's worker/reconciliation threads, just one connection
+    per thread here instead of one shared connection guarded by a lock.
+
+    ``close_all()`` is called once, after the owning ``ThreadPoolExecutor``
+    has fully drained (see ``_process_queue_with_parallel``'s ``ExitStack``
+    usage) -- by then no worker thread can still be using its connection.
+    """
+
+    def __init__(self, db_path: Path, *, cache_size_mb: int = 64) -> None:
+        self._db_path = db_path
+        self._cache_size_mb = cache_size_mb
+        self._local = threading.local()
+        self._opened: list[sqlite3.Connection] = []
+        self._lock = threading.Lock()
+
+    def get(self) -> sqlite3.Connection:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = sqlite_connect(self._db_path, cache_size_mb=self._cache_size_mb)
+            self._local.conn = conn
+            with self._lock:
+                self._opened.append(conn)
+        return conn
+
+    def close_all(self) -> None:
+        with self._lock:
+            opened, self._opened = self._opened, []
+        for conn in opened:
+            conn.close()
 
 
 class IndexCoordinator:
@@ -943,16 +1017,58 @@ class IndexCoordinator:
                 status=outcome.status.value,
             )
 
+    def _document_cache_db_path(self) -> Path:
+        """The on-disk path backing ``self._conn`` -- read straight off
+        SQLite itself (``PRAGMA database_list``) rather than threading a
+        separate path through every ``IndexCoordinator`` constructor
+        call, since every existing caller (``run_source_pass``, every
+        test) already only ever has the open connection, not its path.
+        """
+        row = self._conn.execute("PRAGMA database_list").fetchone()
+        return Path(row["file"])
+
     def _process_queue(self, result: IndexRunResult, max_size_bytes: int) -> None:
-        # Indexing optimization plan, Phase P4: bounded parallel
-        # extraction is opt-in (config default 1 = fully serial,
-        # byte-for-byte the pre-P4 path below) and only ever applies to
-        # a kind that registered the full prepare/publish split (today,
-        # only FileKind.CODE -- see ``code.processor``). Every other
-        # kind always goes through the plain synchronous path.
+        # Indexing optimization plan, Phase P4 (CODE) / V2 Phase P2
+        # (DOCUMENT): bounded parallel extraction is opt-in per kind
+        # (config default 1 for both = fully serial, byte-for-byte the
+        # pre-P4 path below) and only ever applies to a kind that
+        # registered the full prepare/publish split. Every other kind
+        # (today: raw/unknown) always goes through the plain synchronous
+        # path.
         code_workers = max(1, self._config.indexing.code_extraction_workers)
+        document_workers = max(1, self._config.indexing.document_extraction_workers)
+        parallel_kinds: dict[FileKind, tuple[int, Callable[[ProcessorContext], Any]]] = {}
+        cache_pool: _PerThreadConnections | None = None
+
         if code_workers > 1 and self._processors.supports_parallel_prepare(FileKind.CODE):
-            self._process_queue_with_parallel_code(result, max_size_bytes, code_workers)
+            prepare_code = self._processors.get_prepare(FileKind.CODE)
+            root = self._root
+            parallel_kinds[FileKind.CODE] = (
+                code_workers,
+                lambda ctx, _prepare=prepare_code, _root=root: _prepare(ctx.path, _root),
+            )
+
+        if document_workers > 1 and self._processors.supports_parallel_prepare(FileKind.DOCUMENT):
+            prepare_setup = self._processors.get_prepare_setup(FileKind.DOCUMENT)
+            if prepare_setup is not None:
+                # V2 Phase P2: cap native (torch) thread pools *before*
+                # any concurrent Docling conversion actually starts --
+                # see ``documents.docling_adapter.cap_native_thread_pools``.
+                prepare_setup(document_workers)
+            prepare_document = self._processors.get_prepare(FileKind.DOCUMENT)
+            cache_pool = _PerThreadConnections(
+                self._document_cache_db_path(),
+                cache_size_mb=self._config.runtime.sqlite_cache_size_mb,
+            )
+            parallel_kinds[FileKind.DOCUMENT] = (
+                document_workers,
+                lambda ctx, _prepare=prepare_document, _pool=cache_pool: _prepare(
+                    ctx, cache_conn=_pool.get()
+                ),
+            )
+
+        if parallel_kinds:
+            self._process_queue_with_parallel(result, max_size_bytes, parallel_kinds, cache_pool)
             return
 
         while True:
@@ -968,27 +1084,41 @@ class IndexCoordinator:
             started = time.monotonic()
             self._finish_job(result, job, file, started, partial(processor, ctx))
 
-    def _process_queue_with_parallel_code(
-        self, result: IndexRunResult, max_size_bytes: int, code_workers: int
+    def _process_queue_with_parallel(
+        self,
+        result: IndexRunResult,
+        max_size_bytes: int,
+        parallel_kinds: dict[FileKind, tuple[int, Callable[[ProcessorContext], Any]]],
+        cache_pool: _PerThreadConnections | None,
     ) -> None:
-        """Phase P4: ``FileKind.CODE`` jobs get their pure/read-only
-        "prepare" half (Tree-sitter parse + entity/relationship
-        extraction -- no database access) submitted to a bounded thread
-        pool, up to ``code_workers`` in flight at once; the
-        transactional "publish" half always runs synchronously here, on
-        this method's own thread -- the coordinator's single writer,
-        exactly the "one transactional publisher" safety rule. Every
-        other kind (documents, unknown/raw) is unaffected: encountering
-        one flushes whatever code jobs are still in flight first, then
-        processes it through the exact same synchronous path
-        ``_process_queue`` always used, keeping cross-kind ordering
-        simple and auditable rather than interleaving two pipelines.
-        """
-        prepare = self._processors.get_prepare(FileKind.CODE)
-        pending: list[tuple[IndexJob, FileRecord, ProcessorContext, float, Future]] = []
+        """Phase P4 (CODE) / V2 Phase P2 (DOCUMENT), generalized: each
+        kind in ``parallel_kinds`` gets its own bounded thread pool and
+        its own pending queue -- a job of that kind has its pure/read-
+        only "prepare" half (``parallel_kinds[kind][1]``, already bound
+        to that kind's real prepare function and whatever per-kind
+        extras it needs -- see ``_process_queue``'s two closures)
+        submitted there, up to that kind's own configured worker count
+        in flight at once. The transactional "publish" half always runs
+        synchronously here, on this method's own thread -- the
+        coordinator's single writer, exactly the "one transactional
+        publisher per project" safety rule, unchanged from Phase P4 and
+        never violated by adding a second parallel-eligible kind.
 
-        def flush_one() -> None:
-            job, file, ctx, started, future = pending.pop(0)
+        A job whose kind is *not* in ``parallel_kinds`` (today: raw/
+        unknown, or a parallel-eligible kind whose own worker count is
+        still 1) flushes every kind's pending queue first, then
+        processes synchronously through the exact same path
+        ``_process_queue`` always used -- deliberately conservative
+        (flushing *all* kinds' queues, not just the one that would
+        conflict) to keep cross-kind ordering simple and auditable
+        rather than interleaving three pipelines' worth of bookkeeping.
+        """
+        pending: dict[
+            FileKind, list[tuple[IndexJob, FileRecord, ProcessorContext, float, Future]]
+        ] = {kind: [] for kind in parallel_kinds}
+
+        def flush_one(kind: FileKind) -> None:
+            job, file, ctx, started, future = pending[kind].pop(0)
             publish = self._processors.get_publish(file.kind)
 
             def run() -> ProcessingOutcome:
@@ -1002,28 +1132,44 @@ class IndexCoordinator:
 
             self._finish_job(result, job, file, started, run)
 
-        with ThreadPoolExecutor(max_workers=code_workers) as executor:
+        def flush_all() -> None:
+            for kind in parallel_kinds:
+                while pending[kind]:
+                    flush_one(kind)
+
+        with ExitStack() as stack:
+            executors = {
+                kind: stack.enter_context(ThreadPoolExecutor(max_workers=workers))
+                for kind, (workers, _prepare_call) in parallel_kinds.items()
+            }
+            if cache_pool is not None:
+                # Closed only after every executor above has fully
+                # drained (ExitStack unwinds in reverse registration
+                # order, and this callback was registered after the
+                # executors) -- no worker thread can still be mid-call
+                # against one of these connections by the time this runs.
+                stack.callback(cache_pool.close_all)
+
             while True:
                 job = jobs_repo.claim_next(self._conn)
                 if job is None:
-                    while pending:
-                        flush_one()
+                    flush_all()
                     break
                 file = files_repo.get(self._conn, job.file_id)
                 if file is None:
                     jobs_repo.complete(self._conn, job.id)
                     continue
 
-                if file.kind is FileKind.CODE:
+                if file.kind in parallel_kinds:
+                    workers, prepare_call = parallel_kinds[file.kind]
                     ctx = self._start_job(file, max_size_bytes)
                     started = time.monotonic()
-                    future = executor.submit(prepare, ctx.path, self._root)
-                    pending.append((job, file, ctx, started, future))
-                    if len(pending) >= code_workers:
-                        flush_one()
+                    future = executors[file.kind].submit(prepare_call, ctx)
+                    pending[file.kind].append((job, file, ctx, started, future))
+                    if len(pending[file.kind]) >= workers:
+                        flush_one(file.kind)
                 else:
-                    while pending:
-                        flush_one()
+                    flush_all()
                     ctx = self._start_job(file, max_size_bytes)
                     processor = self._processors.get(file.kind)
                     started = time.monotonic()

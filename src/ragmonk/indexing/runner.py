@@ -57,10 +57,32 @@ def build_processor_registry(config: RagMonkConfig) -> ProcessorRegistry:
     # in Docling, which itself pulls in torch -- a cost a `version`/`status`/
     # `search` invocation that never touches this registry must not pay.
     if config.documents.enabled:
-        from ragmonk.documents.pipeline import document_processor, document_version_stamp
+        from ragmonk.documents import docling_adapter
+        from ragmonk.documents.pipeline import (
+            document_processor,
+            document_version_stamp,
+            prepare_document,
+            publish_document,
+        )
 
+        # Indexing optimization plan V2, Phase P2: registering prepare/
+        # publish alongside the plain processor -- mirroring Phase P4's
+        # CODE precedent immediately above -- is what makes DOCUMENT
+        # eligible for the coordinator's bounded-parallel path. Opt-in via
+        # config.indexing.document_extraction_workers, default 1
+        # (serial), which never even looks at prepare/publish and keeps
+        # calling document_processor exactly as before this phase.
+        # prepare_setup caps torch's own thread pool once concurrent
+        # extraction is actually engaged (see
+        # docling_adapter.cap_native_thread_pools) -- a no-op whenever
+        # document_extraction_workers is 1.
         registry.register(
-            FileKind.DOCUMENT, document_processor, version_provider=document_version_stamp
+            FileKind.DOCUMENT,
+            document_processor,
+            version_provider=document_version_stamp,
+            prepare=prepare_document,
+            publish=publish_document,
+            prepare_setup=docling_adapter.cap_native_thread_pools,
         )
     # Indexing optimization plan V2, Phase P1: code_processor now also
     # registers a version_provider (code.processor.code_version_stamp).
