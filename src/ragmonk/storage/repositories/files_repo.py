@@ -168,12 +168,41 @@ def insert(conn: sqlite3.Connection, file: FileRecord) -> None:
 
 
 def update_status(
-    conn: sqlite3.Connection, file_id: str, status: FileStatus, *, updated_at: str
+    conn: sqlite3.Connection,
+    file_id: str,
+    status: FileStatus,
+    *,
+    updated_at: str,
+    size: int | None = None,
+    mtime: float | None = None,
+    content_hash: str | None = None,
 ) -> None:
+    """Indexing optimization plan, Phase P7: ``size``/``mtime``/
+    ``content_hash`` (all optional, ``COALESCE``d against the stored
+    value like ``mark_indexed``'s own version-stamp params) let a caller
+    that just re-``stat()``/re-hashed an existing file's new content --
+    ``indexing/coordinator.py``'s scan loop, transitioning a changed
+    file to ``QUEUED`` -- persist that new identity in the same write as
+    the status change, rather than leaving the row's stat fields stale
+    until (if ever) something else updates them.
+
+    This closes a real, pre-existing bug the plan's Phase P7 end-to-end
+    regression test caught: before this fix, only ``status`` was ever
+    written here for a changed *existing* file -- its actual new size/
+    mtime/content_hash were computed during scanning but never
+    persisted anywhere, so ``_process_queue``'s later ``files_repo.get()``
+    re-read the *old* stat values and ``mark_indexed`` dutifully wrote
+    them straight back. The file therefore always looked "changed"
+    again on every subsequent run, forever, regardless of ``content_hash``
+    reuse (Phase P3) or targeted scanning (Phase P2) -- both correctly
+    detected a real mismatch against genuinely stale stored data.
+    """
     with transaction(conn):
         conn.execute(
-            "UPDATE files SET status = ?, updated_at = ? WHERE id = ?",
-            (status.value, updated_at, file_id),
+            "UPDATE files SET status = ?, updated_at = ?, "
+            "size = COALESCE(?, size), mtime = COALESCE(?, mtime), "
+            "content_hash = COALESCE(?, content_hash) WHERE id = ?",
+            (status.value, updated_at, size, mtime, content_hash, file_id),
         )
 
 

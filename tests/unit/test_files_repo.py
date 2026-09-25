@@ -32,6 +32,62 @@ def _seed(conn) -> None:  # noqa: ANN001
     )
 
 
+def test_update_status_persists_new_stat_when_given(tmp_path: Path) -> None:
+    """Indexing optimization plan, Phase P7: ``update_status``'s optional
+    ``size``/``mtime``/``content_hash`` let a caller persist a changed
+    file's newly-scanned identity in the same write as its status
+    transition -- see the function's own docstring for the real bug this
+    closes (a changed file's new stat was previously never persisted at
+    all, only re-fetched stale and echoed straight back by a later
+    ``mark_indexed`` call).
+    """
+    conn = connect(tmp_path / "k.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        _seed(conn)
+
+        files_repo.update_status(
+            conn,
+            "f1",
+            FileStatus.QUEUED,
+            updated_at="t2",
+            size=99,
+            mtime=2.0,
+            content_hash="new-hash",
+        )
+
+        record = files_repo.get(conn, "f1")
+        assert record is not None
+        assert record.status is FileStatus.QUEUED
+        assert record.size == 99
+        assert record.mtime == 2.0
+        assert record.content_hash == "new-hash"
+    finally:
+        conn.close()
+
+
+def test_update_status_leaves_stat_untouched_when_omitted(tmp_path: Path) -> None:
+    """A plain status transition (e.g. QUEUED -> PROCESSING, which has no
+    new stat to report) must never clobber the file's existing size/
+    mtime/content_hash with NULLs.
+    """
+    conn = connect(tmp_path / "k.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        _seed(conn)
+
+        files_repo.update_status(conn, "f1", FileStatus.PROCESSING, updated_at="t2")
+
+        record = files_repo.get(conn, "f1")
+        assert record is not None
+        assert record.status is FileStatus.PROCESSING
+        assert record.size == 10
+        assert record.mtime == 1.0
+        assert record.content_hash == "abc"
+    finally:
+        conn.close()
+
+
 def test_mark_indexed_stamps_parser_and_chunker_version_when_given(tmp_path: Path) -> None:
     conn = connect(tmp_path / "k.db")
     try:

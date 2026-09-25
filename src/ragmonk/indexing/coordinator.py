@@ -558,7 +558,15 @@ class IndexCoordinator:
                 result.new += 1
             else:
                 file_id = prev.id
-                files_repo.update_status(self._conn, file_id, FileStatus.QUEUED, updated_at=now)
+                files_repo.update_status(
+                    self._conn,
+                    file_id,
+                    FileStatus.QUEUED,
+                    updated_at=now,
+                    size=sf.size,
+                    mtime=sf.mtime,
+                    content_hash=content_hash,
+                )
                 result.changed += 1
 
             # Indexing optimization plan, Phase P3: this file_id's
@@ -712,7 +720,15 @@ class IndexCoordinator:
                     else:
                         result.embeddings_stale_document_file_ids.append(old.id)
                 elif reprocess is ReprocessDecision.FULL:
-                    files_repo.update_status(self._conn, old.id, FileStatus.QUEUED, updated_at=now)
+                    files_repo.update_status(
+                        self._conn,
+                        old.id,
+                        FileStatus.QUEUED,
+                        updated_at=now,
+                        size=sf.size,
+                        mtime=sf.mtime,
+                        content_hash=content_hash,
+                    )
                     result.changed += 1
                     self._pending_identities[old.id] = FileIdentity(
                         content_hash=content_hash, size=sf.size, mtime=sf.mtime
@@ -776,7 +792,15 @@ class IndexCoordinator:
                 result.unchanged += 1
                 continue
 
-            files_repo.update_status(self._conn, record.id, FileStatus.QUEUED, updated_at=now)
+            files_repo.update_status(
+                self._conn,
+                record.id,
+                FileStatus.QUEUED,
+                updated_at=now,
+                size=sf.size,
+                mtime=sf.mtime,
+                content_hash=content_hash,
+            )
             result.changed += 1
             self._pending_identities[record.id] = FileIdentity(
                 content_hash=content_hash, size=sf.size, mtime=sf.mtime
