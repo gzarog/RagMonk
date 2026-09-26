@@ -278,22 +278,26 @@ def _traverse_symbol_server(
     the local BFS over ``relationships`` -- never local SQLite, per this
     phase's "no silent local fallback" rule.
 
-    Scope cut (documented, not forced): ``graph_neighbors`` returns one
-    flat, depth-limited frontier expansion per call rather than a
-    per-result depth number, so every edge is tagged ``depth=1`` here
-    regardless of how many hops it actually took -- local mode's per-depth
-    ``TraversalEdge.depth`` has no equivalent in the current
-    ``SearchHit``-based contract without a larger redesign. This also
-    means the local-only "merge in unresolved (name-only) edges recorded
-    under a bare name resolver never retroactively upgraded" behavior
-    (see this function's own docstring below) has no server-mode
-    equivalent either: a relationship whose ``target_entity_id`` is
-    ``None`` is still returned by ``graph_neighbors`` when it is reachable
-    from a *resolved* entity id (exactly the majority case), but one
-    recorded purely under a bare ``target_symbol`` with no resolved
-    ``source_entity_id``/``target_entity_id`` in the frontier at all is
-    not discoverable through ``graph_neighbors``' entity-id-keyed query --
-    the contract has no "find relationships by bare symbol name" method.
+    ``graph_neighbors`` itself performs real iterative multi-hop
+    expansion up to ``max_depth`` (frontier BFS with cycle protection via
+    a visited-entity-id set) and tags each newly discovered edge with its
+    actual hop distance from the root in ``hit.payload["_hop_depth"]`` --
+    read back here via ``_hop_depth_of`` -- instead of flattening every
+    result to depth=1.
+
+    The unresolved-name merge (see this function's own docstring below)
+    is still limited to entity-id-reachable edges: a relationship whose
+    ``target_entity_id`` is ``None`` is still returned by
+    ``graph_neighbors`` when it is reachable from a *resolved* entity id
+    (exactly the majority case, and the one the docstring below is about);
+    one recorded purely under a bare ``target_symbol`` with no resolved
+    ``source_entity_id``/``target_entity_id`` anywhere in the frontier at
+    all is merged in separately via ``find_unresolved_relationships``
+    (see ``retrieval/graph.py``'s ``_resolved_server`` for the model this
+    follows) -- callers/``ragmonk callers`` route through
+    ``retrieval.graph.resolved_incoming`` for that; this lower-level
+    ``traverse_symbol`` entry point intentionally keeps the same
+    entity-id-reachable scope it always had.
     """
     matches = find_symbol_matches(ctx, name)
     if not matches:
@@ -311,9 +315,24 @@ def _traverse_symbol_server(
             if hit.id in seen_ids:
                 continue
             seen_ids.add(hit.id)
-            edges.append(TraversalEdge(depth=1, relationship=relationship_from_search_hit(hit)))
+            relationship = relationship_from_search_hit(hit)
+            edges.append(TraversalEdge(depth=_hop_depth_of(hit), relationship=relationship))
     edges.sort(key=lambda e: (e.depth, *_sort_key(e.relationship)))
     return matches, edges[:limit]
+
+
+def _hop_depth_of(hit: SearchHit) -> int:
+    """The real hop distance ``graph_neighbors`` tagged this hit with
+    (``hit.payload["_hop_depth"]``), falling back to 1 for any hit that
+    predates that field or came from a synthesized/unresolved payload
+    (e.g. ``find_unresolved_relationships`` results, which have no
+    frontier position of their own and are always direct, depth-1 edges
+    off the entity that names them).
+    """
+    try:
+        return int(hit.payload.get("_hop_depth") or 1)
+    except (TypeError, ValueError):
+        return 1
 
 
 def traverse_symbol(

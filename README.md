@@ -411,7 +411,7 @@ ELASTICSEARCH_URL=http://localhost:9200 \
 
 ### Known limitations in server mode
 
-- Graph traversal in server mode reports every edge at depth 1 (the backend returns one flattened frontier per call), and name-only (unresolved) call edges recorded before the target symbol existed are only found through a resolved entity.
+- Name-only (unresolved) call edges recorded before the target symbol existed are only found through a resolved entity.
 
 ---
 

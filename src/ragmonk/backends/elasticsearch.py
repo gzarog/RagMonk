@@ -789,7 +789,7 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         # Resolved once per call, not once per depth: the active-generation
         # map is the same across all depths of a single traversal.
         filter_clauses = self._filter_clauses(filters) + [self._generation_filter_clause()]
-        for _ in range(max(depth, 1)):
+        for current_depth in range(1, max(depth, 1) + 1):
             if not frontier:
                 break
             should = []
@@ -816,6 +816,12 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             for hit in hits:
                 if hit.id not in seen:
                     seen.add(hit.id)
+                    # Real hop distance from the traversal root, not a
+                    # hardcoded 1 -- callers (code/graph.py,
+                    # retrieval/graph.py) read this back via
+                    # ``hit.payload.get("_hop_depth", 1)`` instead of
+                    # flattening every edge to depth=1.
+                    hit.payload["_hop_depth"] = current_depth
                     results.append(hit)
                 target = hit.payload.get("target_entity_id")
                 source = hit.payload.get("source_entity_id")
