@@ -43,12 +43,57 @@ def _document_row(conn: sqlite3.Connection, source_id: str, file: FileRecord) ->
     }
 
 
+def _backend_document_row(
+    source_id: str, file: Any, document: Any | None
+) -> dict[str, Any]:
+    """Server-mode counterpart of ``_document_row``, built from the
+    backend-neutral ``FileRecord``/``DocumentRecord`` projections
+    (``KnowledgeBackend.list_files``/``list_documents``) instead of local
+    SQLite rows -- same output shape either way.
+    """
+    return {
+        "source_id": source_id,
+        "file_id": file.file_id,
+        "path": file.path,
+        "status": str(file.metadata.get("status", "")),
+        "format": document.format if document is not None else None,
+        "title": document.title if document is not None else None,
+        "page_count": document.page_count if document is not None else None,
+        "section_count": document.section_count if document is not None else 0,
+        "paragraph_count": document.paragraph_count if document is not None else 0,
+        "table_count": document.table_count if document is not None else 0,
+        "is_scanned": document.is_scanned if document is not None else False,
+    }
+
+
+def _run_server(ctx: AppContext, sources: list[Any]) -> list[dict[str, Any]]:
+    backend = ctx.backend()
+    rows: list[dict[str, Any]] = []
+    for source in sources:
+        files = backend.list_files(source.id)
+        documents = backend.list_documents(source_id=source.id)
+        documents_by_file = {d.file_id: d for d in documents}
+        for file in files:
+            if str(file.metadata.get("kind", "")) != FileKind.DOCUMENT.value:
+                continue
+            rows.append(_backend_document_row(source.id, file, documents_by_file.get(file.file_id)))
+    return rows
+
+
 def _run(ctx: AppContext, source_id: str | None) -> list[dict[str, Any]]:
     """Shared with Phase 6's ``ragmonk_documents`` MCP tool -- the same
     file/document listing either caller sees, just shaped differently.
+
+    Server mode (``storage.mode == "server"``) reads exclusively through
+    ``ctx.backend()``'s targeted read primitives (completion plan F4) --
+    never local SQLite (see ``AppContext.project_conn``'s server-mode
+    guard); local mode is unchanged, byte for byte.
     """
     registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
     sources = [registry.get(source_id)] if source_id is not None else registry.list()
+
+    if ctx.config.storage.mode == "server":
+        return _run_server(ctx, sources)
 
     rows: list[dict[str, Any]] = []
     for source in sources:

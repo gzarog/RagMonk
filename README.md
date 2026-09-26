@@ -411,7 +411,6 @@ ELASTICSEARCH_URL=http://localhost:9200 \
 
 ### Known limitations in server mode
 
-- `ragmonk link` and `ragmonk docs` still read local SQLite and refuse to run in server mode (explicit `LocalStorageModeRequiredError`, never a wrong answer); use the Admin UI Documents page, `impact` or `explore` instead.
 - Graph traversal in server mode reports every edge at depth 1 (the backend returns one flattened frontier per call), and name-only (unresolved) call edges recorded before the target symbol existed are only found through a resolved entity.
 
 ---
