@@ -142,6 +142,7 @@ def link_record_from_payload(payload: dict[str, Any]) -> LinkRecord:
         confidence=str(payload.get("confidence", "")),
         evidence=str(payload.get("evidence") or ""),
         source_id=str(payload.get("source_id", "")),
+        id=str(payload.get("link_key", "")),
     )
 
 
@@ -387,6 +388,21 @@ class ServerReadMixin:
                         seen.add(key)
                         out.append(record)
         return out
+
+    def remove_link(self, link_id: str) -> bool:
+        """Deletes one link by its ``LinkRecord.id`` (the stored
+        ``link_key`` -- see ``link_record_from_payload``). Server-aware
+        ``ragmonk link remove``: unlike ``clear_source``, this must never
+        touch any other link, so it filters on the exact ``link_key``
+        rather than a broader source/entity/document match.
+        """
+        rel_index = self._index_names()[2]
+        query = self._filtered({"term": {"doc_kind": "link"}}, {"term": {"link_key": link_id}})
+        existing = self._scan(rel_index, query, "link_key")
+        if not existing:
+            return False
+        self._delete_by_query_raw(rel_index, query)
+        return True
 
     def get_documents(self, document_ids: list[str]) -> list[DocumentRecord]:
         content_index = self._index_names()[1]

@@ -515,9 +515,13 @@ class LocalKnowledgeBackend(KnowledgeBackend):
                     resolver=link.resolver,
                     confidence=link.confidence.value,
                     evidence=link.evidence or "",
+                    id=link.id,
                 )
             )
         return out
+
+    def remove_link(self, link_id: str) -> bool:
+        return links_repo.delete(self._connection(), link_id)
 
     def get_documents(self, document_ids: list[str]) -> list[DocumentRecord]:
         conn = self._connection()

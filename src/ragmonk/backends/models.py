@@ -229,3 +229,9 @@ class LinkRecord:
     confidence: str
     evidence: str
     source_id: str = ""
+    # Completion plan (server-aware ``ragmonk link``): a stable identifier
+    # for this link row -- the local ``CrossLink.id`` uuid in local mode,
+    # or the deterministic ``link_key`` hash (see ``opensearch_ids.link_doc_id``
+    # / ``elasticsearch_ids``) in server mode. Both are stable across reads
+    # of the same underlying row, which is all ``cli/link.py remove`` needs.
+    id: str = ""
