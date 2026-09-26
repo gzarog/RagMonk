@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server backends completion (OpenSearch/Elasticsearch, completion plan V3)
+
+- **Fixed: `ragmonk docs` and `ragmonk link` are server-aware.** Both
+  commands now read (and, for `link add`/`link remove`, write) exclusively
+  through `ctx.backend()`'s targeted read/write primitives in server mode
+  (`storage.mode == "server"`), never local SQLite — `ragmonk docs` builds
+  its rows from `list_files`/`list_documents`, and `ragmonk link` resolves
+  entity/document candidates and creates/removes links via
+  `find_entities_by_names`, `get_documents`, `get_document_units`,
+  `publish_links` and the new `remove_link` primitive. A manual link's
+  identity and idempotency/dedup behaviour match local mode exactly:
+  server ids are the deterministic hash of the same natural key (entity,
+  document, section, link type, resolver) instead of a random uuid, and
+  writes are scoped to one source's currently published generation.
+- **Added: `LinkRecord.id` and `KnowledgeBackend.remove_link`** as backend
+  read/write primitives, implemented by the local, OpenSearch and
+  Elasticsearch backends, so a link created through `ragmonk link add` can
+  be looked up and removed again by id in server mode.
+- **Added: MCP `ragmonk_documents` server-mode support.** The MCP tool
+  shares `ragmonk docs`'s server-aware `_run` helper, so it returns the
+  same file/document rows in server mode as it does locally.
+- **Fixed: server-mode graph traversal now reports real hop depth.**
+  Callers/callees/impact/explore in server mode previously reported a
+  shallower or inaccurate `depth` for multi-hop results; the BFS-style
+  traversal in `ragmonk.retrieval.graph`/`ragmonk.code.graph` now tracks
+  and returns the true hop count for every neighbor, matching local mode's
+  depth semantics exactly (see `tests/unit/test_graph_depth_parity.py`).
+- **Added: real server-backend indexing benchmark**
+  (`benchmarks/server_indexing/`, see `docs/indexing_benchmarks.md`) that
+  drives the production indexing entry point
+  (`ragmonk.indexing.runner.run_source_pass`) against a real, running
+  OpenSearch or Elasticsearch cluster through the actual
+  `OpenSearchKnowledgeBackend`/`ElasticsearchKnowledgeBackend` bulk-publish
+  path — no mocked client. Measured, real-cluster results for a
+  2,100-file synthetic corpus (cold index + incremental update + lexical
+  search latency) are recorded for both engines in
+  `benchmarks/server_indexing/reports/`.
+- **CI: semantic/hybrid live acceptance is now blocking.** The
+  OpenSearch/Elasticsearch acceptance jobs' semantic/hybrid search step
+  (which downloads the embedding model, cached across runs) is a required
+  part of the acceptance job rather than a separate best-effort step.
+
 ### Server backends completion (OpenSearch/Elasticsearch, completion plan V2)
 
 - **Fixed: server-mode indexing.** `ragmonk index`, the daemon, and the
