@@ -42,6 +42,7 @@ _PRIMITIVES = (
     "list_source_entities",
     "find_entities_by_names",
     "get_links",
+    "remove_link",
     "get_documents",
     "list_documents",
     "get_document_units",
