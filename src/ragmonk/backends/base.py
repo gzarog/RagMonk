@@ -212,6 +212,12 @@ class KnowledgeBackend(ABC):
     ) -> list[LinkRecord]:
         raise NotImplementedError(f"{type(self).__name__}.get_links")
 
+    def remove_link(self, link_id: str) -> bool:
+        """Deletes one explicit/discovered link by its ``LinkRecord.id``.
+        Returns whether a link existed to delete. Used by server-aware
+        ``ragmonk link remove`` (never local SQLite in server mode)."""
+        raise NotImplementedError(f"{type(self).__name__}.remove_link")
+
     def get_documents(self, document_ids: list[str]) -> list[DocumentRecord]:
         raise NotImplementedError(f"{type(self).__name__}.get_documents")
 

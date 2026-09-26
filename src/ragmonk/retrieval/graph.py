@@ -34,6 +34,7 @@ from ragmonk.code.graph import (
     DEFAULT_MAX_DEPTH,
     SourceMatch,
     TraversalEdge,
+    _hop_depth_of,
     conn_for_source_path,
     find_symbol_matches,
     relationship_from_search_hit,
@@ -68,10 +69,13 @@ def _references_server(
 ) -> tuple[list[SourceMatch], list[TraversalEdge]]:
     """Server-mode counterpart of ``references``: walks
     ``ctx.backend().graph_neighbors()`` both directions from each matched
-    entity instead of the local BFS -- never local SQLite. Scope cut
-    (documented, not forced): the unresolved (name-only) edge merge has no
-    server-mode equivalent -- see ``code/graph.py``'s
-    ``_traverse_symbol_server`` docstring for exactly why.
+    entity instead of the local BFS -- never local SQLite.
+    ``graph_neighbors`` performs real multi-hop expansion and tags each
+    edge with its actual hop depth (``_hop_depth_of``); the unresolved
+    (name-only) edge merge is handled separately, by ``resolved_incoming``
+    below, which every incoming caller (``impact``/``explore``) already
+    routes through -- this aggregate view intentionally mirrors local
+    ``references``' own entity-id-reachable scope.
     """
     matches = find_symbol_matches(ctx, name)
     if not matches:
@@ -87,7 +91,8 @@ def _references_server(
                 if hit.id in seen_ids:
                     continue
                 seen_ids.add(hit.id)
-                edges.append(TraversalEdge(depth=1, relationship=relationship_from_search_hit(hit)))
+                relationship = relationship_from_search_hit(hit)
+                edges.append(TraversalEdge(depth=_hop_depth_of(hit), relationship=relationship))
     edges.sort(
         key=lambda e: (
             e.depth,
@@ -221,7 +226,8 @@ def _resolved_server(
                 continue
             seen_ids.add(hit.id)
             relationship = relationship_from_search_hit(hit)
-            raw.append((match.source_id, TraversalEdge(depth=1, relationship=relationship)))
+            edge = TraversalEdge(depth=_hop_depth_of(hit), relationship=relationship)
+            raw.append((match.source_id, edge))
     if backend_direction == "in":
         # Parity with local ``resolved_incoming``: merge unresolved
         # (name-only) edges recorded against each match's name. A caller
@@ -251,6 +257,19 @@ def _resolved_server(
                     SearchHit(id=hit_id, score=0.0, kind="relationship", payload=payload)
                 )
                 raw.append((source_id, TraversalEdge(depth=1, relationship=relationship)))
+    # Deterministic regardless of hit/insertion order from the backend
+    # (frontier expansion order is not otherwise guaranteed stable across
+    # requests) -- same (depth, type, target, id) key as ``traverse``'s
+    # own ``_sort_key``/``references``'s sort, so a reversed file or
+    # insertion order still produces the same result list.
+    raw.sort(
+        key=lambda item: (
+            item[1].depth,
+            item[1].relationship.relationship_type.value,
+            item[1].relationship.target_entity_id or item[1].relationship.target_symbol or "",
+            item[1].relationship.id,
+        )
+    )
     raw = raw[:limit]
     direction = "incoming" if backend_direction == "in" else "outgoing"
     neighbor_ids = [

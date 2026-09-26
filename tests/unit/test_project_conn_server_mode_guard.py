@@ -226,60 +226,39 @@ def test_cli_link_remove_raises_in_server_mode(ragmonk_home: Path, tmp_path: Pat
         ctx.close()
 
 
-def test_cli_link_list_raises_in_server_mode(ragmonk_home: Path, tmp_path: Path) -> None:
-    """``ragmonk link list`` (the Typer command itself), invoked through
-    the CLI boundary, exits cleanly with the mapped exit code rather than
-    a raw traceback -- proving the CLI surfaces this error, not just the
-    underlying service function.
+def test_cli_link_list_reads_backend_in_server_mode(
+    ragmonk_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``ragmonk link list`` reads the server backend (completion plan:
+    server-aware ``ragmonk link``) instead of raising -- proving the
+    ``project_conn()`` guard (this file's original regression) is no
+    longer hit by this call site at all, not just caught cleanly.
     """
-    from typer.testing import CliRunner
+    from ragmonk.cli import link as link_cli
 
-    from ragmonk.cli.link import app
-    from ragmonk.core.errors import EXIT_CONFIG_ERROR
-
-    ctx = _server_ctx(ragmonk_home)
+    ctx = _server_ctx_with_fake_backend(ragmonk_home, monkeypatch)
     try:
         _register_source(ctx, tmp_path)
+        assert link_cli._list_links_server(ctx, None, None, None) == []
     finally:
         ctx.close()
 
-    runner = CliRunner()
-    result = runner.invoke(
-        app,
-        ["list"],
-        env={"RAGMONK_HOME": str(ragmonk_home), "RAGMONK_STORAGE__MODE": "server"},
-    )
-    assert result.exit_code == EXIT_CONFIG_ERROR
-    assert "storage.mode" in result.output
-    assert "Traceback" not in result.output
 
+def test_cli_docs_reads_backend_in_server_mode(
+    ragmonk_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``ragmonk docs`` (and the ``ragmonk_documents`` MCP tool, which
+    shares this ``_run`` helper) reads the server backend in server mode
+    instead of raising -- completion plan: server-aware ``ragmonk docs``.
+    """
+    from ragmonk.cli.docs import _run
 
-def test_cli_docs_raises_in_server_mode(ragmonk_home: Path, tmp_path: Path) -> None:
-    from typer.testing import CliRunner
-
-    from ragmonk.cli.docs import _run, docs
-    from ragmonk.core.errors import EXIT_CONFIG_ERROR
-
-    ctx = _server_ctx(ragmonk_home)
+    ctx = _server_ctx_with_fake_backend(ragmonk_home, monkeypatch)
     try:
         _register_source(ctx, tmp_path)
-        with pytest.raises(LocalStorageModeRequiredError):
-            _run(ctx, None)
+        assert _run(ctx, None) == []
     finally:
         ctx.close()
-
-    # And through the CLI boundary (@cli_command): clean exit code, no
-    # raw traceback to the user.
-    import typer
-
-    app = typer.Typer()
-    app.command()(docs)
-    result = CliRunner().invoke(
-        app, [], env={"RAGMONK_HOME": str(ragmonk_home), "RAGMONK_STORAGE__MODE": "server"}
-    )
-    assert result.exit_code == EXIT_CONFIG_ERROR
-    assert "storage.mode" in result.output
-    assert "Traceback" not in result.output
 
 
 # -- Deliberate control-plane exceptions --------------------------------
@@ -330,15 +309,22 @@ def test_source_service_list_sources_stays_local_in_server_mode(
         ctx.close()
 
 
-def test_mcp_ragmonk_documents_maps_error_cleanly(ragmonk_home: Path, tmp_path: Path) -> None:
-    """The ``ragmonk_documents`` MCP tool shares ``cli.docs._run`` -- the
-    MCP boundary (``mcp/tools.py::_call``) must map the new typed error
-    to a structured ``ToolError``, never let it become an unhandled
-    exception or a silently empty/wrong document list.
+def test_mcp_ragmonk_documents_reads_backend_in_server_mode(
+    ragmonk_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ``ragmonk_documents`` MCP tool shares ``cli.docs._run`` --
+    completion plan: server-aware ``ragmonk docs``/``ragmonk_documents``
+    reads the server backend and succeeds, instead of raising
+    ``LocalStorageModeRequiredError`` (the pre-fix behaviour this file
+    used to lock in).
     """
     import asyncio
 
+    from tests.unit._fake_opensearch import FakeOpenSearch
+
+    import ragmonk.backends.factory as factory_module
     import ragmonk.core.config as config_module
+    from ragmonk.backends.opensearch import OpenSearchKnowledgeBackend
 
     ctx = _server_ctx(ragmonk_home)
     try:
@@ -347,9 +333,17 @@ def test_mcp_ragmonk_documents_maps_error_cleanly(ragmonk_home: Path, tmp_path: 
         ctx.close()
     config_module.write_user_config(ctx.config, home=ragmonk_home)
 
+    fake_client = FakeOpenSearch()
+
+    def _fake_create_backend(config: Any, *, home: Any = None) -> Any:
+        backend = OpenSearchKnowledgeBackend(config.server, client=fake_client)
+        backend.ensure_schema()
+        return backend
+
+    monkeypatch.setattr(factory_module, "create_backend", _fake_create_backend)
+
     from ragmonk.mcp import tools
 
     result = asyncio.run(tools.ragmonk_documents())
-    assert result.ok is False
-    assert result.error is not None
-    assert result.error.type == "LocalStorageModeRequiredError"
+    assert result.ok is True
+    assert result.documents == []

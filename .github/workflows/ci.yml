@@ -102,9 +102,10 @@ jobs:
   # outage handling, failed-rebuild preservation, atomic rebuild,
   # doctor/status, source remove). RAGMONK_REQUIRE_LIVE_SERVER=1 turns
   # "cluster unreachable" into a FAILURE instead of a silent skip. These
-  # jobs are blocking. Semantic/hybrid search (needs the embedding model
-  # download) runs as a separate non-blocking step. Normal local CI above
-  # is unchanged; Docker is only used by CI, never required at runtime.
+  # jobs are blocking, including the semantic/hybrid search step (needs
+  # the embedding model download, which is cached across runs to reduce
+  # flakiness). Normal local CI above is unchanged; Docker is only used by
+  # CI, never required at runtime.
   opensearch-acceptance:
     name: OpenSearch server acceptance
     runs-on: ubuntu-latest
@@ -150,8 +151,12 @@ jobs:
           exit 1
       - name: Pytest (opensearch_integration, full server acceptance)
         run: pytest -m opensearch_integration -q -rs
-      - name: Semantic/hybrid acceptance (non-blocking, downloads embedding model)
-        continue-on-error: true
+      - name: Cache embedding model weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: embedding-model-hf-${{ runner.os }}
+      - name: Semantic/hybrid acceptance (downloads embedding model)
         env:
           RAGMONK_ACCEPTANCE_SEMANTIC: "1"
         run: pytest -m opensearch_integration -q -rs tests/integration/test_server_acceptance_live.py -k semantic
@@ -199,8 +204,12 @@ jobs:
           exit 1
       - name: Pytest (elasticsearch_integration, full server acceptance)
         run: pytest -m elasticsearch_integration -q -rs
-      - name: Semantic/hybrid acceptance (non-blocking, downloads embedding model)
-        continue-on-error: true
+      - name: Cache embedding model weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: embedding-model-hf-${{ runner.os }}
+      - name: Semantic/hybrid acceptance (downloads embedding model)
         env:
           RAGMONK_ACCEPTANCE_SEMANTIC: "1"
         run: pytest -m elasticsearch_integration -q -rs tests/integration/test_server_acceptance_live.py -k semantic

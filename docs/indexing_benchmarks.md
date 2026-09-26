@@ -263,3 +263,176 @@ than left unchanged by default alone.
   for the ML-inference-heavy PDF/image-OCR path P2's own design doc
   specifically worried about oversubscribing (`cap_native_thread_pools`)
   — this remains an explicitly disclosed, unverified gap.
+
+## Real server-backend indexing benchmark (`benchmarks/server_indexing`)
+
+`benchmarks/indexing/` above is deliberately fully offline and always
+targets the local SQLite/FTS5/USearch backend. `benchmarks/server_indexing/`
+is a **separate** benchmark that indexes a synthetic corpus against a REAL
+running OpenSearch or Elasticsearch cluster, through the exact same
+production entry points as `benchmarks/indexing/`
+(`ragmonk.indexing.runner.run_source_pass`) and the real
+`OpenSearchKnowledgeBackend`/`ElasticsearchKnowledgeBackend` adapters and
+their real bulk-publish path (`opensearch_bulk`/`elasticsearch_bulk`) — no
+second, parallel indexing path is built for this.
+
+### What it generates
+
+`benchmarks/server_indexing/corpus.py` generates a synthetic corpus of
+Python and JavaScript modules (80/20 split by default) wired together with
+real cross-file imports and calls: module `N` imports and calls a helper
+from module `N-1`, forming a chain across the whole corpus, plus a small
+fraction of Markdown docs referencing specific modules. This is what gives
+a real indexing pass genuine cross-file references and a non-trivial
+call graph to resolve and publish (symbol/entity extraction, linking), not
+just N independent files.
+
+### Running it
+
+```bash
+# Bring up real, disposable single-node clusters (dev-only; never required
+# for RagMonk itself -- see docker/docker-compose.*.yml's own docstrings):
+docker compose -f docker/docker-compose.opensearch.yml up -d
+docker compose -f docker/docker-compose.elasticsearch.yml up -d
+
+# OpenSearch, ~5,000 files, cold index + incremental update + lexical
+# query latency, written to a JSON report:
+python -m benchmarks.server_indexing --engine opensearch \
+    --url http://localhost:9200 --num-files 5000 \
+    --out benchmarks/server_indexing/opensearch_5000.json
+
+# Elasticsearch, same shape:
+python -m benchmarks.server_indexing --engine elasticsearch \
+    --url http://localhost:9200 --num-files 5000 \
+    --out benchmarks/server_indexing/elasticsearch_5000.json
+
+# Also measure hybrid/semantic query latency (needs the local embedding
+# model available -- off by default, matching this project's own default):
+python -m benchmarks.server_indexing --engine opensearch \
+    --url http://localhost:9200 --num-files 5000 --semantic
+
+# Skip the incremental phase (cold index only):
+python -m benchmarks.server_indexing --engine opensearch \
+    --url http://localhost:9200 --num-files 5000 --no-incremental
+```
+
+With no reachable cluster at `--url` (or when `--harness-smoke-test` is
+passed explicitly), the run still executes in full against whichever
+backend it can reach, but the report is labeled
+`"harness_smoke_test": true` with a `notes` entry explaining why, and
+`"real_cluster": false` — those numbers demonstrate the benchmark harness
+itself works, not a real-cluster result, and should never be quoted as
+satisfying a "real 2,000+ file cluster run" requirement.
+
+### What each metric in the JSON report means
+
+Top level:
+
+- `engine`: `"opensearch"` or `"elasticsearch"`.
+- `real_cluster`: `true` only when a real, reachable cluster was
+  validated at `--url` and used for the run.
+- `harness_smoke_test`: `true` when `real_cluster` is `false` (or
+  `--harness-smoke-test` was passed) -- see `notes` for why.
+- `cold_index`: the first-ever indexing pass (see below).
+- `incremental`: the second-pass, changed-corpus result (see below), or
+  `null` if `--no-incremental` was passed.
+- `lexical_latency` / `hybrid_latency`: query latency percentiles (see
+  below); `hybrid_latency` is `null` unless `--semantic` was passed and
+  the semantic search path was actually available.
+
+Each `cold_index`/`incremental.index_metrics` block (an `IndexRunMetrics`):
+
+- `files_scanned`/`files_new`/`files_changed`/`files_unchanged`/
+  `files_deleted`/`files_moved`/`files_indexed`/`files_failed`: the real
+  `IndexRunResult` counters from `run_source_pass` -- exactly what
+  `ragmonk index` itself reports.
+- `wall_time_s`: total wall-clock time for the pass.
+- `scan_seconds`/`classify_seconds`/`process_seconds`/`linking_seconds`/
+  `embedding_seconds`/`ann_sync_seconds`: the same per-stage timings
+  `benchmarks/indexing` uses (`IndexRunResult.timings`); for a
+  server-mode pass, `process_seconds` covers per-file
+  parse/prepare **and** the real server publish/bulk-write calls
+  together (the coordinator has no finer split between them today -- see
+  `StageTimings`'s own docstring in `indexing/coordinator.py`).
+- `files_per_sec`/`bytes_per_sec`: `files_scanned`/`total_bytes` divided
+  by `wall_time_s`.
+- `bulk_actions`/`bulk_requests`/`bulk_batches`/`avg_batch_size`/
+  `max_batch_size`/`bulk_retries`/`retryable_failures_seen`/
+  `terminal_failures`: observed directly from the real
+  `opensearch_bulk`/`elasticsearch_bulk` module during the pass
+  (`benchmarks/server_indexing/bulk_capture.py` wraps, but never
+  changes, the real batching/retry functions). `bulk_requests` counts
+  every HTTP bulk call including retries; `bulk_retries` is
+  `bulk_requests` beyond one-per-initial-batch; `terminal_failures` is
+  what's left after retries are exhausted (would raise `BulkIndexError`
+  if nonzero).
+- `entity_docs_before`/`entity_docs_after`/`file_docs_before`/
+  `file_docs_after`: a direct `count` against the server's own content/
+  files indices immediately before and after the pass.
+
+`incremental` (an `IncrementalRunMetrics`) additionally reports:
+
+- `files_modified_on_disk`/`files_added_on_disk`/`files_deleted_on_disk`/
+  `files_renamed_on_disk`: what the corpus mutation
+  (`corpus.apply_incremental_changes`, ~2%/1%/1%/1% by default) actually
+  did on disk, independent of what the indexer reports.
+- `entity_docs_deleted`/`file_docs_deleted`: the drop in server-side doc
+  counts across the pass (0 if counts went up, as expected when adds
+  outweigh deletes).
+- `looks_like_full_rewrite`: `true` when `index_metrics.files_indexed` is
+  far larger than the real on-disk change (more than 3x it, and over
+  half the corpus) -- the tell that the incremental path degraded into a
+  full reindex instead of touching only what changed. This is the
+  headline correctness signal for the incremental variant.
+
+### Recorded real-cluster results
+
+`benchmarks/server_indexing/reports/opensearch_2100files_2026-09-26.json`
+and `elasticsearch_2100files_2026-09-26.json` are **measured, real-cluster**
+runs (2,100 files -- 2,000 generated + 100 Markdown docs, `--num-files
+2000`) against single-node OpenSearch 2.15.0 / Elasticsearch 8.15.0
+containers (`docker/docker-compose.*.yml`'s own images), captured in this
+session's sandbox. Headline numbers:
+
+| Metric (cold index)              | OpenSearch  | Elasticsearch |
+| --------------------------------- | ----------: | -------------: |
+| files indexed                     |       2,100 |          2,100 |
+| wall time                         |     493.4s  |        509.2s  |
+| files/sec                         |       4.26  |          4.12  |
+| bulk actions / requests           | 51,791 / 2,305 | 50,192 / 2,305 |
+| bulk retries / terminal failures  |         0/0 |            0/0 |
+| entity docs published             |      12,700 |         12,700 |
+| lexical p50 / p95                 | 11.65 / 16.83 ms | 14.97 / 24.76 ms |
+
+| Metric (incremental: 32 modified, 16 added, 16 deleted, 16 renamed) | OpenSearch | Elasticsearch |
+| --- | ---: | ---: |
+| files scanned (full corpus)       |       2,100 |          2,100 |
+| files actually reprocessed        |          48 |             48 |
+| wall time                         |       8.34s |         8.60s |
+| `looks_like_full_rewrite`         |       false |         false |
+
+Both runs scanned the full 2,100-file corpus (a full directory walk is
+still needed to detect what changed) but only **reprocessed and
+published 48 files (2.3%)** -- exactly the 32 modified + 16 added
+(deletes/renames don't add new content to reprocess), never anywhere
+close to the full corpus. `linking_seconds` dominates the cold-index
+wall time (~300s of ~500s) for this corpus on purpose: the generator's
+every-module-calls-the-previous-module chain gives the cross-file
+linker a genuinely non-trivial graph to resolve, which is exactly what
+this benchmark is meant to stress that a purely offline/local-only
+suite never would.
+
+Re-run the suite yourself before trusting these numbers on different
+hardware or corpus shapes -- they are a reproducible reference point,
+not a performance guarantee.
+
+### CI-safe harness test
+
+`tests/unit/test_benchmarks_server_indexing.py` exercises the corpus
+generator, metric/percentile math, bulk-capture instrumentation, and a
+full end-to-end run of the harness (cold index + incremental) against a
+small (~30 file) corpus and the fake in-memory OpenSearch client
+(`tests/unit/_fake_opensearch.py`) used elsewhere in the unit suite. It
+runs in CI on every PR. It is **not** a substitute for actually running
+`python -m benchmarks.server_indexing` against a real cluster with
+2,000+ files -- that is a manual/on-demand run, documented above.
