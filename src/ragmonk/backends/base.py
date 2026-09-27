@@ -84,6 +84,17 @@ class KnowledgeBackend(ABC):
     @abstractmethod
     def delete_file(self, source_id: str, file_id: str) -> None: ...
 
+    def delete_files_batch(
+        self,
+        source_id: str,
+        file_ids: list[str],
+        *,
+        server_write_pass: ServerWritePass | None = None,
+    ) -> None:
+        """Delete multiple source files; server backends override to group requests."""
+        for file_id in file_ids:
+            self.delete_file(source_id, file_id)
+
     @abstractmethod
     def publish_code(self, prepared_code: PreparedCode) -> None: ...
 
