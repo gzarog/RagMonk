@@ -517,3 +517,61 @@ small (~30 file) corpus and the fake in-memory OpenSearch client
 runs in CI on every PR. It is **not** a substitute for actually running
 `python -m benchmarks.server_indexing` against a real cluster with
 2,000+ files -- that is a manual/on-demand run, documented above.
+
+
+## Server Indexing Performance V3 completion
+
+The V3 completion pass closes the implementation gaps left by the original
+pass-scoped batching PR:
+
+- server batching now covers **both code and documents**, including the default
+  single-worker configuration;
+- removed source files are deleted in grouped, bounded terms queries rather
+  than one full delete sequence per file;
+- fresh-generation link publication deduplicates deterministic ids in memory
+  and skips the existing-link query entirely;
+- the pass-local entity resolver stages finalized code entities so a later file
+  in the **same unflushed batch** can resolve them, while batch failure discards
+  the staged overlay before retry bookkeeping;
+- the real server benchmark now records non-bulk request counts
+  (`delete_by_query`, explicit refresh, exists, and search) alongside the
+  lower-level HTTP bulk metrics already captured by `bulk_capture.py`.
+
+### Required live validation
+
+Structural unit tests are not a substitute for a real cluster. Before treating
+V3 as performance-complete, run the existing real benchmark against the same
+machine/container allocation before and after the change:
+
+```bash
+python -m benchmarks.server_indexing --engine opensearch \
+  --url http://localhost:9200 --num-files 2000 \
+  --out benchmarks/server_indexing/reports/opensearch_v3_completion_2100.json
+```
+
+For Elasticsearch, run the equivalent command with
+`--engine elasticsearch`.
+
+The V3 hard OpenSearch cold-index targets remain:
+
+| Metric | Gate |
+| --- | ---: |
+| files indexed | 2,100 |
+| files failed | 0 |
+| terminal bulk failures | 0 |
+| wall time | <= 370 s |
+| process stage | <= 65 s |
+| real HTTP bulk requests | <= 300 |
+| average HTTP bulk batch size | >= 150 |
+| explicit refresh requests | <= 12 |
+| fresh-generation delete-by-query requests | <= 6 |
+| wall improvement vs same-machine baseline | >= 25% |
+| process improvement vs same-machine baseline | >= 60% |
+
+The incremental reference must continue to reprocess exactly 48 files for the
+standard generated mutation set, keep `looks_like_full_rewrite=false`, and
+remain at or below 20 bulk requests and 16 delete-by-query requests.
+
+Do not copy historical wall-clock values into a completion report as if they
+were measured after this change. Commit or attach the real before/after report
+once a live cluster run is available.
