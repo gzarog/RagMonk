@@ -387,6 +387,9 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
         if server_write_pass is None:
             self._get_client().indices.refresh(index=mappings.files_index(self._prefix))
+        else:
+            server_write_pass.bulk_actions += len(actions)
+            server_write_pass.bulk_requests += 1
 
     def delete_file(self, source_id: str, file_id: str) -> None:
         """Removes every artifact of ``file_id`` across all generations,
@@ -880,6 +883,7 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         if server_write_pass is None:
             client.indices.refresh(index=mappings.relationships_index(self._prefix))
         else:
+            server_write_pass.bulk_actions += len(actions)
             server_write_pass.bulk_requests += 1
         return len(actions) - len(existing)
 
