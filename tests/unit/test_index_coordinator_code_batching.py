@@ -362,6 +362,51 @@ def test_file_modified_during_prepare_to_publish_window_is_retried(
         conn.close()
 
 
+
+def test_same_batch_reference_resolves_via_staged_overlay(tmp_path: Path) -> None:
+    """A later file in the same unflushed batch sees earlier finalized entities."""
+    root = tmp_path / "same_batch"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "a.py").write_text("def helper():\n    return 1\n")
+    (root / "b.py").write_text("from a import helper\n\ndef caller():\n    return helper()\n")
+
+    conn = connect(tmp_path / "same_batch.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        backend = _FakeServerBackend()
+        config = _config(code_extraction_workers=1)
+        registry = _code_only_registry()
+        pass_ctx = ServerWritePass(source_id="s1", generation=1, generation_is_empty=True)
+        resolver = PassEntityResolver(backend, pass_ctx)
+        coord = IndexCoordinator(
+            conn,
+            "s1",
+            str(root),
+            [],
+            [],
+            config,
+            processors=registry,
+            backend=backend,
+            server_write_pass=pass_ctx,
+            pass_entity_resolver=resolver,
+        )
+
+        result = coord.run()
+
+        assert result.indexed == 2
+        assert len(backend.batch_calls) == 1
+        files = {f.path: f.id for f in files_repo.list_by_source(conn, "s1")}
+        a_file_id = next(fid for path, fid in files.items() if path.endswith("a.py"))
+        b_file_id = next(fid for path, fid in files.items() if path.endswith("b.py"))
+        helper = next(e for e in backend._entities[a_file_id] if e.name == "helper")
+        assert any(
+            rel.target_entity_id == helper.id
+            for rel in backend._relationships.get(b_file_id, [])
+        )
+    finally:
+        conn.close()
+
+
 # -- Server Indexing Performance V3, item 5: cross-batch resolver safety --
 
 
