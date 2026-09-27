@@ -1408,6 +1408,12 @@ class IndexCoordinator:
             ctx = self._start_job(file, max_size_bytes)
             started = time.monotonic()
 
+            if ctx.size > ctx.max_size_bytes:
+                self._finish_success(
+                    result, job, file, started, ProcessingOutcome(status=FileStatus.SKIPPED_LIMIT)
+                )
+                continue
+
             # V3 completion: batching must also cover the default serial
             # configuration (workers=1), not only the optional parallel path.
             if ctx.server_write_pass is not None and file.kind is FileKind.CODE:
