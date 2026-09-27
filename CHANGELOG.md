@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server indexing: batched link publication (N+1 fix)
+
+- **Changed: `knowledge/linker.py::link_touched_files` batches
+  `publish_links` across a whole pass.** Previously it called
+  `backend.publish_links` once per touched code/document file; it now
+  accumulates every touched file's link candidates (code and document
+  side) and calls `publish_links` in bounded groups of up to 5,000
+  candidates, cutting the number of server round trips from one per
+  touched file to a small, bounded number per pass. Returned
+  inserted-count semantics are unchanged.
+- **Changed: `publish_links` no longer does a per-candidate
+  `client.exists()` round trip.** Both `OpenSearchKnowledgeBackend` and
+  `ElasticsearchKnowledgeBackend` now compute the "newly inserted" count
+  via one batched `terms` query on `link_key` per 1,000-candidate group
+  (`ServerReadMixin._existing_link_keys`, shared in
+  `backends/server_common.py`), mirroring the batched-lookup pattern
+  already used by `_entity_file_ids`/`_document_file_ids`. This removes
+  an N+1 (`client.exists()` per link candidate) that previously scaled
+  with the number of link candidates in a run.
+- **Compatibility:** local (SQLite) mode is untouched -- this only
+  changes the server (`is_server`) write path. `publish_links`'s public
+  contract (idempotent by natural key, returns newly-inserted count) is
+  unchanged; existing direct single-call test sites keep passing as-is.
+- **Testing:** `tests/unit/_fake_opensearch.py` / `_fake_elasticsearch.py`
+  gained an `exists_calls` counter; new tests in
+  `test_backends_opensearch.py` / `test_backends_elasticsearch.py` assert
+  zero `client.exists()` calls for a multi-candidate `publish_links` call
+  (first insert and dedup re-publish alike). Full existing unit suite
+  (1020 tests), `ruff check`, and `mypy` all pass.
+- **Not done in this pass** (deferred, see `docs/indexing_benchmarks.md`
+  "Scope note"): the broader server-indexing-performance rework --
+  pass-scoped write context, pass-local entity resolver, batched
+  code/document `publish_code`/`publish_document` across files,
+  fresh-generation delete-by-query skipping, grouped incremental deletes,
+  and removing/rebarriering `indices.refresh` calls in the per-file
+  `publish_code`/`publish_document`/`upsert_files` hot paths. Those are
+  substantially larger, higher-risk changes (correctness-sensitive
+  cross-file entity resolution and generation semantics) that were out
+  of reach in the time available for this change; this pass targeted
+  the one N+1 boundary (link publication) that could be fixed safely,
+  narrowly, and with full test coverage against the existing fakes.
+  **No live OpenSearch/Elasticsearch cluster was available in this
+  sandbox**, so no wall-clock before/after numbers were captured for
+  even this narrower change -- see `docs/indexing_benchmarks.md` for
+  what a reviewer with cluster access should run
+  (`benchmarks/server_indexing/`) to get real numbers.
+
 ### Server backends completion (OpenSearch/Elasticsearch, completion plan V3)
 
 - **Fixed: `ragmonk docs` and `ragmonk link` are server-aware.** Both
