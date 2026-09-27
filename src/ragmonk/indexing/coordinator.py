@@ -1431,10 +1431,6 @@ class IndexCoordinator:
                     self._pass_entity_resolver.stage_file(
                         finalized.file_id, finalized.entities, clear_only=finalized.clear_only
                     )
-                if self._pass_entity_resolver is not None:
-                    self._pass_entity_resolver.stage_file(
-                        finalized.file_id, finalized.entities, clear_only=finalized.clear_only
-                    )
                 self._code_batch.append((job, file, started, finalized))
                 if self._code_batch_should_flush(finalized):
                     self._flush_code_batch(result)
@@ -1520,6 +1516,10 @@ class IndexCoordinator:
                 except Exception as exc:  # noqa: BLE001 - a poisoned file must not abort the run
                     self._finish_failure(result, job, file, started, exc)
                     return
+                if self._pass_entity_resolver is not None:
+                    self._pass_entity_resolver.stage_file(
+                        finalized.file_id, finalized.entities, clear_only=finalized.clear_only
+                    )
                 self._code_batch.append((job, file, started, finalized))
                 if self._code_batch_should_flush(finalized):
                     self._flush_code_batch(result)
