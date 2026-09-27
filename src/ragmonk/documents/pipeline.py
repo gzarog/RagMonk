@@ -251,46 +251,42 @@ def prepare_document(
     )
 
 
-def publish_document(ctx: ProcessorContext, prepared: PreparedDocument) -> ProcessingOutcome:
-    """Builds ``prepared``'s ``Document``/chunks and hands them to
-    ``KnowledgeBackend.publish_document`` for the atomic delete-old-
-    generation/insert-new-generation write -- always on whichever thread
-    calls this, which the coordinator guarantees is always its single
-    writer thread, never a parallel prepare worker (Phase P2's "one
-    transactional publisher per project" rule, mirroring
-    ``code.processor.publish_code``).
+@dataclass(slots=True)
+class FinalizedDocument:
+    """Server Indexing Performance V3 completion: write-ready document output.
 
-    Storage backend abstraction plan, Phase 3: only the write moved
-    behind the backend contract -- see ``LocalKnowledgeBackend.
-    publish_document``. ``ctx.backend`` is used when the coordinator
-    supplied one; a coordinator-external caller (most unit tests) gets a
-    ``LocalKnowledgeBackend`` constructed on demand, bound to the same
-    ``ctx.conn``.
+    backend_prepared is None only for a preparation result such as
+    SKIPPED_LIMIT that intentionally performs no backend write. Keeping
+    finalization separate from publication lets IndexCoordinator batch
+    many server-mode documents without changing the direct/local contract.
     """
+
+    file_id: str
+    status: FileStatus
+    backend_prepared: BackendPreparedDocument | None = None
+
+
+def finalize_document_for_publish(
+    ctx: ProcessorContext, prepared: PreparedDocument
+) -> FinalizedDocument:
+    """Validate and materialize one prepared document without writing it."""
     if ctx.conn is None or ctx.file_id is None or ctx.source_id is None:
         raise RagMonkError("DocumentProcessor requires a coordinator-provided ProcessorContext")
 
-    backend = ctx.backend
-    if backend is None:
-        from ragmonk.backends.local import LocalKnowledgeBackend
-
-        backend = LocalKnowledgeBackend(conn=ctx.conn)
-
     if prepared.status is not None:
-        return ProcessingOutcome(status=prepared.status)
+        return FinalizedDocument(file_id=ctx.file_id, status=prepared.status)
 
     if prepared.delete_only:
-        # No content was derived (unsupported extension, or an
-        # image with image_ocr off) -- nothing to identity-recheck
-        # either, matching document_processor's pre-P2 behavior, which
-        # never reached the check for these two cases.
-        with transaction(ctx.conn):
-            backend.publish_document(
-                BackendPreparedDocument(
-                    file_id=ctx.file_id, source_id=ctx.source_id, delete_only=True
-                )
-            )
-        return ProcessingOutcome(status=FileStatus.INDEXED)
+        return FinalizedDocument(
+            file_id=ctx.file_id,
+            status=FileStatus.INDEXED,
+            backend_prepared=BackendPreparedDocument(
+                file_id=ctx.file_id,
+                source_id=ctx.source_id,
+                generation=ctx.next_generation,
+                delete_only=True,
+            ),
+        )
 
     assert (
         prepared.doc_format is not None
@@ -303,18 +299,6 @@ def publish_document(ctx: ProcessorContext, prepared: PreparedDocument) -> Proce
     meta = prepared.meta
     chunks = prepared.chunks
 
-    # Indexing optimization plan, Phase P3 (serial path)/P2 (bounded
-    # parallel path): a final, cheap check that the file is still the
-    # one the coordinator scanned and ``prepare_document`` just spent
-    # potentially real time converting/chunking -- a narrow but real
-    # race (a concurrent write landing mid-extraction, widened further
-    # by however long this file sat in the bounded in-flight queue
-    # before this publish call ran) must never end in silently
-    # publishing content derived from a file that no longer looks like
-    # that on disk. Only meaningful when the coordinator supplied an
-    # identity in the first place; a coordinator-external
-    # ``ProcessorContext`` has nothing to compare against and keeps its
-    # pre-P3 behavior.
     if ctx.file_identity is not None:
         try:
             post_stat = ctx.path.stat()
@@ -332,7 +316,6 @@ def publish_document(ctx: ProcessorContext, prepared: PreparedDocument) -> Proce
     now = _now()
     document_id = uuid.uuid4().hex
     chunk_ids = [uuid.uuid4().hex for _ in chunks]
-
     document = Document(
         id=document_id,
         source_id=ctx.source_id,
@@ -341,33 +324,46 @@ def publish_document(ctx: ProcessorContext, prepared: PreparedDocument) -> Proce
         title=meta.title,
         author=meta.author,
         page_count=meta.page_count,
-        section_count=sum(1 for c in chunks if c.kind == "heading"),
-        paragraph_count=sum(1 for c in chunks if c.kind == "paragraph"),
-        table_count=sum(1 for c in chunks if c.kind == "table"),
+        section_count=sum(1 for chunk in chunks if chunk.kind == "heading"),
+        paragraph_count=sum(1 for chunk in chunks if chunk.kind == "paragraph"),
+        table_count=sum(1 for chunk in chunks if chunk.kind == "table"),
         is_scanned=meta.is_scanned,
         content_hash=content_hash,
         generation=ctx.next_generation,
         created_at=now,
         updated_at=now,
     )
+    return FinalizedDocument(
+        file_id=ctx.file_id,
+        status=FileStatus.INDEXED,
+        backend_prepared=BackendPreparedDocument(
+            file_id=ctx.file_id,
+            source_id=ctx.source_id,
+            generation=ctx.next_generation,
+            document=document,
+            chunk_ids=chunk_ids,
+            chunks=chunks,
+            doc_title=meta.title or "",
+        ),
+    )
 
-    doc_title = meta.title or ""
 
-    with transaction(ctx.conn):
-        backend.publish_document(
-            BackendPreparedDocument(
-                file_id=ctx.file_id,
-                source_id=ctx.source_id,
-                generation=ctx.next_generation,
-                document=document,
-                chunk_ids=chunk_ids,
-                chunks=chunks,
-                doc_title=doc_title,
-            )
-        )
+def publish_document(ctx: ProcessorContext, prepared: PreparedDocument) -> ProcessingOutcome:
+    """Direct/non-batched publish; server indexing may batch finalized payloads."""
+    if ctx.conn is None:
+        raise RagMonkError("DocumentProcessor requires a coordinator-provided ProcessorContext")
 
-    return ProcessingOutcome(status=FileStatus.INDEXED)
+    backend = ctx.backend
+    if backend is None:
+        from ragmonk.backends.local import LocalKnowledgeBackend
 
+        backend = LocalKnowledgeBackend(conn=ctx.conn)
+
+    finalized = finalize_document_for_publish(ctx, prepared)
+    if finalized.backend_prepared is not None:
+        with transaction(ctx.conn):
+            backend.publish_document(finalized.backend_prepared)
+    return ProcessingOutcome(status=finalized.status)
 
 def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
     """The registered ``FileKind.DOCUMENT`` processor -- ``prepare_document``
