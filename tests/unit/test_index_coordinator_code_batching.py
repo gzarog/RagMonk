@@ -243,6 +243,26 @@ def test_batch_flush_combines_multiple_files_into_one_backend_call(tmp_path: Pat
         conn.close()
 
 
+
+def test_default_single_worker_server_mode_still_batches(tmp_path: Path) -> None:
+    """V3 completion: batching must work in the default workers=1 mode."""
+    root = tmp_path / "proj_serial_server"
+    _write_project(root, 5)
+    conn = connect(tmp_path / "serial_server.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        backend = _FakeServerBackend()
+        coord = _build_coordinator(conn, root, backend, workers=1)
+        result = coord.run()
+
+        assert result.indexed == 5
+        assert result.failed == 0
+        assert backend.single_calls == []
+        assert any(len(call) > 1 for call in backend.batch_calls)
+    finally:
+        conn.close()
+
+
 def test_local_mode_is_unaffected_by_batching(tmp_path: Path) -> None:
     root = tmp_path / "proj"
     _write_project(root, 5)
