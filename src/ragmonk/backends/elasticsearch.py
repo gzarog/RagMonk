@@ -635,7 +635,18 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         for prepared_code in items:
             combined.extend(self._build_code_actions(prepared_code))
         if combined:
-            run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            try:
+                run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            except Exception:
+                # A terminal bulk failure may occur after some actions were
+                # already accepted. In a fresh generation the normal fast path
+                # skips replacement deletes, so clean this batch explicitly
+                # before the coordinator retries it; otherwise UUID-based
+                # entity ids from the partial attempt could survive beside the
+                # retry's new ids.
+                if server_write_pass is not None and server_write_pass.generation_is_empty:
+                    self._delete_batch_for_code(items, None)
+                raise
             if server_write_pass is None:
                 self._refresh_content_and_relationships()
             else:
@@ -763,7 +774,12 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         for prepared_document in items:
             combined.extend(self._build_document_actions(prepared_document))
         if combined:
-            run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            try:
+                run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            except Exception:
+                if server_write_pass is not None and server_write_pass.generation_is_empty:
+                    self._delete_batch_for_document(items, None)
+                raise
             if server_write_pass is None:
                 self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
             else:
