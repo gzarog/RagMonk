@@ -528,3 +528,20 @@ class ServerReadMixin:
                 src = hit.get("_source", {})
                 out[str(src.get("document_id"))] = str(src.get("file_id", ""))
         return out
+
+    def _existing_link_keys(self, relationships_index: str, link_keys: list[str]) -> set[str]:
+        """Batched replacement for a per-candidate ``client.exists()``
+        loop in ``publish_links``: one ``terms`` query per
+        ``_TERMS_BATCH``-sized group of candidate ids, mirroring
+        ``_entity_file_ids``/``_document_file_ids`` above, instead of one
+        round trip per link candidate.
+        """
+        out: set[str] = set()
+        for batch in _batches(link_keys):
+            query = {"terms": {"link_key": batch}}
+            for hit in self._search_raw(relationships_index, query, len(batch)):
+                src = hit.get("_source", {})
+                key = src.get("link_key") or hit.get("_id")
+                if key is not None:
+                    out.add(str(key))
+        return out
