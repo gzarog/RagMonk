@@ -348,7 +348,12 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
     def upsert_file(self, file_record: FileRecord) -> None:
         self.upsert_files([file_record])
 
-    def upsert_files(self, file_records: list[FileRecord]) -> None:
+    def upsert_files(
+        self,
+        file_records: list[FileRecord],
+        *,
+        server_write_pass: ServerWritePass | None = None,
+    ) -> None:
         """Generation-tagged file records (completion plan F6) -- see
         ``OpenSearchKnowledgeBackend.upsert_files``.
         """
@@ -380,7 +385,8 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                 )
             )
         run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
-        self._get_client().indices.refresh(index=mappings.files_index(self._prefix))
+        if server_write_pass is None:
+            self._get_client().indices.refresh(index=mappings.files_index(self._prefix))
 
     def delete_file(self, source_id: str, file_id: str) -> None:
         """Removes every artifact of ``file_id`` across all generations,
@@ -575,11 +581,11 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             combined.extend(self._build_code_actions(prepared_code))
         if combined:
             run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
-            self._refresh_content_and_relationships()
-            if server_write_pass is not None:
+            if server_write_pass is None:
+                self._refresh_content_and_relationships()
+            else:
                 server_write_pass.bulk_actions += len(combined)
                 server_write_pass.bulk_requests += 1
-                server_write_pass.refresh_count += 2
 
     def _delete_for_document(self, prepared_document: PreparedDocument) -> None:
         source_id = prepared_document.source_id
@@ -703,11 +709,11 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             combined.extend(self._build_document_actions(prepared_document))
         if combined:
             run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
-            self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
-            if server_write_pass is not None:
+            if server_write_pass is None:
+                self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
+            else:
                 server_write_pass.bulk_actions += len(combined)
                 server_write_pass.bulk_requests += 1
-                server_write_pass.refresh_count += 1
 
     def publish_embeddings(self, prepared_embeddings: PreparedEmbeddings) -> None:
         """Updates each already-published entity/chunk document's
@@ -748,7 +754,9 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
         self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
 
-    def publish_links(self, prepared_links: PreparedLinks) -> int:
+    def publish_links(
+        self, prepared_links: PreparedLinks, *, server_write_pass: ServerWritePass | None = None
+    ) -> int:
         if not prepared_links.candidates:
             return 0
         source_id = prepared_links.source_id
@@ -809,7 +817,10 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             mappings.relationships_index(self._prefix), [action.doc_id for action in actions]
         )
         run_bulk_or_raise(client, actions, self._config.bulk)
-        client.indices.refresh(index=mappings.relationships_index(self._prefix))
+        if server_write_pass is None:
+            client.indices.refresh(index=mappings.relationships_index(self._prefix))
+        else:
+            server_write_pass.bulk_requests += 1
         return len(actions) - len(existing)
 
     def clear_source(self, source_id: str) -> None:
@@ -926,6 +937,20 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         client = self._get_client()
         client.indices.refresh(index=mappings.content_index(self._prefix))
         client.indices.refresh(index=mappings.relationships_index(self._prefix))
+
+    def refresh_for_linking(self, source_id: str) -> None:
+        """Server Indexing Performance V3, item 5 -- see
+        ``OpenSearchKnowledgeBackend.refresh_for_linking``.
+        """
+        self._refresh_content_and_relationships()
+
+    def refresh_all(self, source_id: str) -> None:
+        """Server Indexing Performance V3, item 5 -- see
+        ``OpenSearchKnowledgeBackend.refresh_all``.
+        """
+        client = self._get_client()
+        for index in mappings.all_indices(self._prefix):
+            client.indices.refresh(index=index)
 
     # -- reads / search ---------------------------------------------------
     def lexical_search(

@@ -39,6 +39,9 @@ class _Indices:
     ) -> None:
         self._store = store
         self._mappings = mappings
+        # Server Indexing Performance V3, item 5 -- see
+        # ``_fake_opensearch.py``'s identical counter.
+        self.refresh_calls: list[str] = []
 
     def exists(self, index: str) -> bool:
         return index in self._store
@@ -54,6 +57,7 @@ class _Indices:
         return {"acknowledged": True}
 
     def refresh(self, index: str) -> dict[str, Any]:
+        self.refresh_calls.append(index)
         return {"_shards": {"total": 1}}
 
     def get_mapping(self, index: str) -> dict[str, Any]:

@@ -23,6 +23,12 @@ class _Indices:
     ) -> None:
         self._store = store
         self._mappings = mappings
+        # Server Indexing Performance V3, item 5: tests assert on this to
+        # verify refresh calls are skipped in the batched hot path and
+        # happen only at the documented barrier points -- the fake makes
+        # every write visible immediately regardless of refresh, so this
+        # counter is the only way to observe the behavior change.
+        self.refresh_calls: list[str] = []
 
     def exists(self, index: str) -> bool:
         return index in self._store
@@ -33,6 +39,7 @@ class _Indices:
         return {"acknowledged": True}
 
     def refresh(self, index: str) -> dict[str, Any]:
+        self.refresh_calls.append(index)
         return {"_shards": {"total": 1}}
 
     def get_mapping(self, index: str) -> dict[str, Any]:

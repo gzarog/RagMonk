@@ -60,6 +60,7 @@ from ragmonk.backends.models import (
     PreparedEmbeddings,
     PreparedLinks,
     SearchHit,
+    ServerWritePass,
 )
 from ragmonk.core import paths
 from ragmonk.core.models import CrossLink, Entity, Paragraph, Section, Table
@@ -336,7 +337,9 @@ class LocalKnowledgeBackend(KnowledgeBackend):
                 created_at=now,
             )
 
-    def publish_links(self, prepared_links: PreparedLinks) -> int:
+    def publish_links(
+        self, prepared_links: PreparedLinks, *, server_write_pass: ServerWritePass | None = None
+    ) -> int:
         """The write half of ``knowledge.linker.link_touched_files``:
         inserts ``prepared_links.candidates`` as ``CrossLink`` rows,
         deduplicating via the same natural-key uniqueness

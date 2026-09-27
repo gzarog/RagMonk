@@ -298,6 +298,7 @@ def _store(
     source_id: str,
     candidates: Sequence[LinkCandidate],
     generation: int | None = None,
+    server_write_pass: ServerWritePass | None = None,
 ) -> int:
     """Storage backend abstraction plan, Phase 3: the write half --
     previously built ``CrossLink`` rows and called ``links_repo.insert``
@@ -305,12 +306,17 @@ def _store(
     ``KnowledgeBackend.publish_links``, which does that same insert (see
     ``LocalKnowledgeBackend.publish_links``) and returns how many were
     newly inserted (a link's natural-key uniqueness dedupes exactly as
-    before).
+    before). ``server_write_pass``, when given (Server Indexing
+    Performance V3, item 5), tells the server backend to skip its
+    per-call refresh -- nothing downstream in this same pass reads the
+    relationships index for these link rows, so that refresh is deferred
+    to the caller's own barrier points.
     """
     if not candidates:
         return 0
     return backend.publish_links(
-        PreparedLinks(source_id=source_id, candidates=list(candidates), generation=generation)
+        PreparedLinks(source_id=source_id, candidates=list(candidates), generation=generation),
+        server_write_pass=server_write_pass,
     )
 
 
@@ -390,6 +396,19 @@ def link_touched_files(
         # lives in the server backend -- read it from there, scoped to
         # this source and to the generation this pass is writing. ``conn``
         # is then only used for control-plane file paths (``files_repo``).
+        #
+        # Server Indexing Performance V3, item 5: the process-to-linker
+        # barrier. The coordinator's code/document batches just above
+        # this call may have flushed several times without refreshing
+        # (item 5 removed that per-batch refresh from the hot path), so
+        # this explicit refresh is what makes the whole-corpus reads
+        # below see every touched file's just-written content before the
+        # matchers run. Only meaningful for a real pass (``server_write_
+        # pass`` is not None for every server-mode caller of this
+        # function); a hypothetical bare server backend call with no pass
+        # gets a no-op here since every write already refreshed itself.
+        if server_write_pass is not None:
+            backend.refresh_for_linking(source_id)
         read_generation = str(generation) if generation is not None else None
         all_entities = backend.list_source_entities(source_id, generation=read_generation)
         all_units = [
@@ -487,5 +506,5 @@ def link_touched_files(
 
     inserted = 0
     for batch in _batches_of(all_candidates, _LINK_BATCH_SIZE):
-        inserted += _store(backend, source_id, batch, generation)
+        inserted += _store(backend, source_id, batch, generation, server_write_pass)
     return inserted

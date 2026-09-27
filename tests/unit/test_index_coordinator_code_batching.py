@@ -46,9 +46,7 @@ from ragmonk.storage.sqlite import connect
 
 
 def _config(*, code_extraction_workers: int = 4) -> RagMonkConfig:
-    config = RagMonkConfig(
-        indexing=IndexingConfig(code_extraction_workers=code_extraction_workers)
-    )
+    config = RagMonkConfig(indexing=IndexingConfig(code_extraction_workers=code_extraction_workers))
     disabled_documents = config.documents.model_copy(update={"enabled": False})
     return config.model_copy(update={"documents": disabled_documents})
 
@@ -57,9 +55,7 @@ def _code_only_registry() -> ProcessorRegistry:
     registry = ProcessorRegistry()
     for kind in FileKind:
         registry.register(kind, raw_processor)
-    registry.register(
-        FileKind.CODE, code_processor, prepare=prepare_code, publish=publish_code
-    )
+    registry.register(FileKind.CODE, code_processor, prepare=prepare_code, publish=publish_code)
     return registry
 
 
@@ -80,7 +76,9 @@ class _FakeServerBackend(KnowledgeBackend):
         self.batch_calls: list[list[str]] = []
         self.single_calls: list[str] = []
         self._entities: dict[str, list[Entity]] = {}
+        self._relationships: dict[str, list[Any]] = {}
         self._fail = fail
+        self.find_calls = 0
 
     def health(self) -> bool:
         return True
@@ -128,6 +126,7 @@ class _FakeServerBackend(KnowledgeBackend):
         self.batch_calls.append([item.file_id for item in items])
         for item in items:
             self._entities[item.file_id] = list(item.entities)
+            self._relationships[item.file_id] = list(item.relationships)
 
     def publish_document(self, prepared_document: PreparedDocument) -> None:
         return None
@@ -135,7 +134,9 @@ class _FakeServerBackend(KnowledgeBackend):
     def publish_embeddings(self, prepared_embeddings: PreparedEmbeddings) -> None:
         return None
 
-    def publish_links(self, prepared_links: PreparedLinks) -> int:
+    def publish_links(
+        self, prepared_links: PreparedLinks, *, server_write_pass: ServerWritePass | None = None
+    ) -> int:
         return 0
 
     def find_entities_by_names(
@@ -146,6 +147,12 @@ class _FakeServerBackend(KnowledgeBackend):
         source_id: str | None = None,
         generation: str | None = None,
     ) -> list[Entity]:
+        # Server Indexing Performance V3, item 5's cross-batch resolver
+        # safety test relies on this always returning empty -- it proves
+        # cross-batch resolution within one pass never depends on this
+        # backend read (or on any refresh making it see fresher data),
+        # only on ``PassEntityResolver``'s own overlay.
+        self.find_calls += 1
         return []
 
     def lexical_search(
@@ -198,9 +205,7 @@ def _build_coordinator(
     server_write_pass = None
     pass_entity_resolver = None
     if backend is not None:
-        server_write_pass = ServerWritePass(
-            source_id="s1", generation=1, generation_is_empty=True
-        )
+        server_write_pass = ServerWritePass(source_id="s1", generation=1, generation_is_empty=True)
         pass_entity_resolver = PassEntityResolver(backend, server_write_pass)
     return IndexCoordinator(
         conn,
@@ -333,5 +338,81 @@ def test_file_modified_during_prepare_to_publish_window_is_retried(
         files = files_repo.list_by_source(conn, "s1")
         retried = [f for f in files if f.status is FileStatus.RETRY]
         assert len(retried) == 1
+    finally:
+        conn.close()
+
+
+# -- Server Indexing Performance V3, item 5: cross-batch resolver safety --
+
+
+def test_cross_batch_reference_resolves_via_overlay_not_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file in batch 2 references an entity defined in a file from
+    batch 1 of the SAME incremental pass. Batch 1 has already been
+    flushed and committed (``PassEntityResolver.commit_file``) but the
+    fake backend's own ``find_entities_by_names`` always returns empty
+    (standing in for "not yet refreshed") -- resolution must still
+    succeed purely via the resolver's overlay, proving item 5's removal
+    of the per-batch refresh cannot break cross-file symbol resolution
+    within one pass.
+    """
+    import ragmonk.indexing.coordinator as coordinator_module
+
+    monkeypatch.setattr(coordinator_module, "_CODE_BATCH_MAX_FILES", 1)
+
+    root = tmp_path / "proj"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "a.py").write_text("def helper():\n    return 1\n")
+    (root / "b.py").write_text("from a import helper\n\ndef caller():\n    return helper()\n")
+
+    conn = connect(tmp_path / "db.sqlite")
+    try:
+        apply_migrations(conn, "knowledge")
+        backend = _FakeServerBackend()
+        config = _config(code_extraction_workers=4)
+        registry = _code_only_registry()
+        # generation_is_empty=False: the incremental branch, which is the
+        # one that consults the backend cache (and is the one item 3's
+        # own risk note flagged) rather than the fresh-generation
+        # overlay-only fast path.
+        server_write_pass = ServerWritePass(source_id="s1", generation=1, generation_is_empty=False)
+        pass_entity_resolver = PassEntityResolver(backend, server_write_pass)
+        coord = IndexCoordinator(
+            conn,
+            "s1",
+            str(root),
+            [],
+            [],
+            config,
+            processors=registry,
+            backend=backend,
+            server_write_pass=server_write_pass,
+            pass_entity_resolver=pass_entity_resolver,
+        )
+        result = coord.run()
+
+        assert result.indexed == 2
+        assert result.failed == 0
+        # Two separate batches (cap=1), a.py necessarily flushed (and its
+        # resolver overlay committed) before b.py's own finalize ran, in
+        # single-worker processing order.
+        assert len(backend.batch_calls) == 2
+
+        files = {f.path: f.id for f in files_repo.list_by_source(conn, "s1")}
+        a_file_id = next(fid for path, fid in files.items() if path.endswith("a.py"))
+        b_file_id = next(fid for path, fid in files.items() if path.endswith("b.py"))
+
+        helper_entities = [e for e in backend._entities.get(a_file_id, []) if e.name == "helper"]
+        assert len(helper_entities) == 1
+        helper_id = helper_entities[0].id
+
+        b_relationships = backend._relationships.get(b_file_id, [])
+        resolved = [r for r in b_relationships if r.target_entity_id == helper_id]
+        assert resolved, (
+            "b.py's call to helper() must resolve to a.py's helper entity "
+            "via the resolver overlay even though the backend never "
+            "returns it and no refresh occurred between batches"
+        )
     finally:
         conn.close()

@@ -40,9 +40,7 @@ from ragmonk.indexing.runner import build_processor_registry, run_source_pass
 from ragmonk.sources.registry import SourceRegistry
 
 
-def _entity(
-    *, id: str, file_id: str, name: str, qualified_name: str | None = None
-) -> Entity:
+def _entity(*, id: str, file_id: str, name: str, qualified_name: str | None = None) -> Entity:
     return Entity(
         id=id,
         source_id="src-1",
@@ -186,7 +184,11 @@ class _FakeServerBackend(KnowledgeBackend):
         self._active_generation: dict[str, str] = {}
         self._files: dict[str, dict[str, BackendFileRecord]] = {}
         self._entities: dict[str, list[Entity]] = {}  # (source_id, generation) -> entities
+        self._relationships: dict[str, list[Any]] = {}  # (source_id, generation) -> relationships
         self.find_calls = 0
+        # Server Indexing Performance V3, item 5: barrier-call tracking.
+        self.refresh_for_linking_calls = 0
+        self.refresh_all_calls = 0
 
     def health(self) -> bool:
         return True
@@ -225,11 +227,14 @@ class _FakeServerBackend(KnowledgeBackend):
 
     def publish_code(self, prepared_code: PreparedCode) -> None:
         key = f"{prepared_code.source_id}:{prepared_code.generation}"
-        existing = [
-            e for e in self._entities.get(key, []) if e.file_id != prepared_code.file_id
-        ]
+        existing = [e for e in self._entities.get(key, []) if e.file_id != prepared_code.file_id]
         existing.extend(prepared_code.entities)
         self._entities[key] = existing
+        rel_existing = [
+            (fid, r) for fid, r in self._relationships.get(key, []) if fid != prepared_code.file_id
+        ]
+        rel_existing.extend((prepared_code.file_id, r) for r in prepared_code.relationships)
+        self._relationships[key] = rel_existing
 
     def publish_document(self, prepared_document: PreparedDocument) -> None:
         return None
@@ -237,8 +242,16 @@ class _FakeServerBackend(KnowledgeBackend):
     def publish_embeddings(self, prepared_embeddings: PreparedEmbeddings) -> None:
         return None
 
-    def publish_links(self, prepared_links: PreparedLinks) -> int:
+    def publish_links(
+        self, prepared_links: PreparedLinks, *, server_write_pass: ServerWritePass | None = None
+    ) -> int:
         return 0
+
+    def refresh_for_linking(self, source_id: str) -> None:
+        self.refresh_for_linking_calls += 1
+
+    def refresh_all(self, source_id: str) -> None:
+        self.refresh_all_calls += 1
 
     def list_source_entities(
         self, source_id: str, *, generation: str | None = None
@@ -348,5 +361,50 @@ def test_end_to_end_two_files_with_cross_reference_resolve_via_resolver(
         assert gen is not None
         entities = backend._entities.get(f"{source_id}:{gen}", [])
         assert entities, "expected entities to have been published"
+
+        # Server Indexing Performance V3, item 5: the process-to-linker
+        # barrier fired exactly once (both files were touched, so
+        # ``link_touched_files`` ran and needed to read this pass's
+        # writes). ``refresh_all`` (the end-of-incremental-pass sweep)
+        # must NOT have fired -- this is a fresh-generation pass (first
+        # publication), already covered by ``publish_generation``'s own
+        # refresh once it swaps the marker.
+        assert backend.refresh_for_linking_calls == 1
+        assert backend.refresh_all_calls == 0
+    finally:
+        ctx.close()
+
+
+def test_incremental_pass_refreshes_at_final_barrier_not_fresh_generation(
+    ragmonk_home: Path, tmp_path: Path
+) -> None:
+    """Server Indexing Performance V3, item 5: a second, incremental pass
+    against an already-published generation hits the end-of-pass
+    ``refresh_all`` barrier -- unlike the first (fresh-generation) pass
+    above, nothing else refreshes everything for it.
+    """
+    backend = _FakeServerBackend()
+    ctx = _server_ctx(backend)
+    try:
+        source_dir = tmp_path / "src"
+        source_dir.mkdir(exist_ok=True)
+        registry = SourceRegistry(ctx.sources_conn, home=ctx.home)
+        registered = registry.add(str(source_dir))
+        source_id = registered.id
+
+        (source_dir / "a.py").write_text("def helper():\n    return 1\n")
+        source = registry.get(source_id)
+        processors = build_processor_registry(ctx.config)
+        result = run_source_pass(ctx, source, processors)
+        assert not result.result.source_offline
+        assert backend.refresh_all_calls == 0
+
+        # Second, incremental pass: a new file touches the published
+        # generation directly (no begin/publish_generation wrapping).
+        (source_dir / "c.py").write_text("def other():\n    return 2\n")
+        source = registry.get(source_id)
+        result2 = run_source_pass(ctx, source, processors)
+        assert not result2.result.source_offline
+        assert backend.refresh_all_calls == 1
     finally:
         ctx.close()

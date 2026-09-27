@@ -127,12 +127,8 @@ def test_deterministic_ids_are_stable_across_calls_for_every_id_type() -> None:
     assert ids.chunk_doc_id("s1", "f1", "c1") == ids.chunk_doc_id("s1", "f1", "c1")
     assert ids.chunk_doc_id("s1", "f1", "c1") != ids.chunk_doc_id("s1", "f1", "c2")
 
-    assert ids.relationship_doc_id("s1", "f1", "r1") == ids.relationship_doc_id(
-        "s1", "f1", "r1"
-    )
-    assert ids.relationship_doc_id("s1", "f1", "r1") != ids.relationship_doc_id(
-        "s1", "f1", "r2"
-    )
+    assert ids.relationship_doc_id("s1", "f1", "r1") == ids.relationship_doc_id("s1", "f1", "r1")
+    assert ids.relationship_doc_id("s1", "f1", "r1") != ids.relationship_doc_id("s1", "f1", "r2")
 
 
 # -- health / no silent fallback ------------------------------------------
@@ -773,7 +769,11 @@ def test_publish_code_batch_failure_raises_and_writes_nothing() -> None:
         assert backend.get_entities_for_files([f"f{i}"]) == []
 
 
-def test_publish_code_batch_refreshes_once_not_per_item() -> None:
+def test_publish_code_batch_defers_refresh_when_pass_given() -> None:
+    """Server Indexing Performance V3, item 5: a batched publish under an
+    active ``ServerWritePass`` issues zero refresh calls -- the caller
+    refreshes explicitly at its own barrier points instead.
+    """
     fake = FakeOpenSearch()
     backend = _backend(client=fake)
     items = [
@@ -789,7 +789,27 @@ def test_publish_code_batch_refreshes_once_not_per_item() -> None:
     server_write_pass = ServerWritePass(source_id="s1", generation=0, generation_is_empty=True)
     backend.publish_code_batch(items, server_write_pass=server_write_pass)
     assert server_write_pass.bulk_requests == 1
-    assert server_write_pass.refresh_count == 2
+    assert fake.indices.refresh_calls == []
+
+
+def test_publish_code_batch_refreshes_immediately_without_pass() -> None:
+    """A direct/legacy call with no ``server_write_pass`` keeps the old
+    immediate refresh-after-write behavior unchanged.
+    """
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=0,
+            entities=[_entity(entity_id=f"e{i}", file_id=f"f{i}")],
+            entity_snippets={f"e{i}": "x"},
+        )
+        for i in range(4)
+    ]
+    backend.publish_code_batch(items)
+    assert len(fake.indices.refresh_calls) == 2
 
 
 # -- Server Indexing Performance V3, item 4: fast path + grouped deletes ----
@@ -968,9 +988,7 @@ def test_publish_code_batch_grouped_delete_replaces_stale_incremental_content() 
     ]
     backend.publish_code_batch(
         new_items,
-        server_write_pass=ServerWritePass(
-            source_id="s1", generation=0, generation_is_empty=False
-        ),
+        server_write_pass=ServerWritePass(source_id="s1", generation=0, generation_is_empty=False),
     )
     for i in range(3):
         entities = backend.get_entities_for_files([f"f{i}"])
@@ -1064,9 +1082,7 @@ def test_publish_code_batch_grouped_delete_never_crosses_generation_or_source() 
                 entity_snippets={"gen1-e1-v2": "x"},
             ),
         ],
-        server_write_pass=ServerWritePass(
-            source_id="s1", generation=1, generation_is_empty=False
-        ),
+        server_write_pass=ServerWritePass(source_id="s1", generation=1, generation_is_empty=False),
     )
 
     content_index = fake.store.get("ragmonk-content", {})

@@ -356,10 +356,22 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
     def upsert_file(self, file_record: FileRecord) -> None:
         self.upsert_files([file_record])
 
-    def upsert_files(self, file_records: list[FileRecord]) -> None:
+    def upsert_files(
+        self,
+        file_records: list[FileRecord],
+        *,
+        server_write_pass: ServerWritePass | None = None,
+    ) -> None:
         """Completion plan F6: file records are generation-tagged (and
         their ``_id`` includes the generation) so a rebuild writes a
         *separate* file listing that only becomes visible on publish.
+
+        Server Indexing Performance V3, item 5: the refresh-after-write
+        below is skipped when ``server_write_pass`` is given -- the
+        caller (``indexing/runner.py``) refreshes explicitly at its
+        documented barrier points instead. A direct/legacy call with no
+        pass (``server_write_pass=None``) keeps refreshing immediately,
+        unchanged.
         """
         if not file_records:
             return
@@ -389,7 +401,8 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                 )
             )
         run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
-        self._get_client().indices.refresh(index=mappings.files_index(self._prefix))
+        if server_write_pass is None:
+            self._get_client().indices.refresh(index=mappings.files_index(self._prefix))
 
     def delete_file(self, source_id: str, file_id: str) -> None:
         """Removes ``file_id``'s file record, entities, chunks, document,
@@ -601,11 +614,17 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             combined.extend(self._build_code_actions(prepared_code))
         if combined:
             run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
-            self._refresh_content_and_relationships()
-            if server_write_pass is not None:
+            if server_write_pass is None:
+                # Direct/legacy caller with no pass: keep the old
+                # immediate-visibility guarantee unchanged.
+                self._refresh_content_and_relationships()
+            else:
+                # Server Indexing Performance V3, item 5: refresh is
+                # deferred to the caller's explicit barrier points
+                # (``refresh_for_linking``/``refresh_all``) instead of
+                # happening after every batch flush.
                 server_write_pass.bulk_actions += len(combined)
                 server_write_pass.bulk_requests += 1
-                server_write_pass.refresh_count += 2
 
     def _delete_for_document(self, prepared_document: PreparedDocument) -> None:
         source_id = prepared_document.source_id
@@ -729,11 +748,11 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             combined.extend(self._build_document_actions(prepared_document))
         if combined:
             run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
-            self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
-            if server_write_pass is not None:
+            if server_write_pass is None:
+                self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
+            else:
                 server_write_pass.bulk_actions += len(combined)
                 server_write_pass.bulk_requests += 1
-                server_write_pass.refresh_count += 1
 
     def publish_embeddings(self, prepared_embeddings: PreparedEmbeddings) -> None:
         """Updates each already-published entity/chunk document's
@@ -774,7 +793,9 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
         self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
 
-    def publish_links(self, prepared_links: PreparedLinks) -> int:
+    def publish_links(
+        self, prepared_links: PreparedLinks, *, server_write_pass: ServerWritePass | None = None
+    ) -> int:
         if not prepared_links.candidates:
             return 0
         source_id = prepared_links.source_id
@@ -838,7 +859,10 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             mappings.relationships_index(self._prefix), [action.doc_id for action in actions]
         )
         run_bulk_or_raise(client, actions, self._config.bulk)
-        client.indices.refresh(index=mappings.relationships_index(self._prefix))
+        if server_write_pass is None:
+            client.indices.refresh(index=mappings.relationships_index(self._prefix))
+        else:
+            server_write_pass.bulk_requests += 1
         return len(actions) - len(existing)
 
     def clear_source(self, source_id: str) -> None:
@@ -968,6 +992,29 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         client = self._get_client()
         client.indices.refresh(index=mappings.content_index(self._prefix))
         client.indices.refresh(index=mappings.relationships_index(self._prefix))
+
+    def refresh_for_linking(self, source_id: str) -> None:
+        """Server Indexing Performance V3, item 5: the process-to-linker
+        barrier -- called once by ``indexing/runner.py`` right before
+        ``knowledge.linker.link_touched_files`` performs its whole-corpus
+        reads (``list_source_entities``/``list_source_document_units``/
+        ``find_relationships_by_target_prefix``), all of which read the
+        content and relationships indices this pass's batches just wrote
+        without refreshing.
+        """
+        self._refresh_content_and_relationships()
+
+    def refresh_all(self, source_id: str) -> None:
+        """Server Indexing Performance V3, item 5: the end-of-incremental-
+        pass sweep -- refreshes every index (files included, for
+        ``upsert_files``'s deferred refresh) so a reader outside this pass
+        sees everything it wrote. Never called for a fresh-generation pass
+        (``publish_generation`` already refreshes everything once it swaps
+        the marker); see ``indexing/runner.py::_run_source_pass``.
+        """
+        client = self._get_client()
+        for index in mappings.all_indices(self._prefix):
+            client.indices.refresh(index=index)
 
     # -- reads / search ---------------------------------------------------
     def lexical_search(

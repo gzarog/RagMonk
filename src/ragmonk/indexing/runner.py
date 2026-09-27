@@ -262,6 +262,7 @@ def _sync_server_files(
     generation: int,
     *,
     allow_deletes: bool,
+    server_write_pass: ServerWritePass | None = None,
 ) -> None:
     """Completion plan F1/F6: mirror the local control-plane file table
     for ``source_id`` into the server backend's (generation-tagged) file
@@ -319,7 +320,7 @@ def _sync_server_files(
                 generation=gen_int,
             )
         )
-    backend.upsert_files(upserts)
+    backend.upsert_files(upserts, server_write_pass=server_write_pass)
     if allow_deletes:
         for file_id in server_by_id:
             if file_id not in local_by_id:
@@ -439,9 +440,17 @@ def _run_source_pass(
             source.id,
             force_generation,
             allow_deletes=not result.source_offline and not result.scan_incomplete,
+            server_write_pass=server_write_pass,
         )
 
     if result.source_offline:
+        # Same barrier as the normal end-of-pass one below (item 5): this
+        # early return also follows a (possibly empty, but not
+        # necessarily -- an offline source can still have synced file
+        # records above) ``_sync_server_files`` call whose own refresh
+        # was deferred.
+        if server_write_pass is not None and not server_write_pass.generation_is_empty:
+            backend.refresh_all(source.id)
         became_offline = source.status is not SourceStatus.OFFLINE
         sources_repo.update_scan_result(
             ctx.sources_conn,
@@ -576,6 +585,21 @@ def _run_source_pass(
                     rebuild_deleted_ratio=ctx.config.search.vector.rebuild_deleted_ratio,
                 )
                 result.timings.ann_sync_seconds = time.monotonic() - _ann_started
+
+    # Server Indexing Performance V3, item 5: the end-of-incremental-pass
+    # refresh barrier. Every write this pass made (code/document batches,
+    # ``upsert_files``, ``publish_links``) skipped its own per-call
+    # refresh when a ``server_write_pass`` was active, so this is the one
+    # explicit sweep that makes it all visible to any reader outside this
+    # pass (a search request, another process, the next pass's resolver
+    # reading the now-published state). Skipped for a fresh-generation
+    # pass (``server_write_pass.generation_is_empty``): that case's
+    # caller always calls ``publish_generation`` right after this
+    # function returns, which already refreshes every index once it
+    # swaps the marker -- refreshing here too would just be a redundant
+    # extra round trip.
+    if server_write_pass is not None and not server_write_pass.generation_is_empty:
+        backend.refresh_all(source.id)
 
     sources_repo.update_scan_result(
         ctx.sources_conn,
