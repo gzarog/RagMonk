@@ -73,6 +73,7 @@ from ragmonk.backends.models import (
     PreparedEmbeddings,
     PreparedLinks,
     SearchHit,
+    ServerWritePass,
 )
 from ragmonk.backends.opensearch_bulk import BulkAction, run_bulk_or_raise
 from ragmonk.backends.opensearch_client import (
@@ -426,11 +427,12 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             conflicts="proceed",
         )
 
-    def publish_code(self, prepared_code: PreparedCode) -> None:
-        """Deletes this file's previous-generation entities/relationships
-        (matching ``LocalKnowledgeBackend.publish_code``'s delete-then-
-        insert semantics) and bulk-indexes the new ones, all through the
-        bounded bulk path.
+    def _delete_for_code(self, prepared_code: PreparedCode) -> None:
+        """The delete-by-query half of ``publish_code``, factored out so
+        batched publish (Server Indexing Performance V3, item 3) can still
+        run it per-file while the bulk *index* call is combined across a
+        batch. Item 4 (future) is expected to group/replace these calls;
+        left per-file for now by explicit scope decision.
         """
         source_id = prepared_code.source_id
         file_id = prepared_code.file_id
@@ -450,9 +452,17 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             generation,
         )
         self._delete_links_for_file(source_id, file_id, "entity_file_id", generation)
-        if prepared_code.clear_only:
-            return
 
+    def _build_code_actions(self, prepared_code: PreparedCode) -> list[BulkAction]:
+        """Builds (without executing) the bulk index actions for one
+        file's entities/relationships -- the reusable core of both the
+        single-file ``publish_code`` and the batched ``publish_code_batch``.
+        """
+        if prepared_code.clear_only:
+            return []
+        source_id = prepared_code.source_id
+        file_id = prepared_code.file_id
+        generation = str(prepared_code.generation)
         actions: list[BulkAction] = []
         for entity in prepared_code.entities:
             snippet = prepared_code.entity_snippets.get(entity.id, entity.name)
@@ -508,11 +518,53 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                     },
                 )
             )
+        return actions
+
+    def publish_code(self, prepared_code: PreparedCode) -> None:
+        """Deletes this file's previous-generation entities/relationships
+        (matching ``LocalKnowledgeBackend.publish_code``'s delete-then-
+        insert semantics) and bulk-indexes the new ones, all through the
+        bounded bulk path.
+        """
+        self._delete_for_code(prepared_code)
+        actions = self._build_code_actions(prepared_code)
         if actions:
             run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
             self._refresh_content_and_relationships()
 
-    def publish_document(self, prepared_document: PreparedDocument) -> None:
+    def publish_code_batch(
+        self,
+        items: list[PreparedCode],
+        *,
+        server_write_pass: ServerWritePass | None = None,
+    ) -> None:
+        """Server Indexing Performance V3, item 3: combines the bulk
+        *index* call across every item in ``items`` into one
+        ``run_bulk_or_raise`` invocation, refreshing once at the end.
+        The per-file delete-by-query calls still run per item (item 4 is
+        expected to group/remove these) -- only the bulk index call and
+        the refresh are batched here. All-or-nothing: any failure inside
+        ``run_bulk_or_raise`` propagates uncaught, and the caller
+        (``IndexCoordinator``) is responsible for not marking any file in
+        this batch as indexed.
+        """
+        if not items:
+            return
+        combined: list[BulkAction] = []
+        for prepared_code in items:
+            self._delete_for_code(prepared_code)
+            combined.extend(self._build_code_actions(prepared_code))
+        if server_write_pass is not None:
+            server_write_pass.delete_by_query_count += 3 * len(items)
+        if combined:
+            run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            self._refresh_content_and_relationships()
+            if server_write_pass is not None:
+                server_write_pass.bulk_actions += len(combined)
+                server_write_pass.bulk_requests += 1
+                server_write_pass.refresh_count += 2
+
+    def _delete_for_document(self, prepared_document: PreparedDocument) -> None:
         source_id = prepared_document.source_id
         file_id = prepared_document.file_id
         content_index = mappings.content_index(self._prefix)
@@ -520,9 +572,13 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         self._delete_file_scoped(content_index, source_id, file_id, "document", generation)
         self._delete_file_scoped(content_index, source_id, file_id, "chunk", generation)
         self._delete_links_for_file(source_id, file_id, "document_file_id", generation)
-        if prepared_document.delete_only or prepared_document.document is None:
-            return
 
+    def _build_document_actions(self, prepared_document: PreparedDocument) -> list[BulkAction]:
+        if prepared_document.delete_only or prepared_document.document is None:
+            return []
+        source_id = prepared_document.source_id
+        file_id = prepared_document.file_id
+        generation = str(prepared_document.generation)
         document = prepared_document.document
         doc_title = prepared_document.doc_title
         actions = [
@@ -573,8 +629,40 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                     },
                 )
             )
-        run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
-        self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
+        return actions
+
+    def publish_document(self, prepared_document: PreparedDocument) -> None:
+        self._delete_for_document(prepared_document)
+        actions = self._build_document_actions(prepared_document)
+        if actions:
+            run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
+            self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
+
+    def publish_document_batch(
+        self,
+        items: list[PreparedDocument],
+        *,
+        server_write_pass: ServerWritePass | None = None,
+    ) -> None:
+        """Document-pipeline counterpart of ``publish_code_batch``. Left
+        as an explicit, documented deferral is acceptable per the V3 item
+        3 scope; here it is implemented to match code batching exactly.
+        """
+        if not items:
+            return
+        combined: list[BulkAction] = []
+        for prepared_document in items:
+            self._delete_for_document(prepared_document)
+            combined.extend(self._build_document_actions(prepared_document))
+        if server_write_pass is not None:
+            server_write_pass.delete_by_query_count += 2 * len(items)
+        if combined:
+            run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
+            if server_write_pass is not None:
+                server_write_pass.bulk_actions += len(combined)
+                server_write_pass.bulk_requests += 1
+                server_write_pass.refresh_count += 1
 
     def publish_embeddings(self, prepared_embeddings: PreparedEmbeddings) -> None:
         """Updates each already-published entity/chunk document's

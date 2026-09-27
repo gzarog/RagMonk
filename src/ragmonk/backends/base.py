@@ -31,6 +31,7 @@ from ragmonk.backends.models import (
     PreparedEmbeddings,
     PreparedLinks,
     SearchHit,
+    ServerWritePass,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -88,6 +89,25 @@ class KnowledgeBackend(ABC):
 
     @abstractmethod
     def publish_document(self, prepared_document: PreparedDocument) -> None: ...
+
+    # Server Indexing Performance V3, item 3: batch-capable variants.
+    # Default implementations simply loop over the one-item methods above,
+    # so ``LocalKnowledgeBackend`` and any other non-server backend gets
+    # correct behavior for free with no override needed. Real server
+    # backends (OpenSearch/Elasticsearch) override these to combine the
+    # bulk *index* call across every item into one HTTP bulk request.
+    # ``server_write_pass`` is server-mode-only telemetry, ignored here.
+    def publish_code_batch(
+        self, items: list[PreparedCode], *, server_write_pass: ServerWritePass | None = None
+    ) -> None:
+        for item in items:
+            self.publish_code(item)
+
+    def publish_document_batch(
+        self, items: list[PreparedDocument], *, server_write_pass: ServerWritePass | None = None
+    ) -> None:
+        for item in items:
+            self.publish_document(item)
 
     @abstractmethod
     def publish_embeddings(self, prepared_embeddings: PreparedEmbeddings) -> None: ...

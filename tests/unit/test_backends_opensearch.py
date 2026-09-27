@@ -24,6 +24,7 @@ from ragmonk.backends.models import (
     PreparedDocument,
     PreparedEmbeddings,
     PreparedLinks,
+    ServerWritePass,
 )
 from ragmonk.backends.opensearch import OpenSearchKnowledgeBackend
 from ragmonk.backends.opensearch_bulk import (
@@ -696,3 +697,96 @@ def test_count_stats_reports_real_counts() -> None:
     assert isinstance(stats, BackendStats)
     assert stats.files == 1
     assert stats.entities == 1
+
+
+# -- Server Indexing Performance V3, item 3: publish_code_batch -----------
+
+
+def test_publish_code_batch_combines_multiple_files_into_one_bulk_call() -> None:
+    """A batch flush spanning multiple distinct file_ids must issue
+    exactly ONE ``bulk`` HTTP call for the combined index actions, not
+    one per file.
+    """
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=0,
+            entities=[_entity(entity_id=f"e{i}", file_id=f"f{i}")],
+            entity_snippets={f"e{i}": "def do_thing(): ..."},
+            relationships=[_relationship(rel_id=f"r{i}", file_id=f"f{i}")],
+        )
+        for i in range(3)
+    ]
+    bulk_calls_before = len(fake.bulk_calls)
+    backend.publish_code_batch(items)
+    # Exactly one new bulk call combining all 3 files' actions (3 delete
+    # queries per file still run individually -- item 4 territory -- but
+    # the index bulk call itself is combined).
+    assert len(fake.bulk_calls) == bulk_calls_before + 1
+    combined_call = fake.bulk_calls[-1]
+    # Each file contributes one entity index + one relationship index =
+    # 2 actions * 2 body lines (action + source) = 4 lines per file.
+    assert len(combined_call) == 4 * 3
+
+    for i in range(3):
+        entities = backend.get_entities_for_files([f"f{i}"])
+        assert len(entities) == 1
+        assert entities[0]["entity_id"] == f"e{i}"
+
+
+def test_publish_code_batch_empty_is_noop() -> None:
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    bulk_calls_before = len(fake.bulk_calls)
+    backend.publish_code_batch([])
+    assert len(fake.bulk_calls) == bulk_calls_before
+
+
+def test_publish_code_batch_failure_raises_and_writes_nothing() -> None:
+    """All-or-nothing: when the combined bulk call fails, the exception
+    propagates uncaught (the caller decides bookkeeping), and none of
+    the batch's files end up indexed.
+    """
+
+    class FailingFake(FakeOpenSearch):
+        def bulk(self, body: list[dict[str, Any]]) -> dict[str, Any]:
+            raise RuntimeError("simulated cluster failure")
+
+    fake = FailingFake()
+    backend = _backend(client=fake)
+    items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=0,
+            entities=[_entity(entity_id=f"e{i}", file_id=f"f{i}")],
+            entity_snippets={f"e{i}": "x"},
+        )
+        for i in range(2)
+    ]
+    with pytest.raises(RuntimeError):
+        backend.publish_code_batch(items)
+    for i in range(2):
+        assert backend.get_entities_for_files([f"f{i}"]) == []
+
+
+def test_publish_code_batch_refreshes_once_not_per_item() -> None:
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=0,
+            entities=[_entity(entity_id=f"e{i}", file_id=f"f{i}")],
+            entity_snippets={f"e{i}": "x"},
+        )
+        for i in range(4)
+    ]
+    server_write_pass = ServerWritePass(source_id="s1", generation=0, generation_is_empty=True)
+    backend.publish_code_batch(items, server_write_pass=server_write_pass)
+    assert server_write_pass.bulk_requests == 1
+    assert server_write_pass.refresh_count == 2
