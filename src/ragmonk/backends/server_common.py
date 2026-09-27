@@ -575,13 +575,11 @@ class PassEntityResolver:
       ``lookup`` below), but it is exercised as soon as refreshes stop
       happening on every single file.
 
-    Safety invariant: nothing is ever staged into ``_overlay``/
-    ``_replaced_file_ids`` speculatively. ``commit_file`` must only be
-    called after the corresponding backend write has been durably
-    accepted (today that means: right after each file's own
-    ``backend.publish_code``/``publish_document`` call returns
-    successfully). There is deliberately no "discard on failure" method,
-    because nothing is ever staged before success in the first place.
+    Safety invariant: committed overlay state still changes only after
+    durable backend acceptance. Batched code publication additionally keeps
+    a separate reversible staged overlay so later files in the same unflushed
+    batch can resolve earlier files. Batch failure discards that staged state;
+    success promotes it through ``commit_file``.
     """
 
     def __init__(self, backend: KnowledgeBackend, server_write_pass: ServerWritePass) -> None:
