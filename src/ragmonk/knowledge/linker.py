@@ -409,6 +409,7 @@ def link_touched_files(
         # gets a no-op here since every write already refreshed itself.
         if server_write_pass is not None:
             backend.refresh_for_linking(source_id)
+            server_write_pass.refresh_count += 1
         read_generation = str(generation) if generation is not None else None
         all_entities = backend.list_source_entities(source_id, generation=read_generation)
         all_units = [
