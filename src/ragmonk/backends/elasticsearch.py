@@ -421,6 +421,58 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             conflicts="proceed",
         )
 
+    def delete_files_batch(
+        self,
+        source_id: str,
+        file_ids: list[str],
+        *,
+        server_write_pass: ServerWritePass | None = None,
+    ) -> None:
+        """Grouped whole-file deletion for server-mode source removals."""
+        if not file_ids:
+            return
+        client = self._get_client()
+        calls = 0
+        for batch in _batches(file_ids):
+            scoped = {
+                "bool": {
+                    "filter": [
+                        {"term": {"source_id": source_id}},
+                        {"terms": {"file_id": batch}},
+                    ]
+                }
+            }
+            for index in mappings.all_indices(self._prefix):
+                client.delete_by_query(
+                    index=index,
+                    query=scoped,
+                    refresh=server_write_pass is None,
+                    conflicts="proceed",
+                )
+                calls += 1
+            links = {
+                "bool": {
+                    "filter": [
+                        {"term": {"source_id": source_id}},
+                        {"term": {"doc_kind": "link"}},
+                    ],
+                    "should": [
+                        {"terms": {"entity_file_id": batch}},
+                        {"terms": {"document_file_id": batch}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+            client.delete_by_query(
+                index=mappings.relationships_index(self._prefix),
+                query=links,
+                refresh=server_write_pass is None,
+                conflicts="proceed",
+            )
+            calls += 1
+        if server_write_pass is not None:
+            server_write_pass.delete_by_query_count += calls
+
     def _delete_for_code(self, prepared_code: PreparedCode) -> None:
         """The delete-by-query half of ``publish_code``, factored out so
         batched publish (Server Indexing Performance V3, item 3) can still
