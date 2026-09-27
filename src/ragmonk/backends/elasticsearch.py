@@ -652,13 +652,14 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         # Deterministic ids make this idempotent -- inserting the same
         # candidate twice overwrites the same document rather than
         # duplicating, so "newly inserted" is exactly the count of ids
-        # not already present before this call.
+        # not already present before this call. Indexing optimization
+        # plan Phase P6/step 6: previously one ``client.exists()`` round
+        # trip per candidate (N+1); now one batched ``terms`` lookup
+        # across all candidate ids per ``_TERMS_BATCH``-sized group.
         client = self._get_client()
-        existing = {
-            action.doc_id
-            for action in actions
-            if client.exists(index=mappings.relationships_index(self._prefix), id=action.doc_id)
-        }
+        existing = self._existing_link_keys(
+            mappings.relationships_index(self._prefix), [action.doc_id for action in actions]
+        )
         run_bulk_or_raise(client, actions, self._config.bulk)
         client.indices.refresh(index=mappings.relationships_index(self._prefix))
         return len(actions) - len(existing)
