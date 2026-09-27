@@ -910,10 +910,18 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         # plan Phase P6/step 6: previously one ``client.exists()`` round
         # trip per candidate (N+1); now one batched ``terms`` lookup
         # across all candidate ids per ``_TERMS_BATCH``-sized group.
+        # Deduplicate identical natural keys inside this publish group before
+        # asking the server anything. Deterministic link ids make this exact.
+        actions = list({action.doc_id: action for action in actions}.values())
         client = self._get_client()
-        existing = self._existing_link_keys(
-            mappings.relationships_index(self._prefix), [action.doc_id for action in actions]
-        )
+        if server_write_pass is not None and server_write_pass.generation_is_empty:
+            # A newly-created generation is empty by contract, so these ids
+            # cannot already exist there. Avoid even the batched lookup.
+            existing: set[str] = set()
+        else:
+            existing = self._existing_link_keys(
+                mappings.relationships_index(self._prefix), [action.doc_id for action in actions]
+            )
         run_bulk_or_raise(client, actions, self._config.bulk)
         if server_write_pass is None:
             client.indices.refresh(index=mappings.relationships_index(self._prefix))
