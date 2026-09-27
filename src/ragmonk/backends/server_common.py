@@ -25,15 +25,19 @@ on each adapter), so an unpublished rebuild is never observable.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ragmonk.backends.models import (
     DocumentRecord,
     DocumentUnitRecord,
     FileRecord,
     LinkRecord,
+    ServerWritePass,
 )
 from ragmonk.core.models import Entity, EntityType
+
+if TYPE_CHECKING:
+    from ragmonk.backends.base import KnowledgeBackend
 
 DEFAULT_ACTIVE_GENERATION = "0"
 _SCAN_PAGE_SIZE = 1000
@@ -545,3 +549,107 @@ class ServerReadMixin:
                 if key is not None:
                     out.add(str(key))
         return out
+
+
+class PassEntityResolver:
+    """Server Indexing Performance V3, item 2: a pass-scoped replacement
+    for the per-file ``cache`` dict that ``code/processor.py::publish_code``
+    previously built fresh for every single file. One instance is
+    constructed per server-mode pass (in ``indexing/runner.py``, alongside
+    the ``ServerWritePass`` it wraps) and threaded down through
+    ``IndexCoordinator``/``ProcessorContext`` exactly like
+    ``ServerWritePass`` itself -- never shared across passes or sources,
+    never stored on a backend instance.
+
+    Two things it buys over the old per-file cache:
+
+    - Backend round-trips for a given ``(field, text)`` lookup are made at
+      most once per *pass* instead of once per *file* (every file used to
+      pay its own fresh ``find_entities_by_names`` call even when many
+      files in the same pass look up the same name).
+    - Entities from files already written earlier in *this* pass become
+      resolvable immediately via ``_overlay``, without waiting for a
+      refresh -- closing the gap that future batching-without-refresh work
+      needs. In today's still-refresh-after-every-file world this overlay
+      is usually redundant with what the backend would already return (see
+      ``lookup`` below), but it is exercised as soon as refreshes stop
+      happening on every single file.
+
+    Safety invariant: nothing is ever staged into ``_overlay``/
+    ``_replaced_file_ids`` speculatively. ``commit_file`` must only be
+    called after the corresponding backend write has been durably
+    accepted (today that means: right after each file's own
+    ``backend.publish_code``/``publish_document`` call returns
+    successfully). There is deliberately no "discard on failure" method,
+    because nothing is ever staged before success in the first place.
+    """
+
+    def __init__(self, backend: KnowledgeBackend, server_write_pass: ServerWritePass) -> None:
+        self._backend = backend
+        self._pass = server_write_pass
+        self._backend_cache: dict[tuple[str, str], list[Entity]] = {}
+        self._overlay: dict[str, list[Entity]] = {}
+        self._replaced_file_ids: set[str] = set()
+
+    def lookup_qualified(self, text: str, *, exclude_file_id: str) -> list[Entity]:
+        return self._lookup("qualified_name", text, exclude_file_id=exclude_file_id)
+
+    def lookup_name(self, text: str, *, exclude_file_id: str) -> list[Entity]:
+        return self._lookup("name", text, exclude_file_id=exclude_file_id)
+
+    def _overlay_matches(self, field: str, text: str, *, exclude_file_id: str) -> list[Entity]:
+        out: list[Entity] = []
+        for file_id, overlay_entities in self._overlay.items():
+            if file_id == exclude_file_id:
+                continue
+            out.extend(e for e in overlay_entities if getattr(e, field) == text)
+        return out
+
+    def _lookup(
+        self, field: Literal["qualified_name", "name"], text: str, *, exclude_file_id: str
+    ) -> list[Entity]:
+        if self._pass.generation_is_empty:
+            # Fresh/unpublished generation: there is nothing published to
+            # replace, so the backend has nothing useful to return for
+            # this source/generation yet -- resolve purely against files
+            # already committed earlier in this same pass, with zero
+            # backend round-trips.
+            return self._overlay_matches(field, text, exclude_file_id=exclude_file_id)
+
+        key = (field, text)
+        if key not in self._backend_cache:
+            found = (
+                self._backend.find_entities_by_names(
+                    qualified_names=[text],
+                    source_id=self._pass.source_id,
+                    generation=str(self._pass.generation),
+                )
+                if field == "qualified_name"
+                else self._backend.find_entities_by_names(
+                    names=[text],
+                    source_id=self._pass.source_id,
+                    generation=str(self._pass.generation),
+                )
+            )
+            self._backend_cache[key] = [e for e in found if getattr(e, field) == text]
+
+        # Backend results may include stale copies of files that this
+        # pass has already replaced (written a new version of) earlier --
+        # those are superseded by whatever is (or isn't) now in
+        # ``_overlay`` for that file_id, so drop them here rather than
+        # caching the filtered view (the raw backend result is what stays
+        # cached, since "replaced" status is pass-progress, not a
+        # property of the query itself).
+        result = [e for e in self._backend_cache[key] if e.file_id not in self._replaced_file_ids]
+        result.extend(self._overlay_matches(field, text, exclude_file_id=exclude_file_id))
+        return [e for e in result if e.file_id != exclude_file_id]
+
+    def commit_file(
+        self, file_id: str, entities: list[Entity], *, clear_only: bool = False
+    ) -> None:
+        """Records that ``file_id``'s write has been durably accepted by
+        the backend for this pass. Must only be called after that write
+        succeeds -- see class docstring.
+        """
+        self._replaced_file_ids.add(file_id)
+        self._overlay[file_id] = [] if clear_only else list(entities)

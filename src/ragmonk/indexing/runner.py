@@ -19,6 +19,7 @@ from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.backends.local import LocalKnowledgeBackend
 from ragmonk.backends.models import FileRecord as BackendFileRecord
 from ragmonk.backends.models import ServerWritePass
+from ragmonk.backends.server_common import PassEntityResolver
 from ragmonk.code.processor import code_processor, code_version_stamp, prepare_code, publish_code
 from ragmonk.core import paths
 from ragmonk.core.config import RagMonkConfig
@@ -385,6 +386,11 @@ def _run_source_pass(
     # means this pass is writing into a fresh/unpublished generation with
     # nothing in it yet.
     server_write_pass: ServerWritePass | None = None
+    # Server Indexing Performance V3, item 2: paired 1:1 with
+    # ``server_write_pass`` above -- one fresh ``PassEntityResolver`` per
+    # server-mode pass, never constructed for local mode, never reused
+    # across passes/sources (see its own docstring for the invariant).
+    pass_entity_resolver: PassEntityResolver | None = None
     if server:
         assert force_generation is not None
         published_for_pass = backend.published_generation(source.id)
@@ -397,6 +403,7 @@ def _run_source_pass(
             generation=force_generation,
             generation_is_empty=generation_is_empty,
         )
+        pass_entity_resolver = PassEntityResolver(backend, server_write_pass)
 
     coordinator = IndexCoordinator(
         conn,
@@ -409,6 +416,7 @@ def _run_source_pass(
         backend=backend,
         force_generation=force_generation,
         server_write_pass=server_write_pass,
+        pass_entity_resolver=pass_entity_resolver,
     )
     changed_paths = (
         scan_request.changed_paths if scan_request is not None and not scan_request.full else None

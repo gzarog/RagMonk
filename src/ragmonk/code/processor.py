@@ -221,6 +221,8 @@ def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOut
                     file_id=ctx.file_id, source_id=ctx.source_id, clear_only=True
                 )
             )
+        if ctx.pass_entity_resolver is not None:
+            ctx.pass_entity_resolver.commit_file(ctx.file_id, [], clear_only=True)
         return ProcessingOutcome(status=FileStatus.INDEXED)
 
     assert prepared.extraction is not None and prepared.namespace_local_id is not None
@@ -264,12 +266,30 @@ def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOut
     conn = ctx.conn
     this_file_id = ctx.file_id
 
-    if backend.is_server:
+    if backend.is_server and ctx.pass_entity_resolver is not None:
+        # Server Indexing Performance V3, item 2: resolve via the
+        # pass-scoped resolver (caches backend lookups across the whole
+        # pass, and overlays already-committed files in this pass)
+        # instead of building a fresh per-file cache.
+        resolver = ctx.pass_entity_resolver
+
+        def qualified_lookup(text: str) -> list[Entity]:
+            return resolver.lookup_qualified(text, exclude_file_id=this_file_id)
+
+        def name_lookup(name: str) -> list[Entity]:
+            return resolver.lookup_name(name, exclude_file_id=this_file_id)
+
+    elif backend.is_server:
         # Completion plan F1: in server mode the other files' entities
         # live in the server backend (never local SQLite) -- resolve
         # cross-file symbols there, reading exactly the generation this
         # pass is writing so an in-progress rebuild resolves against its
         # own freshly written entities, not the published ones.
+        #
+        # This branch is today's original per-call cache, kept unchanged
+        # for any server-mode caller with no ``pass_entity_resolver`` set
+        # on its ``ProcessorContext`` (e.g. a direct/legacy call, or most
+        # unit tests) -- zero behavior change for those callers.
         server_backend = backend
         source_id = ctx.source_id
         write_generation = str(ctx.next_generation)
@@ -338,6 +358,9 @@ def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOut
                 relationships=relationships,
             )
         )
+
+    if ctx.pass_entity_resolver is not None:
+        ctx.pass_entity_resolver.commit_file(this_file_id, entities)
 
     return ProcessingOutcome(status=FileStatus.INDEXED)
 

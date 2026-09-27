@@ -35,6 +35,7 @@ from typing import Any
 from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.backends.factory import redact_urls_in_text
 from ragmonk.backends.models import ServerWritePass
+from ragmonk.backends.server_common import PassEntityResolver
 from ragmonk.core.config import ChunkingConfig, RagMonkConfig
 from ragmonk.core.errors import SecurityViolationError
 from ragmonk.core.models import FileKind, FileRecord, FileStatus, IndexJob, ScannedFile
@@ -144,6 +145,12 @@ class ProcessorContext:
     # future V3 item can read/accumulate it without another threading
     # change.
     server_write_pass: ServerWritePass | None = None
+    # Server Indexing Performance V3, item 2: the pass-scoped entity
+    # resolver paired with ``server_write_pass`` above (``None`` whenever
+    # ``server_write_pass`` is, i.e. local mode or a coordinator-external
+    # ``ProcessorContext``). ``code/processor.py::publish_code`` uses it
+    # in place of its own per-call cache when present.
+    pass_entity_resolver: PassEntityResolver | None = None
 
 
 @dataclass(frozen=True)
@@ -478,6 +485,7 @@ class IndexCoordinator:
         backend: KnowledgeBackend | None = None,
         force_generation: int | None = None,
         server_write_pass: ServerWritePass | None = None,
+        pass_entity_resolver: PassEntityResolver | None = None,
     ) -> None:
         self._conn = conn
         self._source_id = source_id
@@ -510,6 +518,9 @@ class IndexCoordinator:
         # queued file's ``ProcessorContext`` (see ``_start_job``) -- ``None``
         # for local mode and every pre-V3 caller.
         self._server_write_pass = server_write_pass
+        # Server Indexing Performance V3, item 2: paired 1:1 with
+        # ``self._server_write_pass`` above and threaded the same way.
+        self._pass_entity_resolver = pass_entity_resolver
         # Indexing optimization plan, Phase P3: this run's file_id ->
         # verified FileIdentity, populated during the scan loop below
         # and consumed (popped) in ``_process_queue`` when building each
@@ -1055,6 +1066,7 @@ class IndexCoordinator:
             image_ocr=self._config.documents.image_ocr,
             file_identity=identity,
             server_write_pass=self._server_write_pass,
+            pass_entity_resolver=self._pass_entity_resolver,
         )
 
     def _finish_job(
