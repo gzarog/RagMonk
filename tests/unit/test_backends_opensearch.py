@@ -24,6 +24,7 @@ from ragmonk.backends.models import (
     PreparedDocument,
     PreparedEmbeddings,
     PreparedLinks,
+    ServerWritePass,
 )
 from ragmonk.backends.opensearch import OpenSearchKnowledgeBackend
 from ragmonk.backends.opensearch_bulk import (
@@ -126,12 +127,8 @@ def test_deterministic_ids_are_stable_across_calls_for_every_id_type() -> None:
     assert ids.chunk_doc_id("s1", "f1", "c1") == ids.chunk_doc_id("s1", "f1", "c1")
     assert ids.chunk_doc_id("s1", "f1", "c1") != ids.chunk_doc_id("s1", "f1", "c2")
 
-    assert ids.relationship_doc_id("s1", "f1", "r1") == ids.relationship_doc_id(
-        "s1", "f1", "r1"
-    )
-    assert ids.relationship_doc_id("s1", "f1", "r1") != ids.relationship_doc_id(
-        "s1", "f1", "r2"
-    )
+    assert ids.relationship_doc_id("s1", "f1", "r1") == ids.relationship_doc_id("s1", "f1", "r1")
+    assert ids.relationship_doc_id("s1", "f1", "r1") != ids.relationship_doc_id("s1", "f1", "r2")
 
 
 # -- health / no silent fallback ------------------------------------------
@@ -550,6 +547,36 @@ def test_publish_links_empty_returns_zero() -> None:
     assert backend.publish_links(PreparedLinks(source_id="s1", candidates=[])) == 0
 
 
+def test_publish_links_batches_existence_check_no_per_candidate_exists() -> None:
+    """Indexing optimization plan Phase P6/step 6: ``publish_links`` must
+    use one batched ``terms`` lookup for its newly-inserted-count dedupe,
+    never a ``client.exists()`` call per candidate (the old N+1 shape).
+    """
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    candidates = [
+        LinkCandidate(
+            entity_id=f"e{i}",
+            document_id=f"d{i}",
+            section_id=None,
+            link_type=RelationshipType.DOCUMENTED_BY,
+            resolver="resolver-a",
+            confidence=Confidence.HIGH,
+            evidence="matched name",
+        )
+        for i in range(25)
+    ]
+    inserted = backend.publish_links(PreparedLinks(source_id="s1", candidates=candidates))
+    assert inserted == 25
+    assert fake.exists_calls == 0
+
+    # Re-publishing the same candidates still dedupes correctly via the
+    # batched lookup, with no per-candidate exists() calls either.
+    inserted_again = backend.publish_links(PreparedLinks(source_id="s1", candidates=candidates))
+    assert inserted_again == 0
+    assert fake.exists_calls == 0
+
+
 # -- clear_source ---------------------------------------------------------
 
 
@@ -666,3 +693,411 @@ def test_count_stats_reports_real_counts() -> None:
     assert isinstance(stats, BackendStats)
     assert stats.files == 1
     assert stats.entities == 1
+
+
+# -- Server Indexing Performance V3, item 3: publish_code_batch -----------
+
+
+def test_publish_code_batch_combines_multiple_files_into_one_bulk_call() -> None:
+    """A batch flush spanning multiple distinct file_ids must issue
+    exactly ONE ``bulk`` HTTP call for the combined index actions, not
+    one per file.
+    """
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=0,
+            entities=[_entity(entity_id=f"e{i}", file_id=f"f{i}")],
+            entity_snippets={f"e{i}": "def do_thing(): ..."},
+            relationships=[_relationship(rel_id=f"r{i}", file_id=f"f{i}")],
+        )
+        for i in range(3)
+    ]
+    bulk_calls_before = len(fake.bulk_calls)
+    backend.publish_code_batch(items)
+    # Exactly one new bulk call combining all 3 files' actions (3 delete
+    # queries per file still run individually -- item 4 territory -- but
+    # the index bulk call itself is combined).
+    assert len(fake.bulk_calls) == bulk_calls_before + 1
+    combined_call = fake.bulk_calls[-1]
+    # Each file contributes one entity index + one relationship index =
+    # 2 actions * 2 body lines (action + source) = 4 lines per file.
+    assert len(combined_call) == 4 * 3
+
+    for i in range(3):
+        entities = backend.get_entities_for_files([f"f{i}"])
+        assert len(entities) == 1
+        assert entities[0]["entity_id"] == f"e{i}"
+
+
+def test_publish_code_batch_empty_is_noop() -> None:
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    bulk_calls_before = len(fake.bulk_calls)
+    backend.publish_code_batch([])
+    assert len(fake.bulk_calls) == bulk_calls_before
+
+
+def test_publish_code_batch_failure_raises_and_writes_nothing() -> None:
+    """All-or-nothing: when the combined bulk call fails, the exception
+    propagates uncaught (the caller decides bookkeeping), and none of
+    the batch's files end up indexed.
+    """
+
+    class FailingFake(FakeOpenSearch):
+        def bulk(self, body: list[dict[str, Any]]) -> dict[str, Any]:
+            raise RuntimeError("simulated cluster failure")
+
+    fake = FailingFake()
+    backend = _backend(client=fake)
+    items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=0,
+            entities=[_entity(entity_id=f"e{i}", file_id=f"f{i}")],
+            entity_snippets={f"e{i}": "x"},
+        )
+        for i in range(2)
+    ]
+    with pytest.raises(RuntimeError):
+        backend.publish_code_batch(items)
+    for i in range(2):
+        assert backend.get_entities_for_files([f"f{i}"]) == []
+
+
+def test_publish_code_batch_defers_refresh_when_pass_given() -> None:
+    """Server Indexing Performance V3, item 5: a batched publish under an
+    active ``ServerWritePass`` issues zero refresh calls -- the caller
+    refreshes explicitly at its own barrier points instead.
+    """
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=0,
+            entities=[_entity(entity_id=f"e{i}", file_id=f"f{i}")],
+            entity_snippets={f"e{i}": "x"},
+        )
+        for i in range(4)
+    ]
+    server_write_pass = ServerWritePass(source_id="s1", generation=0, generation_is_empty=True)
+    backend.publish_code_batch(items, server_write_pass=server_write_pass)
+    assert server_write_pass.bulk_requests == 1
+    assert fake.indices.refresh_calls == []
+
+
+def test_publish_code_batch_refreshes_immediately_without_pass() -> None:
+    """A direct/legacy call with no ``server_write_pass`` keeps the old
+    immediate refresh-after-write behavior unchanged.
+    """
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=0,
+            entities=[_entity(entity_id=f"e{i}", file_id=f"f{i}")],
+            entity_snippets={f"e{i}": "x"},
+        )
+        for i in range(4)
+    ]
+    backend.publish_code_batch(items)
+    assert len(fake.indices.refresh_calls) == 2
+
+
+# -- Server Indexing Performance V3, item 4: fast path + grouped deletes ----
+
+
+def test_publish_code_batch_fresh_generation_issues_zero_deletes() -> None:
+    """A batch flushed into a fresh/unpublished generation
+    (``generation_is_empty=True``) must skip delete-by-query entirely."""
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=1,
+            entities=[_entity(entity_id=f"e{i}", file_id=f"f{i}")],
+            entity_snippets={f"e{i}": "x"},
+        )
+        for i in range(5)
+    ]
+    server_write_pass = ServerWritePass(source_id="s1", generation=1, generation_is_empty=True)
+    calls_before = len(fake.delete_by_query_calls)
+    backend.publish_code_batch(items, server_write_pass=server_write_pass)
+    assert len(fake.delete_by_query_calls) == calls_before
+    assert server_write_pass.delete_by_query_count == 0
+    content_index = fake.store.get("ragmonk-content", {})
+    indexed_ids = {doc["entity_id"] for doc in content_index.values()}
+    for i in range(5):
+        assert f"e{i}" in indexed_ids
+
+
+def test_publish_document_batch_fresh_generation_issues_zero_deletes() -> None:
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    items = [
+        PreparedDocument(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=1,
+            document=Document(
+                id=f"doc{i}",
+                source_id="s1",
+                file_id=f"f{i}",
+                format=DocumentFormat.MARKDOWN,
+                generation=1,
+                created_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
+            ),
+            doc_title=f"Doc {i}",
+        )
+        for i in range(5)
+    ]
+    server_write_pass = ServerWritePass(source_id="s1", generation=1, generation_is_empty=True)
+    calls_before = len(fake.delete_by_query_calls)
+    backend.publish_document_batch(items, server_write_pass=server_write_pass)
+    assert len(fake.delete_by_query_calls) == calls_before
+    assert server_write_pass.delete_by_query_count == 0
+
+
+def test_publish_code_batch_fresh_generation_clear_only_contributes_nothing() -> None:
+    """``clear_only`` items in a fresh-generation batch contribute zero
+    content (no bulk actions) and cause zero delete calls."""
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    items = [
+        PreparedCode(file_id="f1", source_id="s1", generation=1, clear_only=True),
+        PreparedCode(
+            file_id="f2",
+            source_id="s1",
+            generation=1,
+            entities=[_entity(entity_id="e2", file_id="f2")],
+            entity_snippets={"e2": "x"},
+        ),
+    ]
+    server_write_pass = ServerWritePass(source_id="s1", generation=1, generation_is_empty=True)
+    bulk_calls_before = len(fake.bulk_calls)
+    backend.publish_code_batch(items, server_write_pass=server_write_pass)
+    assert server_write_pass.delete_by_query_count == 0
+    # Only f2's single entity action -- f1 (clear_only) contributes none.
+    assert len(fake.bulk_calls) == bulk_calls_before + 1
+    assert len(fake.bulk_calls[-1]) == 2  # one action + one source line
+    content_index = fake.store.get("ragmonk-content", {})
+    indexed_ids = {doc["entity_id"] for doc in content_index.values()}
+    assert "e2" in indexed_ids
+    assert not any(doc.get("file_id") == "f1" for doc in content_index.values())
+
+
+def test_publish_code_batch_incremental_grouped_delete_call_count_is_flat() -> None:
+    """Incremental (non-empty-generation) batches must issue a small,
+    flat number of delete-by-query calls -- 3 per (source_id, generation)
+    group, per _TERMS_BATCH-sized chunk -- regardless of batch size."""
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=1,
+            entities=[_entity(entity_id=f"e{i}", file_id=f"f{i}")],
+            entity_snippets={f"e{i}": "x"},
+        )
+        for i in range(10)
+    ]
+    server_write_pass = ServerWritePass(source_id="s1", generation=1, generation_is_empty=False)
+    calls_before = len(fake.delete_by_query_calls)
+    backend.publish_code_batch(items, server_write_pass=server_write_pass)
+    new_calls = len(fake.delete_by_query_calls) - calls_before
+    assert new_calls == 3  # entity + relationship + links, one terms group
+    assert server_write_pass.delete_by_query_count == 3
+
+
+def test_publish_document_batch_incremental_grouped_delete_call_count_is_flat() -> None:
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    items = [
+        PreparedDocument(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=1,
+            document=Document(
+                id=f"doc{i}",
+                source_id="s1",
+                file_id=f"f{i}",
+                format=DocumentFormat.MARKDOWN,
+                generation=1,
+                created_at="2024-01-01T00:00:00Z",
+                updated_at="2024-01-01T00:00:00Z",
+            ),
+            doc_title=f"Doc {i}",
+        )
+        for i in range(10)
+    ]
+    server_write_pass = ServerWritePass(source_id="s1", generation=1, generation_is_empty=False)
+    calls_before = len(fake.delete_by_query_calls)
+    backend.publish_document_batch(items, server_write_pass=server_write_pass)
+    new_calls = len(fake.delete_by_query_calls) - calls_before
+    assert new_calls == 3  # document + chunk + links, one terms group
+    assert server_write_pass.delete_by_query_count == 3
+
+
+def test_publish_code_batch_grouped_delete_replaces_stale_incremental_content() -> None:
+    """The grouped delete must still actually remove each file's previous
+    generation-scoped entities before the new ones are indexed -- same
+    end result as looping the per-file delete, just fewer calls."""
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+    # First publish (fresh generation) establishes old content.
+    old_items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=0,
+            entities=[_entity(entity_id=f"old-e{i}", file_id=f"f{i}")],
+            entity_snippets={f"old-e{i}": "x"},
+        )
+        for i in range(3)
+    ]
+    backend.publish_code_batch(
+        old_items,
+        server_write_pass=ServerWritePass(source_id="s1", generation=0, generation_is_empty=True),
+    )
+    for i in range(3):
+        assert backend.get_entities_for_files([f"f{i}"])[0]["entity_id"] == f"old-e{i}"
+
+    # Second, incremental publish into the SAME (now-active) generation
+    # replaces each file's entity.
+    new_items = [
+        PreparedCode(
+            file_id=f"f{i}",
+            source_id="s1",
+            generation=0,
+            entities=[_entity(entity_id=f"new-e{i}", file_id=f"f{i}")],
+            entity_snippets={f"new-e{i}": "x"},
+        )
+        for i in range(3)
+    ]
+    backend.publish_code_batch(
+        new_items,
+        server_write_pass=ServerWritePass(source_id="s1", generation=0, generation_is_empty=False),
+    )
+    for i in range(3):
+        entities = backend.get_entities_for_files([f"f{i}"])
+        assert len(entities) == 1
+        assert entities[0]["entity_id"] == f"new-e{i}"
+
+
+def test_publish_code_batch_grouped_delete_never_crosses_generation_or_source() -> None:
+    """Safety-critical: a grouped delete for (source_id=s1, generation=2)
+    must never touch generation 1's documents for s1, nor ANY generation's
+    documents for a different source -- even when file_ids collide."""
+    fake = FakeOpenSearch()
+    backend = _backend(client=fake)
+
+    # s1/generation=1: published content for f1/f2.
+    backend.publish_code_batch(
+        [
+            PreparedCode(
+                file_id="f1",
+                source_id="s1",
+                generation=1,
+                entities=[_entity(entity_id="gen1-e1", file_id="f1")],
+                entity_snippets={"gen1-e1": "x"},
+            ),
+            PreparedCode(
+                file_id="f2",
+                source_id="s1",
+                generation=1,
+                entities=[_entity(entity_id="gen1-e2", file_id="f2")],
+                entity_snippets={"gen1-e2": "x"},
+            ),
+        ],
+        server_write_pass=ServerWritePass(source_id="s1", generation=1, generation_is_empty=True),
+    )
+
+    # s2/generation=1 (a DIFFERENT source): content for the SAME file ids
+    # f1/f2 -- must not be touched by an s1-scoped grouped delete.
+    backend.publish_code_batch(
+        [
+            PreparedCode(
+                file_id="f1",
+                source_id="s2",
+                generation=1,
+                entities=[_entity(entity_id="s2-e1", file_id="f1", source_id="s2")],
+                entity_snippets={"s2-e1": "x"},
+            ),
+            PreparedCode(
+                file_id="f2",
+                source_id="s2",
+                generation=1,
+                entities=[_entity(entity_id="s2-e2", file_id="f2", source_id="s2")],
+                entity_snippets={"s2-e2": "x"},
+            ),
+        ],
+        server_write_pass=ServerWritePass(source_id="s2", generation=1, generation_is_empty=True),
+    )
+
+    # Now begin a rebuild for s1: generation=2, unpublished (fresh), write
+    # different content for f1/f2 -- fast path, no deletes expected/needed.
+    backend.publish_code_batch(
+        [
+            PreparedCode(
+                file_id="f1",
+                source_id="s1",
+                generation=2,
+                entities=[_entity(entity_id="gen2-e1", file_id="f1")],
+                entity_snippets={"gen2-e1": "x"},
+            ),
+            PreparedCode(
+                file_id="f2",
+                source_id="s1",
+                generation=2,
+                entities=[_entity(entity_id="gen2-e2", file_id="f2")],
+                entity_snippets={"gen2-e2": "x"},
+            ),
+        ],
+        server_write_pass=ServerWritePass(source_id="s1", generation=2, generation_is_empty=True),
+    )
+
+    # Now an INCREMENTAL grouped delete against s1/generation=1 (simulating
+    # a normal incremental pass still targeting the published generation)
+    # must remove ONLY s1/generation=1 documents -- s1/generation=2 and
+    # s2/generation=1 (same file ids) must survive untouched.
+    backend.publish_code_batch(
+        [
+            PreparedCode(
+                file_id="f1",
+                source_id="s1",
+                generation=1,
+                entities=[_entity(entity_id="gen1-e1-v2", file_id="f1")],
+                entity_snippets={"gen1-e1-v2": "x"},
+            ),
+        ],
+        server_write_pass=ServerWritePass(source_id="s1", generation=1, generation_is_empty=False),
+    )
+
+    content_index = fake.store.get("ragmonk-content", {})
+
+    def _entity_ids(source_id: str, generation: str) -> set[str]:
+        return {
+            doc["entity_id"]
+            for doc in content_index.values()
+            if doc.get("doc_kind") == "entity"
+            and doc.get("source_id") == source_id
+            and doc.get("generation") == generation
+        }
+
+    # f1's stale gen-1 entity was replaced; f2's gen-1 entity was NOT in
+    # this incremental batch, so it is untouched and still present.
+    assert _entity_ids("s1", "1") == {"gen1-e1-v2", "gen1-e2"}
+    assert _entity_ids("s1", "2") == {"gen2-e1", "gen2-e2"}  # untouched, different generation
+    assert _entity_ids("s2", "1") == {"s2-e1", "s2-e2"}  # untouched, different source

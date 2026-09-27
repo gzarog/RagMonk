@@ -31,6 +31,7 @@ from ragmonk.backends.models import (
     PreparedEmbeddings,
     PreparedLinks,
     SearchHit,
+    ServerWritePass,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -89,11 +90,32 @@ class KnowledgeBackend(ABC):
     @abstractmethod
     def publish_document(self, prepared_document: PreparedDocument) -> None: ...
 
+    # Server Indexing Performance V3, item 3: batch-capable variants.
+    # Default implementations simply loop over the one-item methods above,
+    # so ``LocalKnowledgeBackend`` and any other non-server backend gets
+    # correct behavior for free with no override needed. Real server
+    # backends (OpenSearch/Elasticsearch) override these to combine the
+    # bulk *index* call across every item into one HTTP bulk request.
+    # ``server_write_pass`` is server-mode-only telemetry, ignored here.
+    def publish_code_batch(
+        self, items: list[PreparedCode], *, server_write_pass: ServerWritePass | None = None
+    ) -> None:
+        for item in items:
+            self.publish_code(item)
+
+    def publish_document_batch(
+        self, items: list[PreparedDocument], *, server_write_pass: ServerWritePass | None = None
+    ) -> None:
+        for item in items:
+            self.publish_document(item)
+
     @abstractmethod
     def publish_embeddings(self, prepared_embeddings: PreparedEmbeddings) -> None: ...
 
     @abstractmethod
-    def publish_links(self, prepared_links: PreparedLinks) -> int:
+    def publish_links(
+        self, prepared_links: PreparedLinks, *, server_write_pass: ServerWritePass | None = None
+    ) -> int:
         """Writes ``prepared_links``'s candidates as ``CrossLink`` rows,
         deduplicating exactly like the pre-Phase-3 ``knowledge.linker._store``
         did (a link's natural-key uniqueness is enforced by the storage
@@ -171,9 +193,31 @@ class KnowledgeBackend(ABC):
         ``None`` -- local rebuild safety is file-backup based)."""
         return None
 
-    def upsert_files(self, file_records: list[FileRecord]) -> None:
+    def upsert_files(
+        self,
+        file_records: list[FileRecord],
+        *,
+        server_write_pass: ServerWritePass | None = None,
+    ) -> None:
         for record in file_records:
             self.upsert_file(record)
+
+    # Server Indexing Performance V3, item 5: explicit refresh barriers.
+    # No-ops here (local mode has no refresh concept); OpenSearch/
+    # Elasticsearch override both. ``refresh_for_linking`` makes the
+    # content/relationships indices visible right before
+    # ``knowledge.linker.link_touched_files`` performs its whole-corpus
+    # server reads. ``refresh_all`` is the end-of-incremental-pass sweep
+    # (files/content/relationships) that replaces the old "every write
+    # refreshes immediately" guarantee for readers outside this pass --
+    # never called for a fresh-generation pass, since
+    # ``publish_generation`` already refreshes everything once it swaps
+    # the marker.
+    def refresh_for_linking(self, source_id: str) -> None:
+        return None
+
+    def refresh_all(self, source_id: str) -> None:
+        return None
 
     def get_files(self, file_ids: list[str]) -> list[FileRecord]:
         raise NotImplementedError(f"{type(self).__name__}.get_files")

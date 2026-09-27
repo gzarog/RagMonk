@@ -76,8 +76,9 @@ from ragmonk.backends.models import (
     PreparedEmbeddings,
     PreparedLinks,
     SearchHit,
+    ServerWritePass,
 )
-from ragmonk.backends.server_common import ServerReadMixin
+from ragmonk.backends.server_common import ServerReadMixin, _batches
 from ragmonk.core.config import ServerStorageConfig
 from ragmonk.core.models import EmbeddingSubjectType
 
@@ -347,7 +348,12 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
     def upsert_file(self, file_record: FileRecord) -> None:
         self.upsert_files([file_record])
 
-    def upsert_files(self, file_records: list[FileRecord]) -> None:
+    def upsert_files(
+        self,
+        file_records: list[FileRecord],
+        *,
+        server_write_pass: ServerWritePass | None = None,
+    ) -> None:
         """Generation-tagged file records (completion plan F6) -- see
         ``OpenSearchKnowledgeBackend.upsert_files``.
         """
@@ -379,7 +385,8 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                 )
             )
         run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
-        self._get_client().indices.refresh(index=mappings.files_index(self._prefix))
+        if server_write_pass is None:
+            self._get_client().indices.refresh(index=mappings.files_index(self._prefix))
 
     def delete_file(self, source_id: str, file_id: str) -> None:
         """Removes every artifact of ``file_id`` across all generations,
@@ -414,11 +421,12 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             conflicts="proceed",
         )
 
-    def publish_code(self, prepared_code: PreparedCode) -> None:
-        """Deletes this file's previous-generation entities/relationships
-        (matching ``LocalKnowledgeBackend.publish_code``'s delete-then-
-        insert semantics) and bulk-indexes the new ones, all through the
-        bounded bulk path.
+    def _delete_for_code(self, prepared_code: PreparedCode) -> None:
+        """The delete-by-query half of ``publish_code``, factored out so
+        batched publish (Server Indexing Performance V3, item 3) can still
+        run it per-file while the bulk *index* call is combined across a
+        batch. Item 4 (future) is expected to group/replace these calls;
+        left per-file for now by explicit scope decision.
         """
         source_id = prepared_code.source_id
         file_id = prepared_code.file_id
@@ -435,9 +443,17 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             generation,
         )
         self._delete_links_for_file(source_id, file_id, "entity_file_id", generation)
-        if prepared_code.clear_only:
-            return
 
+    def _build_code_actions(self, prepared_code: PreparedCode) -> list[BulkAction]:
+        """Builds (without executing) the bulk index actions for one
+        file's entities/relationships -- the reusable core of both the
+        single-file ``publish_code`` and the batched ``publish_code_batch``.
+        """
+        if prepared_code.clear_only:
+            return []
+        source_id = prepared_code.source_id
+        file_id = prepared_code.file_id
+        generation = str(prepared_code.generation)
         actions: list[BulkAction] = []
         for entity in prepared_code.entities:
             snippet = prepared_code.entity_snippets.get(entity.id, entity.name)
@@ -493,11 +509,85 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                     },
                 )
             )
+        return actions
+
+    def publish_code(self, prepared_code: PreparedCode) -> None:
+        """Deletes this file's previous-generation entities/relationships
+        (matching ``LocalKnowledgeBackend.publish_code``'s delete-then-
+        insert semantics) and bulk-indexes the new ones, all through the
+        bounded bulk path.
+        """
+        self._delete_for_code(prepared_code)
+        actions = self._build_code_actions(prepared_code)
         if actions:
             run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
             self._refresh_content_and_relationships()
 
-    def publish_document(self, prepared_document: PreparedDocument) -> None:
+    def _delete_batch_for_code(
+        self, items: list[PreparedCode], server_write_pass: ServerWritePass | None
+    ) -> None:
+        """Server Indexing Performance V3, item 4: the grouped delete half
+        of ``publish_code_batch``. See
+        ``OpenSearchKnowledgeBackend._delete_batch_for_code`` for the full
+        rationale -- fast path when the pass's generation is empty,
+        otherwise grouped ``terms``-based deletes keeping the exact same
+        ``source_id``/``generation``/``doc_kind`` scoping the per-file
+        version used.
+        """
+        if server_write_pass is not None and server_write_pass.generation_is_empty:
+            return
+        by_scope: dict[tuple[str, str], list[str]] = {}
+        for item in items:
+            by_scope.setdefault((item.source_id, str(item.generation)), []).append(item.file_id)
+        content_index = mappings.content_index(self._prefix)
+        relationships_index = mappings.relationships_index(self._prefix)
+        calls = 0
+        for (source_id, generation), file_ids in by_scope.items():
+            for file_id_batch in _batches(file_ids):
+                self._delete_files_scoped(
+                    content_index, source_id, file_id_batch, "entity", generation
+                )
+                self._delete_files_scoped(
+                    relationships_index, source_id, file_id_batch, "relationship", generation
+                )
+                self._delete_links_for_files(
+                    source_id, file_id_batch, "entity_file_id", generation
+                )
+                calls += 3
+        if server_write_pass is not None:
+            server_write_pass.delete_by_query_count += calls
+
+    def publish_code_batch(
+        self,
+        items: list[PreparedCode],
+        *,
+        server_write_pass: ServerWritePass | None = None,
+    ) -> None:
+        """Server Indexing Performance V3, item 3+4: combines the bulk
+        *index* call across every item in ``items`` into one
+        ``run_bulk_or_raise`` invocation, refreshing once at the end, and
+        (item 4) replaces the per-file delete-by-query calls with a small
+        number of grouped ``terms``-based deletes -- see
+        ``_delete_batch_for_code``. All-or-nothing: any failure inside
+        ``run_bulk_or_raise`` propagates uncaught, and the caller
+        (``IndexCoordinator``) is responsible for not marking any file in
+        this batch as indexed.
+        """
+        if not items:
+            return
+        self._delete_batch_for_code(items, server_write_pass)
+        combined: list[BulkAction] = []
+        for prepared_code in items:
+            combined.extend(self._build_code_actions(prepared_code))
+        if combined:
+            run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            if server_write_pass is None:
+                self._refresh_content_and_relationships()
+            else:
+                server_write_pass.bulk_actions += len(combined)
+                server_write_pass.bulk_requests += 1
+
+    def _delete_for_document(self, prepared_document: PreparedDocument) -> None:
         source_id = prepared_document.source_id
         file_id = prepared_document.file_id
         content_index = mappings.content_index(self._prefix)
@@ -505,9 +595,13 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         self._delete_file_scoped(content_index, source_id, file_id, "document", generation)
         self._delete_file_scoped(content_index, source_id, file_id, "chunk", generation)
         self._delete_links_for_file(source_id, file_id, "document_file_id", generation)
-        if prepared_document.delete_only or prepared_document.document is None:
-            return
 
+    def _build_document_actions(self, prepared_document: PreparedDocument) -> list[BulkAction]:
+        if prepared_document.delete_only or prepared_document.document is None:
+            return []
+        source_id = prepared_document.source_id
+        file_id = prepared_document.file_id
+        generation = str(prepared_document.generation)
         document = prepared_document.document
         doc_title = prepared_document.doc_title
         actions = [
@@ -558,8 +652,68 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                     },
                 )
             )
-        run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
-        self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
+        return actions
+
+    def publish_document(self, prepared_document: PreparedDocument) -> None:
+        self._delete_for_document(prepared_document)
+        actions = self._build_document_actions(prepared_document)
+        if actions:
+            run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
+            self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
+
+    def _delete_batch_for_document(
+        self, items: list[PreparedDocument], server_write_pass: ServerWritePass | None
+    ) -> None:
+        """Document-pipeline counterpart of ``_delete_batch_for_code``
+        (Server Indexing Performance V3, item 4) -- same fast path and
+        same grouped ``terms``-based deletes, covering the document,
+        chunk, and document-links categories.
+        """
+        if server_write_pass is not None and server_write_pass.generation_is_empty:
+            return
+        by_scope: dict[tuple[str, str], list[str]] = {}
+        for item in items:
+            by_scope.setdefault((item.source_id, str(item.generation)), []).append(item.file_id)
+        content_index = mappings.content_index(self._prefix)
+        calls = 0
+        for (source_id, generation), file_ids in by_scope.items():
+            for file_id_batch in _batches(file_ids):
+                self._delete_files_scoped(
+                    content_index, source_id, file_id_batch, "document", generation
+                )
+                self._delete_files_scoped(
+                    content_index, source_id, file_id_batch, "chunk", generation
+                )
+                self._delete_links_for_files(
+                    source_id, file_id_batch, "document_file_id", generation
+                )
+                calls += 3
+        if server_write_pass is not None:
+            server_write_pass.delete_by_query_count += calls
+
+    def publish_document_batch(
+        self,
+        items: list[PreparedDocument],
+        *,
+        server_write_pass: ServerWritePass | None = None,
+    ) -> None:
+        """Document-pipeline counterpart of ``publish_code_batch``,
+        including item 4's grouped deletes -- see
+        ``_delete_batch_for_document``.
+        """
+        if not items:
+            return
+        self._delete_batch_for_document(items, server_write_pass)
+        combined: list[BulkAction] = []
+        for prepared_document in items:
+            combined.extend(self._build_document_actions(prepared_document))
+        if combined:
+            run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            if server_write_pass is None:
+                self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
+            else:
+                server_write_pass.bulk_actions += len(combined)
+                server_write_pass.bulk_requests += 1
 
     def publish_embeddings(self, prepared_embeddings: PreparedEmbeddings) -> None:
         """Updates each already-published entity/chunk document's
@@ -600,7 +754,9 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
         self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
 
-    def publish_links(self, prepared_links: PreparedLinks) -> int:
+    def publish_links(
+        self, prepared_links: PreparedLinks, *, server_write_pass: ServerWritePass | None = None
+    ) -> int:
         if not prepared_links.candidates:
             return 0
         source_id = prepared_links.source_id
@@ -652,15 +808,19 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         # Deterministic ids make this idempotent -- inserting the same
         # candidate twice overwrites the same document rather than
         # duplicating, so "newly inserted" is exactly the count of ids
-        # not already present before this call.
+        # not already present before this call. Indexing optimization
+        # plan Phase P6/step 6: previously one ``client.exists()`` round
+        # trip per candidate (N+1); now one batched ``terms`` lookup
+        # across all candidate ids per ``_TERMS_BATCH``-sized group.
         client = self._get_client()
-        existing = {
-            action.doc_id
-            for action in actions
-            if client.exists(index=mappings.relationships_index(self._prefix), id=action.doc_id)
-        }
+        existing = self._existing_link_keys(
+            mappings.relationships_index(self._prefix), [action.doc_id for action in actions]
+        )
         run_bulk_or_raise(client, actions, self._config.bulk)
-        client.indices.refresh(index=mappings.relationships_index(self._prefix))
+        if server_write_pass is None:
+            client.indices.refresh(index=mappings.relationships_index(self._prefix))
+        else:
+            server_write_pass.bulk_requests += 1
         return len(actions) - len(existing)
 
     def clear_source(self, source_id: str) -> None:
@@ -715,10 +875,82 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             conflicts="proceed",
         )
 
+    def _delete_files_scoped(
+        self,
+        index: str,
+        source_id: str,
+        file_ids: list[str],
+        doc_kind: str,
+        generation: str,
+    ) -> None:
+        """Grouped counterpart of ``_delete_file_scoped`` (item 4): same
+        ``source_id``/``doc_kind``/``generation`` ``term`` filters, with
+        ``file_id`` widened from one ``term`` to a ``terms`` clause over
+        ``file_ids`` (already ``_TERMS_BATCH``-sized by the caller).
+        ``refresh=False`` -- the caller still refreshes once at the end of
+        the batch flush (item 3's existing behavior; item 5 will revisit
+        refresh timing).
+        """
+        client = self._get_client()
+        query = {
+            "bool": {
+                "filter": [
+                    {"term": {"source_id": source_id}},
+                    {"terms": {"file_id": file_ids}},
+                    {"term": {"doc_kind": doc_kind}},
+                    {"term": {"generation": generation}},
+                ]
+            }
+        }
+        client.delete_by_query(index=index, query=query, refresh=False, conflicts="proceed")
+
+    def _delete_links_for_files(
+        self,
+        source_id: str,
+        file_ids: list[str],
+        field: str,
+        generation: str,
+    ) -> None:
+        """Grouped counterpart of ``_delete_links_for_file`` (item 4):
+        same ``source_id``/``doc_kind``/``generation`` filters, with the
+        entity- or document-side file id field widened to a ``terms``
+        clause over ``file_ids``.
+        """
+        query = {
+            "bool": {
+                "filter": [
+                    {"term": {"source_id": source_id}},
+                    {"term": {"doc_kind": "link"}},
+                    {"terms": {field: file_ids}},
+                    {"term": {"generation": generation}},
+                ]
+            }
+        }
+        self._get_client().delete_by_query(
+            index=mappings.relationships_index(self._prefix),
+            query=query,
+            refresh=False,
+            conflicts="proceed",
+        )
+
     def _refresh_content_and_relationships(self) -> None:
         client = self._get_client()
         client.indices.refresh(index=mappings.content_index(self._prefix))
         client.indices.refresh(index=mappings.relationships_index(self._prefix))
+
+    def refresh_for_linking(self, source_id: str) -> None:
+        """Server Indexing Performance V3, item 5 -- see
+        ``OpenSearchKnowledgeBackend.refresh_for_linking``.
+        """
+        self._refresh_content_and_relationships()
+
+    def refresh_all(self, source_id: str) -> None:
+        """Server Indexing Performance V3, item 5 -- see
+        ``OpenSearchKnowledgeBackend.refresh_all``.
+        """
+        client = self._get_client()
+        for index in mappings.all_indices(self._prefix):
+            client.indices.refresh(index=index)
 
     # -- reads / search ---------------------------------------------------
     def lexical_search(

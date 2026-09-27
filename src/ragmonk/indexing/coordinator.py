@@ -34,6 +34,8 @@ from typing import Any
 
 from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.backends.factory import redact_urls_in_text
+from ragmonk.backends.models import ServerWritePass
+from ragmonk.backends.server_common import PassEntityResolver
 from ragmonk.core.config import ChunkingConfig, RagMonkConfig
 from ragmonk.core.errors import SecurityViolationError
 from ragmonk.core.models import FileKind, FileRecord, FileStatus, IndexJob, ScannedFile
@@ -53,6 +55,7 @@ from ragmonk.sources.ignore import IgnoreMatcher
 from ragmonk.sources.scanner import ScanOutcome, check_root_accessible, scan
 from ragmonk.storage.repositories import errors_repo, files_repo, jobs_repo
 from ragmonk.storage.sqlite import connect as sqlite_connect
+from ragmonk.storage.sqlite import transaction
 from ragmonk.telemetry.logging import get_logger, log_event
 
 _logger = get_logger("indexer")
@@ -136,6 +139,19 @@ class ProcessorContext:
     # direct processor call) -- every such caller keeps hashing the
     # file itself, exactly as before this phase.
     file_identity: FileIdentity | None = None
+    # Server Indexing Performance V3, item 1: the per-pass server write
+    # context (``None`` in local mode, or a coordinator-external
+    # ``ProcessorContext`` such as most unit tests). Not yet consumed by
+    # any ``publish`` half's actual logic -- carried through only so a
+    # future V3 item can read/accumulate it without another threading
+    # change.
+    server_write_pass: ServerWritePass | None = None
+    # Server Indexing Performance V3, item 2: the pass-scoped entity
+    # resolver paired with ``server_write_pass`` above (``None`` whenever
+    # ``server_write_pass`` is, i.e. local mode or a coordinator-external
+    # ``ProcessorContext``). ``code/processor.py::publish_code`` uses it
+    # in place of its own per-call cache when present.
+    pass_entity_resolver: PassEntityResolver | None = None
 
 
 @dataclass(frozen=True)
@@ -456,6 +472,15 @@ class _PerThreadConnections:
             conn.close()
 
 
+# Server Indexing Performance V3, item 3: a hard cap on how many CODE
+# files' finalized payloads accumulate before a batch flush is forced,
+# independent of the action-count estimate below -- deliberately does
+# NOT scale with total repository size, so a very large source pass
+# never grows this buffer unbounded even if individual files are
+# entity-light.
+_CODE_BATCH_MAX_FILES = 200
+
+
 class IndexCoordinator:
     def __init__(
         self,
@@ -469,6 +494,8 @@ class IndexCoordinator:
         processors: ProcessorRegistry | None = None,
         backend: KnowledgeBackend | None = None,
         force_generation: int | None = None,
+        server_write_pass: ServerWritePass | None = None,
+        pass_entity_resolver: PassEntityResolver | None = None,
     ) -> None:
         self._conn = conn
         self._source_id = source_id
@@ -497,6 +524,13 @@ class IndexCoordinator:
         # (every other caller) keeps the pre-Phase-7 per-file bump
         # unchanged.
         self._force_generation = force_generation
+        # Server Indexing Performance V3, item 1: handed straight to every
+        # queued file's ``ProcessorContext`` (see ``_start_job``) -- ``None``
+        # for local mode and every pre-V3 caller.
+        self._server_write_pass = server_write_pass
+        # Server Indexing Performance V3, item 2: paired 1:1 with
+        # ``self._server_write_pass`` above and threaded the same way.
+        self._pass_entity_resolver = pass_entity_resolver
         # Indexing optimization plan, Phase P3: this run's file_id ->
         # verified FileIdentity, populated during the scan loop below
         # and consumed (popped) in ``_process_queue`` when building each
@@ -504,6 +538,16 @@ class IndexCoordinator:
         # call, not just here, since a caller may reuse one coordinator
         # instance across multiple runs (tests do).
         self._pending_identities: dict[str, FileIdentity] = {}
+        # Server Indexing Performance V3, item 3: accumulated finalized
+        # (phase-(a)-done, not-yet-written) CODE files awaiting a batched
+        # backend write. Only ever non-empty in server mode
+        # (``self._server_write_pass is not None``); local mode never
+        # buffers, it publishes each file immediately exactly as before.
+        # ``Any`` here (not ``FinalizedCode``) to avoid a module-level
+        # import cycle with ``ragmonk.code.processor`` (which itself
+        # imports ``ProcessorContext``/``ProcessingOutcome`` from this
+        # module) -- see ``_flush_code_batch``, which imports it lazily.
+        self._code_batch: list[tuple[IndexJob, FileRecord, float, Any]] = []
 
     def _reconcile_renames(
         self,
@@ -1041,6 +1085,8 @@ class IndexCoordinator:
             ocr=self._config.documents.ocr,
             image_ocr=self._config.documents.image_ocr,
             file_identity=identity,
+            server_write_pass=self._server_write_pass,
+            pass_entity_resolver=self._pass_entity_resolver,
         )
 
     def _finish_job(
@@ -1062,94 +1108,177 @@ class IndexCoordinator:
         try:
             outcome = run()
         except Exception as exc:  # noqa: BLE001 - a poisoned file must not abort the run
-            attempt = job.attempt_count + 1
-            permanent = retry.is_permanent(attempt)
-            # Completion plan F7: a server client's exception text may echo
-            # request details -- scrub before it is persisted/surfaced.
-            safe_message = redact_urls_in_text(str(exc))
-            jobs_repo.fail_with_backoff(
+            self._finish_failure(result, job, file, started, exc)
+        else:
+            self._finish_success(result, job, file, started, outcome)
+
+    def _finish_failure(
+        self,
+        result: IndexRunResult,
+        job: IndexJob,
+        file: FileRecord,
+        started: float,
+        exc: Exception,
+    ) -> None:
+        """The failure half of ``_finish_job``, factored out (Server
+        Indexing Performance V3, item 3) so a failed batch flush can
+        apply this exact retry/backoff/permanent-failure bookkeeping to
+        every file in the batch, not just a single one.
+        """
+        attempt = job.attempt_count + 1
+        permanent = retry.is_permanent(attempt)
+        # Completion plan F7: a server client's exception text may echo
+        # request details -- scrub before it is persisted/surfaced.
+        safe_message = redact_urls_in_text(str(exc))
+        jobs_repo.fail_with_backoff(
+            self._conn,
+            job.id,
+            error_code=type(exc).__name__,
+            error_message=safe_message,
+            next_attempt_at=None if permanent else retry.next_attempt_at(attempt),
+            permanent=permanent,
+        )
+        duration_ms = round((time.monotonic() - started) * 1000, 2)
+        if permanent:
+            files_repo.mark_failed(self._conn, file.id, error=safe_message, updated_at=_now())
+            errors_repo.record(
                 self._conn,
-                job.id,
+                source_id=self._source_id,
+                file_id=file.id,
+                path=file.path,
                 error_code=type(exc).__name__,
                 error_message=safe_message,
-                next_attempt_at=None if permanent else retry.next_attempt_at(attempt),
-                permanent=permanent,
             )
-            duration_ms = round((time.monotonic() - started) * 1000, 2)
-            if permanent:
-                files_repo.mark_failed(
-                    self._conn, file.id, error=safe_message, updated_at=_now()
-                )
-                errors_repo.record(
-                    self._conn,
-                    source_id=self._source_id,
-                    file_id=file.id,
-                    path=file.path,
-                    error_code=type(exc).__name__,
-                    error_message=safe_message,
-                )
-                result.failed += 1
-                log_event(
-                    _logger,
-                    "file_failed",
-                    level=logging.WARNING,
-                    source_id=self._source_id,
-                    file_id=file.id,
-                    duration_ms=duration_ms,
-                    error_code=type(exc).__name__,
-                )
-            else:
-                files_repo.update_status(self._conn, file.id, FileStatus.RETRY, updated_at=_now())
-                log_event(
-                    _logger,
-                    "file_retry_scheduled",
-                    level=logging.INFO,
-                    source_id=self._source_id,
-                    file_id=file.id,
-                    attempt=attempt,
-                )
-        else:
-            # Search Quality Improvement Plan, Phase 12: stamp the
-            # version-set that just produced this file's derived rows
-            # -- but only when the processor actually produced any
-            # (SKIPPED_LIMIT means it didn't touch document_sections/
-            # entities at all, so stamping a version here would claim
-            # a rebuild that never happened).
-            provider = self._processors.get_version_provider(file.kind)
-            versions = (
-                provider()
-                if provider is not None and outcome.status is not FileStatus.SKIPPED_LIMIT
-                else None
-            )
-            files_repo.mark_indexed(
-                self._conn,
-                file.id,
-                size=file.size,
-                mtime=file.mtime,
-                content_hash=file.content_hash,
-                status=outcome.status,
-                indexed_at=_now(),
-                parser_version=versions.parser_version if versions else None,
-                chunker_version=versions.chunker_version if versions else None,
-            )
-            jobs_repo.complete(self._conn, job.id)
-            duration_ms = round((time.monotonic() - started) * 1000, 2)
-            if outcome.status is FileStatus.SKIPPED_LIMIT:
-                result.skipped_limit += 1
-            else:
-                result.indexed += 1
-                if file.kind is FileKind.CODE:
-                    result.touched_code_file_ids.append(file.id)
-                elif file.kind is FileKind.DOCUMENT:
-                    result.touched_document_file_ids.append(file.id)
+            result.failed += 1
             log_event(
                 _logger,
-                "file_indexed",
+                "file_failed",
+                level=logging.WARNING,
                 source_id=self._source_id,
                 file_id=file.id,
                 duration_ms=duration_ms,
-                status=outcome.status.value,
+                error_code=type(exc).__name__,
             )
+        else:
+            files_repo.update_status(self._conn, file.id, FileStatus.RETRY, updated_at=_now())
+            log_event(
+                _logger,
+                "file_retry_scheduled",
+                level=logging.INFO,
+                source_id=self._source_id,
+                file_id=file.id,
+                attempt=attempt,
+            )
+
+    def _finish_success(
+        self,
+        result: IndexRunResult,
+        job: IndexJob,
+        file: FileRecord,
+        started: float,
+        outcome: ProcessingOutcome,
+    ) -> None:
+        """The success half of ``_finish_job``, factored out (Server
+        Indexing Performance V3, item 3) so a successful batch flush can
+        apply this exact mark-indexed/job-completion bookkeeping to
+        every file in the batch, in order, after the batch's backend
+        write is durably accepted.
+        """
+        # Search Quality Improvement Plan, Phase 12: stamp the
+        # version-set that just produced this file's derived rows
+        # -- but only when the processor actually produced any
+        # (SKIPPED_LIMIT means it didn't touch document_sections/
+        # entities at all, so stamping a version here would claim
+        # a rebuild that never happened).
+        provider = self._processors.get_version_provider(file.kind)
+        versions = (
+            provider()
+            if provider is not None and outcome.status is not FileStatus.SKIPPED_LIMIT
+            else None
+        )
+        files_repo.mark_indexed(
+            self._conn,
+            file.id,
+            size=file.size,
+            mtime=file.mtime,
+            content_hash=file.content_hash,
+            status=outcome.status,
+            indexed_at=_now(),
+            parser_version=versions.parser_version if versions else None,
+            chunker_version=versions.chunker_version if versions else None,
+        )
+        jobs_repo.complete(self._conn, job.id)
+        duration_ms = round((time.monotonic() - started) * 1000, 2)
+        if outcome.status is FileStatus.SKIPPED_LIMIT:
+            result.skipped_limit += 1
+        else:
+            result.indexed += 1
+            if file.kind is FileKind.CODE:
+                result.touched_code_file_ids.append(file.id)
+            elif file.kind is FileKind.DOCUMENT:
+                result.touched_document_file_ids.append(file.id)
+        log_event(
+            _logger,
+            "file_indexed",
+            source_id=self._source_id,
+            file_id=file.id,
+            duration_ms=duration_ms,
+            status=outcome.status.value,
+        )
+
+    def _code_batch_should_flush(self, latest: Any) -> bool:
+        """Server Indexing Performance V3, item 3: bounds
+        ``self._code_batch`` by two independent limits -- a hard
+        file-count cap (``_CODE_BATCH_MAX_FILES``, never scales with
+        repo size) and an action-count estimate derived from
+        ``BulkConfig`` (``max_actions * concurrency * 2`` -- an
+        aggregation window, NOT the actual per-HTTP-request size, which
+        ``run_bulk_or_raise`` still governs internally via
+        ``max_actions``/``max_bytes``).
+        """
+        if len(self._code_batch) >= _CODE_BATCH_MAX_FILES:
+            return True
+        bulk_cfg = self._config.storage.server.bulk
+        action_threshold = bulk_cfg.max_actions * bulk_cfg.concurrency * 2
+        estimated_actions = sum(
+            len(finalized.backend_prepared.entities) + len(finalized.backend_prepared.relationships)
+            for (_job, _file, _started, finalized) in self._code_batch
+        )
+        return estimated_actions >= action_threshold
+
+    def _flush_code_batch(self, result: IndexRunResult) -> None:
+        """Server Indexing Performance V3, item 3: the batch-flush half
+        of buffered CODE publish -- durably writes every accumulated
+        file's payload in ONE combined ``publish_code_batch`` call, then
+        applies delayed bookkeeping: on success, ``PassEntityResolver.
+        commit_file`` and mark-indexed for every file in the batch, in
+        order; on failure, the same retry/backoff/permanent-failure
+        handling ``_finish_job`` applies to a single file, applied to
+        every file in the batch -- no file in a failed batch is ever
+        marked indexed or committed to the resolver overlay.
+        """
+        if not self._code_batch:
+            return
+        batch = self._code_batch
+        self._code_batch = []
+        backend = self._backend
+        assert backend is not None, "code batching requires a server backend"
+        items = [finalized.backend_prepared for (_job, _file, _started, finalized) in batch]
+        try:
+            with transaction(self._conn):
+                backend.publish_code_batch(items, server_write_pass=self._server_write_pass)
+        except Exception as exc:  # noqa: BLE001 - a poisoned batch must not abort the run
+            for job, file, started, _finalized in batch:
+                self._finish_failure(result, job, file, started, exc)
+            return
+
+        for job, file, started, finalized in batch:
+            if self._pass_entity_resolver is not None:
+                self._pass_entity_resolver.commit_file(
+                    finalized.file_id, finalized.entities, clear_only=finalized.clear_only
+                )
+            outcome = ProcessingOutcome(status=FileStatus.INDEXED)
+            self._finish_success(result, job, file, started, outcome)
 
     def _document_cache_db_path(self) -> Path:
         """The on-disk path backing ``self._conn`` -- read straight off
@@ -1261,6 +1390,29 @@ class IndexCoordinator:
 
         def flush_one(kind: FileKind) -> None:
             job, file, ctx, started, future = pending[kind].pop(0)
+
+            # Server Indexing Performance V3, item 3: CODE files in
+            # server mode are not published immediately here -- their
+            # phase-(a) finalized payload is buffered and the actual
+            # backend write is deferred to a batch flush (see
+            # ``_flush_code_batch``). Local mode (``ctx.server_write_pass
+            # is None``) and every other kind (documents: explicitly
+            # deferred to a future session, see module/class docstrings)
+            # keep the exact immediate-publish path they always had.
+            if kind is FileKind.CODE and ctx.server_write_pass is not None:
+                from ragmonk.code.processor import finalize_code_for_publish
+
+                try:
+                    prepared = future.result()
+                    finalized = finalize_code_for_publish(ctx, prepared)
+                except Exception as exc:  # noqa: BLE001 - a poisoned file must not abort the run
+                    self._finish_failure(result, job, file, started, exc)
+                    return
+                self._code_batch.append((job, file, started, finalized))
+                if self._code_batch_should_flush(finalized):
+                    self._flush_code_batch(result)
+                return
+
             publish = self._processors.get_publish(file.kind)
 
             def run() -> ProcessingOutcome:
@@ -1278,6 +1430,7 @@ class IndexCoordinator:
             for kind in parallel_kinds:
                 while pending[kind]:
                     flush_one(kind)
+            self._flush_code_batch(result)
 
         with ExitStack() as stack:
             executors = {

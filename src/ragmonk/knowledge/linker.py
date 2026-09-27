@@ -53,7 +53,12 @@ from pathlib import Path
 from typing import Any
 
 from ragmonk.backends.base import KnowledgeBackend
-from ragmonk.backends.models import DocumentUnitRecord, LinkCandidate, PreparedLinks
+from ragmonk.backends.models import (
+    DocumentUnitRecord,
+    LinkCandidate,
+    PreparedLinks,
+    ServerWritePass,
+)
 from ragmonk.core.models import (
     Confidence,
     Entity,
@@ -72,6 +77,20 @@ from ragmonk.storage.repositories.documents_repo import DocumentUnit
 
 _ROUTE_TARGET_PREFIX = "http_endpoint:"
 _MIN_ALIAS_SEGMENTS = 3
+
+# Indexing optimization plan, Phase P6/step 6: bounds how many link
+# candidates ride in a single ``publish_links`` call -- large enough that
+# a normal pass's whole candidate set fits in one call (replacing the
+# previous one-call-per-touched-file shape), but bounded so a very large
+# incremental run still can't buffer an unbounded amount of link state in
+# memory before a backend write.
+_LINK_BATCH_SIZE = 5000
+
+
+def _batches_of(items: list[LinkCandidate], size: int) -> list[list[LinkCandidate]]:
+    if not items:
+        return []
+    return [items[i : i + size] for i in range(0, len(items), size)]
 
 
 def _needle_pattern(needle: str) -> re.Pattern[str] | None:
@@ -279,6 +298,7 @@ def _store(
     source_id: str,
     candidates: Sequence[LinkCandidate],
     generation: int | None = None,
+    server_write_pass: ServerWritePass | None = None,
 ) -> int:
     """Storage backend abstraction plan, Phase 3: the write half --
     previously built ``CrossLink`` rows and called ``links_repo.insert``
@@ -286,12 +306,17 @@ def _store(
     ``KnowledgeBackend.publish_links``, which does that same insert (see
     ``LocalKnowledgeBackend.publish_links``) and returns how many were
     newly inserted (a link's natural-key uniqueness dedupes exactly as
-    before).
+    before). ``server_write_pass``, when given (Server Indexing
+    Performance V3, item 5), tells the server backend to skip its
+    per-call refresh -- nothing downstream in this same pass reads the
+    relationships index for these link rows, so that refresh is deferred
+    to the caller's own barrier points.
     """
     if not candidates:
         return 0
     return backend.publish_links(
-        PreparedLinks(source_id=source_id, candidates=list(candidates), generation=generation)
+        PreparedLinks(source_id=source_id, candidates=list(candidates), generation=generation),
+        server_write_pass=server_write_pass,
     )
 
 
@@ -338,6 +363,7 @@ def link_touched_files(
     touched_code_file_ids: Sequence[str],
     touched_document_file_ids: Sequence[str],
     generation: int | None = None,
+    server_write_pass: ServerWritePass | None = None,
 ) -> int:
     """Cross-domain linking pass for one project, run once per source
     after its per-file processor queue has fully drained (see
@@ -370,6 +396,19 @@ def link_touched_files(
         # lives in the server backend -- read it from there, scoped to
         # this source and to the generation this pass is writing. ``conn``
         # is then only used for control-plane file paths (``files_repo``).
+        #
+        # Server Indexing Performance V3, item 5: the process-to-linker
+        # barrier. The coordinator's code/document batches just above
+        # this call may have flushed several times without refreshing
+        # (item 5 removed that per-batch refresh from the hot path), so
+        # this explicit refresh is what makes the whole-corpus reads
+        # below see every touched file's just-written content before the
+        # matchers run. Only meaningful for a real pass (``server_write_
+        # pass`` is not None for every server-mode caller of this
+        # function); a hypothetical bare server backend call with no pass
+        # gets a no-op here since every write already refreshed itself.
+        if server_write_pass is not None:
+            backend.refresh_for_linking(source_id)
         read_generation = str(generation) if generation is not None else None
         all_entities = backend.list_source_entities(source_id, generation=read_generation)
         all_units = [
@@ -393,7 +432,15 @@ def link_touched_files(
     entities_by_file = _group_entities_by_file(all_entities)
     units_by_file = _group_units_by_file(all_units)
 
-    inserted = 0
+    # Indexing optimization plan, Phase P6/step 6: candidates from every
+    # touched file (both code and document side) are accumulated here and
+    # handed to the backend in one (or a small, bounded number of)
+    # ``publish_links`` call(s) instead of one call per touched file --
+    # each server-side ``publish_links`` call today does its own
+    # existence-dedupe lookup and index refresh, so calling it once per
+    # file was the actual N+1 boundary above the per-candidate
+    # ``client.exists()`` loop inside ``publish_links`` itself.
+    all_candidates: list[LinkCandidate] = []
 
     # Indexing optimization plan, Phase P6: one batched query for every
     # touched code file's record, instead of the N individual
@@ -421,7 +468,7 @@ def link_touched_files(
             *match_filename(namespace_entity, filename_candidates, all_units),
             *match_route_heuristic(file_routes, all_units),
         ]
-        inserted += _store(backend, source_id, candidates, generation)
+        all_candidates.extend(candidates)
 
     # Indexing optimization plan, Phase P6: this whole per-project-file
     # ``namespace_by_file`` map (used only by the document-side loop
@@ -455,6 +502,9 @@ def link_touched_files(
         ]
         for namespace_entity, filename_candidates in namespace_by_file.values():
             candidates.extend(match_filename(namespace_entity, filename_candidates, file_units))
-        inserted += _store(backend, source_id, candidates, generation)
+        all_candidates.extend(candidates)
 
+    inserted = 0
+    for batch in _batches_of(all_candidates, _LINK_BATCH_SIZE):
+        inserted += _store(backend, source_id, batch, generation, server_write_pass)
     return inserted

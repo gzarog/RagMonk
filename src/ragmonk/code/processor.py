@@ -161,27 +161,32 @@ def prepare_code(path: Path, source_root: Path) -> PreparedCode:
     )
 
 
-def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOutcome:
-    """Resolves ``prepared``'s cross-file relationships and hands the
-    final entities/relationships to ``KnowledgeBackend.publish_code``
-    for the atomic delete-old-generation/insert-new-generation write --
-    on whichever thread calls this, which the coordinator guarantees is
-    always its single writer thread, never a parallel prepare worker
-    (Phase P4's "one transactional publisher" rule).
+@dataclass(slots=True)
+class FinalizedCode:
+    """Server Indexing Performance V3, item 3: the phase-(a) output of
+    ``finalize_code_for_publish`` -- everything needed to later both
+    write this file to the backend and call
+    ``PassEntityResolver.commit_file`` for it, without having done the
+    actual backend write yet (deferred to batch-flush time in server
+    mode).
+    """
 
-    Storage backend abstraction plan, Phase 3: only the *write* moved
-    behind the backend contract (see ``LocalKnowledgeBackend.
-    publish_code``). ``qualified_lookup``/``name_lookup`` below still
-    read ``entities_repo`` directly against ``ctx.conn`` -- a query
-    against the live project database to resolve *this* file's
-    relationships, not a write of authoritative state, so it stays out
-    of this phase's persistence-boundary scope (mirrors retrieval/search
-    staying direct -- see ``LocalKnowledgeBackend``'s module docstring).
-    ``ctx.backend`` is used when the coordinator supplied one; a
-    coordinator-external caller (most unit tests) gets a
-    ``LocalKnowledgeBackend`` constructed on demand, bound to the same
-    ``ctx.conn``, so nothing about this function's public behavior
-    changes for such a caller.
+    file_id: str
+    backend_prepared: BackendPreparedCode
+    entities: list[Entity]
+    clear_only: bool
+
+
+def finalize_code_for_publish(ctx: ProcessorContext, prepared: PreparedCode) -> FinalizedCode:
+    """Phase (a) of code publish: revalidates the file hasn't changed
+    since prepare, resolves cross-file relationships, and builds the
+    final ``BackendPreparedCode`` payload -- everything ``publish_code``
+    used to do immediately before calling ``backend.publish_code``, now
+    split out so a server-mode caller (``IndexCoordinator``) can buffer
+    the result into a batch instead of writing it straight away. Does
+    NOT call ``backend.publish_code`` or ``pass_entity_resolver.
+    commit_file`` -- that's phase (b), left to ``publish_code`` (direct/
+    non-batched callers) or the coordinator's batch flush.
     """
     assert ctx.conn is not None and ctx.file_id is not None and ctx.source_id is not None
     backend = ctx.backend
@@ -215,13 +220,14 @@ def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOut
         # A recognized "code" extension (per sources.detector) that Phase 2
         # has no grammar for yet -- index the file without entities
         # rather than failing the run.
-        with transaction(ctx.conn):
-            backend.publish_code(
-                BackendPreparedCode(
-                    file_id=ctx.file_id, source_id=ctx.source_id, clear_only=True
-                )
-            )
-        return ProcessingOutcome(status=FileStatus.INDEXED)
+        return FinalizedCode(
+            file_id=ctx.file_id,
+            backend_prepared=BackendPreparedCode(
+                file_id=ctx.file_id, source_id=ctx.source_id, clear_only=True
+            ),
+            entities=[],
+            clear_only=True,
+        )
 
     assert prepared.extraction is not None and prepared.namespace_local_id is not None
     extraction = prepared.extraction
@@ -264,12 +270,30 @@ def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOut
     conn = ctx.conn
     this_file_id = ctx.file_id
 
-    if backend.is_server:
+    if backend.is_server and ctx.pass_entity_resolver is not None:
+        # Server Indexing Performance V3, item 2: resolve via the
+        # pass-scoped resolver (caches backend lookups across the whole
+        # pass, and overlays already-committed files in this pass)
+        # instead of building a fresh per-file cache.
+        resolver = ctx.pass_entity_resolver
+
+        def qualified_lookup(text: str) -> list[Entity]:
+            return resolver.lookup_qualified(text, exclude_file_id=this_file_id)
+
+        def name_lookup(name: str) -> list[Entity]:
+            return resolver.lookup_name(name, exclude_file_id=this_file_id)
+
+    elif backend.is_server:
         # Completion plan F1: in server mode the other files' entities
         # live in the server backend (never local SQLite) -- resolve
         # cross-file symbols there, reading exactly the generation this
         # pass is writing so an in-progress rebuild resolves against its
         # own freshly written entities, not the published ones.
+        #
+        # This branch is today's original per-call cache, kept unchanged
+        # for any server-mode caller with no ``pass_entity_resolver`` set
+        # on its ``ProcessorContext`` (e.g. a direct/legacy call, or most
+        # unit tests) -- zero behavior change for those callers.
         server_backend = backend
         source_id = ctx.source_id
         write_generation = str(ctx.next_generation)
@@ -328,15 +352,47 @@ def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOut
             qualified_lookup=qualified_lookup,
             name_lookup=name_lookup,
         )
-        backend.publish_code(
-            BackendPreparedCode(
-                file_id=ctx.file_id,
-                source_id=ctx.source_id,
-                generation=ctx.next_generation,
-                entities=entities,
-                entity_snippets=entity_snippets,
-                relationships=relationships,
-            )
+        backend_prepared = BackendPreparedCode(
+            file_id=ctx.file_id,
+            source_id=ctx.source_id,
+            generation=ctx.next_generation,
+            entities=entities,
+            entity_snippets=entity_snippets,
+            relationships=relationships,
+        )
+
+    return FinalizedCode(
+        file_id=this_file_id,
+        backend_prepared=backend_prepared,
+        entities=entities,
+        clear_only=False,
+    )
+
+
+def publish_code(ctx: ProcessorContext, prepared: PreparedCode) -> ProcessingOutcome:
+    """Direct/non-batched publish: phase (a) (``finalize_code_for_publish``)
+    immediately followed by phase (b) -- the actual
+    ``backend.publish_code`` write and ``pass_entity_resolver.commit_file``
+    call -- exactly today's behavior, unchanged, for any caller without an
+    active batch (local mode, most unit tests, any other direct caller).
+    Server-mode batched publish (``IndexCoordinator``) calls
+    ``finalize_code_for_publish`` itself and defers phase (b) to its batch
+    flush instead of calling this function.
+    """
+    assert ctx.conn is not None
+    backend = ctx.backend
+    if backend is None:
+        from ragmonk.backends.local import LocalKnowledgeBackend
+
+        backend = LocalKnowledgeBackend(conn=ctx.conn)
+
+    finalized = finalize_code_for_publish(ctx, prepared)
+    with transaction(ctx.conn):
+        backend.publish_code(finalized.backend_prepared)
+
+    if ctx.pass_entity_resolver is not None:
+        ctx.pass_entity_resolver.commit_file(
+            finalized.file_id, finalized.entities, clear_only=finalized.clear_only
         )
 
     return ProcessingOutcome(status=FileStatus.INDEXED)

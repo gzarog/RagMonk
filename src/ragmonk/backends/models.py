@@ -151,6 +151,45 @@ class PreparedLinks:
 
 
 @dataclass(slots=True)
+class ServerWritePass:
+    """Server Indexing Performance V3, item 1: a plain, freshly-constructed-
+    per-pass context object carried through the write call chain
+    (``IndexCoordinator`` -> ``ProcessorContext`` -> ``publish_code``/
+    ``publish_document``, and ``knowledge.linker.link_touched_files``) for
+    one source's server-backend indexing pass. Constructed once in
+    ``indexing/runner.py`` (only when ``backend.is_server`` -- local mode
+    never builds one) and never shared or stored on any backend instance,
+    so nothing here is global/cross-pass state.
+
+    This item is purely additive: nothing yet reads these fields to change
+    behavior. Future V3 items (batching, refresh removal, delete grouping)
+    will consume ``generation_is_empty`` and accumulate the counters below.
+
+    ``generation_is_empty`` -- the field later sessions will trust without
+    re-deriving it -- is ``True`` only when this pass is writing into a
+    fresh/unpublished generation that has no prior content to replace: a
+    source's first-ever publication, or a full rebuild's new generation,
+    both created via ``begin_generation`` and not yet swapped in by
+    ``publish_generation``. It is ``False`` for an incremental pass writing
+    into the source's *currently published* generation (there
+    unpublished-and-empty is never true: other files' content already
+    lives there). See ``indexing/runner.py::_run_source_pass`` for exactly
+    where this is derived.
+    """
+
+    source_id: str
+    generation: int
+    generation_is_empty: bool
+    # Bounded per-pass telemetry counters -- not wired to any real logic
+    # yet; a future V3 item increments these as it adds batching/refresh/
+    # delete-grouping behavior.
+    bulk_actions: int = 0
+    bulk_requests: int = 0
+    delete_by_query_count: int = 0
+    refresh_count: int = 0
+
+
+@dataclass(slots=True)
 class SearchHit:
     """One backend-neutral search result row."""
 

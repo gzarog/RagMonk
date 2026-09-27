@@ -39,6 +39,9 @@ class _Indices:
     ) -> None:
         self._store = store
         self._mappings = mappings
+        # Server Indexing Performance V3, item 5 -- see
+        # ``_fake_opensearch.py``'s identical counter.
+        self.refresh_calls: list[str] = []
 
     def exists(self, index: str) -> bool:
         return index in self._store
@@ -54,6 +57,7 @@ class _Indices:
         return {"acknowledged": True}
 
     def refresh(self, index: str) -> dict[str, Any]:
+        self.refresh_calls.append(index)
         return {"_shards": {"total": 1}}
 
     def get_mapping(self, index: str) -> dict[str, Any]:
@@ -103,6 +107,8 @@ class FakeElasticsearch:
         self.fail_ids = dict(fail_ids or {})
         self.bulk_calls: list[list[dict[str, Any]]] = []
         self.version = version
+        self.exists_calls = 0
+        self.delete_by_query_calls: list[dict[str, Any]] = []
 
     def info(self) -> dict[str, Any]:
         if not self.reachable:
@@ -120,6 +126,7 @@ class FakeElasticsearch:
         return {"_index": index, "_id": id, "_source": doc, "found": True}
 
     def exists(self, index: str, id: str) -> bool:  # noqa: A002
+        self.exists_calls += 1
         return id in self.store.get(index, {})
 
     def index(self, index: str, id: str, document: dict[str, Any]) -> dict[str, Any]:  # noqa: A002
@@ -143,6 +150,7 @@ class FakeElasticsearch:
         refresh: bool = False,
         conflicts: str = "abort",
     ) -> dict[str, Any]:
+        self.delete_by_query_calls.append({"index": index, "query": copy.deepcopy(query)})
         docs = self.store.get(index, {})
         matches = [doc_id for doc_id, source in docs.items() if _matches(query, source)]
         for doc_id in matches:

@@ -18,6 +18,8 @@ from pathlib import Path
 from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.backends.local import LocalKnowledgeBackend
 from ragmonk.backends.models import FileRecord as BackendFileRecord
+from ragmonk.backends.models import ServerWritePass
+from ragmonk.backends.server_common import PassEntityResolver
 from ragmonk.code.processor import code_processor, code_version_stamp, prepare_code, publish_code
 from ragmonk.core import paths
 from ragmonk.core.config import RagMonkConfig
@@ -260,6 +262,7 @@ def _sync_server_files(
     generation: int,
     *,
     allow_deletes: bool,
+    server_write_pass: ServerWritePass | None = None,
 ) -> None:
     """Completion plan F1/F6: mirror the local control-plane file table
     for ``source_id`` into the server backend's (generation-tagged) file
@@ -317,7 +320,7 @@ def _sync_server_files(
                 generation=gen_int,
             )
         )
-    backend.upsert_files(upserts)
+    backend.upsert_files(upserts, server_write_pass=server_write_pass)
     if allow_deletes:
         for file_id in server_by_id:
             if file_id not in local_by_id:
@@ -374,6 +377,35 @@ def _run_source_pass(
         # write into the source's published generation.
         published = backend.published_generation(source.id)
         force_generation = generation_as_int(published) if published is not None else 0
+
+    # Server Indexing Performance V3, item 1: one fresh ServerWritePass per
+    # server-mode pass -- never constructed for local mode. ``generation_is_
+    # empty`` mirrors the exact same "is this generation the one currently
+    # published?" check ``_sync_server_files`` below already makes for its
+    # own upsert/delete decision (see that function's own comment) -- a
+    # generation id that differs from (or there is no) published generation
+    # means this pass is writing into a fresh/unpublished generation with
+    # nothing in it yet.
+    server_write_pass: ServerWritePass | None = None
+    # Server Indexing Performance V3, item 2: paired 1:1 with
+    # ``server_write_pass`` above -- one fresh ``PassEntityResolver`` per
+    # server-mode pass, never constructed for local mode, never reused
+    # across passes/sources (see its own docstring for the invariant).
+    pass_entity_resolver: PassEntityResolver | None = None
+    if server:
+        assert force_generation is not None
+        published_for_pass = backend.published_generation(source.id)
+        generation_is_empty = (
+            published_for_pass is None
+            or generation_as_int(published_for_pass) != force_generation
+        )
+        server_write_pass = ServerWritePass(
+            source_id=source.id,
+            generation=force_generation,
+            generation_is_empty=generation_is_empty,
+        )
+        pass_entity_resolver = PassEntityResolver(backend, server_write_pass)
+
     coordinator = IndexCoordinator(
         conn,
         source.id,
@@ -384,6 +416,8 @@ def _run_source_pass(
         processors=processors,
         backend=backend,
         force_generation=force_generation,
+        server_write_pass=server_write_pass,
+        pass_entity_resolver=pass_entity_resolver,
     )
     changed_paths = (
         scan_request.changed_paths if scan_request is not None and not scan_request.full else None
@@ -406,9 +440,17 @@ def _run_source_pass(
             source.id,
             force_generation,
             allow_deletes=not result.source_offline and not result.scan_incomplete,
+            server_write_pass=server_write_pass,
         )
 
     if result.source_offline:
+        # Same barrier as the normal end-of-pass one below (item 5): this
+        # early return also follows a (possibly empty, but not
+        # necessarily -- an offline source can still have synced file
+        # records above) ``_sync_server_files`` call whose own refresh
+        # was deferred.
+        if server_write_pass is not None and not server_write_pass.generation_is_empty:
+            backend.refresh_all(source.id)
         became_offline = source.status is not SourceStatus.OFFLINE
         sources_repo.update_scan_result(
             ctx.sources_conn,
@@ -455,6 +497,7 @@ def _run_source_pass(
                 touched_code_file_ids=result.touched_code_file_ids,
                 touched_document_file_ids=result.touched_document_file_ids,
                 generation=force_generation if server else None,
+                server_write_pass=server_write_pass,
             )
         result.timings.linking_seconds = time.monotonic() - _linking_started
 
@@ -542,6 +585,21 @@ def _run_source_pass(
                     rebuild_deleted_ratio=ctx.config.search.vector.rebuild_deleted_ratio,
                 )
                 result.timings.ann_sync_seconds = time.monotonic() - _ann_started
+
+    # Server Indexing Performance V3, item 5: the end-of-incremental-pass
+    # refresh barrier. Every write this pass made (code/document batches,
+    # ``upsert_files``, ``publish_links``) skipped its own per-call
+    # refresh when a ``server_write_pass`` was active, so this is the one
+    # explicit sweep that makes it all visible to any reader outside this
+    # pass (a search request, another process, the next pass's resolver
+    # reading the now-published state). Skipped for a fresh-generation
+    # pass (``server_write_pass.generation_is_empty``): that case's
+    # caller always calls ``publish_generation`` right after this
+    # function returns, which already refreshes every index once it
+    # swaps the marker -- refreshing here too would just be a redundant
+    # extra round trip.
+    if server_write_pass is not None and not server_write_pass.generation_is_empty:
+        backend.refresh_all(source.id)
 
     sources_repo.update_scan_result(
         ctx.sources_conn,

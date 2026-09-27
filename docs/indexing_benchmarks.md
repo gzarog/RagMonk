@@ -426,6 +426,87 @@ Re-run the suite yourself before trusting these numbers on different
 hardware or corpus shapes -- they are a reproducible reference point,
 not a performance guarantee.
 
+## Server write-path link batching (September 2026)
+
+This pass targeted one of the N+1 boundaries in the server write path:
+`knowledge/linker.py::link_touched_files` previously called
+`backend.publish_links` once per touched file, and each of those calls
+did its own per-candidate `client.exists()` round trip to compute a
+"newly inserted" count. Both are now batched:
+
+- `link_touched_files` accumulates link candidates across **every**
+  touched file (code and document side) in a pass and hands them to
+  `backend.publish_links` in bounded groups of up to `_LINK_BATCH_SIZE`
+  (5,000) candidates, instead of one `publish_links` call per file.
+- `OpenSearchKnowledgeBackend.publish_links` /
+  `ElasticsearchKnowledgeBackend.publish_links` replace the per-candidate
+  `client.exists()` loop with one batched `terms` lookup on `link_key`
+  per `_TERMS_BATCH` (1,000) group of candidate ids
+  (`ServerReadMixin._existing_link_keys`, `backends/server_common.py`),
+  mirroring the existing `_entity_file_ids`/`_document_file_ids` pattern.
+  The returned "newly inserted" count is unchanged.
+
+**No live OpenSearch/Elasticsearch cluster was available in this
+sandboxed environment**, so this change could not be validated with real
+wall-clock before/after numbers the way the rest of this document's
+tables were. In its place:
+
+- `tests/unit/test_backends_opensearch.py::test_publish_links_batches_existence_check_no_per_candidate_exists`
+  and the equivalent Elasticsearch test assert **zero** `client.exists()`
+  calls for a multi-candidate `publish_links` call (both on first insert
+  and on a dedup re-publish), using a call counter added to
+  `tests/unit/_fake_opensearch.py` / `_fake_elasticsearch.py`
+  (`FakeOpenSearch.exists_calls` / `FakeElasticsearch.exists_calls`).
+- The full existing `test_backends_opensearch.py` / `_elasticsearch.py`
+  / `test_linker*.py` suites (structural/request-shape assertions
+  against the fakes, not wall-clock timing) continue to pass, so
+  `publish_links`'s idempotency and dedup semantics are unchanged.
+
+A reviewer with access to a real cluster should run
+`python -m benchmarks.server_indexing` (see "CI-safe harness test"
+above and `benchmarks/server_indexing/`) before and after this change
+against a corpus with enough touched files per pass and enough existing
+links to make the removed `client.exists()` N+1 and per-file
+`publish_links` calls visible in wall-clock terms, and report the real
+numbers rather than relying on the structural tests alone.
+
+### Scope note
+
+This effort shipped in six steps on the same branch: the link-publication
+N+1 fix, then five further steps implementing the pass-scoped write
+context (`ServerWritePass`), the pass-local entity resolver
+(`PassEntityResolver`), batched code publish with delayed `INDEXED`
+bookkeeping, the fresh-generation fast path plus grouped incremental
+deletes, and the refresh/read-barrier rework. See the `CHANGELOG.md`
+entries "Server indexing: batched link publication (N+1 fix)" and
+"Server indexing: pass-scoped batching (V3 items 1-5)" for exactly what
+changed at each step.
+
+**Explicitly not done:** document-pipeline batching in
+`IndexCoordinator` (documents still flush one file at a time, though the
+batch-capable backend method exists), grouping of the `delete_file`
+whole-file-removal path, wiring `ServerWritePass`'s telemetry counters
+into any log/CLI/dashboard surface, and extending
+`benchmarks/server_indexing/bulk_capture.py` to count refresh/
+delete_by_query/exists calls. None of these were attempted in this
+sandbox, and none are silent gaps -- they're recorded here and in
+`CHANGELOG.md` as explicit follow-up work.
+
+**No live OpenSearch/Elasticsearch cluster was available at any point in
+this effort** (this sandbox has no cluster and the `opensearchpy`/
+`elasticsearch` client packages aren't installed), so no real wall-clock
+before/after numbers exist for any step above. All correctness and
+performance-characteristic claims in this effort are backed by unit
+tests against the in-memory fake clients (`tests/unit/_fake_opensearch.py`
+/ `_fake_elasticsearch.py`) plus request/call-count assertions (e.g.
+"zero `delete_by_query` calls for a fresh generation", "exactly 2
+refreshes per incremental pass regardless of file count") -- not by
+measured wall-clock time. A reviewer with real cluster access should
+run `python -m benchmarks.server_indexing` (see above) before and after
+this branch to validate the original plan's hard performance gates
+(2,100-file cold-index wall time, bulk request count, refresh count,
+etc.) with real numbers.
+
 ### CI-safe harness test
 
 `tests/unit/test_benchmarks_server_indexing.py` exercises the corpus

@@ -7,6 +7,150 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server indexing: batched link publication (N+1 fix)
+
+- **Changed: `knowledge/linker.py::link_touched_files` batches
+  `publish_links` across a whole pass.** Previously it called
+  `backend.publish_links` once per touched code/document file; it now
+  accumulates every touched file's link candidates (code and document
+  side) and calls `publish_links` in bounded groups of up to 5,000
+  candidates, cutting the number of server round trips from one per
+  touched file to a small, bounded number per pass. Returned
+  inserted-count semantics are unchanged.
+- **Changed: `publish_links` no longer does a per-candidate
+  `client.exists()` round trip.** Both `OpenSearchKnowledgeBackend` and
+  `ElasticsearchKnowledgeBackend` now compute the "newly inserted" count
+  via one batched `terms` query on `link_key` per 1,000-candidate group
+  (`ServerReadMixin._existing_link_keys`, shared in
+  `backends/server_common.py`), mirroring the batched-lookup pattern
+  already used by `_entity_file_ids`/`_document_file_ids`. This removes
+  an N+1 (`client.exists()` per link candidate) that previously scaled
+  with the number of link candidates in a run.
+- **Compatibility:** local (SQLite) mode is untouched -- this only
+  changes the server (`is_server`) write path. `publish_links`'s public
+  contract (idempotent by natural key, returns newly-inserted count) is
+  unchanged; existing direct single-call test sites keep passing as-is.
+- **Testing:** `tests/unit/_fake_opensearch.py` / `_fake_elasticsearch.py`
+  gained an `exists_calls` counter; new tests in
+  `test_backends_opensearch.py` / `test_backends_elasticsearch.py` assert
+  zero `client.exists()` calls for a multi-candidate `publish_links` call
+  (first insert and dedup re-publish alike). Full existing unit suite
+  (1020 tests), `ruff check`, and `mypy` all pass.
+- **Follow-up (this same effort, later commits on this branch):** the
+  broader server-indexing-performance rework described below was
+  completed in five further steps -- pass-scoped write context,
+  pass-local entity resolver, batched code publish, fresh-generation
+  delete-by-query skipping / grouped incremental deletes, and
+  refresh-barrier rework. See "Server indexing: pass-scoped batching
+  (V3 items 1-5)" below.
+
+### Server indexing: pass-scoped batching (V3 items 1-5)
+
+- **Added: `ServerWritePass` context (`backends/models.py`).** A small,
+  freshly-constructed-per-pass object carrying `source_id`, `generation`,
+  `generation_is_empty` (true for a first publication or unpublished
+  rebuild generation with nothing to replace; false for an incremental
+  pass against the currently-published generation), and bounded write
+  telemetry counters. Never stored on a backend singleton -- built once
+  per pass in `indexing/runner.py::_run_source_pass` (server mode only)
+  and threaded through `IndexCoordinator`, `ProcessorContext`, and
+  `knowledge/linker.py::link_touched_files`. Absent (direct/legacy
+  callers, existing unit tests), every backend method falls back to its
+  original one-item, immediately-visible behavior unchanged.
+- **Added: `PassEntityResolver` (`backends/server_common.py`).**
+  Pass-scoped cross-file entity-reference resolver. For a known-empty
+  generation it never queries the backend, resolving only against an
+  in-pass overlay of entities committed by files processed earlier in
+  the same pass. For an incremental pass it caches
+  `find_entities_by_names` lookups for the whole pass (not per file as
+  before), filters out entities belonging to files already replaced this
+  pass, and overlays their new entities. `commit_file(...)` is called
+  only after a file's batch write durably succeeds -- never speculatively
+  staged. Wired into `code/processor.py::publish_code`'s
+  `qualified_lookup`/`name_lookup`, replacing a cache that was previously
+  scoped to a single file's call rather than the whole pass.
+- **Added: batched code publish with delayed INDEXED bookkeeping.**
+  `KnowledgeBackend.publish_code_batch(items, *, server_write_pass=None)`
+  (default implementation loops the one-item method, so local mode and
+  non-server backends need no changes) is implemented for real in
+  `opensearch.py`/`elasticsearch.py`: finalized per-file payloads from
+  `code/processor.py::finalize_code_for_publish` are accumulated by
+  `IndexCoordinator` into a bounded batch (capped by both an
+  action-count estimate derived from `BulkConfig.max_actions` and an
+  independent hard file-count cap, never by repository size) and flushed
+  through one combined `run_bulk_or_raise` call instead of one call per
+  file. A file is marked `INDEXED` and its resolver overlay is committed
+  only after its batch's write is durably accepted; on batch failure, no
+  file in that batch is marked indexed and no overlay state is
+  committed. Document publication (`publish_document_batch`) continues
+  to exist as the one-item-equivalent batch entry point but was not
+  extended with the same multi-file buffering in `IndexCoordinator` --
+  see "Not done" below.
+- **Added: fresh-generation fast path + grouped incremental deletes.**
+  When `server_write_pass.generation_is_empty` is true, `publish_code_batch`
+  and `publish_document_batch` skip `delete_by_query` entirely for that
+  batch. For an incremental pass, the previous per-file delete-by-query
+  calls (one query per file per index category) are replaced with a
+  small, bounded number of `terms`-based grouped deletes per index
+  category, scoped identically to the old per-file queries
+  (`source_id` + `generation` + doc-kind, with `file_id` widened from a
+  `term` to a `terms` clause) -- verified with a dedicated test that a
+  grouped delete never crosses generation or source boundaries.
+- **Changed: refresh/read barriers.** `publish_code_batch`,
+  `publish_document_batch`, `upsert_files`, and `publish_links` no longer
+  refresh after every write when an active `ServerWritePass` is present;
+  refresh only happens explicitly now, at two points per incremental
+  pass: once before `knowledge.linker` reads server content
+  (`refresh_for_linking`), and once at final pass completion
+  (`refresh_all`). A fresh-generation/rebuild pass needs neither, since
+  `publish_generation` already refreshes everything at the end.
+  Direct/legacy one-item calls with no `ServerWritePass` keep refreshing
+  immediately, unchanged. Cross-batch entity resolution was verified
+  (with a dedicated test forcing the fake backend to return stale/empty
+  results) to depend only on `PassEntityResolver`'s overlay, not on
+  refresh timing, so no additional between-batch refresh was required
+  for correctness.
+- **Real remaining refresh-call frequency:** a fresh-generation pass does
+  zero refreshes from this code path (relying on `publish_generation`'s
+  existing one); an incremental pass does exactly 2 refresh round trips
+  total, regardless of file or batch count -- replacing what was
+  previously 1 or more refreshes per file/batch.
+- **Compatibility:** local (SQLite) mode is completely unchanged. Direct
+  single-item backend calls (existing tests, non-pass-context callers)
+  keep their original immediate-visibility, per-item delete/refresh
+  behavior exactly as before.
+- **Testing:** full unit suite passes (1322 passed, 14 skipped --
+  pre-existing environment gaps: optional `opensearchpy`/`elasticsearch`
+  client packages not installed in this sandbox, POSIX permission-bit
+  tests skipped under root), `ruff check`, and `mypy` all clean. New
+  tests cover: cross-file batch aggregation, batch failure leaving zero
+  files indexed and no resolver overlay committed, fresh-generation
+  zero-delete batches, grouped-delete generation/source isolation,
+  cross-batch resolver correctness independent of refresh timing, and
+  OpenSearch/Elasticsearch parity throughout.
+- **Not done in this effort** (explicit deferrals, not silent gaps):
+  - Document-pipeline batching was not extended with the same
+    multi-file `IndexCoordinator`-side buffering that code publication
+    got; documents still flow through the coordinator one file at a
+    time (the batch-capable backend method exists and is conditionally
+    refresh-deferred, but nothing yet accumulates multiple documents
+    into one flush).
+  - `delete_file` (whole-file removal when a file is deleted from disk)
+    was not grouped -- it still issues one `delete_by_query` per index
+    per removed file, a separate, lower-traffic code path from the
+    per-batch publish/delete logic above.
+  - `ServerWritePass`'s telemetry counters (`bulk_actions`,
+    `bulk_requests`, `delete_by_query_count`) are incremented but not
+    yet surfaced through any log line, CLI output, or dashboard; no
+    session extended `benchmarks/server_indexing/bulk_capture.py` to
+    also count refresh/delete_by_query/exists calls.
+  - **No live OpenSearch/Elasticsearch cluster was available in this
+    sandbox** at any point in this effort, so no real wall-clock
+    before/after numbers exist for any of the above -- see
+    `docs/indexing_benchmarks.md` for what a reviewer with cluster
+    access should run (`benchmarks/server_indexing/`) to get real
+    numbers and validate the plan's original performance gates.
+
 ### Server backends completion (OpenSearch/Elasticsearch, completion plan V3)
 
 - **Fixed: `ragmonk docs` and `ragmonk link` are server-aware.** Both
