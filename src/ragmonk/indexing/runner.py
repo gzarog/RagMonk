@@ -322,9 +322,12 @@ def _sync_server_files(
         )
     backend.upsert_files(upserts, server_write_pass=server_write_pass)
     if allow_deletes:
-        for file_id in server_by_id:
-            if file_id not in local_by_id:
-                backend.delete_file(source_id, file_id)
+        deleted_file_ids = [file_id for file_id in server_by_id if file_id not in local_by_id]
+        backend.delete_files_batch(
+            source_id,
+            deleted_file_ids,
+            server_write_pass=server_write_pass,
+        )
 
 
 def _run_source_pass(
