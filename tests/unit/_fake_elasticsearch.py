@@ -103,6 +103,7 @@ class FakeElasticsearch:
         self.fail_ids = dict(fail_ids or {})
         self.bulk_calls: list[list[dict[str, Any]]] = []
         self.version = version
+        self.exists_calls = 0
 
     def info(self) -> dict[str, Any]:
         if not self.reachable:
@@ -120,6 +121,7 @@ class FakeElasticsearch:
         return {"_index": index, "_id": id, "_source": doc, "found": True}
 
     def exists(self, index: str, id: str) -> bool:  # noqa: A002
+        self.exists_calls += 1
         return id in self.store.get(index, {})
 
     def index(self, index: str, id: str, document: dict[str, Any]) -> dict[str, Any]:  # noqa: A002

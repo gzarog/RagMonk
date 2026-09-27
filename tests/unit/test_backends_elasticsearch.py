@@ -623,6 +623,34 @@ def test_publish_links_empty_returns_zero() -> None:
     assert backend.publish_links(PreparedLinks(source_id="s1", candidates=[])) == 0
 
 
+def test_publish_links_batches_existence_check_no_per_candidate_exists() -> None:
+    """Indexing optimization plan Phase P6/step 6: ``publish_links`` must
+    use one batched ``terms`` lookup for its newly-inserted-count dedupe,
+    never a ``client.exists()`` call per candidate (the old N+1 shape).
+    """
+    fake = FakeElasticsearch()
+    backend = _backend(client=fake)
+    candidates = [
+        LinkCandidate(
+            entity_id=f"e{i}",
+            document_id=f"d{i}",
+            section_id=None,
+            link_type=RelationshipType.DOCUMENTED_BY,
+            resolver="resolver-a",
+            confidence=Confidence.HIGH,
+            evidence="matched name",
+        )
+        for i in range(25)
+    ]
+    inserted = backend.publish_links(PreparedLinks(source_id="s1", candidates=candidates))
+    assert inserted == 25
+    assert fake.exists_calls == 0
+
+    inserted_again = backend.publish_links(PreparedLinks(source_id="s1", candidates=candidates))
+    assert inserted_again == 0
+    assert fake.exists_calls == 0
+
+
 # -- clear_source ---------------------------------------------------------
 
 
