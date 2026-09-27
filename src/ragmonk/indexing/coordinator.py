@@ -1275,7 +1275,9 @@ class IndexCoordinator:
             with transaction(self._conn):
                 backend.publish_code_batch(items, server_write_pass=self._server_write_pass)
         except Exception as exc:  # noqa: BLE001 - a poisoned batch must not abort the run
-            for job, file, started, _finalized in batch:
+            for job, file, started, finalized in batch:
+                if self._pass_entity_resolver is not None:
+                    self._pass_entity_resolver.discard_file(finalized.file_id)
                 self._finish_failure(result, job, file, started, exc)
             return
 
@@ -1425,6 +1427,14 @@ class IndexCoordinator:
                 except Exception as exc:  # noqa: BLE001
                     self._finish_failure(result, job, file, started, exc)
                     continue
+                if self._pass_entity_resolver is not None:
+                    self._pass_entity_resolver.stage_file(
+                        finalized.file_id, finalized.entities, clear_only=finalized.clear_only
+                    )
+                if self._pass_entity_resolver is not None:
+                    self._pass_entity_resolver.stage_file(
+                        finalized.file_id, finalized.entities, clear_only=finalized.clear_only
+                    )
                 self._code_batch.append((job, file, started, finalized))
                 if self._code_batch_should_flush(finalized):
                     self._flush_code_batch(result)
