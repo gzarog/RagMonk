@@ -69,6 +69,7 @@ class FakeOpenSearch:
         self.fail_ids = dict(fail_ids or {})
         self.bulk_calls: list[list[dict[str, Any]]] = []
         self.exists_calls = 0
+        self.delete_by_query_calls: list[dict[str, Any]] = []
 
     def info(self) -> dict[str, Any]:
         if not self.reachable:
@@ -100,6 +101,7 @@ class FakeOpenSearch:
     def delete_by_query(
         self, index: str, body: dict[str, Any], refresh: bool = False, conflicts: str = "abort"
     ) -> dict[str, Any]:
+        self.delete_by_query_calls.append({"index": index, "body": copy.deepcopy(body)})
         docs = self.store.get(index, {})
         matches = [doc_id for doc_id, source in docs.items() if _matches(body["query"], source)]
         for doc_id in matches:

@@ -104,6 +104,7 @@ class FakeElasticsearch:
         self.bulk_calls: list[list[dict[str, Any]]] = []
         self.version = version
         self.exists_calls = 0
+        self.delete_by_query_calls: list[dict[str, Any]] = []
 
     def info(self) -> dict[str, Any]:
         if not self.reachable:
@@ -145,6 +146,7 @@ class FakeElasticsearch:
         refresh: bool = False,
         conflicts: str = "abort",
     ) -> dict[str, Any]:
+        self.delete_by_query_calls.append({"index": index, "query": copy.deepcopy(query)})
         docs = self.store.get(index, {})
         matches = [doc_id for doc_id, source in docs.items() if _matches(query, source)]
         for doc_id in matches:
