@@ -53,7 +53,12 @@ from pathlib import Path
 from typing import Any
 
 from ragmonk.backends.base import KnowledgeBackend
-from ragmonk.backends.models import DocumentUnitRecord, LinkCandidate, PreparedLinks
+from ragmonk.backends.models import (
+    DocumentUnitRecord,
+    LinkCandidate,
+    PreparedLinks,
+    ServerWritePass,
+)
 from ragmonk.core.models import (
     Confidence,
     Entity,
@@ -352,6 +357,7 @@ def link_touched_files(
     touched_code_file_ids: Sequence[str],
     touched_document_file_ids: Sequence[str],
     generation: int | None = None,
+    server_write_pass: ServerWritePass | None = None,
 ) -> int:
     """Cross-domain linking pass for one project, run once per source
     after its per-file processor queue has fully drained (see

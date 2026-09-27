@@ -34,6 +34,7 @@ from typing import Any
 
 from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.backends.factory import redact_urls_in_text
+from ragmonk.backends.models import ServerWritePass
 from ragmonk.core.config import ChunkingConfig, RagMonkConfig
 from ragmonk.core.errors import SecurityViolationError
 from ragmonk.core.models import FileKind, FileRecord, FileStatus, IndexJob, ScannedFile
@@ -136,6 +137,13 @@ class ProcessorContext:
     # direct processor call) -- every such caller keeps hashing the
     # file itself, exactly as before this phase.
     file_identity: FileIdentity | None = None
+    # Server Indexing Performance V3, item 1: the per-pass server write
+    # context (``None`` in local mode, or a coordinator-external
+    # ``ProcessorContext`` such as most unit tests). Not yet consumed by
+    # any ``publish`` half's actual logic -- carried through only so a
+    # future V3 item can read/accumulate it without another threading
+    # change.
+    server_write_pass: ServerWritePass | None = None
 
 
 @dataclass(frozen=True)
@@ -469,6 +477,7 @@ class IndexCoordinator:
         processors: ProcessorRegistry | None = None,
         backend: KnowledgeBackend | None = None,
         force_generation: int | None = None,
+        server_write_pass: ServerWritePass | None = None,
     ) -> None:
         self._conn = conn
         self._source_id = source_id
@@ -497,6 +506,10 @@ class IndexCoordinator:
         # (every other caller) keeps the pre-Phase-7 per-file bump
         # unchanged.
         self._force_generation = force_generation
+        # Server Indexing Performance V3, item 1: handed straight to every
+        # queued file's ``ProcessorContext`` (see ``_start_job``) -- ``None``
+        # for local mode and every pre-V3 caller.
+        self._server_write_pass = server_write_pass
         # Indexing optimization plan, Phase P3: this run's file_id ->
         # verified FileIdentity, populated during the scan loop below
         # and consumed (popped) in ``_process_queue`` when building each
@@ -1041,6 +1054,7 @@ class IndexCoordinator:
             ocr=self._config.documents.ocr,
             image_ocr=self._config.documents.image_ocr,
             file_identity=identity,
+            server_write_pass=self._server_write_pass,
         )
 
     def _finish_job(

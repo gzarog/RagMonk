@@ -18,6 +18,7 @@ from pathlib import Path
 from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.backends.local import LocalKnowledgeBackend
 from ragmonk.backends.models import FileRecord as BackendFileRecord
+from ragmonk.backends.models import ServerWritePass
 from ragmonk.code.processor import code_processor, code_version_stamp, prepare_code, publish_code
 from ragmonk.core import paths
 from ragmonk.core.config import RagMonkConfig
@@ -374,6 +375,29 @@ def _run_source_pass(
         # write into the source's published generation.
         published = backend.published_generation(source.id)
         force_generation = generation_as_int(published) if published is not None else 0
+
+    # Server Indexing Performance V3, item 1: one fresh ServerWritePass per
+    # server-mode pass -- never constructed for local mode. ``generation_is_
+    # empty`` mirrors the exact same "is this generation the one currently
+    # published?" check ``_sync_server_files`` below already makes for its
+    # own upsert/delete decision (see that function's own comment) -- a
+    # generation id that differs from (or there is no) published generation
+    # means this pass is writing into a fresh/unpublished generation with
+    # nothing in it yet.
+    server_write_pass: ServerWritePass | None = None
+    if server:
+        assert force_generation is not None
+        published_for_pass = backend.published_generation(source.id)
+        generation_is_empty = (
+            published_for_pass is None
+            or generation_as_int(published_for_pass) != force_generation
+        )
+        server_write_pass = ServerWritePass(
+            source_id=source.id,
+            generation=force_generation,
+            generation_is_empty=generation_is_empty,
+        )
+
     coordinator = IndexCoordinator(
         conn,
         source.id,
@@ -384,6 +408,7 @@ def _run_source_pass(
         processors=processors,
         backend=backend,
         force_generation=force_generation,
+        server_write_pass=server_write_pass,
     )
     changed_paths = (
         scan_request.changed_paths if scan_request is not None and not scan_request.full else None
@@ -455,6 +480,7 @@ def _run_source_pass(
                 touched_code_file_ids=result.touched_code_file_ids,
                 touched_document_file_ids=result.touched_document_file_ids,
                 generation=force_generation if server else None,
+                server_write_pass=server_write_pass,
             )
         result.timings.linking_seconds = time.monotonic() - _linking_started
 
