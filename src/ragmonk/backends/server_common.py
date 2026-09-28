@@ -575,13 +575,11 @@ class PassEntityResolver:
       ``lookup`` below), but it is exercised as soon as refreshes stop
       happening on every single file.
 
-    Safety invariant: nothing is ever staged into ``_overlay``/
-    ``_replaced_file_ids`` speculatively. ``commit_file`` must only be
-    called after the corresponding backend write has been durably
-    accepted (today that means: right after each file's own
-    ``backend.publish_code``/``publish_document`` call returns
-    successfully). There is deliberately no "discard on failure" method,
-    because nothing is ever staged before success in the first place.
+    Safety invariant: committed overlay state still changes only after
+    durable backend acceptance. Batched code publication additionally keeps
+    a separate reversible staged overlay so later files in the same unflushed
+    batch can resolve earlier files. Batch failure discards that staged state;
+    success promotes it through ``commit_file``.
     """
 
     def __init__(self, backend: KnowledgeBackend, server_write_pass: ServerWritePass) -> None:
@@ -590,6 +588,11 @@ class PassEntityResolver:
         self._backend_cache: dict[tuple[str, str], list[Entity]] = {}
         self._overlay: dict[str, list[Entity]] = {}
         self._replaced_file_ids: set[str] = set()
+        # Finalized-but-not-yet-durable files remain logically visible to
+        # later files in the same batch. This staged state is reversible
+        # until the containing server batch succeeds.
+        self._staged_overlay: dict[str, list[Entity]] = {}
+        self._staged_replaced_file_ids: set[str] = set()
 
     def lookup_qualified(self, text: str, *, exclude_file_id: str) -> list[Entity]:
         return self._lookup("qualified_name", text, exclude_file_id=exclude_file_id)
@@ -599,21 +602,17 @@ class PassEntityResolver:
 
     def _overlay_matches(self, field: str, text: str, *, exclude_file_id: str) -> list[Entity]:
         out: list[Entity] = []
-        for file_id, overlay_entities in self._overlay.items():
-            if file_id == exclude_file_id:
-                continue
-            out.extend(e for e in overlay_entities if getattr(e, field) == text)
+        for overlay in (self._overlay, self._staged_overlay):
+            for file_id, overlay_entities in overlay.items():
+                if file_id == exclude_file_id:
+                    continue
+                out.extend(e for e in overlay_entities if getattr(e, field) == text)
         return out
 
     def _lookup(
         self, field: Literal["qualified_name", "name"], text: str, *, exclude_file_id: str
     ) -> list[Entity]:
         if self._pass.generation_is_empty:
-            # Fresh/unpublished generation: there is nothing published to
-            # replace, so the backend has nothing useful to return for
-            # this source/generation yet -- resolve purely against files
-            # already committed earlier in this same pass, with zero
-            # backend round-trips.
             return self._overlay_matches(field, text, exclude_file_id=exclude_file_id)
 
         key = (field, text)
@@ -633,23 +632,25 @@ class PassEntityResolver:
             )
             self._backend_cache[key] = [e for e in found if getattr(e, field) == text]
 
-        # Backend results may include stale copies of files that this
-        # pass has already replaced (written a new version of) earlier --
-        # those are superseded by whatever is (or isn't) now in
-        # ``_overlay`` for that file_id, so drop them here rather than
-        # caching the filtered view (the raw backend result is what stays
-        # cached, since "replaced" status is pass-progress, not a
-        # property of the query itself).
-        result = [e for e in self._backend_cache[key] if e.file_id not in self._replaced_file_ids]
+        replaced = self._replaced_file_ids | self._staged_replaced_file_ids
+        result = [e for e in self._backend_cache[key] if e.file_id not in replaced]
         result.extend(self._overlay_matches(field, text, exclude_file_id=exclude_file_id))
         return [e for e in result if e.file_id != exclude_file_id]
+
+    def stage_file(self, file_id: str, entities: list[Entity], *, clear_only: bool = False) -> None:
+        """Expose a finalized replacement to later same-batch resolution."""
+        self._staged_replaced_file_ids.add(file_id)
+        self._staged_overlay[file_id] = [] if clear_only else list(entities)
+
+    def discard_file(self, file_id: str) -> None:
+        """Drop reversible state for a file whose batch failed."""
+        self._staged_replaced_file_ids.discard(file_id)
+        self._staged_overlay.pop(file_id, None)
 
     def commit_file(
         self, file_id: str, entities: list[Entity], *, clear_only: bool = False
     ) -> None:
-        """Records that ``file_id``'s write has been durably accepted by
-        the backend for this pass. Must only be called after that write
-        succeeds -- see class docstring.
-        """
+        """Record a durably accepted replacement in the committed overlay."""
+        self.discard_file(file_id)
         self._replaced_file_ids.add(file_id)
         self._overlay[file_id] = [] if clear_only else list(entities)

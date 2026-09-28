@@ -345,6 +345,37 @@ def test_delete_file_removes_file_and_scoped_docs() -> None:
     assert backend.get_entities_for_files(["f1"]) == []
 
 
+def test_delete_files_batch_groups_multiple_removed_files() -> None:
+    fake = FakeOpenSearch()
+    backend = _backend(fake)
+    for i in range(3):
+        fid = f"f{i}"
+        backend.upsert_file(
+            FileRecord(file_id=fid, source_id="s1", path=f"{fid}.py", content_hash=f"h{i}")
+        )
+        backend.publish_code(
+            PreparedCode(
+                file_id=fid,
+                source_id="s1",
+                generation=0,
+                entities=[_entity(entity_id=f"e{i}", file_id=fid)],
+                relationships=[],
+            )
+        )
+
+    pass_ctx = ServerWritePass(source_id="s1", generation=0, generation_is_empty=False)
+    calls_before = len(fake.delete_by_query_calls)
+    backend.delete_files_batch("s1", ["f0", "f1", "f2"], server_write_pass=pass_ctx)
+
+    # One grouped terms deletion per index plus one grouped link deletion,
+    # not the old per-file request pattern.
+    assert len(fake.delete_by_query_calls) - calls_before <= 4
+    assert pass_ctx.delete_by_query_count <= 4
+    for fid in ("f0", "f1", "f2"):
+        assert backend.get_file(fid) is None
+        assert backend.get_entities_for_files([fid]) == []
+
+
 # -- publish_code -------------------------------------------------------------
 
 
@@ -575,6 +606,36 @@ def test_publish_links_batches_existence_check_no_per_candidate_exists() -> None
     inserted_again = backend.publish_links(PreparedLinks(source_id="s1", candidates=candidates))
     assert inserted_again == 0
     assert fake.exists_calls == 0
+
+
+def test_publish_links_fresh_generation_skips_existence_lookup_and_dedupes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _backend()
+    candidate = LinkCandidate(
+        entity_id="e-fresh",
+        document_id="d-fresh",
+        section_id=None,
+        link_type=RelationshipType.DOCUMENTED_BY,
+        resolver="resolver-fresh",
+        confidence=Confidence.HIGH,
+        evidence="fresh",
+    )
+
+    def fail_lookup(*args: object, **kwargs: object) -> set[str]:
+        raise AssertionError("fresh generation must not query existing link ids")
+
+    monkeypatch.setattr(backend, "_existing_link_keys", fail_lookup)
+    pass_ctx = ServerWritePass(source_id="s1", generation=1, generation_is_empty=True)
+    inserted = backend.publish_links(
+        PreparedLinks(
+            source_id="s1",
+            generation=1,
+            candidates=[candidate, candidate],
+        ),
+        server_write_pass=pass_ctx,
+    )
+    assert inserted == 1
 
 
 # -- clear_source ---------------------------------------------------------

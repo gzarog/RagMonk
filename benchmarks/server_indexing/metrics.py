@@ -82,6 +82,10 @@ class IndexRunMetrics:
     bulk_retries: int = 0
     retryable_failures_seen: int = 0
     terminal_failures: int = 0
+    delete_by_query_requests: int = 0
+    refresh_requests: int = 0
+    exists_requests: int = 0
+    search_requests: int = 0
 
     entity_docs_before: int = 0
     entity_docs_after: int = 0

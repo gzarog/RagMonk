@@ -180,9 +180,10 @@ class ServerWritePass:
     source_id: str
     generation: int
     generation_is_empty: bool
-    # Bounded per-pass telemetry counters -- not wired to any real logic
-    # yet; a future V3 item increments these as it adds batching/refresh/
-    # delete-grouping behavior.
+    # Bounded per-pass telemetry counters, surfaced on the DEBUG
+    # ``stage_timings`` event. ``bulk_requests`` counts backend batch
+    # *flush calls*, not real HTTP ``_bulk`` requests (a single flush may
+    # be split into several by ``run_bulk_or_raise``).
     bulk_actions: int = 0
     bulk_requests: int = 0
     delete_by_query_count: int = 0

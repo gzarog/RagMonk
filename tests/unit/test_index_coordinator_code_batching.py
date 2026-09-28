@@ -243,6 +243,25 @@ def test_batch_flush_combines_multiple_files_into_one_backend_call(tmp_path: Pat
         conn.close()
 
 
+def test_default_single_worker_server_mode_still_batches(tmp_path: Path) -> None:
+    """V3 completion: batching must work in the default workers=1 mode."""
+    root = tmp_path / "proj_serial_server"
+    _write_project(root, 5)
+    conn = connect(tmp_path / "serial_server.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        backend = _FakeServerBackend()
+        coord = _build_coordinator(conn, root, backend, workers=1)
+        result = coord.run()
+
+        assert result.indexed == 5
+        assert result.failed == 0
+        assert backend.single_calls == []
+        assert any(len(call) > 1 for call in backend.batch_calls)
+    finally:
+        conn.close()
+
+
 def test_local_mode_is_unaffected_by_batching(tmp_path: Path) -> None:
     root = tmp_path / "proj"
     _write_project(root, 5)
@@ -338,6 +357,49 @@ def test_file_modified_during_prepare_to_publish_window_is_retried(
         files = files_repo.list_by_source(conn, "s1")
         retried = [f for f in files if f.status is FileStatus.RETRY]
         assert len(retried) == 1
+    finally:
+        conn.close()
+
+
+def test_same_batch_reference_resolves_via_staged_overlay(tmp_path: Path) -> None:
+    """A later file in the same unflushed batch sees earlier finalized entities."""
+    root = tmp_path / "same_batch"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "a.py").write_text("def helper():\n    return 1\n")
+    (root / "b.py").write_text("from a import helper\n\ndef caller():\n    return helper()\n")
+
+    conn = connect(tmp_path / "same_batch.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        backend = _FakeServerBackend()
+        config = _config(code_extraction_workers=1)
+        registry = _code_only_registry()
+        pass_ctx = ServerWritePass(source_id="s1", generation=1, generation_is_empty=True)
+        resolver = PassEntityResolver(backend, pass_ctx)
+        coord = IndexCoordinator(
+            conn,
+            "s1",
+            str(root),
+            [],
+            [],
+            config,
+            processors=registry,
+            backend=backend,
+            server_write_pass=pass_ctx,
+            pass_entity_resolver=resolver,
+        )
+
+        result = coord.run()
+
+        assert result.indexed == 2
+        assert len(backend.batch_calls) == 1
+        files = {f.path: f.id for f in files_repo.list_by_source(conn, "s1")}
+        a_file_id = next(fid for path, fid in files.items() if path.endswith("a.py"))
+        b_file_id = next(fid for path, fid in files.items() if path.endswith("b.py"))
+        helper = next(e for e in backend._entities[a_file_id] if e.name == "helper")
+        assert any(
+            rel.target_entity_id == helper.id for rel in backend._relationships.get(b_file_id, [])
+        )
     finally:
         conn.close()
 

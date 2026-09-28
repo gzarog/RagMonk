@@ -16,9 +16,12 @@ import time
 from pathlib import Path
 
 import pytest
+from tests.unit._fake_opensearch import FakeOpenSearch
 
 import ragmonk.indexing.coordinator as coordinator_module
-from ragmonk.core.config import IndexingConfig, RagMonkConfig
+from ragmonk.backends.models import ServerWritePass
+from ragmonk.backends.opensearch import OpenSearchKnowledgeBackend
+from ragmonk.core.config import IndexingConfig, RagMonkConfig, ServerStorageConfig
 from ragmonk.core.models import FileKind
 from ragmonk.documents.pipeline import document_processor, prepare_document, publish_document
 from ragmonk.indexing import retry
@@ -60,6 +63,45 @@ def _write_project(root: Path, n_files: int) -> None:
     root.mkdir(parents=True, exist_ok=True)
     for i in range(n_files):
         (root / f"doc_{i}.txt").write_text(f"{FIXTURE_TEXT}\n\nfile number {i}\n")
+
+
+def test_server_documents_batch_in_default_single_worker_mode(tmp_path: Path) -> None:
+    """V3 completion: document batching is active even with the default worker count."""
+    root = tmp_path / "server_docs"
+    _write_project(root, 5)
+    conn = connect(tmp_path / "server_docs.db")
+    try:
+        apply_migrations(conn, "knowledge")
+        fake = FakeOpenSearch()
+        backend = OpenSearchKnowledgeBackend(
+            ServerStorageConfig(engine="opensearch", url="http://fake:9200"),
+            client=fake,
+        )
+        config = _config(document_extraction_workers=1)
+        pass_ctx = ServerWritePass(source_id="s1", generation=1, generation_is_empty=True)
+        coord = IndexCoordinator(
+            conn,
+            "s1",
+            str(root),
+            [],
+            [],
+            config,
+            processors=_documents_only_registry(),
+            backend=backend,
+            force_generation=1,
+            server_write_pass=pass_ctx,
+        )
+
+        result = coord.run()
+
+        assert result.indexed == 5
+        assert result.failed == 0
+        assert fake.delete_by_query_calls == []
+        # Five simple text documents fit in one combined bulk flush; prior
+        # behavior published one document at a time.
+        assert len(fake.bulk_calls) == 1
+    finally:
+        conn.close()
 
 
 def test_serial_and_parallel_produce_equivalent_documents_and_sections(

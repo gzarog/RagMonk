@@ -119,3 +119,56 @@ def capture_bulk_stats_both() -> Iterator[BulkStats]:
 
 
 __all__ = ["BulkStats", "capture_bulk_stats", "capture_bulk_stats_both"]
+
+
+@dataclass
+class ServerRequestStats:
+    """Counts non-bulk server requests that matter to indexing throughput."""
+
+    delete_by_query_requests: int = 0
+    refresh_requests: int = 0
+    exists_requests: int = 0
+    search_requests: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "delete_by_query_requests": self.delete_by_query_requests,
+            "refresh_requests": self.refresh_requests,
+            "exists_requests": self.exists_requests,
+            "search_requests": self.search_requests,
+        }
+
+
+@contextmanager
+def capture_server_request_stats(backend: Any) -> Iterator[ServerRequestStats]:
+    """Count DBQ/refresh/exists/search calls made by one real server backend.
+
+    The benchmark owns the backend instance for the duration of the pass, so
+    temporarily wrapping these bound methods is isolated and restores them
+    unconditionally afterwards.
+    """
+    stats = ServerRequestStats()
+    client = backend._get_client()
+    originals: list[tuple[Any, str, Any]] = []
+
+    def wrap(obj: Any, name: str, counter: str) -> None:
+        original = getattr(obj, name)
+        originals.append((obj, name, original))
+
+        def counted(*args: Any, **kwargs: Any) -> Any:
+            setattr(stats, counter, getattr(stats, counter) + 1)
+            return original(*args, **kwargs)
+
+        setattr(obj, name, counted)
+
+    wrap(client, "delete_by_query", "delete_by_query_requests")
+    wrap(client.indices, "refresh", "refresh_requests")
+    if hasattr(client, "exists"):
+        wrap(client, "exists", "exists_requests")
+    if hasattr(client, "search"):
+        wrap(client, "search", "search_requests")
+    try:
+        yield stats
+    finally:
+        for obj, name, original in reversed(originals):
+            setattr(obj, name, original)

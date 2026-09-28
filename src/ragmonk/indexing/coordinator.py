@@ -479,6 +479,10 @@ class _PerThreadConnections:
 # never grows this buffer unbounded even if individual files are
 # entity-light.
 _CODE_BATCH_MAX_FILES = 200
+# Documents can carry much larger chunk payloads than code entities, so keep
+# an independent, conservative bound while still aggregating enough work to
+# make server bulk requests useful.
+_DOCUMENT_BATCH_MAX_FILES = 64
 
 
 class IndexCoordinator:
@@ -548,6 +552,9 @@ class IndexCoordinator:
         # imports ``ProcessorContext``/``ProcessingOutcome`` from this
         # module) -- see ``_flush_code_batch``, which imports it lazily.
         self._code_batch: list[tuple[IndexJob, FileRecord, float, Any]] = []
+        # V3 completion: documents now use the same delayed-success,
+        # bounded server publication model as code.
+        self._document_batch: list[tuple[IndexJob, FileRecord, float, Any]] = []
 
     def _reconcile_renames(
         self,
@@ -1268,7 +1275,9 @@ class IndexCoordinator:
             with transaction(self._conn):
                 backend.publish_code_batch(items, server_write_pass=self._server_write_pass)
         except Exception as exc:  # noqa: BLE001 - a poisoned batch must not abort the run
-            for job, file, started, _finalized in batch:
+            for job, file, started, finalized in batch:
+                if self._pass_entity_resolver is not None:
+                    self._pass_entity_resolver.discard_file(finalized.file_id)
                 self._finish_failure(result, job, file, started, exc)
             return
 
@@ -1279,6 +1288,147 @@ class IndexCoordinator:
                 )
             outcome = ProcessingOutcome(status=FileStatus.INDEXED)
             self._finish_success(result, job, file, started, outcome)
+
+    def _document_batch_should_flush(self) -> bool:
+        """V3 completion P1.3: bounds ``self._document_batch`` by three
+        independent limits -- a conservative file cap
+        (``_DOCUMENT_BATCH_MAX_FILES``), an estimated bulk-action count
+        (one document action plus one per chunk) and an estimated payload
+        size (chunk text is duplicated into ``content``/``search_text``/
+        ``embedding_text``), each derived from ``BulkConfig`` the same way
+        ``_code_batch_should_flush`` derives its window. The real
+        per-HTTP-request limits remain ``run_bulk_or_raise``'s job.
+        """
+        if len(self._document_batch) >= _DOCUMENT_BATCH_MAX_FILES:
+            return True
+        bulk_cfg = self._config.storage.server.bulk
+        action_threshold = bulk_cfg.max_actions * bulk_cfg.concurrency * 2
+        byte_threshold = bulk_cfg.max_bytes * bulk_cfg.concurrency * 2
+        estimated_actions = 0
+        estimated_bytes = 0
+        for _job, _file, _started, finalized in self._document_batch:
+            item = finalized.backend_prepared
+            if item is None:
+                continue
+            estimated_actions += 1 + len(item.chunks)
+            estimated_bytes += sum(
+                len(chunk.text) + len(chunk.search_text) + len(chunk.contextual_text)
+                for chunk in item.chunks
+            )
+        return estimated_actions >= action_threshold or estimated_bytes >= byte_threshold
+
+    def _flush_document_batch(self, result: IndexRunResult) -> None:
+        """Flush finalized documents in one server backend batch.
+
+        Like code batching, file/job success is delayed until the combined
+        backend write succeeds. A terminal batch failure therefore cannot
+        leave false INDEXED bookkeeping for any file in that batch.
+        """
+        if not self._document_batch:
+            return
+        batch = self._document_batch
+        self._document_batch = []
+        backend = self._backend
+        assert backend is not None, "document batching requires a server backend"
+        items = [
+            finalized.backend_prepared
+            for (_job, _file, _started, finalized) in batch
+            if finalized.backend_prepared is not None
+        ]
+        try:
+            if items:
+                with transaction(self._conn):
+                    backend.publish_document_batch(items, server_write_pass=self._server_write_pass)
+        except Exception as exc:  # noqa: BLE001 - a poisoned batch must not abort the run
+            # Every affected file goes through the ordinary retry/failure
+            # path; none of them is marked INDEXED.
+            for job, file, started, _finalized in batch:
+                self._finish_failure(result, job, file, started, exc)
+            return
+
+        for job, file, started, finalized in batch:
+            self._finish_success(
+                result, job, file, started, ProcessingOutcome(status=finalized.status)
+            )
+
+    def _server_batching_enabled(self, kind: FileKind) -> bool:
+        """V3 completion: whether a ``kind`` job is buffered into a server
+        batch instead of being published per file. Requires an active
+        ``ServerWritePass`` (never constructed in local mode) and a kind
+        registered with the prepare/publish split.
+        """
+        return (
+            self._server_write_pass is not None
+            and kind in (FileKind.CODE, FileKind.DOCUMENT)
+            and self._processors.supports_parallel_prepare(kind)
+        )
+
+    def _buffer_server_code(
+        self,
+        result: IndexRunResult,
+        job: IndexJob,
+        file: FileRecord,
+        ctx: ProcessorContext,
+        started: float,
+        prepare: Callable[[], Any],
+    ) -> None:
+        """Finalizes one CODE file and appends it to ``self._code_batch``
+        (serial and parallel paths share this). The finalized entities are
+        *staged* on the pass resolver so later files in the same unflushed
+        batch resolve against them (V3 completion P2.1); the flush either
+        commits or discards that staged state.
+        """
+        from ragmonk.code.processor import finalize_code_for_publish
+
+        if ctx.size > ctx.max_size_bytes:
+            # Mirrors ``code_processor``'s own size gate: no backend write.
+            self._finish_success(
+                result, job, file, started, ProcessingOutcome(status=FileStatus.SKIPPED_LIMIT)
+            )
+            return
+        try:
+            prepared = prepare()
+            finalized = finalize_code_for_publish(ctx, prepared)
+        except Exception as exc:  # noqa: BLE001 - a poisoned file must not abort the run
+            self._finish_failure(result, job, file, started, exc)
+            return
+        if self._pass_entity_resolver is not None:
+            self._pass_entity_resolver.stage_file(
+                finalized.file_id, finalized.entities, clear_only=finalized.clear_only
+            )
+        self._code_batch.append((job, file, started, finalized))
+        if self._code_batch_should_flush(finalized):
+            self._flush_code_batch(result)
+
+    def _buffer_server_document(
+        self,
+        result: IndexRunResult,
+        job: IndexJob,
+        file: FileRecord,
+        ctx: ProcessorContext,
+        started: float,
+        prepare: Callable[[], Any],
+    ) -> None:
+        """Finalizes one DOCUMENT file and appends it to
+        ``self._document_batch`` (V3 completion P1.3). A result with no
+        backend write (``SKIPPED_LIMIT``) is completed immediately.
+        """
+        from ragmonk.documents.pipeline import finalize_document_for_publish
+
+        try:
+            prepared = prepare()
+            finalized = finalize_document_for_publish(ctx, prepared)
+        except Exception as exc:  # noqa: BLE001 - a poisoned file must not abort the run
+            self._finish_failure(result, job, file, started, exc)
+            return
+        if finalized.backend_prepared is None:
+            self._finish_success(
+                result, job, file, started, ProcessingOutcome(status=finalized.status)
+            )
+            return
+        self._document_batch.append((job, file, started, finalized))
+        if self._document_batch_should_flush():
+            self._flush_document_batch(result)
 
     def _document_cache_db_path(self) -> Path:
         """The on-disk path backing ``self._conn`` -- read straight off
@@ -1345,14 +1495,48 @@ class IndexCoordinator:
         while True:
             job = jobs_repo.claim_next(self._conn)
             if job is None:
+                self._flush_code_batch(result)
+                self._flush_document_batch(result)
                 break
             file = files_repo.get(self._conn, job.file_id)
             if file is None:
                 jobs_repo.complete(self._conn, job.id)
                 continue
             ctx = self._start_job(file, max_size_bytes)
-            processor = self._processors.get(file.kind)
             started = time.monotonic()
+
+            # V3 completion P1.1/P1.3: server-mode batching also covers the
+            # default serial configuration (workers=1), not only the
+            # optional parallel path. Local mode never enters these
+            # branches (``_server_batching_enabled`` requires an active
+            # ``ServerWritePass``), so its per-file path below is unchanged.
+            if self._server_batching_enabled(file.kind) and file.kind is FileKind.CODE:
+                self._buffer_server_code(
+                    result,
+                    job,
+                    file,
+                    ctx,
+                    started,
+                    partial(self._processors.get_prepare(FileKind.CODE), ctx.path, self._root),
+                )
+                continue
+
+            if self._server_batching_enabled(file.kind) and file.kind is FileKind.DOCUMENT:
+                self._buffer_server_document(
+                    result,
+                    job,
+                    file,
+                    ctx,
+                    started,
+                    partial(
+                        self._processors.get_prepare(FileKind.DOCUMENT), ctx, cache_conn=self._conn
+                    ),
+                )
+                continue
+
+            self._flush_code_batch(result)
+            self._flush_document_batch(result)
+            processor = self._processors.get(file.kind)
             self._finish_job(result, job, file, started, partial(processor, ctx))
 
     def _process_queue_with_parallel(
@@ -1391,26 +1575,19 @@ class IndexCoordinator:
         def flush_one(kind: FileKind) -> None:
             job, file, ctx, started, future = pending[kind].pop(0)
 
-            # Server Indexing Performance V3, item 3: CODE files in
-            # server mode are not published immediately here -- their
-            # phase-(a) finalized payload is buffered and the actual
-            # backend write is deferred to a batch flush (see
-            # ``_flush_code_batch``). Local mode (``ctx.server_write_pass
-            # is None``) and every other kind (documents: explicitly
-            # deferred to a future session, see module/class docstrings)
-            # keep the exact immediate-publish path they always had.
+            # Server Indexing Performance V3, item 3 (+ V3 completion for
+            # documents): CODE and DOCUMENT files in server mode are not
+            # published immediately here -- their finalized payload is
+            # buffered and the actual backend write is deferred to a batch
+            # flush (see ``_flush_code_batch``/``_flush_document_batch``).
+            # Local mode (``ctx.server_write_pass is None``) keeps the exact
+            # immediate-publish path it always had.
             if kind is FileKind.CODE and ctx.server_write_pass is not None:
-                from ragmonk.code.processor import finalize_code_for_publish
+                self._buffer_server_code(result, job, file, ctx, started, future.result)
+                return
 
-                try:
-                    prepared = future.result()
-                    finalized = finalize_code_for_publish(ctx, prepared)
-                except Exception as exc:  # noqa: BLE001 - a poisoned file must not abort the run
-                    self._finish_failure(result, job, file, started, exc)
-                    return
-                self._code_batch.append((job, file, started, finalized))
-                if self._code_batch_should_flush(finalized):
-                    self._flush_code_batch(result)
+            if kind is FileKind.DOCUMENT and ctx.server_write_pass is not None:
+                self._buffer_server_document(result, job, file, ctx, started, future.result)
                 return
 
             publish = self._processors.get_publish(file.kind)
@@ -1431,6 +1608,7 @@ class IndexCoordinator:
                 while pending[kind]:
                     flush_one(kind)
             self._flush_code_batch(result)
+            self._flush_document_batch(result)
 
         with ExitStack() as stack:
             executors = {

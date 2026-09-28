@@ -387,6 +387,9 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         run_bulk_or_raise(self._get_client(), actions, self._config.bulk)
         if server_write_pass is None:
             self._get_client().indices.refresh(index=mappings.files_index(self._prefix))
+        else:
+            server_write_pass.bulk_actions += len(actions)
+            server_write_pass.bulk_requests += 1
 
     def delete_file(self, source_id: str, file_id: str) -> None:
         """Removes every artifact of ``file_id`` across all generations,
@@ -420,6 +423,58 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             refresh=True,
             conflicts="proceed",
         )
+
+    def delete_files_batch(
+        self,
+        source_id: str,
+        file_ids: list[str],
+        *,
+        server_write_pass: ServerWritePass | None = None,
+    ) -> None:
+        """Grouped whole-file deletion for server-mode source removals."""
+        if not file_ids:
+            return
+        client = self._get_client()
+        calls = 0
+        for batch in _batches(file_ids):
+            scoped = {
+                "bool": {
+                    "filter": [
+                        {"term": {"source_id": source_id}},
+                        {"terms": {"file_id": batch}},
+                    ]
+                }
+            }
+            for index in mappings.all_indices(self._prefix):
+                client.delete_by_query(
+                    index=index,
+                    query=scoped,
+                    refresh=server_write_pass is None,
+                    conflicts="proceed",
+                )
+                calls += 1
+            links = {
+                "bool": {
+                    "filter": [
+                        {"term": {"source_id": source_id}},
+                        {"term": {"doc_kind": "link"}},
+                    ],
+                    "should": [
+                        {"terms": {"entity_file_id": batch}},
+                        {"terms": {"document_file_id": batch}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+            client.delete_by_query(
+                index=mappings.relationships_index(self._prefix),
+                query=links,
+                refresh=server_write_pass is None,
+                conflicts="proceed",
+            )
+            calls += 1
+        if server_write_pass is not None:
+            server_write_pass.delete_by_query_count += calls
 
     def _delete_for_code(self, prepared_code: PreparedCode) -> None:
         """The delete-by-query half of ``publish_code``, factored out so
@@ -524,7 +579,11 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             self._refresh_content_and_relationships()
 
     def _delete_batch_for_code(
-        self, items: list[PreparedCode], server_write_pass: ServerWritePass | None
+        self,
+        items: list[PreparedCode],
+        server_write_pass: ServerWritePass | None,
+        *,
+        force: bool = False,
     ) -> None:
         """Server Indexing Performance V3, item 4: the grouped delete half
         of ``publish_code_batch``. See
@@ -534,7 +593,9 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         ``source_id``/``generation``/``doc_kind`` scoping the per-file
         version used.
         """
-        if server_write_pass is not None and server_write_pass.generation_is_empty:
+        # ``force`` (V3 completion P3): the failed-fresh-batch cleanup must
+        # delete even though the generation is fresh.
+        if not force and server_write_pass is not None and server_write_pass.generation_is_empty:
             return
         by_scope: dict[tuple[str, str], list[str]] = {}
         for item in items:
@@ -580,12 +641,51 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         for prepared_code in items:
             combined.extend(self._build_code_actions(prepared_code))
         if combined:
-            run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            try:
+                run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            except Exception:
+                # V3 completion P3.1: a terminal bulk failure may occur after
+                # some actions were already accepted. In a fresh generation
+                # the normal fast path skips replacement deletes, so clean
+                # this batch explicitly before the coordinator retries it;
+                # otherwise UUID-based entity ids from the partial attempt
+                # could survive beside the retry's new ids.
+                if server_write_pass is not None and server_write_pass.generation_is_empty:
+                    self._cleanup_failed_fresh_code_batch(items, server_write_pass)
+                raise
             if server_write_pass is None:
                 self._refresh_content_and_relationships()
             else:
                 server_write_pass.bulk_actions += len(combined)
                 server_write_pass.bulk_requests += 1
+
+    def _cleanup_failed_fresh_code_batch(
+        self, items: list[PreparedCode], server_write_pass: ServerWritePass
+    ) -> None:
+        """V3 completion P3.1: remove whatever a partially successful
+        fresh-generation code bulk left behind, before retry bookkeeping.
+
+        Explicitly deletes (never relying on the fresh-generation delete
+        skip in ``_delete_batch_for_code``) the batch's file-scoped entity,
+        relationship and entity-side link artifacts, scoped to this exact
+        source and *unpublished* generation -- the published generation is
+        never touched. The target indices are refreshed first: bulk writes
+        made under a ``ServerWritePass`` skip their own refresh, and
+        delete-by-query only sees documents visible to search.
+        """
+        self._refresh_content_and_relationships()
+        server_write_pass.refresh_count += 1
+        self._delete_batch_for_code(items, server_write_pass, force=True)
+
+    def _cleanup_failed_fresh_document_batch(
+        self, items: list[PreparedDocument], server_write_pass: ServerWritePass
+    ) -> None:
+        """V3 completion P3.2: document/chunk counterpart of
+        ``_cleanup_failed_fresh_code_batch``.
+        """
+        self._refresh_content_and_relationships()
+        server_write_pass.refresh_count += 1
+        self._delete_batch_for_document(items, server_write_pass, force=True)
 
     def _delete_for_document(self, prepared_document: PreparedDocument) -> None:
         source_id = prepared_document.source_id
@@ -662,14 +762,18 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
 
     def _delete_batch_for_document(
-        self, items: list[PreparedDocument], server_write_pass: ServerWritePass | None
+        self,
+        items: list[PreparedDocument],
+        server_write_pass: ServerWritePass | None,
+        *,
+        force: bool = False,
     ) -> None:
         """Document-pipeline counterpart of ``_delete_batch_for_code``
         (Server Indexing Performance V3, item 4) -- same fast path and
         same grouped ``terms``-based deletes, covering the document,
         chunk, and document-links categories.
         """
-        if server_write_pass is not None and server_write_pass.generation_is_empty:
+        if not force and server_write_pass is not None and server_write_pass.generation_is_empty:
             return
         by_scope: dict[tuple[str, str], list[str]] = {}
         for item in items:
@@ -708,7 +812,14 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         for prepared_document in items:
             combined.extend(self._build_document_actions(prepared_document))
         if combined:
-            run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            try:
+                run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
+            except Exception:
+                # V3 completion P3.2: same partial-success cleanup rule as
+                # ``publish_code_batch`` -- document/chunk ids are UUID-based.
+                if server_write_pass is not None and server_write_pass.generation_is_empty:
+                    self._cleanup_failed_fresh_document_batch(items, server_write_pass)
+                raise
             if server_write_pass is None:
                 self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
             else:
@@ -812,14 +923,23 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
         # plan Phase P6/step 6: previously one ``client.exists()`` round
         # trip per candidate (N+1); now one batched ``terms`` lookup
         # across all candidate ids per ``_TERMS_BATCH``-sized group.
+        # Deduplicate identical natural keys inside this publish group before
+        # asking the server anything. Deterministic link ids make this exact.
+        actions = list({action.doc_id: action for action in actions}.values())
         client = self._get_client()
-        existing = self._existing_link_keys(
-            mappings.relationships_index(self._prefix), [action.doc_id for action in actions]
-        )
+        if server_write_pass is not None and server_write_pass.generation_is_empty:
+            # A newly-created generation is empty by contract, so these ids
+            # cannot already exist there. Avoid even the batched lookup.
+            existing: set[str] = set()
+        else:
+            existing = self._existing_link_keys(
+                mappings.relationships_index(self._prefix), [action.doc_id for action in actions]
+            )
         run_bulk_or_raise(client, actions, self._config.bulk)
         if server_write_pass is None:
             client.indices.refresh(index=mappings.relationships_index(self._prefix))
         else:
+            server_write_pass.bulk_actions += len(actions)
             server_write_pass.bulk_requests += 1
         return len(actions) - len(existing)
 

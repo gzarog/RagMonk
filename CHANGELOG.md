@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server indexing performance V3 completion
+
+- **Completed document batching in server mode.** The coordinator now finalizes
+  document payloads without immediately publishing them, buffers them under
+  bounded file/action limits, and calls `publish_document_batch` across many
+  files. This works in both the default single-worker path and the optional
+  parallel extraction path. File/job success is acknowledged only after the
+  combined server write succeeds.
+- **Fixed default single-worker code batching.** Server code batching no longer
+  depends on `code_extraction_workers > 1`; the normal default configuration
+  now uses the same cross-file batching path.
+- **Grouped whole-file removals.** Source reconciliation now hands all removed
+  file ids to `delete_files_batch`; OpenSearch and Elasticsearch issue bounded
+  terms-based deletes instead of repeating the full delete/refresh sequence per
+  removed file.
+- **Finished fresh-generation link handling.** Link actions are deduplicated by
+  deterministic id before publish, and a known-empty unpublished generation
+  skips the existing-link lookup entirely.
+- **Fixed same-batch cross-file resolution.** `PassEntityResolver` has a
+  reversible staged overlay: a finalized file is visible to later files in the
+  same unflushed code batch, then promoted only after durable publish or
+  discarded on batch failure.
+- **Completed request telemetry for the benchmark harness.** Real server
+  benchmark reports now include `delete_by_query_requests`,
+  `refresh_requests`, `exists_requests`, and `search_requests` in addition
+  to the existing real HTTP bulk-request metrics. Server write-pass counters
+  are also emitted on the DEBUG `stage_timings` event.
+- **Idempotent fresh-generation batch retries.** When a fresh-generation
+  `publish_code_batch`/`publish_document_batch` bulk fails terminally after a
+  partial success, the adapter now refreshes the affected indices and
+  explicitly deletes that batch's file-scoped artifacts in the unpublished
+  generation before the error reaches the coordinator's retry bookkeeping, so
+  a retry cannot leave duplicate UUID-keyed entities, documents or chunks. The
+  published generation and incremental passes are unaffected.
+- **Bounded document batches.** Document batches flush on a file cap, an
+  estimated bulk-action count and an estimated payload size.
+- **Validation note:** this change adds structural unit coverage (both
+  adapters, via the in-memory fakes) for default single-worker and parallel
+  code/document batching, failed-batch bookkeeping, same-batch resolver
+  staging and rollback, fresh-generation partial-bulk cleanup, grouped
+  deletes, and link lookup/dedupe behavior. **Live benchmark validation
+  against a real OpenSearch/Elasticsearch cluster (plan phase P8) was not
+  performed** and remains required follow-up work; no performance gate is
+  claimed as passed.
+
 ### Server indexing: batched link publication (N+1 fix)
 
 - **Changed: `knowledge/linker.py::link_touched_files` batches

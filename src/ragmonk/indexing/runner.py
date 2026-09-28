@@ -322,9 +322,12 @@ def _sync_server_files(
         )
     backend.upsert_files(upserts, server_write_pass=server_write_pass)
     if allow_deletes:
-        for file_id in server_by_id:
-            if file_id not in local_by_id:
-                backend.delete_file(source_id, file_id)
+        deleted_file_ids = [file_id for file_id in server_by_id if file_id not in local_by_id]
+        backend.delete_files_batch(
+            source_id,
+            deleted_file_ids,
+            server_write_pass=server_write_pass,
+        )
 
 
 def _run_source_pass(
@@ -451,6 +454,7 @@ def _run_source_pass(
         # was deferred.
         if server_write_pass is not None and not server_write_pass.generation_is_empty:
             backend.refresh_all(source.id)
+            server_write_pass.refresh_count += 1
         became_offline = source.status is not SourceStatus.OFFLINE
         sources_repo.update_scan_result(
             ctx.sources_conn,
@@ -600,6 +604,7 @@ def _run_source_pass(
     # extra round trip.
     if server_write_pass is not None and not server_write_pass.generation_is_empty:
         backend.refresh_all(source.id)
+        server_write_pass.refresh_count += 1
 
     sources_repo.update_scan_result(
         ctx.sources_conn,
@@ -645,6 +650,12 @@ def _run_source_pass(
         code_extraction_workers=ctx.config.indexing.code_extraction_workers,
         document_extraction_workers=ctx.config.indexing.document_extraction_workers,
         embedding_cache_reused=cache_reused,
+        server_bulk_actions=(server_write_pass.bulk_actions if server_write_pass else 0),
+        server_bulk_flush_calls=(server_write_pass.bulk_requests if server_write_pass else 0),
+        server_delete_by_query_count=(
+            server_write_pass.delete_by_query_count if server_write_pass else 0
+        ),
+        server_refresh_count=(server_write_pass.refresh_count if server_write_pass else 0),
         indexed=result.indexed,
         linked=linked,
         embedded=embedded,

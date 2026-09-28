@@ -16,7 +16,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from benchmarks.server_indexing.bulk_capture import capture_bulk_stats_both
+from benchmarks.server_indexing.bulk_capture import (
+    capture_bulk_stats_both,
+    capture_server_request_stats,
+)
 from benchmarks.server_indexing.metrics import (
     IncrementalRunMetrics,
     IndexRunMetrics,
@@ -125,7 +128,10 @@ def run_indexing_pass(
     before_files, before_content = _doc_counts(backend)
     total_bytes = _dir_bytes(source_path)
 
-    with capture_bulk_stats_both() as bulk_stats:
+    with (
+        capture_bulk_stats_both() as bulk_stats,
+        capture_server_request_stats(backend) as request_stats,
+    ):
         started = time.perf_counter()
         pass_result = index_runner.run_source_pass(ctx, source, processors)
         wall = time.perf_counter() - started
@@ -159,6 +165,10 @@ def run_indexing_pass(
         bulk_retries=bulk_stats.retries,
         retryable_failures_seen=bulk_stats.retryable_failures_seen,
         terminal_failures=bulk_stats.terminal_failures,
+        delete_by_query_requests=request_stats.delete_by_query_requests,
+        refresh_requests=request_stats.refresh_requests,
+        exists_requests=request_stats.exists_requests,
+        search_requests=request_stats.search_requests,
         entity_docs_before=before_content,
         entity_docs_after=after_content,
         file_docs_before=before_files,
