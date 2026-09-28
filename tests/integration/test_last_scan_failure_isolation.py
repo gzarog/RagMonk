@@ -47,8 +47,9 @@ def _file_count(home: Path, source_path: Path, source_id: str) -> int:
 
 def _flat(output: str) -> str:
     # Rich wraps long console lines at the terminal width (narrower on some
-    # CI runners), so compare on whitespace-normalized output.
-    return " ".join(output.split())
+    # CI runners) and hard-folds long tokens such as Windows temp paths
+    # mid-word, so compare with all whitespace removed.
+    return "".join(output.split())
 
 
 def _make_source(tmp_path: Path, name: str) -> Path:
@@ -74,7 +75,7 @@ def test_post_scan_failure_keeps_last_scan_and_records_error(
         m.setattr(runner_mod, "link_touched_files", boom)
         result = runner.invoke(app, ["index"])
     assert result.exit_code == EXIT_INDEXING_PARTIAL_FAILURE, result.output
-    assert "linker exploded" in _flat(result.output)
+    assert _flat("linker exploded") in _flat(result.output)
 
     info = _info(runner, source_id)
     assert _file_count(ragmonk_home, source_dir, source_id) == 2
@@ -147,9 +148,9 @@ def test_index_continues_after_one_source_fails(
     result = runner.invoke(app, ["index"])
     assert result.exit_code == EXIT_INDEXING_PARTIAL_FAILURE, result.output
     assert sorted(attempted) == sorted(ids)
-    assert "source two broke" in _flat(result.output)
-    assert ids[1] in _flat(result.output)
-    assert "1 source(s) failed" in _flat(result.output)
+    assert _flat("source two broke") in _flat(result.output)
+    assert _flat(ids[1]) in _flat(result.output)
+    assert _flat("1 source(s) failed") in _flat(result.output)
     for i in (0, 2):
         assert _file_count(ragmonk_home, dirs[i], ids[i]) == 2
         assert _info(runner, ids[i])["last_scan_at"] is not None
