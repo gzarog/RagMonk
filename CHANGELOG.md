@@ -7,7 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-
 ### Server indexing performance V3 completion
 
 - **Completed document batching in server mode.** The coordinator now finalizes
@@ -35,12 +34,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `refresh_requests`, `exists_requests`, and `search_requests` in addition
   to the existing real HTTP bulk-request metrics. Server write-pass counters
   are also emitted on the DEBUG `stage_timings` event.
-- **Validation note:** this branch adds structural unit coverage for default
-  single-worker batching, document batching, grouped deletes, fresh-generation
-  link publication, and same-batch resolver staging. A live OpenSearch/
-  Elasticsearch cluster is still required to produce the V3 wall-clock
-  before/after report and validate the published performance gates.
-
+- **Idempotent fresh-generation batch retries.** When a fresh-generation
+  `publish_code_batch`/`publish_document_batch` bulk fails terminally after a
+  partial success, the adapter now refreshes the affected indices and
+  explicitly deletes that batch's file-scoped artifacts in the unpublished
+  generation before the error reaches the coordinator's retry bookkeeping, so
+  a retry cannot leave duplicate UUID-keyed entities, documents or chunks. The
+  published generation and incremental passes are unaffected.
+- **Bounded document batches.** Document batches flush on a file cap, an
+  estimated bulk-action count and an estimated payload size.
+- **Validation note:** this change adds structural unit coverage (both
+  adapters, via the in-memory fakes) for default single-worker and parallel
+  code/document batching, failed-batch bookkeeping, same-batch resolver
+  staging and rollback, fresh-generation partial-bulk cleanup, grouped
+  deletes, and link lookup/dedupe behavior. **Live benchmark validation
+  against a real OpenSearch/Elasticsearch cluster (plan phase P8) was not
+  performed** and remains required follow-up work; no performance gate is
+  claimed as passed.
 
 ### Server indexing: batched link publication (N+1 fix)
 

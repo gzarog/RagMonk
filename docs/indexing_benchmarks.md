@@ -518,7 +518,6 @@ runs in CI on every PR. It is **not** a substitute for actually running
 `python -m benchmarks.server_indexing` against a real cluster with
 2,000+ files -- that is a manual/on-demand run, documented above.
 
-
 ## Server Indexing Performance V3 completion
 
 The V3 completion pass closes the implementation gaps left by the original
@@ -533,9 +532,27 @@ pass-scoped batching PR:
 - the pass-local entity resolver stages finalized code entities so a later file
   in the **same unflushed batch** can resolve them, while batch failure discards
   the staged overlay before retry bookkeeping;
+- a fresh-generation batch whose bulk request fails terminally after partial
+  success is cleaned up (refresh, then explicit file-scoped delete in the
+  unpublished generation) before retry bookkeeping, so retries never leave
+  duplicate UUID-keyed entities/documents/chunks;
 - the real server benchmark now records non-bulk request counts
-  (`delete_by_query`, explicit refresh, exists, and search) alongside the
-  lower-level HTTP bulk metrics already captured by `bulk_capture.py`.
+  (`delete_by_query_requests`, `refresh_requests`, `exists_requests`,
+  `search_requests`) alongside the lower-level HTTP bulk metrics already
+  captured by `bulk_capture.py`. `bulk_requests` in a report is still the real
+  HTTP `_bulk` request count from that low-level capture -- it is **not** the
+  `ServerWritePass.bulk_requests` coordinator flush count, which is only
+  surfaced (as `server_bulk_flush_calls`) on the DEBUG `stage_timings` event
+  alongside `server_bulk_actions`, `server_delete_by_query_count` and
+  `server_refresh_count`.
+
+### Validation status
+
+**Phase P8 (live cluster benchmark validation) has not been performed.** The
+V3 completion change is covered only by structural unit tests against the
+in-memory OpenSearch/Elasticsearch fakes. None of the gates below has been
+measured against a real cluster, and none should be reported as passed until
+a real before/after report exists.
 
 ### Required live validation
 
