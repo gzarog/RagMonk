@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Last Scan bookkeeping and source failure isolation
+
+- **Last Scan is recorded as soon as the scan completes.** `last_scan_at` now
+  means "last completed filesystem scan attempt" and is persisted right after
+  the scan/diff stage, before server sync, linking, embeddings, ANN sync or
+  refresh. A failure in any of those stages no longer leaves a source with
+  indexed files but an empty Last Scan.
+- **Post-scan failures are recorded on the source.** `last_error` is set to
+  `"<stage> failed: <message>"` (credentials redacted), a structured
+  `source_pass_failed` log event names the source, stage and trigger reason,
+  and the original exception still propagates. The next successful pass
+  clears the error.
+- **`ragmonk index` isolates per-source failures.** A source that raises no
+  longer stops later sources from being indexed; the failing source is
+  reported, a summary line is printed, and the command still exits with the
+  partial-failure code once every source has been attempted.
+- **Install scripts include the server-mode clients.** `install.ps1` and
+  `install.sh` (and therefore `ragmonk update install`) now install
+  `ragmonk[server]`, so `opensearch-py` and `elasticsearch` are present and
+  `storage.mode=server` works without a manual `pip install`.
+
 ### Server indexing performance V3 completion
 
 - **Completed document batching in server mode.** The coordinator now finalizes

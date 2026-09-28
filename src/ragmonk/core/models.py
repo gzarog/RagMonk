@@ -74,6 +74,9 @@ class Source(BaseModel):
     indexing_mode: IndexingMode = IndexingMode.FULL
     include_patterns: list[str] = []
     exclude_patterns: list[str] = []
+    # Last completed filesystem scan attempt (stamped right after the
+    # scan/diff stage), not last fully successful indexing pass -- a
+    # post-scan failure keeps this and records ``last_error`` instead.
     last_scan_at: str | None = None
     last_error: str | None = None
     fingerprint: str | None = None
