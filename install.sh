@@ -116,9 +116,10 @@ echo "(you may see \"Cache entry deserialization failed\" warnings below -- harm
 # chief among the dependencies) -- silencing it makes a slow-but-working
 # install indistinguishable from a hung one.
 if [ -n "$PRETEND_VERSION" ]; then
-    SETUPTOOLS_SCM_PRETEND_VERSION="$PRETEND_VERSION" "$VENV_DIR/bin/pip" install "$APP_DIR"
+    # "[server]": OpenSearch + Elasticsearch clients for storage.mode=server.
+    SETUPTOOLS_SCM_PRETEND_VERSION="$PRETEND_VERSION" "$VENV_DIR/bin/pip" install "$APP_DIR[server]"
 else
-    "$VENV_DIR/bin/pip" install "$APP_DIR"
+    "$VENV_DIR/bin/pip" install "$APP_DIR[server]"
 fi
 
 mkdir -p "$BIN_DIR"

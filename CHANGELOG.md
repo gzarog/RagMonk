@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer stops later sources from being indexed; the failing source is
   reported, a summary line is printed, and the command still exits with the
   partial-failure code once every source has been attempted.
+- **Install scripts include the server-mode clients.** `install.ps1` and
+  `install.sh` (and therefore `ragmonk update install`) now install
+  `ragmonk[server]`, so `opensearch-py` and `elasticsearch` are present and
+  `storage.mode=server` works without a manual `pip install`.
 
 ### Server indexing performance V3 completion
 

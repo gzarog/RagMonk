@@ -165,7 +165,11 @@ Write-Host "(you may see `"Cache entry deserialization failed`" warnings below -
 # install indistinguishable from a hung one.
 if ($PretendVersion) { $env:SETUPTOOLS_SCM_PRETEND_VERSION = $PretendVersion }
 try {
-    & $VenvPython -m pip install $AppDir
+    # "[server]" = the OpenSearch (opensearch-py) and Elasticsearch
+    # (elasticsearch + elastic-transport) clients, so storage.mode=server
+    # works out of the box -- without them `ragmonk init`/`index` in server
+    # mode fails with "opensearch-py is not installed".
+    & $VenvPython -m pip install "$AppDir[server]"
 } finally {
     if ($PretendVersion) { Remove-Item Env:\SETUPTOOLS_SCM_PRETEND_VERSION -ErrorAction SilentlyContinue }
 }
