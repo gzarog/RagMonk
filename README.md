@@ -160,7 +160,7 @@ curl -fsSL https://raw.githubusercontent.com/gzarog/RagMonk/main/install.sh | sh
 irm https://raw.githubusercontent.com/gzarog/RagMonk/main/install.ps1 | iex
 ```
 
-Installs into `~/.ragmonk` (`%LOCALAPPDATA%\RagMonk` on Windows) and links `ragmonk` onto your `PATH`.
+Installs into `~/.ragmonk` (`%LOCALAPPDATA%\RagMonk` on Windows) and links `ragmonk` onto your `PATH`. The install scripts (and `ragmonk update install`) always include the server-mode clients (`ragmonk[server]`: `opensearch-py` and `elasticsearch`), so `storage.mode=server` works with no extra `pip install`.
 
 ```bash
 ragmonk version
@@ -355,7 +355,7 @@ ragmonk init --interactive
 
 `ragmonk init` validates the selected engine with its real client before writing anything: the endpoint must be reachable, credentials (if any) must be accepted, the cluster must actually be the selected engine (an OpenSearch cluster never passes as Elasticsearch, or vice versa, and a generic HTTP server answering `200` passes neither), the version must be supported (OpenSearch 2.0+, Elasticsearch 8.0+), and non-destructive permission checks must succeed. No config file is written if any check fails. `--storage-url` must not contain credentials (`https://user:password@host` is rejected) — use the env vars below. Storage mode is fixed at init time for a given `~/.ragmonk` runtime directory; there is no in-place migration between local and server storage.
 
-Install the matching client library first — these are optional extras, never installed by plain `pip install ragmonk`:
+If you installed with `install.sh`/`install.ps1`, both clients are already present. Otherwise install the matching client library first — these are optional extras, never installed by plain `pip install ragmonk`:
 
 ```bash
 pip install "ragmonk[opensearch]"       # storage.server.engine=opensearch
