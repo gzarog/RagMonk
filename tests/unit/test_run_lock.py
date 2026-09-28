@@ -59,8 +59,11 @@ def test_metadata_is_sanitized(lock_path: Path) -> None:
     lock = RunLock(lock_path, operation="index https://user:pw@host/?token=abc", source_id="a b")
     lock.acquire()
     try:
-        raw = lock_path.read_text(errors="replace")
-        assert "pw@" not in raw and "/" not in json.loads(raw.strip("\x00 "))["operation"]
+        # Byte 0 is the (mandatory, on Windows) lock byte; metadata follows it.
+        with lock_path.open("rb") as fh:
+            fh.seek(1)
+            raw = fh.read().decode()
+        assert "pw@" not in raw and "/" not in json.loads(raw)["operation"]
     finally:
         lock.release()
 
