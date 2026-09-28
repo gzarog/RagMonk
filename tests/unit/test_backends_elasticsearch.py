@@ -384,7 +384,6 @@ def test_delete_file_removes_file_and_scoped_docs() -> None:
     assert backend.get_entities_for_files(["f1"]) == []
 
 
-
 def test_delete_files_batch_groups_multiple_removed_files() -> None:
     fake = FakeElasticsearch()
     backend = _backend(fake)
@@ -405,9 +404,7 @@ def test_delete_files_batch_groups_multiple_removed_files() -> None:
 
     pass_ctx = ServerWritePass(source_id="s1", generation=0, generation_is_empty=False)
     calls_before = len(fake.delete_by_query_calls)
-    backend.delete_files_batch(
-        "s1", ["f0", "f1", "f2"], server_write_pass=pass_ctx
-    )
+    backend.delete_files_batch("s1", ["f0", "f1", "f2"], server_write_pass=pass_ctx)
 
     # One grouped terms deletion per index plus one grouped link deletion,
     # not the old per-file request pattern.
@@ -680,7 +677,6 @@ def test_publish_links_batches_existence_check_no_per_candidate_exists() -> None
     inserted_again = backend.publish_links(PreparedLinks(source_id="s1", candidates=candidates))
     assert inserted_again == 0
     assert fake.exists_calls == 0
-
 
 
 def test_publish_links_fresh_generation_skips_existence_lookup_and_dedupes(

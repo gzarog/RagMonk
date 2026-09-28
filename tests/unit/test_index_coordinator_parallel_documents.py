@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 import pytest
+from tests.unit._fake_opensearch import FakeOpenSearch
 
 import ragmonk.indexing.coordinator as coordinator_module
 from ragmonk.backends.models import ServerWritePass
@@ -29,7 +30,6 @@ from ragmonk.indexing.runner import build_processor_registry
 from ragmonk.storage.migrations import apply_migrations
 from ragmonk.storage.repositories import documents_repo, files_repo
 from ragmonk.storage.sqlite import connect
-from tests.unit._fake_opensearch import FakeOpenSearch
 
 FIXTURE_TEXT = (Path(__file__).parent.parent / "fixtures" / "documents" / "simple.txt").read_text()
 
@@ -63,7 +63,6 @@ def _write_project(root: Path, n_files: int) -> None:
     root.mkdir(parents=True, exist_ok=True)
     for i in range(n_files):
         (root / f"doc_{i}.txt").write_text(f"{FIXTURE_TEXT}\n\nfile number {i}\n")
-
 
 
 def test_server_documents_batch_in_default_single_worker_mode(tmp_path: Path) -> None:

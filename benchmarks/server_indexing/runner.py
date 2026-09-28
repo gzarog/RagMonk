@@ -128,9 +128,10 @@ def run_indexing_pass(
     before_files, before_content = _doc_counts(backend)
     total_bytes = _dir_bytes(source_path)
 
-    with capture_bulk_stats_both() as bulk_stats, capture_server_request_stats(
-        backend
-    ) as request_stats:
+    with (
+        capture_bulk_stats_both() as bulk_stats,
+        capture_server_request_stats(backend) as request_stats,
+    ):
         started = time.perf_counter()
         pass_result = index_runner.run_source_pass(ctx, source, processors)
         wall = time.perf_counter() - started

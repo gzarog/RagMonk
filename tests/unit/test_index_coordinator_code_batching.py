@@ -243,7 +243,6 @@ def test_batch_flush_combines_multiple_files_into_one_backend_call(tmp_path: Pat
         conn.close()
 
 
-
 def test_default_single_worker_server_mode_still_batches(tmp_path: Path) -> None:
     """V3 completion: batching must work in the default workers=1 mode."""
     root = tmp_path / "proj_serial_server"
@@ -362,7 +361,6 @@ def test_file_modified_during_prepare_to_publish_window_is_retried(
         conn.close()
 
 
-
 def test_same_batch_reference_resolves_via_staged_overlay(tmp_path: Path) -> None:
     """A later file in the same unflushed batch sees earlier finalized entities."""
     root = tmp_path / "same_batch"
@@ -400,8 +398,7 @@ def test_same_batch_reference_resolves_via_staged_overlay(tmp_path: Path) -> Non
         b_file_id = next(fid for path, fid in files.items() if path.endswith("b.py"))
         helper = next(e for e in backend._entities[a_file_id] if e.name == "helper")
         assert any(
-            rel.target_entity_id == helper.id
-            for rel in backend._relationships.get(b_file_id, [])
+            rel.target_entity_id == helper.id for rel in backend._relationships.get(b_file_id, [])
         )
     finally:
         conn.close()
