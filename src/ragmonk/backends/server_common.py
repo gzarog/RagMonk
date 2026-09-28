@@ -637,9 +637,7 @@ class PassEntityResolver:
         result.extend(self._overlay_matches(field, text, exclude_file_id=exclude_file_id))
         return [e for e in result if e.file_id != exclude_file_id]
 
-    def stage_file(
-        self, file_id: str, entities: list[Entity], *, clear_only: bool = False
-    ) -> None:
+    def stage_file(self, file_id: str, entities: list[Entity], *, clear_only: bool = False) -> None:
         """Expose a finalized replacement to later same-batch resolution."""
         self._staged_replaced_file_ids.add(file_id)
         self._staged_overlay[file_id] = [] if clear_only else list(entities)

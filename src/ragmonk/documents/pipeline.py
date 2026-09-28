@@ -365,6 +365,7 @@ def publish_document(ctx: ProcessorContext, prepared: PreparedDocument) -> Proce
             backend.publish_document(finalized.backend_prepared)
     return ProcessingOutcome(status=finalized.status)
 
+
 def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:
     """The registered ``FileKind.DOCUMENT`` processor -- ``prepare_document``
     then ``publish_document`` run back-to-back on whichever thread calls
