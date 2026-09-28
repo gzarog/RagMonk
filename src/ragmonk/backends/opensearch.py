@@ -605,7 +605,11 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             self._refresh_content_and_relationships()
 
     def _delete_batch_for_code(
-        self, items: list[PreparedCode], server_write_pass: ServerWritePass | None
+        self,
+        items: list[PreparedCode],
+        server_write_pass: ServerWritePass | None,
+        *,
+        force: bool = False,
     ) -> None:
         """Server Indexing Performance V3, item 4: the grouped delete half
         of ``publish_code_batch``. Two shortcuts over looping
@@ -626,7 +630,9 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
           never broader than the per-file deletes it replaces, and never
           touches a different generation or source.
         """
-        if server_write_pass is not None and server_write_pass.generation_is_empty:
+        # ``force`` (V3 completion P3): the failed-fresh-batch cleanup must
+        # delete even though the generation is fresh.
+        if not force and server_write_pass is not None and server_write_pass.generation_is_empty:
             return
         by_scope: dict[tuple[str, str], list[str]] = {}
         for item in items:
@@ -675,14 +681,14 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             try:
                 run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
             except Exception:
-                # A terminal bulk failure may occur after some actions were
-                # already accepted. In a fresh generation the normal fast path
-                # skips replacement deletes, so clean this batch explicitly
-                # before the coordinator retries it; otherwise UUID-based
-                # entity ids from the partial attempt could survive beside the
-                # retry's new ids.
+                # V3 completion P3.1: a terminal bulk failure may occur after
+                # some actions were already accepted. In a fresh generation
+                # the normal fast path skips replacement deletes, so clean
+                # this batch explicitly before the coordinator retries it;
+                # otherwise UUID-based entity ids from the partial attempt
+                # could survive beside the retry's new ids.
                 if server_write_pass is not None and server_write_pass.generation_is_empty:
-                    self._delete_batch_for_code(items, None)
+                    self._cleanup_failed_fresh_code_batch(items, server_write_pass)
                 raise
             if server_write_pass is None:
                 # Direct/legacy caller with no pass: keep the old
@@ -695,6 +701,34 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                 # happening after every batch flush.
                 server_write_pass.bulk_actions += len(combined)
                 server_write_pass.bulk_requests += 1
+
+    def _cleanup_failed_fresh_code_batch(
+        self, items: list[PreparedCode], server_write_pass: ServerWritePass
+    ) -> None:
+        """V3 completion P3.1: remove whatever a partially successful
+        fresh-generation code bulk left behind, before retry bookkeeping.
+
+        Explicitly deletes (never relying on the fresh-generation delete
+        skip in ``_delete_batch_for_code``) the batch's file-scoped entity,
+        relationship and entity-side link artifacts, scoped to this exact
+        source and *unpublished* generation -- the published generation is
+        never touched. The target indices are refreshed first: bulk writes
+        made under a ``ServerWritePass`` skip their own refresh, and
+        delete-by-query only sees documents visible to search.
+        """
+        self._refresh_content_and_relationships()
+        server_write_pass.refresh_count += 1
+        self._delete_batch_for_code(items, server_write_pass, force=True)
+
+    def _cleanup_failed_fresh_document_batch(
+        self, items: list[PreparedDocument], server_write_pass: ServerWritePass
+    ) -> None:
+        """V3 completion P3.2: document/chunk counterpart of
+        ``_cleanup_failed_fresh_code_batch``.
+        """
+        self._refresh_content_and_relationships()
+        server_write_pass.refresh_count += 1
+        self._delete_batch_for_document(items, server_write_pass, force=True)
 
     def _delete_for_document(self, prepared_document: PreparedDocument) -> None:
         source_id = prepared_document.source_id
@@ -771,14 +805,18 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
 
     def _delete_batch_for_document(
-        self, items: list[PreparedDocument], server_write_pass: ServerWritePass | None
+        self,
+        items: list[PreparedDocument],
+        server_write_pass: ServerWritePass | None,
+        *,
+        force: bool = False,
     ) -> None:
         """Document-pipeline counterpart of ``_delete_batch_for_code``
         (Server Indexing Performance V3, item 4) -- same fast path and
         same grouped ``terms``-based deletes, covering the document,
         chunk, and document-links categories.
         """
-        if server_write_pass is not None and server_write_pass.generation_is_empty:
+        if not force and server_write_pass is not None and server_write_pass.generation_is_empty:
             return
         by_scope: dict[tuple[str, str], list[str]] = {}
         for item in items:
@@ -820,8 +858,10 @@ class OpenSearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
             try:
                 run_bulk_or_raise(self._get_client(), combined, self._config.bulk)
             except Exception:
+                # V3 completion P3.2: same partial-success cleanup rule as
+                # ``publish_code_batch`` -- document/chunk ids are UUID-based.
                 if server_write_pass is not None and server_write_pass.generation_is_empty:
-                    self._delete_batch_for_document(items, None)
+                    self._cleanup_failed_fresh_document_batch(items, server_write_pass)
                 raise
             if server_write_pass is None:
                 self._get_client().indices.refresh(index=mappings.content_index(self._prefix))
