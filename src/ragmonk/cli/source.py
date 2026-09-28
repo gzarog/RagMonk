@@ -104,7 +104,7 @@ def remove(
             console.print("Aborted; nothing was removed.")
             raise typer.Exit(code=0)
 
-        lock = ctx.acquire_lock("index")
+        lock = ctx.acquire_lock("index", operation="source-remove", source_id=source_id)
         try:
             # Storage backend abstraction plan, Phase 8: in server mode,
             # the searchable knowledge (files/content/relationships

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Index locking and deadlock safety
+
+- **`index.lock` acquisition is bounded.** Every indexing-related lock
+  acquisition now retries a non-blocking OS lock until
+  `indexing.lock_timeout_seconds` (default 30, must be > 0 and <= 3600) and
+  then fails with an error naming the likely owner (PID, operation, source),
+  instead of hanging forever.
+- **Owner diagnostics.** The lock holder writes sanitized, informational
+  metadata (pid, operation, source id, host, time) into the lock file. The OS
+  lock stays authoritative; the file is never deleted or force-unlocked.
+- **`ragmonk index` locks one source pass at a time**, releasing between
+  sources; a source blocked by contention is reported and counted as failed.
+- **Daemon no longer holds `_db_lock` while waiting for or holding
+  `index.lock`.** Passes run on worker-owned SQLite connections; contention is
+  requeued with a backoff rather than treated as an indexing failure.
+- **`ragmonk doctor` reports an "Index Lock" section** (free/held, owner)
+  using a non-blocking probe.
+
 ### Last Scan bookkeeping and source failure isolation
 
 - **Last Scan is recorded as soon as the scan completes.** `last_scan_at` now

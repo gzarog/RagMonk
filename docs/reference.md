@@ -43,6 +43,14 @@ ragmonk link remove <ID>
 - **Last Scan** is the last completed filesystem scan; a later failure shows up as **Last Error**.
 - An unreachable source is marked **OFFLINE** and its knowledge is never deleted.
 
+## Index locking
+
+- `locks/index.lock` serializes indexing **writers** (CLI, daemon/watch, Admin UI, rebuild, backup); readers/search are never blocked by it.
+- Waiting is bounded by `indexing.lock_timeout_seconds` (default `30`, must be > 0 and <= 3600). On timeout the error names the likely owner (PID, operation, source), e.g. `Another RagMonk process holds index.lock (PID 44884, operation=index, source=src_example); timed out after 30s`.
+- `ragmonk index` holds the lock for one source pass at a time; the daemon retries a contended source after a short backoff.
+- Find the competing process with `ragmonk doctor` (**Index Lock** section) or the PID in the error. Owner metadata is informational only (PIDs can be reused).
+- Do **not** delete `index.lock` to recover: the OS lock is released automatically when its owner exits or crashes, and deleting the file can break exclusion.
+
 ## Admin UI
 
 `ragmonk ui` → http://127.0.0.1:8765. Manage sources, index with live progress, browse document chunks, test search, explore the code graph, edit config, control the daemon, backups and logs. Binds to `127.0.0.1` only, with CSRF protection and host-header validation. See [ui.md](ui.md).

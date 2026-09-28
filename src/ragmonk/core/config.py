@@ -85,6 +85,18 @@ class IndexingConfig(BaseModel):
     # it in this project's own benchmark, so nothing is claimed here that
     # measurement didn't back up (see docs/indexing_benchmarks.md).
     embedding_batch_size: int = 16
+    # Index locking plan: how long any indexing-related acquisition of the
+    # cross-process runtime lock (``locks/index.lock``) waits before
+    # failing with ``RunLockTimeoutError`` -- there is deliberately no
+    # unbounded wait anywhere.
+    lock_timeout_seconds: float = 30
+
+    @field_validator("lock_timeout_seconds")
+    @classmethod
+    def _validate_lock_timeout(cls, value: float) -> float:
+        if not 0 < value <= 3600:
+            raise ValueError("indexing.lock_timeout_seconds must be > 0 and <= 3600")
+        return value
 
 
 class ChunkingConfig(BaseModel):
@@ -235,9 +247,7 @@ class DocumentsConfig(BaseModel):
     def _validate_ocr(cls, value: str) -> str:
         allowed = {"off", "auto", "always"}
         if value not in allowed:
-            raise ValueError(
-                f"unknown documents.ocr {value!r}; expected one of {sorted(allowed)}"
-            )
+            raise ValueError(f"unknown documents.ocr {value!r}; expected one of {sorted(allowed)}")
         return value
 
 
@@ -476,8 +486,7 @@ class GithubCopilotAiConfig(BaseModel):
         allowed = {"signed_in_user"}
         if value not in allowed:
             raise ValueError(
-                f"unknown ai.github_copilot.auth_mode {value!r}; "
-                f"expected one of {sorted(allowed)}"
+                f"unknown ai.github_copilot.auth_mode {value!r}; expected one of {sorted(allowed)}"
             )
         return value
 
@@ -659,9 +668,7 @@ class StorageConfig(BaseModel):
     def _validate_mode(cls, value: str) -> str:
         allowed = {"local", "server"}
         if value not in allowed:
-            raise ValueError(
-                f"unknown storage.mode {value!r}; expected one of {sorted(allowed)}"
-            )
+            raise ValueError(f"unknown storage.mode {value!r}; expected one of {sorted(allowed)}")
         return value
 
 

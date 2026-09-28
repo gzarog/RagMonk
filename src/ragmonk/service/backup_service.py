@@ -43,7 +43,7 @@ def list_backups(ctx: AppContext) -> list[dict[str, Any]]:
 
 def create(ctx: AppContext) -> dict[str, Any]:
     """Create a backup under the same ``index`` lock the CLI takes."""
-    lock = ctx.acquire_lock("index")
+    lock = ctx.acquire_lock("index", operation="backup")
     try:
         sources = SourceRegistry(ctx.sources_conn, home=ctx.home).list()
         archive_path, manifest = create_backup(home=ctx.home, sources=sources)

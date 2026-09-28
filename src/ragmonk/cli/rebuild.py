@@ -43,7 +43,7 @@ def rebuild(
             raise UsageError("aborted: rebuild --fresh not confirmed (pass --yes to skip)")
 
     with AppContext.bootstrap() as ctx:
-        lock = ctx.acquire_lock("index")
+        lock = ctx.acquire_lock("index", operation="rebuild")
         try:
             outcomes = run_rebuild(ctx, source_id=source_id, fresh=fresh)
         finally:

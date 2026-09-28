@@ -133,7 +133,7 @@ class BackgroundIndexer:
         summary: dict[str, Any] = {"mode": mode, "sources": [], "failed": 0}
         try:
             with AppContext.bootstrap() as ctx:
-                lock = ctx.acquire_lock("index")
+                lock = ctx.acquire_lock("index", operation=mode, source_id=source_id)
                 try:
                     if rebuild:
                         summary = self._do_rebuild(ctx, source_id=source_id, fresh=fresh)
