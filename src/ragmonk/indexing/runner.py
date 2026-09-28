@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ragmonk.backends.base import KnowledgeBackend
+from ragmonk.backends.factory import redact_urls_in_text
 from ragmonk.backends.local import LocalKnowledgeBackend
 from ragmonk.backends.models import FileRecord as BackendFileRecord
 from ragmonk.backends.models import ServerWritePass
@@ -247,6 +248,48 @@ def run_source_pass(
     return pass_result
 
 
+def _record_pass_failure(
+    ctx: AppContext,
+    source: Source,
+    result: IndexRunResult,
+    stage: str,
+    exc: BaseException,
+    trigger_reason: str,
+) -> None:
+    """Last Scan fix, F2/F5: record a post-scan stage failure as the
+    source's ``last_error`` (``last_scan_at`` is left as already recorded)
+    and emit one structured ``source_pass_failed`` event. Availability
+    status stays truthful: OFFLINE when the scan found the source
+    unreachable, otherwise ACTIVE -- the source *is* reachable, and
+    ``last_error`` describes the failed pass. No stack trace is logged
+    here: the exception is re-raised and rendered by the caller.
+    """
+    # Redacted: an HTTP client exception's message can echo a request URL
+    # (and any credentials in it) -- never persist or log that verbatim.
+    detail = redact_urls_in_text(str(exc))
+    message = f"{stage} failed: {detail}"
+    status = SourceStatus.OFFLINE if result.source_offline else SourceStatus.ACTIVE
+    try:
+        sources_repo.record_indexing_outcome(
+            ctx.sources_conn,
+            source.id,
+            status=status,
+            last_error=message,
+            updated_at=datetime.now(UTC).isoformat(),
+        )
+    except Exception:  # never mask the original failure
+        _logger.warning("could not record indexing failure for %s", source.id, exc_info=True)
+    log_event(
+        _logger,
+        "source_pass_failed",
+        level=logging.ERROR,
+        source_id=source.id,
+        stage=stage,
+        trigger_reason=trigger_reason,
+        error=f"{type(exc).__name__}: {detail}",
+    )
+
+
 def _reset_control_plane(ctx: AppContext, source: Source) -> None:
     project_id = paths.project_id_for_path(Path(source.path))
     ctx.close_project_conn(project_id)
@@ -399,8 +442,7 @@ def _run_source_pass(
         assert force_generation is not None
         published_for_pass = backend.published_generation(source.id)
         generation_is_empty = (
-            published_for_pass is None
-            or generation_as_int(published_for_pass) != force_generation
+            published_for_pass is None or generation_as_int(published_for_pass) != force_generation
         )
         server_write_pass = ServerWritePass(
             source_id=source.id,
@@ -434,232 +476,263 @@ def _run_source_pass(
     trigger_reason = scan_request.reason if scan_request is not None else "manual"
     result = coordinator.run(changed_paths=changed_paths)
     now = datetime.now(UTC).isoformat()
+    # Last Scan fix, F1: ``last_scan_at`` means "the last completed
+    # filesystem scan attempt", not "the last fully successful end-to-end
+    # pass" -- persist it the moment ``coordinator.run`` returns, before
+    # any post-scan stage (server sync, linking, embeddings, refresh) can
+    # raise and leave a source with indexed files but no Last Scan.
+    sources_repo.record_scan_completed(
+        ctx.sources_conn, source.id, last_scan_at=now, updated_at=now
+    )
 
-    if server:
-        assert force_generation is not None
-        _sync_server_files(
-            conn,
-            backend,
-            source.id,
-            force_generation,
-            allow_deletes=not result.source_offline and not result.scan_incomplete,
-            server_write_pass=server_write_pass,
-        )
+    # F2: every post-scan stage runs under ``stage`` bookkeeping so a
+    # failure records ``"<stage> failed: <error>"`` as ``last_error``
+    # (never touching ``last_scan_at``) before the original exception
+    # propagates to the caller.
+    stage = "finalization"
+    try:
+        if server:
+            stage = "server_sync"
+            assert force_generation is not None
+            _sync_server_files(
+                conn,
+                backend,
+                source.id,
+                force_generation,
+                allow_deletes=not result.source_offline and not result.scan_incomplete,
+                server_write_pass=server_write_pass,
+            )
 
-    if result.source_offline:
-        # Same barrier as the normal end-of-pass one below (item 5): this
-        # early return also follows a (possibly empty, but not
-        # necessarily -- an offline source can still have synced file
-        # records above) ``_sync_server_files`` call whose own refresh
-        # was deferred.
+        if result.source_offline:
+            # Same barrier as the normal end-of-pass one below (item 5): this
+            # early return also follows a (possibly empty, but not
+            # necessarily -- an offline source can still have synced file
+            # records above) ``_sync_server_files`` call whose own refresh
+            # was deferred.
+            if server_write_pass is not None and not server_write_pass.generation_is_empty:
+                stage = "refresh"
+                backend.refresh_all(source.id)
+                server_write_pass.refresh_count += 1
+            stage = "finalization"
+            became_offline = source.status is not SourceStatus.OFFLINE
+            sources_repo.update_scan_result(
+                ctx.sources_conn,
+                source.id,
+                last_scan_at=now,
+                last_error=result.offline_reason,
+                status=SourceStatus.OFFLINE,
+                updated_at=now,
+            )
+            log_event(
+                _logger,
+                "stage_timings",
+                level=logging.DEBUG,
+                source_id=source.id,
+                trigger_reason=trigger_reason,
+                source_offline=True,
+            )
+            return SourcePassResult(
+                source=source,
+                result=result,
+                linked=0,
+                embedded=0,
+                became_offline=became_offline,
+                became_online=False,
+            )
+
+        became_online = source.status is SourceStatus.OFFLINE
+
+        # Phase 4's cross-domain linking pass: deliberately run here, after
+        # the per-file processor queue has fully drained, rather than inside
+        # IndexCoordinator itself -- a link needs both a code entity and a
+        # document to exist, so it cannot be computed per-file the way
+        # Phase 2/3's atomic generational writes are, and IndexCoordinator
+        # stays kind-agnostic (it does not import anything from code/ or
+        # documents/ directly).
+        linked = 0
+        if result.touched_code_file_ids or result.touched_document_file_ids:
+            stage = "linking"
+            _linking_started = time.monotonic()
+            with transaction(conn):
+                linked = link_touched_files(
+                    conn,
+                    backend,
+                    source_id=source.id,
+                    touched_code_file_ids=result.touched_code_file_ids,
+                    touched_document_file_ids=result.touched_document_file_ids,
+                    generation=force_generation if server else None,
+                    server_write_pass=server_write_pass,
+                )
+            result.timings.linking_seconds = time.monotonic() - _linking_started
+
+        # Phase 9: same touched-files scoping and same "run after the queue
+        # has drained" placement as the linking pass above, gated behind
+        # ``search.semantic`` so a project that never turns it on pays
+        # nothing extra here. ``retrieval/embedder.py`` only imports
+        # ``torch``/``transformers`` lazily, inside the function this branch
+        # is the sole caller of, so leaving ``search.semantic`` off also means
+        # those heavy libraries are never actually loaded into the process.
+        # Search Quality Improvement Plan, Phase 12: embeddings_stale_*_file_ids
+        # (content unchanged, but the stored embedding version stamp is --
+        # see IndexCoordinator._version_reprocess_decision) are unioned in
+        # here, not into `result.touched_*_file_ids` themselves -- the linking
+        # pass just above stays scoped to genuinely touched files only, since
+        # relinking a file whose entities/document sections never changed
+        # would be pure waste.
+        embed_code_file_ids = [
+            *result.touched_code_file_ids,
+            *result.embeddings_stale_code_file_ids,
+        ]
+        embed_document_file_ids = [
+            *result.touched_document_file_ids,
+            *result.embeddings_stale_document_file_ids,
+        ]
+        embedded = 0
+        cache_reused = 0
+        if ctx.config.search.semantic and (embed_code_file_ids or embed_document_file_ids):
+            touched_file_ids = [*embed_code_file_ids, *embed_document_file_ids]
+            # Captured *before* the transaction below deletes-and-reinserts
+            # vector_items for these files: the ANN index has no way to
+            # discover on its own which ids just went stale, so this is the
+            # only place that "before" snapshot is still available (blueprint
+            # section 14).
+            stale_vector_ids = (
+                [] if server else vector_items_repo.list_vector_ids_by_file(conn, touched_file_ids)
+            )
+            # Indexing optimization plan, Phase P5: model inference
+            # (``prepare_embeddings``, potentially the slowest step in a
+            # source pass) runs here, *before* the write transaction opens --
+            # only the short delete+insert+stamp write (``publish_embeddings``)
+            # below actually holds ``BEGIN IMMEDIATE``, unlike the pre-P5
+            # shape where a single ``embed_touched_files`` call held that
+            # write lock for as long as the model itself took to run.
+            stage = "embeddings"
+            _embedding_started = time.monotonic()
+            prepared = prepare_embeddings(
+                conn,
+                source_id=source.id,
+                touched_code_file_ids=embed_code_file_ids,
+                touched_document_file_ids=embed_document_file_ids,
+                batch_size=ctx.config.indexing.embedding_batch_size,
+                backend=backend,
+                generation=str(force_generation) if server else None,
+            )
+            # Indexing optimization plan V2, Phase P3: how many of this
+            # batch's unique texts were served from the persistent
+            # embedding-reuse cache without calling the model at all --
+            # V2 Phase P5 telemetry surface for that phase's own feature.
+            cache_reused = prepared.cache_reused if prepared is not None else 0
+            with transaction(conn):
+                embedded = (
+                    publish_embeddings(conn, prepared, backend=backend)
+                    if prepared is not None
+                    else 0
+                )
+            result.timings.embedding_seconds = time.monotonic() - _embedding_started
+            if embedded and not server:
+                # Server mode: the vectors live in the server engine's own
+                # kNN index -- there is no local ANN index to sync.
+                # Deliberately outside the transaction above: the ANN index
+                # is a separate on-disk file, not part of the SQLite
+                # transaction's atomicity guarantee -- SQLite (already
+                # committed at this point) remains the authoritative source
+                # it can always be rebuilt from (blueprint section 49), so a
+                # failure here degrades to "ANN index lags until the next
+                # sync or an explicit `ragmonk vectors rebuild`", never to
+                # a corrupt or half-written knowledge.db.
+                dim = embeddings_repo.get_dim_for_model(conn, embedder.EMBEDDING_MODEL_ID)
+                if dim is not None:
+                    stage = "ann_sync"
+                    _ann_started = time.monotonic()
+                    ann.sync_index_for_files(
+                        conn,
+                        project_id=project_id,
+                        home=ctx.home,
+                        engine=ctx.config.search.vector.engine,
+                        ndim=dim,
+                        model_id=embedder.EMBEDDING_MODEL_ID,
+                        removed_vector_ids=stale_vector_ids,
+                        touched_file_ids=touched_file_ids,
+                        rebuild_deleted_ratio=ctx.config.search.vector.rebuild_deleted_ratio,
+                    )
+                    result.timings.ann_sync_seconds = time.monotonic() - _ann_started
+
+        # Server Indexing Performance V3, item 5: the end-of-incremental-pass
+        # refresh barrier. Every write this pass made (code/document batches,
+        # ``upsert_files``, ``publish_links``) skipped its own per-call
+        # refresh when a ``server_write_pass`` was active, so this is the one
+        # explicit sweep that makes it all visible to any reader outside this
+        # pass (a search request, another process, the next pass's resolver
+        # reading the now-published state). Skipped for a fresh-generation
+        # pass (``server_write_pass.generation_is_empty``): that case's
+        # caller always calls ``publish_generation`` right after this
+        # function returns, which already refreshes every index once it
+        # swaps the marker -- refreshing here too would just be a redundant
+        # extra round trip.
         if server_write_pass is not None and not server_write_pass.generation_is_empty:
+            stage = "refresh"
             backend.refresh_all(source.id)
             server_write_pass.refresh_count += 1
-        became_offline = source.status is not SourceStatus.OFFLINE
+
+        stage = "finalization"
         sources_repo.update_scan_result(
             ctx.sources_conn,
             source.id,
             last_scan_at=now,
-            last_error=result.offline_reason,
-            status=SourceStatus.OFFLINE,
+            last_error=(f"{result.failed} file(s) failed" if result.failed else None),
+            status=SourceStatus.ACTIVE,
             updated_at=now,
         )
+
+        # Indexing optimization plan V2, Phase P5: one structured, DEBUG-level
+        # event per pass carrying every stage duration plus the context
+        # needed to explain them -- the real trigger reason (see
+        # trigger_reason above), targeted/full mode and changed-path count
+        # (Phase P2), worker counts (Phase P4/V2-P2), and embedding cache
+        # reuse (V2 Phase P3). DEBUG, not INFO: ``configure_logging``'s
+        # default level is "info" (``core/config.py``'s ``RuntimeConfig.
+        # log_level``), so this never reaches the log file -- let alone the
+        # console, which only ever surfaces WARNING+ regardless -- unless a
+        # project explicitly sets ``runtime.log_level: debug``, matching this
+        # codebase's one existing mechanism for "detailed but off by
+        # default" telemetry rather than inventing a second config flag.
+        # Building this dict of already-computed, cheap values (durations,
+        # counts) costs nothing measurable even when the level check below
+        # discards it -- see this phase's commit message for a timing check
+        # confirming that.
         log_event(
             _logger,
             "stage_timings",
             level=logging.DEBUG,
             source_id=source.id,
             trigger_reason=trigger_reason,
-            source_offline=True,
+            targeted=result.targeted,
+            changed_path_count=(len(changed_paths) if changed_paths is not None else None),
+            scan_seconds=result.timings.scan_seconds,
+            classify_seconds=result.timings.classify_seconds,
+            hash_seconds=result.timings.hash_seconds,
+            hash_calls=result.timings.hash_calls,
+            process_seconds=result.timings.process_seconds,
+            linking_seconds=result.timings.linking_seconds,
+            embedding_seconds=result.timings.embedding_seconds,
+            ann_sync_seconds=result.timings.ann_sync_seconds,
+            code_extraction_workers=ctx.config.indexing.code_extraction_workers,
+            document_extraction_workers=ctx.config.indexing.document_extraction_workers,
+            embedding_cache_reused=cache_reused,
+            server_bulk_actions=(server_write_pass.bulk_actions if server_write_pass else 0),
+            server_bulk_flush_calls=(server_write_pass.bulk_requests if server_write_pass else 0),
+            server_delete_by_query_count=(
+                server_write_pass.delete_by_query_count if server_write_pass else 0
+            ),
+            server_refresh_count=(server_write_pass.refresh_count if server_write_pass else 0),
+            indexed=result.indexed,
+            linked=linked,
+            embedded=embedded,
         )
-        return SourcePassResult(
-            source=source,
-            result=result,
-            linked=0,
-            embedded=0,
-            became_offline=became_offline,
-            became_online=False,
-        )
 
-    became_online = source.status is SourceStatus.OFFLINE
-
-    # Phase 4's cross-domain linking pass: deliberately run here, after
-    # the per-file processor queue has fully drained, rather than inside
-    # IndexCoordinator itself -- a link needs both a code entity and a
-    # document to exist, so it cannot be computed per-file the way
-    # Phase 2/3's atomic generational writes are, and IndexCoordinator
-    # stays kind-agnostic (it does not import anything from code/ or
-    # documents/ directly).
-    linked = 0
-    if result.touched_code_file_ids or result.touched_document_file_ids:
-        _linking_started = time.monotonic()
-        with transaction(conn):
-            linked = link_touched_files(
-                conn,
-                backend,
-                source_id=source.id,
-                touched_code_file_ids=result.touched_code_file_ids,
-                touched_document_file_ids=result.touched_document_file_ids,
-                generation=force_generation if server else None,
-                server_write_pass=server_write_pass,
-            )
-        result.timings.linking_seconds = time.monotonic() - _linking_started
-
-    # Phase 9: same touched-files scoping and same "run after the queue
-    # has drained" placement as the linking pass above, gated behind
-    # ``search.semantic`` so a project that never turns it on pays
-    # nothing extra here. ``retrieval/embedder.py`` only imports
-    # ``torch``/``transformers`` lazily, inside the function this branch
-    # is the sole caller of, so leaving ``search.semantic`` off also means
-    # those heavy libraries are never actually loaded into the process.
-    # Search Quality Improvement Plan, Phase 12: embeddings_stale_*_file_ids
-    # (content unchanged, but the stored embedding version stamp is --
-    # see IndexCoordinator._version_reprocess_decision) are unioned in
-    # here, not into `result.touched_*_file_ids` themselves -- the linking
-    # pass just above stays scoped to genuinely touched files only, since
-    # relinking a file whose entities/document sections never changed
-    # would be pure waste.
-    embed_code_file_ids = [*result.touched_code_file_ids, *result.embeddings_stale_code_file_ids]
-    embed_document_file_ids = [
-        *result.touched_document_file_ids,
-        *result.embeddings_stale_document_file_ids,
-    ]
-    embedded = 0
-    cache_reused = 0
-    if ctx.config.search.semantic and (embed_code_file_ids or embed_document_file_ids):
-        touched_file_ids = [*embed_code_file_ids, *embed_document_file_ids]
-        # Captured *before* the transaction below deletes-and-reinserts
-        # vector_items for these files: the ANN index has no way to
-        # discover on its own which ids just went stale, so this is the
-        # only place that "before" snapshot is still available (blueprint
-        # section 14).
-        stale_vector_ids = (
-            [] if server else vector_items_repo.list_vector_ids_by_file(conn, touched_file_ids)
-        )
-        # Indexing optimization plan, Phase P5: model inference
-        # (``prepare_embeddings``, potentially the slowest step in a
-        # source pass) runs here, *before* the write transaction opens --
-        # only the short delete+insert+stamp write (``publish_embeddings``)
-        # below actually holds ``BEGIN IMMEDIATE``, unlike the pre-P5
-        # shape where a single ``embed_touched_files`` call held that
-        # write lock for as long as the model itself took to run.
-        _embedding_started = time.monotonic()
-        prepared = prepare_embeddings(
-            conn,
-            source_id=source.id,
-            touched_code_file_ids=embed_code_file_ids,
-            touched_document_file_ids=embed_document_file_ids,
-            batch_size=ctx.config.indexing.embedding_batch_size,
-            backend=backend,
-            generation=str(force_generation) if server else None,
-        )
-        # Indexing optimization plan V2, Phase P3: how many of this
-        # batch's unique texts were served from the persistent
-        # embedding-reuse cache without calling the model at all --
-        # V2 Phase P5 telemetry surface for that phase's own feature.
-        cache_reused = prepared.cache_reused if prepared is not None else 0
-        with transaction(conn):
-            embedded = (
-                publish_embeddings(conn, prepared, backend=backend) if prepared is not None else 0
-            )
-        result.timings.embedding_seconds = time.monotonic() - _embedding_started
-        if embedded and not server:
-            # Server mode: the vectors live in the server engine's own
-            # kNN index -- there is no local ANN index to sync.
-            # Deliberately outside the transaction above: the ANN index
-            # is a separate on-disk file, not part of the SQLite
-            # transaction's atomicity guarantee -- SQLite (already
-            # committed at this point) remains the authoritative source
-            # it can always be rebuilt from (blueprint section 49), so a
-            # failure here degrades to "ANN index lags until the next
-            # sync or an explicit `ragmonk vectors rebuild`", never to
-            # a corrupt or half-written knowledge.db.
-            dim = embeddings_repo.get_dim_for_model(conn, embedder.EMBEDDING_MODEL_ID)
-            if dim is not None:
-                _ann_started = time.monotonic()
-                ann.sync_index_for_files(
-                    conn,
-                    project_id=project_id,
-                    home=ctx.home,
-                    engine=ctx.config.search.vector.engine,
-                    ndim=dim,
-                    model_id=embedder.EMBEDDING_MODEL_ID,
-                    removed_vector_ids=stale_vector_ids,
-                    touched_file_ids=touched_file_ids,
-                    rebuild_deleted_ratio=ctx.config.search.vector.rebuild_deleted_ratio,
-                )
-                result.timings.ann_sync_seconds = time.monotonic() - _ann_started
-
-    # Server Indexing Performance V3, item 5: the end-of-incremental-pass
-    # refresh barrier. Every write this pass made (code/document batches,
-    # ``upsert_files``, ``publish_links``) skipped its own per-call
-    # refresh when a ``server_write_pass`` was active, so this is the one
-    # explicit sweep that makes it all visible to any reader outside this
-    # pass (a search request, another process, the next pass's resolver
-    # reading the now-published state). Skipped for a fresh-generation
-    # pass (``server_write_pass.generation_is_empty``): that case's
-    # caller always calls ``publish_generation`` right after this
-    # function returns, which already refreshes every index once it
-    # swaps the marker -- refreshing here too would just be a redundant
-    # extra round trip.
-    if server_write_pass is not None and not server_write_pass.generation_is_empty:
-        backend.refresh_all(source.id)
-        server_write_pass.refresh_count += 1
-
-    sources_repo.update_scan_result(
-        ctx.sources_conn,
-        source.id,
-        last_scan_at=now,
-        last_error=(f"{result.failed} file(s) failed" if result.failed else None),
-        status=SourceStatus.ACTIVE,
-        updated_at=now,
-    )
-
-    # Indexing optimization plan V2, Phase P5: one structured, DEBUG-level
-    # event per pass carrying every stage duration plus the context
-    # needed to explain them -- the real trigger reason (see
-    # trigger_reason above), targeted/full mode and changed-path count
-    # (Phase P2), worker counts (Phase P4/V2-P2), and embedding cache
-    # reuse (V2 Phase P3). DEBUG, not INFO: ``configure_logging``'s
-    # default level is "info" (``core/config.py``'s ``RuntimeConfig.
-    # log_level``), so this never reaches the log file -- let alone the
-    # console, which only ever surfaces WARNING+ regardless -- unless a
-    # project explicitly sets ``runtime.log_level: debug``, matching this
-    # codebase's one existing mechanism for "detailed but off by
-    # default" telemetry rather than inventing a second config flag.
-    # Building this dict of already-computed, cheap values (durations,
-    # counts) costs nothing measurable even when the level check below
-    # discards it -- see this phase's commit message for a timing check
-    # confirming that.
-    log_event(
-        _logger,
-        "stage_timings",
-        level=logging.DEBUG,
-        source_id=source.id,
-        trigger_reason=trigger_reason,
-        targeted=result.targeted,
-        changed_path_count=(len(changed_paths) if changed_paths is not None else None),
-        scan_seconds=result.timings.scan_seconds,
-        classify_seconds=result.timings.classify_seconds,
-        hash_seconds=result.timings.hash_seconds,
-        hash_calls=result.timings.hash_calls,
-        process_seconds=result.timings.process_seconds,
-        linking_seconds=result.timings.linking_seconds,
-        embedding_seconds=result.timings.embedding_seconds,
-        ann_sync_seconds=result.timings.ann_sync_seconds,
-        code_extraction_workers=ctx.config.indexing.code_extraction_workers,
-        document_extraction_workers=ctx.config.indexing.document_extraction_workers,
-        embedding_cache_reused=cache_reused,
-        server_bulk_actions=(server_write_pass.bulk_actions if server_write_pass else 0),
-        server_bulk_flush_calls=(server_write_pass.bulk_requests if server_write_pass else 0),
-        server_delete_by_query_count=(
-            server_write_pass.delete_by_query_count if server_write_pass else 0
-        ),
-        server_refresh_count=(server_write_pass.refresh_count if server_write_pass else 0),
-        indexed=result.indexed,
-        linked=linked,
-        embedded=embedded,
-    )
+    except Exception as exc:
+        _record_pass_failure(ctx, source, result, stage, exc, trigger_reason)
+        raise
 
     return SourcePassResult(
         source=source,

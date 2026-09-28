@@ -114,6 +114,8 @@ def collect_status(ctx: AppContext) -> dict[str, Any]:
                 "status": source.status.value,
                 "counts": counts,
                 "queue_depth": depth,
+                # "Last Scan" = last completed scan attempt, not full
+                # indexing success; see ``Source.last_scan_at``.
                 "last_scan_at": source.last_scan_at,
                 "last_error": source.last_error,
                 "metrics": {

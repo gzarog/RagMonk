@@ -106,6 +106,43 @@ def update_scan_result(
         )
 
 
+def record_scan_completed(
+    conn: sqlite3.Connection,
+    source_id: str,
+    *,
+    last_scan_at: str,
+    updated_at: str,
+) -> None:
+    """Stamps ``last_scan_at`` as soon as a source's filesystem scan/diff
+    stage completes. ``last_scan_at`` means "last completed scan attempt",
+    not "last fully successful indexing pass": a later post-scan failure
+    is recorded via ``record_indexing_outcome`` without touching it.
+    """
+    with transaction(conn):
+        conn.execute(
+            "UPDATE sources SET last_scan_at = ?, updated_at = ? WHERE id = ?",
+            (last_scan_at, updated_at, source_id),
+        )
+
+
+def record_indexing_outcome(
+    conn: sqlite3.Connection,
+    source_id: str,
+    *,
+    status: SourceStatus,
+    last_error: str | None,
+    updated_at: str,
+) -> None:
+    """Records a pass outcome (typically a post-scan stage failure) while
+    preserving whatever ``last_scan_at`` is already stored.
+    """
+    with transaction(conn):
+        conn.execute(
+            "UPDATE sources SET last_error = ?, status = ?, updated_at = ? WHERE id = ?",
+            (last_error, status.value, updated_at, source_id),
+        )
+
+
 def delete(conn: sqlite3.Connection, source_id: str) -> None:
     with transaction(conn):
         conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))

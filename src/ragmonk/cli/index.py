@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from ragmonk.backends.factory import redact_urls_in_text
 from ragmonk.core.errors import IndexingPartialFailureError
 from ragmonk.core.lifecycle import AppContext
 from ragmonk.indexing.runner import build_processor_registry, run_source_pass
@@ -34,9 +35,22 @@ def index(
                 return
 
             total_failed = 0
+            failed_sources = 0
             processors = build_processor_registry(ctx.config)
             for source in sources:
-                pass_result = run_source_pass(ctx, source, processors)
+                # Per-source isolation: one source's failure must not stop
+                # independent sources from being indexed. The runner has
+                # already recorded last_error (and logged the failed
+                # stage); the command still fails once all are attempted.
+                try:
+                    pass_result = run_source_pass(ctx, source, processors)
+                except Exception as exc:
+                    failed_sources += 1
+                    console.print(
+                        f"[red]{source.id}[/red] {source.path}: source pass failed: "
+                        f"{type(exc).__name__}: {redact_urls_in_text(str(exc))}"
+                    )
+                    continue
                 result = pass_result.result
 
                 if result.source_offline:
@@ -69,9 +83,25 @@ def index(
                         "deletion reconciliation skipped this pass, will retry"
                     )
 
-            if total_failed:
+            attempted = len(sources)
+            if failed_sources:
+                console.print(
+                    f"Index complete with failures: {attempted} source(s) attempted, "
+                    f"{attempted - failed_sources} completed, {failed_sources} source(s) failed."
+                )
+            else:
+                console.print(
+                    f"Index complete: {attempted} source(s) processed, "
+                    f"{attempted} succeeded, 0 failed."
+                )
+            if failed_sources or total_failed:
+                parts = []
+                if failed_sources:
+                    parts.append(f"{failed_sources} source(s) failed")
+                if total_failed:
+                    parts.append(f"{total_failed} file(s) failed to index")
                 raise IndexingPartialFailureError(
-                    f"{total_failed} file(s) failed to index; see 'ragmonk doctor' for details"
+                    "; ".join(parts) + "; see 'ragmonk doctor' for details"
                 )
         finally:
             lock.release()
