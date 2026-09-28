@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 EXIT_SUCCESS = 0
 EXIT_GENERIC_FAILURE = 1
 EXIT_INVALID_ARGUMENTS = 2
@@ -50,6 +52,49 @@ class HealthCheckError(RagMonkError):
 
 class SecurityViolationError(RagMonkError):
     exit_code = EXIT_SECURITY_RESTRICTION
+
+
+class RunLockTimeoutError(RagMonkError):
+    """Raised when a runtime lock (``index.lock`` etc.) could not be
+    acquired within its bounded timeout. Carries the (diagnostic-only,
+    untrusted) owner metadata read from the lock file; the OS file lock
+    itself remains the sole authority on who holds it.
+    """
+
+    def __init__(
+        self,
+        lock_path: str,
+        timeout_seconds: float,
+        *,
+        owner: dict[str, object] | None = None,
+    ) -> None:
+        owner = owner or {}
+        self.lock_path = lock_path
+        self.timeout_seconds = timeout_seconds
+        self.owner_pid = owner.get("pid")
+        self.owner_operation = owner.get("operation")
+        self.owner_source_id = owner.get("source_id")
+        self.owner_acquired_at = owner.get("acquired_at")
+        self.owner_hostname = owner.get("hostname")
+        name = Path(lock_path).name
+        if owner:
+            details = [f"PID {self.owner_pid}"] if self.owner_pid is not None else []
+            if self.owner_operation:
+                details.append(f"operation={self.owner_operation}")
+            if self.owner_source_id:
+                details.append(f"source={self.owner_source_id}")
+            if self.owner_hostname:
+                details.append(f"host={self.owner_hostname}")
+            message = (
+                f"Another RagMonk process holds {name} ({', '.join(details) or 'unknown owner'}); "
+                f"timed out after {timeout_seconds:g}s waiting for it."
+            )
+        else:
+            message = (
+                f"Another RagMonk process holds {name} (owner unknown); "
+                f"timed out after {timeout_seconds:g}s waiting for it."
+            )
+        super().__init__(message)
 
 
 class LocalStorageModeRequiredError(RagMonkError):

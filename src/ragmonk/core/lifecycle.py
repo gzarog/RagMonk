@@ -5,8 +5,16 @@ graceful shutdown hook so every command starts and ends in the same way.
 from __future__ import annotations
 
 import contextlib
+import json
+import logging
+import os
+import re
+import socket
 import sqlite3
+import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -14,10 +22,10 @@ from typing import Any
 from ragmonk.backends.base import KnowledgeBackend
 from ragmonk.core import paths
 from ragmonk.core.config import RagMonkConfig, load_config
-from ragmonk.core.errors import LocalStorageModeRequiredError
+from ragmonk.core.errors import LocalStorageModeRequiredError, RunLockTimeoutError
 from ragmonk.storage.migrations import apply_migrations
 from ragmonk.storage.sqlite import connect
-from ragmonk.telemetry.logging import configure_logging
+from ragmonk.telemetry.logging import configure_logging, get_logger, log_event
 from ragmonk.update import background as update_background
 from ragmonk.update import notifier as update_notifier
 
@@ -32,37 +40,216 @@ except ImportError:  # pragma: no cover - exercised only on non-Windows platform
     msvcrt = None  # type: ignore[assignment]
 
 
-class RunLock:
-    """Cross-platform exclusive file lock.
+DEFAULT_LOCK_TIMEOUT_SECONDS = 30.0
+_LOCK_POLL_SECONDS = 0.05
+_METADATA_MAX_BYTES = 4096
+_METADATA_SCHEMA_VERSION = 1
+# The OS lock covers byte 0 only (msvcrt locks are mandatory, so metadata
+# lives after it and stays readable by a blocked process); byte 0 is padding.
+_METADATA_OFFSET = 1
+_SAFE_TOKEN = re.compile(r"[^A-Za-z0-9_.:\-]")
 
-    Uses fcntl.flock on POSIX and msvcrt.locking on Windows.
+_logger = get_logger("lock")
+
+
+def _sanitize_token(value: object, limit: int = 64) -> str | None:
+    """Metadata is diagnostic and untrusted: keep only a short identifier-like
+    token (never a URL/argv/secret-bearing string).
+    """
+    if value is None:
+        return None
+    return _SAFE_TOKEN.sub("_", str(value))[:limit] or None
+
+
+@dataclass(frozen=True)
+class LockStatus:
+    """Result of a non-blocking inspection: ``state`` is free/held/unknown."""
+
+    state: str
+    owner: dict[str, Any] | None = None
+
+
+def _try_lock(handle: Any) -> bool:
+    """One non-blocking OS lock attempt; False if held by someone else."""
+    try:
+        if fcntl is not None:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        elif msvcrt is not None:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        return False
+    return True
+
+
+def _unlock(handle: Any) -> None:
+    try:
+        if fcntl is not None:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        elif msvcrt is not None:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+
+
+def _open_lock_file(path: Path) -> Any:
+    # Never truncate on open: another process may own the lock and its
+    # metadata must stay readable until we actually win the lock.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    return os.fdopen(fd, "r+b")
+
+
+def read_lock_owner(path: Path) -> dict[str, Any] | None:
+    """Defensively reads owner metadata; None if absent/malformed."""
+    try:
+        with path.open("rb") as fh:
+            fh.seek(_METADATA_OFFSET)
+            raw = fh.read(_METADATA_MAX_BYTES)
+        data = json.loads(raw.decode("utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    owner: dict[str, Any] = {}
+    pid = data.get("pid")
+    if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
+        owner["pid"] = pid
+    for key in ("operation", "source_id", "hostname"):
+        token = _sanitize_token(data.get(key))
+        if token:
+            owner[key] = token
+    acquired_at = _sanitize_token(data.get("acquired_at"), 40)
+    if acquired_at:
+        owner["acquired_at"] = acquired_at
+    return owner or None
+
+
+def inspect_lock(path: Path) -> LockStatus:
+    """Quick, non-blocking, non-disturbing lock inspection (for doctor)."""
+    if not path.exists():
+        return LockStatus("free")
+    try:
+        handle = _open_lock_file(path)
+    except OSError:
+        return LockStatus("unknown")
+    try:
+        if _try_lock(handle):
+            _unlock(handle)
+            return LockStatus("free")
+        return LockStatus("held", read_lock_owner(path))
+    finally:
+        handle.close()
+
+
+class RunLock:
+    """Cross-platform exclusive file lock with bounded acquisition.
+
+    Uses non-blocking fcntl.flock on POSIX and msvcrt.locking on Windows,
+    retried until a monotonic deadline. After winning the OS lock, writes
+    diagnostic owner metadata (pid/operation/source/host/time). That
+    metadata is informational only: the OS lock is authoritative, and the
+    lock file is never deleted or force-unlocked based on it.
     """
 
-    def __init__(self, path: Path) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        operation: str | None = None,
+        source_id: str | None = None,
+        timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
+    ) -> None:
         self._path = path
+        self._operation = operation or path.stem
+        self._source_id = source_id
+        self._timeout = timeout_seconds
         self._handle: Any = None
 
-    def acquire(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._handle = self._path.open("w")  # noqa: SIM115 - handle outlives this call
-        if fcntl is not None:
-            fcntl.flock(self._handle, fcntl.LOCK_EX)
-        elif msvcrt is not None:
-            msvcrt.locking(self._handle.fileno(), msvcrt.LK_LOCK, 1)
+    def acquire(self, timeout_seconds: float | None = None) -> None:
+        if self._handle is not None:
+            raise RuntimeError(f"RunLock for {self._path.name} is already acquired")
+        timeout = self._timeout if timeout_seconds is None else timeout_seconds
+        handle = _open_lock_file(self._path)
+        try:
+            log_event(
+                _logger,
+                "lock_wait_started",
+                lock=self._path.name,
+                operation=self._operation,
+                source_id=self._source_id,
+                timeout_seconds=timeout,
+            )
+            started = time.monotonic()
+            deadline = started + timeout
+            while not _try_lock(handle):
+                if time.monotonic() >= deadline:
+                    owner = read_lock_owner(self._path)
+                    log_event(
+                        _logger,
+                        "lock_wait_timeout",
+                        level=logging.WARNING,
+                        lock=self._path.name,
+                        operation=self._operation,
+                        source_id=self._source_id,
+                        timeout_seconds=timeout,
+                        owner_pid=(owner or {}).get("pid"),
+                        owner_operation=(owner or {}).get("operation"),
+                        owner_source_id=(owner or {}).get("source_id"),
+                    )
+                    raise RunLockTimeoutError(str(self._path), timeout, owner=owner)
+                time.sleep(_LOCK_POLL_SECONDS)
+            self._write_metadata(handle)
+        except BaseException:
+            handle.close()
+            raise
+        self._handle = handle
+        log_event(
+            _logger,
+            "lock_acquired",
+            lock=self._path.name,
+            operation=self._operation,
+            source_id=self._source_id,
+            waited_seconds=round(time.monotonic() - started, 3),
+        )
+
+    def _write_metadata(self, handle: Any) -> None:
+        meta = {
+            "schema_version": _METADATA_SCHEMA_VERSION,
+            "pid": os.getpid(),
+            "operation": _sanitize_token(self._operation),
+            "source_id": _sanitize_token(self._source_id),
+            "hostname": _sanitize_token(socket.gethostname()),
+            "acquired_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
+        try:
+            handle.seek(_METADATA_OFFSET)
+            handle.truncate()
+            handle.write(json.dumps(meta).encode("utf-8"))
+            handle.flush()
+        except OSError:
+            pass  # diagnostics only; never fail a lock we already hold
 
     def release(self) -> None:
-        if self._handle is None:
+        handle, self._handle = self._handle, None
+        if handle is None:
             return
-        if fcntl is not None:
-            fcntl.flock(self._handle, fcntl.LOCK_UN)
-        elif msvcrt is not None:
-            try:
-                self._handle.seek(0)
-                msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
-            except OSError:
-                pass
-        self._handle.close()
-        self._handle = None
+        try:
+            with contextlib.suppress(OSError):
+                handle.seek(_METADATA_OFFSET)
+                handle.truncate()
+                handle.flush()
+            _unlock(handle)
+        finally:
+            handle.close()
+            log_event(
+                _logger,
+                "lock_released",
+                lock=self._path.name,
+                operation=self._operation,
+                source_id=self._source_id,
+            )
 
 
 @dataclass
@@ -212,11 +399,38 @@ class AppContext:
         if conn is not None:
             conn.close()
 
-    def acquire_lock(self, name: str) -> RunLock:
-        lock = RunLock(paths.locks_dir(self.home) / f"{name}.lock")
+    def _new_lock(self, name: str, operation: str | None, source_id: str | None) -> RunLock:
+        return RunLock(
+            paths.locks_dir(self.home) / f"{name}.lock",
+            operation=operation or name,
+            source_id=source_id,
+            timeout_seconds=self.config.indexing.lock_timeout_seconds,
+        )
+
+    def acquire_lock(
+        self, name: str, *, operation: str | None = None, source_id: str | None = None
+    ) -> RunLock:
+        """Bounded acquisition (``indexing.lock_timeout_seconds``); raises
+        ``RunLockTimeoutError`` rather than ever waiting forever.
+        """
+        lock = self._new_lock(name, operation, source_id)
         lock.acquire()
         self._lock = lock
         return lock
+
+    @contextlib.contextmanager
+    def index_lock(
+        self, *, operation: str = "index", source_id: str | None = None
+    ) -> Iterator[RunLock]:
+        """Scoped ``index.lock`` hold, released even on error. Does not use
+        the single ``_lock`` slot, so it can be taken repeatedly.
+        """
+        lock = self._new_lock("index", operation, source_id)
+        lock.acquire()
+        try:
+            yield lock
+        finally:
+            lock.release()
 
     def close(self) -> None:
         if self._lock is not None:

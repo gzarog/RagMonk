@@ -32,7 +32,7 @@ def backup(
         # (ops/backup.py) is itself safe against a concurrent writer, so
         # this is a belt-and-suspenders guarantee of a fully quiescent
         # snapshot, not a strict requirement.
-        lock = ctx.acquire_lock("index")
+        lock = ctx.acquire_lock("index", operation="backup")
         try:
             sources = SourceRegistry(ctx.sources_conn, home=ctx.home).list()
             archive_path, manifest = create_backup(

@@ -13,7 +13,7 @@ from ragmonk import __version__
 from ragmonk.backends.factory import redact_url
 from ragmonk.core import paths
 from ragmonk.core.errors import EXIT_HEALTH_CHECK_FAILURE, HealthCheckError
-from ragmonk.core.lifecycle import AppContext
+from ragmonk.core.lifecycle import AppContext, inspect_lock
 from ragmonk.core.models import SourceStatus
 from ragmonk.sources.registry import SourceRegistry
 from ragmonk.sources.scanner import check_root_accessible
@@ -108,6 +108,8 @@ def run_checks(ctx: AppContext) -> list[CheckSection]:
         )
     )
 
+    sections.append(_index_lock_section(ctx))
+
     total_queue = 0
     for source in sources:
         project_id = paths.project_id_for_path(Path(source.path))
@@ -147,6 +149,26 @@ def run_checks(ctx: AppContext) -> list[CheckSection]:
         sections.append(_server_section(ctx))
 
     return sections
+
+
+def _index_lock_section(ctx: AppContext) -> CheckSection:
+    """Runtime index lock state (not SQLite health); a quick non-blocking
+    probe that never disturbs the current owner.
+    """
+    status = inspect_lock(paths.locks_dir(ctx.home) / "index.lock")
+    if status.state == "free":
+        return CheckSection("Index Lock", [CheckResult("index_lock", "ok", "free")])
+    if status.state == "unknown":
+        return CheckSection("Index Lock", [CheckResult("index_lock", "warn", "unknown")])
+    owner = status.owner or {}
+    parts = ["held"]
+    if "pid" in owner:
+        parts.append(f"PID {owner['pid']}")
+    if "operation" in owner:
+        parts.append(f"operation {owner['operation']}")
+    if "source_id" in owner:
+        parts.append(f"source {owner['source_id']}")
+    return CheckSection("Index Lock", [CheckResult("index_lock", "warn", ", ".join(parts))])
 
 
 def _server_section(ctx: AppContext) -> CheckSection:

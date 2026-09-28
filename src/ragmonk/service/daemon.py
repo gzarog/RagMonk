@@ -11,6 +11,14 @@ concerns (signal handling, PID files, stdio) of its own -- those belong
 to ``cli/watch.py`` (the foreground entrypoint) and ``cli/daemon.py``
 (background start/stop), keeping ``Daemon`` itself fully unit-testable.
 
+Lock order (never nest a wait that could form a cycle): ``_db_lock`` and
+``_state_lock`` are only ever held briefly for daemon-owned bookkeeping and
+are NEVER held while acquiring the cross-process ``RunLock``; the RunLock is
+never held while joining threads. The indexing pass itself runs on a
+worker-owned ``AppContext`` (its own SQLite connections), so no
+``sqlite3.Connection`` is shared between the worker and the
+reconciliation/start/stop threads.
+
 Locking: a fresh ``core.lifecycle.RunLock`` is acquired and released
 around each individual pass (not held for the daemon's whole lifetime).
 Passes are additionally serialized through one worker thread and queue,
@@ -32,13 +40,15 @@ from pathlib import Path
 
 from ragmonk.backends.factory import redact_url
 from ragmonk.core import paths
-from ragmonk.core.errors import UsageError
-from ragmonk.core.lifecycle import AppContext, RunLock
+from ragmonk.core.errors import RunLockTimeoutError, UsageError
+from ragmonk.core.lifecycle import AppContext
 from ragmonk.core.models import Source, SourceStatus, SourceType
 from ragmonk.indexing.coordinator import ScanRequest
 from ragmonk.indexing.runner import build_processor_registry, run_source_pass
 from ragmonk.service import health
 from ragmonk.sources.registry import SourceRegistry
+from ragmonk.storage.migrations import apply_migrations
+from ragmonk.storage.sqlite import connect
 from ragmonk.telemetry.logging import get_logger, log_event
 from ragmonk.watcher.local import LocalSourceWatcher
 from ragmonk.watcher.network import NetworkSourceWatcher
@@ -58,6 +68,10 @@ _WORKER_POLL_SECONDS = 0.2
 # overflow" guidance without needing to detect a real watchdog-queue
 # overflow event specifically.
 _MAX_TARGETED_PATHS = 200
+
+# Extra pause after an index.lock timeout before the source is retried, on
+# top of the lock timeout itself, so contention can never become a hot loop.
+_CONTENTION_BACKOFF_SECONDS = 5.0
 
 # Reasons that always force a full scan+diff pass regardless of what
 # (if anything) was accumulated in ``_touched_paths`` -- the periodic
@@ -127,6 +141,9 @@ class Daemon:
         # through this lock. Separate from ``_state_lock`` below, which
         # only guards this object's own in-memory bookkeeping.
         self._db_lock = threading.Lock()
+        # Worker-owned context (own sqlite connections), lazily created on
+        # the thread that runs passes; see ``_worker_context``.
+        self._worker_ctx: AppContext | None = None
         self._state_lock = threading.Lock()
         self._started_at = health.now_iso()
         self._last_reconciliation_at: str | None = None
@@ -222,6 +239,8 @@ class Daemon:
                     level=logging.WARNING,
                     timeout_seconds=timeout,
                 )
+            else:
+                self._close_worker_context()
             self._worker_thread = None
         if self._reconciliation_thread is not None:
             self._reconciliation_thread.join(timeout=timeout)
@@ -414,23 +433,71 @@ class Daemon:
             source_id=source_id, reason=reason, changed_paths=frozenset(touched), full=False
         )
 
+    def _worker_context(self) -> AppContext:
+        """Connections used by ``run_source_pass`` belong to the pass
+        thread alone, so ``_db_lock`` need not (and does not) wrap a pass.
+        """
+        if self._worker_ctx is None:
+            sources_conn = connect(
+                paths.sources_db_path(self._ctx.home),
+                cache_size_mb=self._ctx.config.runtime.sqlite_cache_size_mb,
+            )
+            apply_migrations(sources_conn, "sources")
+            self._worker_ctx = AppContext(
+                config=self._ctx.config,
+                home=self._ctx.home,
+                cwd=self._ctx.cwd,
+                sources_conn=sources_conn,
+            )
+        return self._worker_ctx
+
+    def _close_worker_context(self) -> None:
+        worker_ctx, self._worker_ctx = self._worker_ctx, None
+        if worker_ctx is None:
+            return
+        if worker_ctx._server_backend is not None:
+            worker_ctx._server_backend.close()
+        worker_ctx.sources_conn.close()
+        for conn in worker_ctx._project_conns.values():
+            conn.close()
+        worker_ctx._project_conns.clear()
+
     def _run_pass(self, source_id: str) -> None:
-        scan_request = self._build_scan_request(source_id)
         pass_result = None
         with self._db_lock:
             try:
                 source = self._registry.get(source_id)
             except UsageError:
                 source = None  # removed since being enqueued
-            if source is not None and source.enabled:
-                lock = RunLock(paths.locks_dir(self._ctx.home) / "index.lock")
-                lock.acquire()
-                try:
+        if source is not None and source.enabled:
+            # _db_lock is released here: never wait on index.lock holding it.
+            try:
+                with self._ctx.index_lock(operation="daemon", source_id=source_id):
+                    scan_request = self._build_scan_request(source_id)
                     pass_result = run_source_pass(
-                        self._ctx, source, self._processors, scan_request=scan_request
+                        self._worker_context(),
+                        source,
+                        self._processors,
+                        scan_request=scan_request,
                     )
-                finally:
-                    lock.release()
+            except RunLockTimeoutError as exc:
+                # Contention, not a failure: nothing was consumed (the scan
+                # request is built only after the lock is won), so requeue
+                # after a backoff. enqueue_source turns this into a
+                # follow-up pass since this source is currently "running".
+                log_event(
+                    _logger,
+                    "daemon_pass_lock_contention",
+                    level=logging.WARNING,
+                    source_id=source_id,
+                    owner_pid=exc.owner_pid,
+                    owner_operation=exc.owner_operation,
+                    owner_source_id=exc.owner_source_id,
+                    detail=str(exc),
+                )
+                if not self._stop_event.wait(_CONTENTION_BACKOFF_SECONDS):
+                    self.enqueue_source(source_id, reason="lock_contention")
+                return
 
         if pass_result is None:
             return
