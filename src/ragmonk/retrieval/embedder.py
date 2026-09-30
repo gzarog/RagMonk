@@ -111,9 +111,13 @@ def embed_texts(texts: Sequence[str], *, batch_size: int | None = None) -> list[
     tokenizer, model = _load_model()
     import torch
 
+    from ragmonk.service import progress
+
     size = batch_size if batch_size is not None and batch_size > 0 else _BATCH_SIZE
     vectors: list[list[float]] = []
+    tracker = progress.current()
     for start in range(0, len(texts), size):
+        tracker.heartbeat()
         batch = [text[:_MAX_CHARS] for text in texts[start : start + size]]
         encoded = tokenizer(
             batch, padding=True, truncation=True, max_length=_MAX_TOKENS, return_tensors="pt"

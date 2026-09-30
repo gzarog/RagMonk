@@ -187,6 +187,13 @@ class ProgressTracker:
             self.progress.queued = queued
             self._flush(force=False)
 
+    def heartbeat(self) -> None:
+        """Liveness signal from inside a long stage (linking, embeddings)
+        that has no per-file completions, so ``ragmonk status`` does not
+        report a working run as stalled. Coalesced like counter updates."""
+        with self._lock:
+            self._flush(force=False)
+
     def file_done(self, outcome: str) -> None:
         """``outcome`` is ``indexed``, ``failed``, ``retry`` or ``skipped``."""
         with self._lock:

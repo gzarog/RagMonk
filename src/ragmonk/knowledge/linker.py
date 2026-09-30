@@ -46,6 +46,7 @@ has no embedding infrastructure to do so anyway (that is Phase 9).
 
 from __future__ import annotations
 
+import functools
 import re
 import sqlite3
 from collections.abc import Sequence
@@ -67,6 +68,7 @@ from ragmonk.core.models import (
     RelationshipType,
     SectionKind,
 )
+from ragmonk.service import progress
 from ragmonk.storage.repositories import (
     documents_repo,
     entities_repo,
@@ -93,16 +95,15 @@ def _batches_of(items: list[LinkCandidate], size: int) -> list[list[LinkCandidat
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
+@functools.lru_cache(maxsize=65536)
 def _needle_pattern(needle: str) -> re.Pattern[str] | None:
-    """Compiles ``needle``'s whole-identifier boundary pattern once --
-    indexing optimization plan Phase P6: every matcher below calls this
-    exactly once per distinct needle (once per entity, or once per
-    filename candidate), *outside* its inner per-document-unit loop, and
-    reuses the same compiled ``re.Pattern`` across every unit -- instead
-    of re-building the same pattern string (a fresh ``re.escape`` call)
-    on every single (entity, unit) pair, the pre-P6 shape. ``None`` for
-    an empty needle keeps ``_word_present`` a plain, always-``False``
-    check without a special case at every call site.
+    """Compiles ``needle``'s whole-identifier boundary pattern.
+
+    Memoized: a pass matches the same needles (entity names, qualified
+    names, aliases, filenames) against many units, and before this cache
+    each matcher call recompiled every needle it was handed -- hundreds of
+    thousands of compiles per cold pass, far past ``re``'s own 512-entry
+    cache, which was the dominant cost of the whole linking stage.
 
     A plain ``\\b...\\b`` regex boundary is not quite right for dotted
     qualified names -- ``\\b`` treats ``.`` itself as a boundary, so it
@@ -119,85 +120,158 @@ def _word_present(text: str, pattern: re.Pattern[str] | None) -> bool:
     return pattern is not None and pattern.search(text) is not None
 
 
+_WORD = re.compile(r"\w+")
+
+
+@functools.lru_cache(maxsize=65536)
+def _needle_words(needle: str) -> tuple[str, ...]:
+    return tuple(_WORD.findall(needle))
+
+
+class UnitIndex:
+    """Inverted word index over one list of document units, built once
+    per matcher invocation set, so matching is no longer "every needle x
+    every unit".
+
+    Soundness (no match can be missed): ``_needle_pattern`` only matches
+    where the needle is not preceded or followed by a word character, so
+    each maximal ``\\w+`` run inside the needle is also a maximal ``\\w+``
+    run -- a whole word -- in any text it matches. A unit lacking any of
+    the needle's words therefore cannot match, and the index only ever
+    *narrows* the units the exact regex then confirms. Needles with no
+    word characters at all fall back to scanning every unit.
+    """
+
+    def __init__(self, units: Sequence[DocumentUnit]) -> None:
+        self.units = units
+        postings: dict[str, list[int]] = {}
+        for position, unit in enumerate(units):
+            for word in set(_WORD.findall(unit.text)):
+                postings.setdefault(word, []).append(position)
+        self._postings = postings
+
+    def candidates(self, needle: str) -> list[int]:
+        """Unit positions (ascending, i.e. original unit order) that
+        contain every word of ``needle``."""
+        words = _needle_words(needle)
+        if not words:
+            return list(range(len(self.units)))
+        lists = []
+        for word in set(words):
+            posting = self._postings.get(word)
+            if not posting:
+                return []
+            lists.append(posting)
+        lists.sort(key=len)
+        if len(lists) == 1:
+            return lists[0]
+        rest = [set(other) for other in lists[1:]]
+        return [pos for pos in lists[0] if all(pos in other for other in rest)]
+
+    def matching(self, needle: str) -> list[DocumentUnit]:
+        """Units whose text contains ``needle`` as a standalone
+        identifier, in original unit order."""
+        positions = self.candidates(needle)
+        if not positions:
+            # The common case: skip compiling a pattern nothing can match.
+            return []
+        pattern = _needle_pattern(needle)
+        if pattern is None:
+            return []
+        return [self.units[pos] for pos in positions if pattern.search(self.units[pos].text)]
+
+
+def _index_for(units: Sequence[DocumentUnit], index: UnitIndex | None) -> UnitIndex:
+    return index if index is not None and index.units is units else UnitIndex(units)
+
+
 def match_exact_identifier(
-    entities: Sequence[Entity], units: Sequence[DocumentUnit]
+    entities: Sequence[Entity],
+    units: Sequence[DocumentUnit],
+    *,
+    index: UnitIndex | None = None,
 ) -> list[LinkCandidate]:
     """A code entity's bare ``name`` appears verbatim in document text."""
+    unit_index = _index_for(units, index)
     out: list[LinkCandidate] = []
     for entity in entities:
-        pattern = _needle_pattern(entity.name)
-        for unit in units:
-            if _word_present(unit.text, pattern):
-                out.append(
-                    LinkCandidate(
-                        entity_id=entity.id,
-                        document_id=unit.document_id,
-                        section_id=unit.id,
-                        link_type=RelationshipType.MENTIONED_IN,
-                        resolver="linker:exact_identifier",
-                        confidence=Confidence.HIGH,
-                        evidence=entity.name,
-                    )
+        for unit in unit_index.matching(entity.name):
+            out.append(
+                LinkCandidate(
+                    entity_id=entity.id,
+                    document_id=unit.document_id,
+                    section_id=unit.id,
+                    link_type=RelationshipType.MENTIONED_IN,
+                    resolver="linker:exact_identifier",
+                    confidence=Confidence.HIGH,
+                    evidence=entity.name,
                 )
+            )
     return out
 
 
 def match_qualified_identifier(
-    entities: Sequence[Entity], units: Sequence[DocumentUnit]
+    entities: Sequence[Entity],
+    units: Sequence[DocumentUnit],
+    *,
+    index: UnitIndex | None = None,
 ) -> list[LinkCandidate]:
     """A code entity's fully-qualified name appears verbatim in document
     text -- skipped when the qualified name has no "." (then it is
     identical to the bare name, already covered by
     ``match_exact_identifier``).
     """
+    unit_index = _index_for(units, index)
     out: list[LinkCandidate] = []
     for entity in entities:
         if "." not in entity.qualified_name:
             continue
-        pattern = _needle_pattern(entity.qualified_name)
-        for unit in units:
-            if _word_present(unit.text, pattern):
-                out.append(
-                    LinkCandidate(
-                        entity_id=entity.id,
-                        document_id=unit.document_id,
-                        section_id=unit.id,
-                        link_type=RelationshipType.DOCUMENTED_BY,
-                        resolver="linker:qualified_identifier",
-                        confidence=Confidence.HIGH,
-                        evidence=entity.qualified_name,
-                    )
+        for unit in unit_index.matching(entity.qualified_name):
+            out.append(
+                LinkCandidate(
+                    entity_id=entity.id,
+                    document_id=unit.document_id,
+                    section_id=unit.id,
+                    link_type=RelationshipType.DOCUMENTED_BY,
+                    resolver="linker:qualified_identifier",
+                    confidence=Confidence.HIGH,
+                    evidence=entity.qualified_name,
                 )
+            )
     return out
 
 
-def match_alias(entities: Sequence[Entity], units: Sequence[DocumentUnit]) -> list[LinkCandidate]:
+def match_alias(
+    entities: Sequence[Entity],
+    units: Sequence[DocumentUnit],
+    *,
+    index: UnitIndex | None = None,
+) -> list[LinkCandidate]:
     """A modest, cheap alias: the qualified name's final two dotted
     segments (its class-and-member form, dropping the namespace prefix)
     -- e.g. "myproject.models.Dog.bark" also matches on "Dog.bark" alone.
     Skipped below ``_MIN_ALIAS_SEGMENTS`` segments, where the alias would
     just duplicate ``match_qualified_identifier``'s own match text.
     """
+    unit_index = _index_for(units, index)
     out: list[LinkCandidate] = []
     for entity in entities:
         segments = entity.qualified_name.split(".")
         if len(segments) < _MIN_ALIAS_SEGMENTS:
             continue
         alias = ".".join(segments[-2:])
-        pattern = _needle_pattern(alias)
-        for unit in units:
-            if _word_present(unit.text, pattern):
-                out.append(
-                    LinkCandidate(
-                        entity_id=entity.id,
-                        document_id=unit.document_id,
-                        section_id=unit.id,
-                        link_type=RelationshipType.MENTIONED_IN,
-                        resolver="linker:alias",
-                        confidence=Confidence.MEDIUM,
-                        evidence=alias,
-                    )
+        for unit in unit_index.matching(alias):
+            out.append(
+                LinkCandidate(
+                    entity_id=entity.id,
+                    document_id=unit.document_id,
+                    section_id=unit.id,
+                    link_type=RelationshipType.MENTIONED_IN,
+                    resolver="linker:alias",
+                    confidence=Confidence.MEDIUM,
+                    evidence=alias,
                 )
+            )
     return out
 
 
@@ -205,6 +279,8 @@ def match_filename(
     namespace_entity: Entity | None,
     filename_candidates: Sequence[str],
     units: Sequence[DocumentUnit],
+    *,
+    index: UnitIndex | None = None,
 ) -> list[LinkCandidate]:
     """A document mentions a source file's filename (with or without its
     extension). Attaches to that file's ``NAMESPACE`` entity specifically
@@ -216,11 +292,19 @@ def match_filename(
     """
     if namespace_entity is None:
         return []
+    unit_index = _index_for(units, index)
+    candidates_by_filename = {
+        filename: unit_index.candidates(filename) for filename in filename_candidates if filename
+    }
+    positions = sorted({pos for found in candidates_by_filename.values() for pos in found})
+    if not positions:
+        return []
     filename_patterns = [
         (filename, _needle_pattern(filename)) for filename in filename_candidates if filename
     ]
     out: list[LinkCandidate] = []
-    for unit in units:
+    for pos in positions:
+        unit = unit_index.units[pos]
         for filename, pattern in filename_patterns:
             if _word_present(unit.text, pattern):
                 out.append(
@@ -414,9 +498,7 @@ def link_touched_files(
         all_entities = backend.list_source_entities(source_id, generation=read_generation)
         all_units = [
             _unit_from_record(record)
-            for record in backend.list_source_document_units(
-                source_id, generation=read_generation
-            )
+            for record in backend.list_source_document_units(source_id, generation=read_generation)
         ]
         route_relationships = [
             _relationship_from_payload(payload)
@@ -450,23 +532,29 @@ def link_touched_files(
     # never another file's, so a single ``IN (...)`` covering exactly this
     # run's touched set is both correct and strictly cheaper than before.
     touched_code_files = files_repo.get_many(conn, touched_code_file_ids)
+    # One word index over every unit, shared by every code-side matcher
+    # call below (see ``UnitIndex``), instead of each call rescanning all
+    # units for every needle.
+    all_units_index = UnitIndex(all_units)
 
+    tracker = progress.current()
     for file_id in touched_code_file_ids:
+        tracker.heartbeat()
         file_entities = entities_by_file.get(file_id, [])
         if not file_entities:
             continue
         file = touched_code_files.get(file_id)
-        namespace_entity = next(
-            (e for e in file_entities if e.kind is EntityType.NAMESPACE), None
-        )
+        namespace_entity = next((e for e in file_entities if e.kind is EntityType.NAMESPACE), None)
         filename_candidates = _filename_candidates(file.path) if file is not None else []
         entity_ids = {e.id for e in file_entities}
         file_routes = [r for r in route_relationships if r.source_entity_id in entity_ids]
         candidates = [
-            *match_exact_identifier(file_entities, all_units),
-            *match_qualified_identifier(file_entities, all_units),
-            *match_alias(file_entities, all_units),
-            *match_filename(namespace_entity, filename_candidates, all_units),
+            *match_exact_identifier(file_entities, all_units, index=all_units_index),
+            *match_qualified_identifier(file_entities, all_units, index=all_units_index),
+            *match_alias(file_entities, all_units, index=all_units_index),
+            *match_filename(
+                namespace_entity, filename_candidates, all_units, index=all_units_index
+            ),
             *match_route_heuristic(file_routes, all_units),
         ]
         all_candidates.extend(candidates)
@@ -480,10 +568,26 @@ def link_touched_files(
     # *entire* project (a full N+1 round trip) for a result nothing then
     # read. Skipping it here, and batch-fetching the rest in one query
     # when it *is* needed, is this phase's other real SQLite-cost fix.
+    # The code-side loop above already matched every touched code file's
+    # entities (and routes, and filename) against *all* units -- which
+    # includes every touched document's units. Re-matching those same
+    # entities from the document side only regenerated duplicate
+    # candidates (deduped at write time), doubling a cold pass's linking
+    # work where every file is touched. The document side therefore
+    # covers only entities from code files this pass did not touch.
+    covered_code_files = {fid for fid in touched_code_file_ids if entities_by_file.get(fid)}
+    doc_side_entities = [e for e in all_entities if e.file_id not in covered_code_files]
+    covered_entity_ids = {e.id for fid in covered_code_files for e in entities_by_file.get(fid, [])}
+    doc_side_routes = [
+        r for r in route_relationships if r.source_entity_id not in covered_entity_ids
+    ]
+
     namespace_by_file: dict[str, tuple[Entity | None, list[str]]] = {}
     if touched_document_file_ids:
         all_project_files = files_repo.get_many(conn, list(entities_by_file))
         for fid, ents in entities_by_file.items():
+            if fid in covered_code_files:
+                continue
             namespace_entity = next((e for e in ents if e.kind is EntityType.NAMESPACE), None)
             other_file = all_project_files.get(fid)
             filename_candidates = (
@@ -492,17 +596,21 @@ def link_touched_files(
             namespace_by_file[fid] = (namespace_entity, filename_candidates)
 
     for file_id in touched_document_file_ids:
+        tracker.heartbeat()
         file_units = units_by_file.get(file_id, [])
         if not file_units:
             continue
+        file_index = UnitIndex(file_units)
         candidates = [
-            *match_exact_identifier(all_entities, file_units),
-            *match_qualified_identifier(all_entities, file_units),
-            *match_alias(all_entities, file_units),
-            *match_route_heuristic(route_relationships, file_units),
+            *match_exact_identifier(doc_side_entities, file_units, index=file_index),
+            *match_qualified_identifier(doc_side_entities, file_units, index=file_index),
+            *match_alias(doc_side_entities, file_units, index=file_index),
+            *match_route_heuristic(doc_side_routes, file_units),
         ]
         for namespace_entity, filename_candidates in namespace_by_file.values():
-            candidates.extend(match_filename(namespace_entity, filename_candidates, file_units))
+            candidates.extend(
+                match_filename(namespace_entity, filename_candidates, file_units, index=file_index)
+            )
         all_candidates.extend(candidates)
 
     inserted = 0

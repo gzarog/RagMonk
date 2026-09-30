@@ -37,6 +37,18 @@ ragmonk link add <entity> <document> [--section ID]
 ragmonk link remove <ID>
 ```
 
+## Indexing speed
+
+| Setting | Default | Effect |
+|---|---|---|
+| `documents.pdf_mode` | `accurate` | `fast` reads only the PDF text layer (no layout or table models, no model loading). On a 24-PDF test corpus: 81s to 1.6s. Loses heading/table structure and multi-column reading order; low-text PDFs still follow `documents.ocr`. |
+| `documents.pdf_table_structure` | `true` | `false` skips Docling's table-structure model, roughly 25% of per-page layout cost on table-heavy pages. |
+| `documents.pdf_process_workers` | `1` | More than 1 converts PDFs in that many worker processes. Each loads its own models (more memory). Torch already spreads one conversion across all cores, so gains are largest on many-core machines: 1.26x with 4 workers on a 4-core machine. |
+
+Changing `pdf_mode` or `pdf_table_structure` reprocesses PDFs on the next index (they get their own conversion-cache entries); `pdf_process_workers` does not.
+
+Cross-domain linking (code identifiers mentioned in documents) uses a word index plus a pattern cache instead of testing every identifier against every document section: a 2,100-file cold index spent 222s linking before and 0.7s after, with identical links.
+
 ## Indexing behaviour
 
 - `ragmonk index` keeps going when one source fails, reports it, and exits non-zero at the end.
@@ -61,7 +73,7 @@ Terms:
 - **Index State** (`index_state`): first match wins: `offline` > `stalled` > `indexing` > `retrying` > `errors` > `waiting` > `completed` > `idle`.
 - **Last Scan** (`last_scan_at`): last completed filesystem scan, not end-to-end indexing completion.
 - **Last Activity**: the live progress heartbeat for the source being indexed, otherwise its last scan.
-- **Indexer state**: `running` (index lock held or a live process reports progress), `stalled` (as running, but no progress heartbeat for `indexing.status_stall_threshold_seconds`, default `120`), `crashed` (progress says running but the lock is free and the process is gone; historical, not active), `idle`. A non-empty queue alone never means stalled.
+- **Indexer state**: `running` (index lock held or a live process reports progress), `stalled` (as running, but no progress heartbeat for `indexing.status_stall_threshold_seconds`, default `120`), `crashed` (progress says running but the lock is free and the process is gone; historical, not active), `idle`. A non-empty queue alone never means stalled. Long stages without per-file progress (linking, embeddings) send heartbeats too; a single very large PDF conversion does not, so on huge PDFs raise the threshold.
 - **Health**: `failed` if any `error` problem (backend unreachable, stalled or crashed run, fatal run failure, all sources offline), `degraded` if any `warning` (failed files, retries, an offline source, a source-level last error), else `healthy`. Every verdict is explained by `problems`.
 
 Live progress is written by every indexing entry point (CLI, rebuild, daemon, Admin UI) to `<RAGMONK_HOME>/index_progress.json` (atomic write-then-rename, coalesced to at most about one counter write per second).

@@ -1460,7 +1460,14 @@ class IndexCoordinator:
         # (today: raw/unknown) always goes through the plain synchronous
         # path.
         code_workers = max(1, self._config.indexing.code_extraction_workers)
-        document_workers = max(1, self._config.indexing.document_extraction_workers)
+        # With PDF worker processes enabled, keep that many conversions in
+        # flight: the extraction threads mostly wait on the process pool,
+        # so they no longer contend for the GIL.
+        document_workers = max(
+            1,
+            self._config.indexing.document_extraction_workers,
+            self._config.documents.pdf_process_workers,
+        )
         parallel_kinds: dict[FileKind, tuple[int, Callable[[ProcessorContext], Any]]] = {}
         cache_pool: _PerThreadConnections | None = None
 

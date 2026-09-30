@@ -119,7 +119,7 @@ def document_version_stamp() -> VersionStamp:
     and a tokenizer change reprocesses affected files gracefully.
     """
     return VersionStamp(
-        parser_version=docling_adapter.PARSER_VERSION,
+        parser_version=docling_adapter.parser_version(),
         chunker_version=f"{chunker.CHUNKER_VERSION}+{_tokenizer_index_identity()}",
         embedding_model_id=embedder.EMBEDDING_MODEL_ID,
         embedding_text_version=chunker.EMBEDDING_TEXT_VERSION,
