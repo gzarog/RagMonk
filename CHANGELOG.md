@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Indexing speed
+
+- **Cross-domain linking is much faster, with identical output.** Needle patterns are
+  compiled once (they were being recompiled hundreds of thousands of times per cold pass),
+  a word index narrows each identifier to the document sections that can contain it, and
+  a cold pass no longer matches every code/document pair twice. On the 2,100-file
+  benchmark, linking went from 222s to 0.7s and the cold index from 296s to 20s.
+  Server mode's linking step, 300s of a 493s cold index in the saved OpenSearch report,
+  uses the same code.
+- **`documents.pdf_mode: fast`** (opt-in): PDF text-layer extraction without Docling's
+  layout/table models (81s to 1.6s on a 24-PDF corpus). Loses layout/table structure.
+- **`documents.pdf_table_structure`** (default `true`): turn off Docling's table model.
+- **`documents.pdf_process_workers`** (default `1`): convert PDFs in worker processes.
+- Non-default PDF output settings use their own conversion-cache keys and parser version,
+  so switching them reprocesses PDFs; the defaults change nothing for existing indexes.
+- Linking and embedding stages now send progress heartbeats, so `ragmonk status` no
+  longer reports a long linking stage as `stalled`.
+
 ### Status observability
 
 - **`ragmonk status` shows whether indexing is running, progressing, stalled or failing.**

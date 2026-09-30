@@ -94,6 +94,13 @@ def build_processor_registry(config: RagMonkConfig) -> ProcessorRegistry:
         # extraction is actually engaged (see
         # docling_adapter.cap_native_thread_pools) -- a no-op whenever
         # document_extraction_workers is 1.
+        docling_adapter.configure_pdf(
+            docling_adapter.PdfSettings(
+                mode=config.documents.pdf_mode,
+                table_structure=config.documents.pdf_table_structure,
+                process_workers=config.documents.pdf_process_workers,
+            )
+        )
         registry.register(
             FileKind.DOCUMENT,
             document_processor,

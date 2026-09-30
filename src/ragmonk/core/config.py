@@ -253,6 +253,34 @@ class DocumentsConfig(BaseModel):
     # module docstring for why this reuses the same OCR engine Phase 5
     # already wired up for scanned PDFs.
     image_ocr: bool = False
+    # Indexing speed: PDF conversion knobs (see
+    # documents/docling_adapter.PdfSettings). Defaults keep the existing
+    # behavior and retrieval quality: Docling's layout pipeline with table
+    # structure, in-process. ``pdf_mode: fast`` reads only the text layer
+    # (no layout/table models); ``pdf_table_structure: false`` skips the
+    # table model (~25% of per-page cost); ``pdf_process_workers`` > 1
+    # converts PDFs in that many worker processes for real CPU parallelism
+    # (each loads its own copy of Docling's models, so memory grows with it).
+    pdf_mode: str = "accurate"
+    pdf_table_structure: bool = True
+    pdf_process_workers: int = 1
+
+    @field_validator("pdf_mode")
+    @classmethod
+    def _validate_pdf_mode(cls, value: str) -> str:
+        allowed = {"accurate", "fast"}
+        if value not in allowed:
+            raise ValueError(
+                f"unknown documents.pdf_mode {value!r}; expected one of {sorted(allowed)}"
+            )
+        return value
+
+    @field_validator("pdf_process_workers")
+    @classmethod
+    def _validate_pdf_process_workers(cls, value: int) -> int:
+        if not 1 <= value <= 32:
+            raise ValueError("documents.pdf_process_workers must be between 1 and 32")
+        return value
 
     @field_validator("ocr")
     @classmethod

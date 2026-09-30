@@ -125,3 +125,16 @@ def test_null_tracker_outside_a_run_is_inert(tmp_path: Path) -> None:
     tracker.file_done("indexed")
     tracker.finish()
     assert not paths.index_progress_path(tmp_path).exists()
+
+
+def test_heartbeat_refreshes_updated_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    with progress.track(tmp_path, operation="index") as tracker:
+        first = progress.read_progress(tmp_path)
+        assert first is not None
+        monkeypatch.setattr(progress, "_MIN_WRITE_INTERVAL", 0.0)
+        tracker.stage("linking")
+        tracker.heartbeat()
+        later = progress.read_progress(tmp_path)
+        assert later is not None
+        assert later.stage == "linking"
+        assert (later.updated_at or "") >= (first.updated_at or "")

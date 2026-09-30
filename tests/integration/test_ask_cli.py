@@ -70,7 +70,8 @@ def indexed_project(
     monkeypatch.chdir(tmp_path)
     assert runner.invoke(app, ["init"]).exit_code == 0
     assert runner.invoke(app, ["source", "add", str(root)]).exit_code == 0
-    assert runner.invoke(app, ["index"]).exit_code == 0
+    indexed = runner.invoke(app, ["index"])
+    assert indexed.exit_code == 0, indexed.output
     return root
 
 

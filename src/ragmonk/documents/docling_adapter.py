@@ -171,7 +171,7 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ragmonk.core.errors import RagMonkError
 from ragmonk.core.models import DocumentFormat
@@ -207,6 +207,72 @@ _logger = get_logger("docling_adapter")
 # module's own conversion/normalization output could differ for the same
 # input.
 PARSER_VERSION = "1"
+
+
+@dataclass(frozen=True)
+class PdfSettings:
+    """PDF-conversion knobs from ``documents.pdf_*`` config, applied once
+    per process via :func:`configure_pdf` (``indexing.runner.
+    build_processor_registry``). The defaults reproduce the pre-existing
+    behavior exactly: Docling's layout pipeline with table structure,
+    converted in-process.
+
+    * ``mode`` -- ``"accurate"`` (Docling layout/table models) or
+      ``"fast"`` (text layer only via pypdfium2, no ML models; loses
+      layout/table structure). A low-text ("scanned") fast result still
+      goes through the normal ``documents.ocr`` handling.
+    * ``table_structure`` -- Docling's table-structure model (about a
+      quarter of per-page layout cost when on).
+    * ``process_workers`` -- when > 1, Docling conversions run in that
+      many worker *processes* (each loading its own models), giving real
+      CPU parallelism the thread-based ``document_extraction_workers``
+      cannot (Docling holds the GIL for much of its work).
+    """
+
+    mode: str = "accurate"
+    table_structure: bool = True
+    process_workers: int = 1
+
+
+_DEFAULT_PDF_SETTINGS = PdfSettings()
+_pdf_settings = _DEFAULT_PDF_SETTINGS
+_pdf_settings_lock = threading.Lock()
+
+
+def parser_version() -> str:
+    """``PARSER_VERSION`` plus a suffix for non-default PDF output
+    settings, so switching ``documents.pdf_mode``/``pdf_table_structure``
+    reprocesses documents under the new settings. Default settings keep
+    the bare ``PARSER_VERSION`` -- adding these knobs never forces a
+    reindex of already-indexed content. ``process_workers`` changes only
+    *where* conversion runs, never its output, so it is not included.
+    """
+    settings = _pdf_settings
+    suffix = []
+    if settings.mode != _DEFAULT_PDF_SETTINGS.mode:
+        suffix.append(f"pdf={settings.mode}")
+    if settings.table_structure != _DEFAULT_PDF_SETTINGS.table_structure:
+        suffix.append("tables=off")
+    return PARSER_VERSION if not suffix else f"{PARSER_VERSION}+{','.join(suffix)}"
+
+
+def configure_pdf(settings: PdfSettings) -> None:
+    """Applies ``settings`` for this process. Rebuilds the cached
+    converters only when an output-affecting setting changed, and shuts
+    the worker pool down when its size changed (it is recreated lazily).
+    """
+    global _pdf_settings, _converter, _ocr_converter
+    with _pdf_settings_lock:
+        previous = _pdf_settings
+        if settings == previous:
+            return
+        _pdf_settings = settings
+        if settings.table_structure != previous.table_structure:
+            _converter = None
+            _ocr_converter = None
+        if settings.process_workers != previous.process_workers:
+            _shutdown_pool()
+
 
 _native_threads_lock = threading.Lock()
 _native_threads_capped_for: int | None = None
@@ -374,6 +440,21 @@ _OCR_NOT_APPLIED = "off"
 _OCR_APPLIED = "on"
 
 
+def _cache_key(ocr_used: str) -> str:
+    """The conversion-cache ``ocr_used`` key for the current PDF settings.
+    Default settings keep the original ``"off"``/``"on"`` keys (existing
+    cache rows stay valid); non-default output settings get their own
+    keys so a fast or tables-off conversion is never served for an
+    accurate request, or vice versa.
+    """
+    settings = _pdf_settings
+    if ocr_used == _OCR_NOT_APPLIED and settings.mode == "fast":
+        return "fast"
+    if not settings.table_structure:
+        return f"{ocr_used}:notables"
+    return ocr_used
+
+
 class UnsupportedDocumentFormatError(RagMonkError):
     """A ``FileKind.DOCUMENT`` file whose extension is outside Phase 3's
     supported format list. The processor catches this specifically and
@@ -430,7 +511,7 @@ def _get_converter() -> DocumentConverter:
         # so an OCR request elsewhere can never change what this pipeline
         # does for every other caller.
         pdf_options.do_ocr = False
-        pdf_options.do_table_structure = True
+        pdf_options.do_table_structure = _pdf_settings.table_structure
         _converter = DocumentConverter(
             allowed_formats=list(input_formats.values()),
             format_options={
@@ -464,7 +545,7 @@ def _get_ocr_converter() -> DocumentConverter:
         input_formats = _format_to_input_format()
         pdf_options = PdfPipelineOptions()
         pdf_options.do_ocr = True
-        pdf_options.do_table_structure = True
+        pdf_options.do_table_structure = _pdf_settings.table_structure
         _ocr_converter = DocumentConverter(
             allowed_formats=list(input_formats.values()),
             format_options={
@@ -568,7 +649,7 @@ def _cached_document(
     if conn is None:
         return None
     cached = document_conversion_cache_repo.get(
-        conn, content_hash, ocr_used=ocr_used, cache_version=_CACHE_VERSION
+        conn, content_hash, ocr_used=_cache_key(ocr_used), cache_version=_CACHE_VERSION
     )
     return _deserialize_cached_document(cached) if cached is not None else None
 
@@ -594,7 +675,7 @@ def _store_document(
             conn,
             document_conversion_cache_repo.CachedConversion(
                 content_hash=content_hash,
-                ocr_used=ocr_used,
+                ocr_used=_cache_key(ocr_used),
                 serialized_document=document.model_dump_json(),
                 serialization_format=_SERIALIZATION_FORMAT,
                 page_count=document.num_pages() or None,
@@ -603,6 +684,145 @@ def _store_document(
             cache_version=_CACHE_VERSION,
             created_at=datetime.now(UTC).isoformat(),
         )
+
+
+# -- PDF conversion: fast mode and worker processes ------------------------
+
+_pool: Any = None
+_pool_lock = threading.Lock()
+
+
+def _shutdown_pool() -> None:
+    global _pool
+    pool, _pool = _pool, None
+    if pool is not None:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _get_pool() -> Any:
+    """Lazily creates the conversion worker pool. ``spawn`` (never
+    ``fork``): forking a process that already runs torch/native thread
+    pools is unsafe. Workers are long-lived, so each loads Docling's
+    models once, not once per file.
+    """
+    global _pool
+    with _pool_lock:
+        if _pool is None:
+            import multiprocessing
+            from concurrent.futures import ProcessPoolExecutor
+
+            settings = _pdf_settings
+            _pool = ProcessPoolExecutor(
+                max_workers=settings.process_workers,
+                mp_context=multiprocessing.get_context("spawn"),
+                initializer=_init_worker,
+                initargs=(settings,),
+            )
+        return _pool
+
+
+def _init_worker(settings: PdfSettings) -> None:
+    """Worker-process setup: same output settings, never a nested pool,
+    and a fair share of CPU cores for torch so N workers don't each try
+    to use every core."""
+    from dataclasses import replace
+
+    configure_pdf(replace(settings, process_workers=1))
+    try:
+        import torch
+
+        torch.set_num_threads(max(1, (os.cpu_count() or 1) // settings.process_workers))
+    except ImportError:
+        pass
+
+
+def _worker_convert(path: str, ocr: bool) -> tuple[bool, str]:
+    """Runs in a worker process. Returns ``(True, document_json)`` or
+    ``(False, error_message)`` -- plain strings cross the process
+    boundary reliably, unlike arbitrary exception objects."""
+    try:
+        converter = _get_ocr_converter() if ocr else _get_converter()
+        document = _run_conversion(converter, Path(path), path)
+    except Exception as exc:  # noqa: BLE001 - reported back to the parent
+        return False, str(exc)
+    return True, document.model_dump_json()
+
+
+def _pdf_pipeline_document(path: Path, *, ocr: bool) -> DoclingDocument:
+    """Docling's PDF pipeline (plain or OCR), in-process by default or in
+    a worker process when ``documents.pdf_process_workers`` > 1. Callers
+    get the same ``DoclingDocument``/``DocumentConversionError`` either
+    way."""
+    if _pdf_settings.process_workers <= 1:
+        converter = _get_ocr_converter() if ocr else _get_converter()
+        return _run_conversion(converter, path, str(path))
+
+    from concurrent.futures.process import BrokenProcessPool
+
+    from docling_core.types.doc.document import DoclingDocument
+
+    try:
+        ok, payload = _get_pool().submit(_worker_convert, str(path), ocr).result()
+    except BrokenProcessPool as exc:
+        # A worker died (e.g. out of memory): drop the pool so the next
+        # file gets a fresh one, and fail only this file.
+        with _pool_lock:
+            _shutdown_pool()
+        raise DocumentConversionError(f"{path}: PDF conversion worker crashed: {exc}") from exc
+    if not ok:
+        raise DocumentConversionError(payload)
+    return DoclingDocument.model_validate_json(payload)
+
+
+def _fast_text_document(path: Path) -> DoclingDocument:
+    """``documents.pdf_mode: fast``: builds a ``DoclingDocument`` from the
+    PDF's embedded text layer via pypdfium2 -- no layout or table models,
+    so no model loading and a small fraction of the per-page cost. Each
+    blank-line-separated block becomes a paragraph with its page
+    provenance; page structure (headings, tables, reading order of
+    multi-column layouts) is not recovered. A PDF with little or no text
+    layer comes back near-empty, which ``_should_ocr`` then treats like
+    any other low-text result under ``documents.ocr``.
+    """
+    import pypdfium2 as pdfium
+    from docling_core.types.doc.base import BoundingBox, Size
+    from docling_core.types.doc.document import DoclingDocument, ProvenanceItem
+    from docling_core.types.doc.labels import DocItemLabel
+
+    try:
+        pdf = pdfium.PdfDocument(str(path))
+    except Exception as exc:  # noqa: BLE001 - pypdfium2 raises its own error types
+        raise DocumentConversionError(f"{path}: could not open PDF: {exc}") from exc
+    try:
+        document = DoclingDocument(name=path.stem)
+        for page_no, page in enumerate(pdf, start=1):
+            width, height = page.get_size()
+            document.add_page(page_no=page_no, size=Size(width=width, height=height))
+            textpage = page.get_textpage()
+            try:
+                text = textpage.get_text_range().replace("\r\n", "\n").replace("\r", "\n")
+            finally:
+                textpage.close()
+            bbox = BoundingBox(l=0, t=height, r=width, b=0)
+            for block in text.split("\n\n"):
+                block = block.strip()
+                if not block:
+                    continue
+                document.add_text(
+                    label=DocItemLabel.PARAGRAPH,
+                    text=block,
+                    prov=ProvenanceItem(page_no=page_no, bbox=bbox, charspan=(0, len(block))),
+                )
+            page.close()
+    finally:
+        pdf.close()
+    return document
+
+
+def _plain_pdf_document(path: Path) -> DoclingDocument:
+    if _pdf_settings.mode == "fast":
+        return _fast_text_document(path)
+    return _pdf_pipeline_document(path, ocr=False)
 
 
 def _should_ocr(document: DoclingDocument) -> bool:
@@ -632,7 +852,7 @@ def _run_ocr_conversion(path: Path) -> DoclingDocument | None:
     the whole file over an OCR-only problem.
     """
     try:
-        return _run_conversion(_get_ocr_converter(), path, str(path))
+        return _pdf_pipeline_document(path, ocr=True)
     except Exception as exc:  # noqa: BLE001 - OCR is best-effort, see docstring
         log_event(
             _logger,
@@ -683,7 +903,7 @@ def _convert_pdf(
             # never running it.
             document = _cached_document(conn, content_hash, ocr_used=_OCR_NOT_APPLIED)
             if document is None:
-                document = _run_conversion(_get_converter(), path, str(path))
+                document = _plain_pdf_document(path)
                 _store_document(conn, content_hash, document, ocr_used=_OCR_NOT_APPLIED)
         return ConversionResult(document=document)
 
@@ -693,7 +913,7 @@ def _convert_pdf(
     # doesn't end up triggering OCR).
     document = _cached_document(conn, content_hash, ocr_used=_OCR_NOT_APPLIED)
     if document is None:
-        document = _run_conversion(_get_converter(), path, str(path))
+        document = _plain_pdf_document(path)
         _store_document(conn, content_hash, document, ocr_used=_OCR_NOT_APPLIED)
 
     if ocr_mode == "auto" and _should_ocr(document):
