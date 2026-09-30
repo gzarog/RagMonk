@@ -38,6 +38,13 @@ def _status_json(runner: CliRunner) -> dict[str, Any]:
     return data
 
 
+def _flat(output: str) -> str:
+    """Alphanumerics only: Rich wraps long lines (e.g. Windows paths)
+    inside panels, so assert on text independent of line breaks/borders.
+    """
+    return "".join(ch for ch in output if ch.isalnum())
+
+
 def _source_id() -> str:
     with AppContext.bootstrap() as ctx:
         return SourceRegistry(ctx.sources_conn, home=ctx.home).list()[0].id
@@ -122,7 +129,7 @@ def test_status_surfaces_failed_file_and_last_error(
 
     monkeypatch.setattr(status_cli.console, "_width", 200)
     human = runner.invoke(app, ["status"])
-    assert "simulated parser crash" in human.output
+    assert "simulatedparsercrash" in _flat(human.output)
     assert "degraded" in human.output
 
 
