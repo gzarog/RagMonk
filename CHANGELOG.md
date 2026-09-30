@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Status observability
+
+- **`ragmonk status` shows whether indexing is running, progressing, stalled or failing.**
+  A new Indexer panel shows the index lock owner (PID, operation, source), the current
+  source and position (`17/150`), the current stage (scan, processing, linking,
+  embeddings, server_sync, refresh, finalization) and the last activity time.
+- **Live progress snapshot.** CLI, rebuild, daemon and Admin UI indexing write
+  `<RAGMONK_HOME>/index_progress.json` atomically. Counter writes are coalesced, so a
+  pass never writes it once per file.
+- **Stall detection.** Indexing is `stalled` only when a run is live (lock held or a live
+  process) and its heartbeat is older than the new `indexing.status_stall_threshold_seconds`
+  (default 120). A run that died is reported as `crashed` (historical). Queue depth alone
+  never produces a stall.
+- **Separate access state and index state.** Sources now show `Access`
+  (online/offline/disabled) and `Index State` (offline, stalled, indexing, retrying,
+  errors, waiting, completed, idle) instead of treating "active" as "indexing".
+- **Errors are visible by default.** An overall health (`healthy`/`degraded`/`failed`)
+  comes with a `problems` list. Recent errors, per-source last errors and the latest
+  transient (retry) job error are shown. Queued, processing, retry and failed jobs are
+  counted separately (`jobs_repo.queue_stats`).
+- **New flags:** `--watch`/`--interval` (live redraw with deltas and throughput),
+  `--errors` (failure-focused view), `--verbose`.
+- **JSON/MCP:** additive `health`, `indexer`, `queue`, `recent_errors`, `problems`,
+  and per-source `access_state`, `index_state`, `queue`, `last_activity_at`,
+  `last_error_detail` fields. Legacy fields are unchanged.
+- Index lock metadata now keeps `acquired_at` as a parseable ISO-8601 timestamp.
+
 ### Index locking and deadlock safety
 
 - **`index.lock` acquisition is bounded.** Every indexing-related lock

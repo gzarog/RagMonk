@@ -40,10 +40,18 @@ def record(
     return error_id
 
 
-def list_for_source(conn: sqlite3.Connection, source_id: str) -> list[IndexErrorRecord]:
-    rows = conn.execute(
-        "SELECT * FROM index_errors WHERE source_id = ? ORDER BY occurred_at DESC", (source_id,)
-    ).fetchall()
+def list_for_source(
+    conn: sqlite3.Connection, source_id: str, *, limit: int | None = None
+) -> list[IndexErrorRecord]:
+    """Newest first. ``limit`` bounds the read (``ragmonk status`` never
+    loads unbounded error history); ``None`` keeps the full list.
+    """
+    sql = "SELECT * FROM index_errors WHERE source_id = ? ORDER BY occurred_at DESC"
+    params: tuple[object, ...] = (source_id,)
+    if limit is not None:
+        sql += " LIMIT ?"
+        params = (source_id, limit)
+    rows = conn.execute(sql, params).fetchall()
     return [
         IndexErrorRecord(
             id=row["id"],

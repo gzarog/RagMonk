@@ -48,6 +48,9 @@ _METADATA_SCHEMA_VERSION = 1
 # lives after it and stays readable by a blocked process); byte 0 is padding.
 _METADATA_OFFSET = 1
 _SAFE_TOKEN = re.compile(r"[^A-Za-z0-9_.:\-]")
+# ISO-8601 timestamps additionally need "+" (UTC offset) to stay parseable
+# for ``ragmonk status``'s running-for calculation.
+_SAFE_TIMESTAMP = re.compile(r"[^0-9T.:+\-]")
 
 _logger = get_logger("lock")
 
@@ -120,7 +123,8 @@ def read_lock_owner(path: Path) -> dict[str, Any] | None:
         token = _sanitize_token(data.get(key))
         if token:
             owner[key] = token
-    acquired_at = _sanitize_token(data.get("acquired_at"), 40)
+    raw_acquired = data.get("acquired_at")
+    acquired_at = _SAFE_TIMESTAMP.sub("", str(raw_acquired))[:40] if raw_acquired else None
     if acquired_at:
         owner["acquired_at"] = acquired_at
     return owner or None

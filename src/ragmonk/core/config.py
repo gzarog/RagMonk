@@ -90,12 +90,24 @@ class IndexingConfig(BaseModel):
     # failing with ``RunLockTimeoutError`` -- there is deliberately no
     # unbounded wait anywhere.
     lock_timeout_seconds: float = 30
+    # Status observability: ``ragmonk status`` reports an indexing run as
+    # ``stalled`` only when the index lock is held (or progress claims a
+    # live run) AND the progress heartbeat is older than this. Queue depth
+    # alone never produces a stalled verdict -- see service/status_service.py.
+    status_stall_threshold_seconds: float = 120
 
     @field_validator("lock_timeout_seconds")
     @classmethod
     def _validate_lock_timeout(cls, value: float) -> float:
         if not 0 < value <= 3600:
             raise ValueError("indexing.lock_timeout_seconds must be > 0 and <= 3600")
+        return value
+
+    @field_validator("status_stall_threshold_seconds")
+    @classmethod
+    def _validate_stall_threshold(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("indexing.status_stall_threshold_seconds must be > 0")
         return value
 
 

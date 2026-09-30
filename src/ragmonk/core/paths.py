@@ -69,6 +69,14 @@ def daemon_health_path(home: Path | None = None) -> Path:
     return (home or runtime_dir()) / "daemon_health.json"
 
 
+def index_progress_path(home: Path | None = None) -> Path:
+    """Live indexing progress snapshot written by whichever process holds
+    ``index.lock`` (CLI, daemon or admin UI), read by ``ragmonk status``
+    from a separate process. See ``service/progress.py``.
+    """
+    return (home or runtime_dir()) / "index_progress.json"
+
+
 def install_info_path(home: Path | None = None) -> Path:
     """CLI performance improvement plan, Phase 5: install.sh/install.ps1
     write this after a successful install-script install, recording how

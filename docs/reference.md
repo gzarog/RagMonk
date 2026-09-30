@@ -43,6 +43,31 @@ ragmonk link remove <ID>
 - **Last Scan** is the last completed filesystem scan; a later failure shows up as **Last Error**.
 - An unreachable source is marked **OFFLINE** and its knowledge is never deleted.
 
+## Status and observability
+
+`ragmonk status` answers: is indexing running, progressing, stalled or failing, and what failed.
+
+| Flag | Effect |
+| --- | --- |
+| *(none)* | Indexer panel, health summary, per-source table, top problems |
+| `--watch [--interval 2]` | Redraws in place with deltas and files/s throughput; Ctrl+C exits |
+| `--errors` | Only problematic sources, problems and recent errors |
+| `--verbose` / `-v` | Lock owner, progress timestamps, oldest pending job, next retry, per-source last file error, backend counts |
+| `--json` | Full structured model (not combinable with `--watch`) |
+
+Terms:
+
+- **Access** (`access_state`): whether the source root is reachable: `online`, `offline`, `disabled`. It says nothing about indexing activity.
+- **Index State** (`index_state`): first match wins: `offline` > `stalled` > `indexing` > `retrying` > `errors` > `waiting` > `completed` > `idle`.
+- **Last Scan** (`last_scan_at`): last completed filesystem scan, not end-to-end indexing completion.
+- **Last Activity**: the live progress heartbeat for the source being indexed, otherwise its last scan.
+- **Indexer state**: `running` (index lock held or a live process reports progress), `stalled` (as running, but no progress heartbeat for `indexing.status_stall_threshold_seconds`, default `120`), `crashed` (progress says running but the lock is free and the process is gone; historical, not active), `idle`. A non-empty queue alone never means stalled.
+- **Health**: `failed` if any `error` problem (backend unreachable, stalled or crashed run, fatal run failure, all sources offline), `degraded` if any `warning` (failed files, retries, an offline source, a source-level last error), else `healthy`. Every verdict is explained by `problems`.
+
+Live progress is written by every indexing entry point (CLI, rebuild, daemon, Admin UI) to `<RAGMONK_HOME>/index_progress.json` (atomic write-then-rename, coalesced to at most about one counter write per second).
+
+JSON additions (existing `sources`, `backend`, `totals`, `tokenizer` keys are unchanged): top-level `health`, `indexer`, `queue` (`queued`/`processing`/`retry`/`failed`/`depth`, `oldest_pending_created_at`, `next_retry_at`, `latest_job_error`, ...), `recent_errors` (bounded, 10), `recent_error_count`, `sources_with_errors`, `problems`; per source `access_state`, `index_state`, `queue`, `last_activity_at`, `last_error_detail`. The MCP `ragmonk_status` tool returns the same fields.
+
 ## Index locking
 
 - `locks/index.lock` serializes indexing **writers** (CLI, daemon/watch, Admin UI, rebuild, backup); readers/search are never blocked by it.

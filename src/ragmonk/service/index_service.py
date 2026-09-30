@@ -32,6 +32,7 @@ from typing import Any
 from ragmonk.core.lifecycle import AppContext
 from ragmonk.indexing.runner import build_processor_registry, run_source_pass
 from ragmonk.ops.rebuild import rebuild as run_rebuild
+from ragmonk.service import progress
 from ragmonk.sources.registry import SourceRegistry
 from ragmonk.storage.repositories import files_repo, jobs_repo
 
@@ -156,21 +157,23 @@ class BackgroundIndexer:
         processors = build_processor_registry(ctx.config)
         per_source: list[dict[str, Any]] = []
         total_failed = 0
-        for source in sources:
-            self._emit("scan_started", source_id=source.id, path=source.path)
-            pass_result = run_source_pass(ctx, source, processors)
-            result = pass_result.result
-            row = {
-                "source_id": source.id,
-                "path": source.path,
-                "offline": result.source_offline,
-                "scanned": result.scanned,
-                "indexed": result.indexed,
-                "failed": result.failed,
-            }
-            total_failed += result.failed
-            per_source.append(row)
-            self._emit("scan_completed", **row)
+        with progress.track(ctx.home, operation="index", source_total=len(sources)) as tracker:
+            for position, source in enumerate(sources, start=1):
+                tracker.begin_source(source.id, position)
+                self._emit("scan_started", source_id=source.id, path=source.path)
+                pass_result = run_source_pass(ctx, source, processors)
+                result = pass_result.result
+                row = {
+                    "source_id": source.id,
+                    "path": source.path,
+                    "offline": result.source_offline,
+                    "scanned": result.scanned,
+                    "indexed": result.indexed,
+                    "failed": result.failed,
+                }
+                total_failed += result.failed
+                per_source.append(row)
+                self._emit("scan_completed", **row)
         return {"mode": "index", "sources": per_source, "failed": total_failed}
 
     def _do_rebuild(
