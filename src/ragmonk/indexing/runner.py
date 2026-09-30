@@ -36,6 +36,7 @@ from ragmonk.indexing.coordinator import (
 from ragmonk.indexing.embedding_indexer import prepare_embeddings, publish_embeddings
 from ragmonk.knowledge.linker import link_touched_files
 from ragmonk.retrieval import ann, embedder
+from ragmonk.service import progress
 from ragmonk.storage.repositories import (
     embeddings_repo,
     files_repo,
@@ -474,6 +475,7 @@ def _run_source_pass(
     # fixed ``service/daemon.py``'s own ``_build_scan_request``, which
     # previously discarded this into a constant ``"daemon"`` string).
     trigger_reason = scan_request.reason if scan_request is not None else "manual"
+    progress.current().stage("scan")
     result = coordinator.run(changed_paths=changed_paths)
     now = datetime.now(UTC).isoformat()
     # Last Scan fix, F1: ``last_scan_at`` means "the last completed
@@ -493,6 +495,7 @@ def _run_source_pass(
     try:
         if server:
             stage = "server_sync"
+            progress.current().stage(stage)
             assert force_generation is not None
             _sync_server_files(
                 conn,
@@ -511,9 +514,11 @@ def _run_source_pass(
             # was deferred.
             if server_write_pass is not None and not server_write_pass.generation_is_empty:
                 stage = "refresh"
+                progress.current().stage(stage)
                 backend.refresh_all(source.id)
                 server_write_pass.refresh_count += 1
             stage = "finalization"
+            progress.current().stage(stage)
             became_offline = source.status is not SourceStatus.OFFLINE
             sources_repo.update_scan_result(
                 ctx.sources_conn,
@@ -552,6 +557,7 @@ def _run_source_pass(
         linked = 0
         if result.touched_code_file_ids or result.touched_document_file_ids:
             stage = "linking"
+            progress.current().stage(stage)
             _linking_started = time.monotonic()
             with transaction(conn):
                 linked = link_touched_files(
@@ -607,6 +613,7 @@ def _run_source_pass(
             # shape where a single ``embed_touched_files`` call held that
             # write lock for as long as the model itself took to run.
             stage = "embeddings"
+            progress.current().stage(stage)
             _embedding_started = time.monotonic()
             prepared = prepare_embeddings(
                 conn,
@@ -643,6 +650,7 @@ def _run_source_pass(
                 dim = embeddings_repo.get_dim_for_model(conn, embedder.EMBEDDING_MODEL_ID)
                 if dim is not None:
                     stage = "ann_sync"
+                    progress.current().stage(stage)
                     _ann_started = time.monotonic()
                     ann.sync_index_for_files(
                         conn,
@@ -671,10 +679,12 @@ def _run_source_pass(
         # extra round trip.
         if server_write_pass is not None and not server_write_pass.generation_is_empty:
             stage = "refresh"
+            progress.current().stage(stage)
             backend.refresh_all(source.id)
             server_write_pass.refresh_count += 1
 
         stage = "finalization"
+        progress.current().stage(stage)
         sources_repo.update_scan_result(
             ctx.sources_conn,
             source.id,

@@ -45,7 +45,7 @@ from ragmonk.core.lifecycle import AppContext
 from ragmonk.core.models import Source, SourceStatus, SourceType
 from ragmonk.indexing.coordinator import ScanRequest
 from ragmonk.indexing.runner import build_processor_registry, run_source_pass
-from ragmonk.service import health
+from ragmonk.service import health, progress
 from ragmonk.sources.registry import SourceRegistry
 from ragmonk.storage.migrations import apply_migrations
 from ragmonk.storage.sqlite import connect
@@ -472,7 +472,11 @@ class Daemon:
         if source is not None and source.enabled:
             # _db_lock is released here: never wait on index.lock holding it.
             try:
-                with self._ctx.index_lock(operation="daemon", source_id=source_id):
+                with (
+                    self._ctx.index_lock(operation="daemon", source_id=source_id),
+                    progress.track(self._ctx.home, operation="daemon", source_total=1) as tracker,
+                ):
+                    tracker.begin_source(source_id, 1)
                     scan_request = self._build_scan_request(source_id)
                     pass_result = run_source_pass(
                         self._worker_context(),

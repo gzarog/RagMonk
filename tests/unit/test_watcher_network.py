@@ -84,17 +84,18 @@ def test_background_loop_respects_the_configured_interval(tmp_path: Path) -> Non
         interval_seconds=interval,
         on_trigger=lambda changed: triggered.append(time.monotonic()),
     )
+    started = time.monotonic()
     watcher.start()
     try:
         (tmp_path / "b.txt").write_text("new file")
-        # Before roughly one interval has elapsed, the background loop
-        # should not have ticked yet.
-        time.sleep(interval * 0.4)
-        assert triggered == []
-
-        deadline = time.monotonic() + interval * 5
+        deadline = time.monotonic() + interval * 25
         while time.monotonic() < deadline and not triggered:
             time.sleep(0.02)
+        # The background loop must wait roughly one interval before its
+        # first tick. Measured from ``start()`` rather than asserted after
+        # a fixed sleep, which raced on slow CI runners.
+        assert triggered, "background loop never ticked"
+        assert triggered[0] - started >= interval * 0.9
         assert len(triggered) == 1
     finally:
         watcher.stop(timeout=5.0)

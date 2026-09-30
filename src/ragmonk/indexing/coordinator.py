@@ -49,6 +49,7 @@ from ragmonk.indexing.incremental import (
     find_deleted,
 )
 from ragmonk.security.path_guard import PathGuard
+from ragmonk.service import progress
 from ragmonk.sources import detector
 from ragmonk.sources.fingerprint import FileIdentity, hash_file
 from ragmonk.sources.ignore import IgnoreMatcher
@@ -818,6 +819,9 @@ class IndexCoordinator:
             jobs_repo.enqueue(self._conn, source_id=self._source_id, file_id=file_id)
 
         result.timings.classify_seconds = time.monotonic() - _classify_started
+        tracker = progress.current()
+        tracker.scanned(result.scanned, queued=jobs_repo.queue_depth(self._conn))
+        tracker.stage("processing")
         _process_started = time.monotonic()
         self._process_queue(result, max_size_bytes)
         result.timings.process_seconds = time.monotonic() - _process_started
@@ -1054,6 +1058,9 @@ class IndexCoordinator:
             jobs_repo.enqueue(self._conn, source_id=self._source_id, file_id=record.id)
 
         result.timings.classify_seconds = time.monotonic() - _classify_started
+        tracker = progress.current()
+        tracker.scanned(result.scanned, queued=jobs_repo.queue_depth(self._conn))
+        tracker.stage("processing")
         _process_started = time.monotonic()
         self._process_queue(result, max_size_bytes)
         result.timings.process_seconds = time.monotonic() - _process_started
@@ -1157,6 +1164,7 @@ class IndexCoordinator:
                 error_message=safe_message,
             )
             result.failed += 1
+            progress.current().file_done("failed")
             log_event(
                 _logger,
                 "file_failed",
@@ -1168,6 +1176,7 @@ class IndexCoordinator:
             )
         else:
             files_repo.update_status(self._conn, file.id, FileStatus.RETRY, updated_at=_now())
+            progress.current().file_done("retry")
             log_event(
                 _logger,
                 "file_retry_scheduled",
@@ -1218,8 +1227,10 @@ class IndexCoordinator:
         duration_ms = round((time.monotonic() - started) * 1000, 2)
         if outcome.status is FileStatus.SKIPPED_LIMIT:
             result.skipped_limit += 1
+            progress.current().file_done("skipped")
         else:
             result.indexed += 1
+            progress.current().file_done("indexed")
             if file.kind is FileKind.CODE:
                 result.touched_code_file_ids.append(file.id)
             elif file.kind is FileKind.DOCUMENT:

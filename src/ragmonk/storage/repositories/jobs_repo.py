@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from ragmonk.core.models import IndexJob, JobStatus, JobType
 from ragmonk.storage.sqlite import transaction
@@ -141,6 +142,85 @@ def queue_depth(conn: sqlite3.Connection) -> int:
         (JobStatus.QUEUED.value, JobStatus.RETRY.value),
     ).fetchone()
     return int(row["n"])
+
+
+def queue_stats(conn: sqlite3.Connection, source_id: str | None = None) -> dict[str, Any]:
+    """Per-state breakdown of ``index_jobs`` for ``ragmonk status``.
+
+    Unlike :func:`queue_depth` (QUEUED + RETRY lumped together), this
+    keeps each state separate so status can say *why* a queue is non-
+    empty. ``depth`` preserves ``queue_depth``'s own semantics. Optional
+    ``source_id`` scopes every figure to one source.
+    """
+    where = " WHERE source_id = ?" if source_id is not None else ""
+    params: tuple[Any, ...] = (source_id,) if source_id is not None else ()
+    counts = {status.value: 0 for status in JobStatus}
+    for row in conn.execute(
+        f"SELECT status, COUNT(*) AS n FROM index_jobs{where} GROUP BY status", params
+    ):
+        counts[row["status"]] = int(row["n"])
+
+    scope = " AND source_id = ?" if source_id is not None else ""
+    pending = (JobStatus.QUEUED.value, JobStatus.RETRY.value)
+    row = conn.execute(
+        f"""
+        SELECT
+            (SELECT MIN(created_at) FROM index_jobs
+             WHERE status IN (?, ?){scope}) AS oldest_pending,
+            (SELECT MIN(started_at) FROM index_jobs
+             WHERE status = ?{scope}) AS oldest_processing,
+            (SELECT MIN(next_attempt_at) FROM index_jobs
+             WHERE status = ? AND next_attempt_at IS NOT NULL{scope}) AS next_retry,
+            (SELECT MAX(attempt_count) FROM index_jobs
+             WHERE status IN (?, ?){scope}) AS max_attempts
+        """,
+        (
+            *pending,
+            *params,
+            JobStatus.PROCESSING.value,
+            *params,
+            JobStatus.RETRY.value,
+            *params,
+            JobStatus.RETRY.value,
+            JobStatus.FAILED.value,
+            *params,
+        ),
+    ).fetchone()
+    latest = conn.execute(
+        f"""
+        SELECT file_id, status, error_code, error_message FROM index_jobs
+        WHERE status IN (?, ?) AND error_code IS NOT NULL{scope}
+        ORDER BY COALESCE(completed_at, started_at, created_at) DESC
+        LIMIT 1
+        """,
+        (JobStatus.RETRY.value, JobStatus.FAILED.value, *params),
+    ).fetchone()
+    queued = counts[JobStatus.QUEUED.value]
+    retry_count = counts[JobStatus.RETRY.value]
+    return {
+        "queued": queued,
+        "processing": counts[JobStatus.PROCESSING.value],
+        "retry": retry_count,
+        "failed": counts[JobStatus.FAILED.value],
+        "completed": counts[JobStatus.COMPLETED.value],
+        "depth": queued + retry_count,
+        "oldest_pending_created_at": row["oldest_pending"],
+        "oldest_processing_started_at": row["oldest_processing"],
+        "next_retry_at": row["next_retry"],
+        "max_attempt_count": int(row["max_attempts"] or 0),
+        # Most recent retry/failed job error: transient failures are
+        # otherwise invisible until they exhaust their retries.
+        "latest_job_error": (
+            {
+                "file_id": latest["file_id"],
+                "status": latest["status"],
+                "error_code": latest["error_code"],
+                "error_message": latest["error_message"],
+            }
+            if latest is not None
+            else None
+        ),
+    }
 
 
 def get(conn: sqlite3.Connection, job_id: str) -> IndexJob | None:

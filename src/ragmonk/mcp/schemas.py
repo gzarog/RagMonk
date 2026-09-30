@@ -273,6 +273,13 @@ class SourceStatus(BaseModel):
     queue_depth: int
     last_scan_at: str | None = None
     last_error: str | None = None
+    # Status observability V1 (additive): root reachability vs. what
+    # indexing is doing, the per-state job queue and structured last error.
+    access_state: str | None = None
+    index_state: str | None = None
+    queue: dict[str, Any] | None = None
+    last_activity_at: str | None = None
+    last_error_detail: dict[str, Any] | None = None
 
 
 class TotalsSummary(BaseModel):
@@ -283,6 +290,13 @@ class TotalsSummary(BaseModel):
 class StatusOutput(BaseToolOutput):
     sources: list[SourceStatus] = Field(default_factory=list)
     totals: TotalsSummary | None = None
+    # Status observability V1 (additive) -- same shape as ``ragmonk
+    # status --json``; see ``service/status_service.collect_status``.
+    health: dict[str, Any] | None = None
+    indexer: dict[str, Any] | None = None
+    queue: dict[str, Any] | None = None
+    recent_errors: list[dict[str, Any]] = Field(default_factory=list)
+    problems: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # -- ragmonk_ask -------------------------------------------------------

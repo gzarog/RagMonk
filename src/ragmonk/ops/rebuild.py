@@ -23,6 +23,7 @@ from ragmonk.core.lifecycle import AppContext
 from ragmonk.core.models import Source
 from ragmonk.indexing.coordinator import IndexRunResult, ProcessorRegistry
 from ragmonk.indexing.runner import build_processor_registry, run_source_pass
+from ragmonk.service import progress
 from ragmonk.sources.registry import SourceRegistry
 
 
@@ -236,12 +237,29 @@ def rebuild(
             )
 
     processors = build_processor_registry(ctx.config)
+    # Re-entrant: reuses the caller's tracker if one is already active.
+    with progress.track(ctx.home, operation="rebuild", source_total=len(sources)) as tracker:
+        return _rebuild_sources(ctx, sources, processors, tracker, fresh=fresh)
 
+
+def _rebuild_sources(
+    ctx: AppContext,
+    sources: list[Source],
+    processors: ProcessorRegistry,
+    tracker: progress.ProgressTracker,
+    *,
+    fresh: bool,
+) -> list[RebuildOutcome]:
     if ctx.config.storage.mode == "server":
-        return [_rebuild_source_server(ctx, source, processors) for source in sources]
+        outcomes_server: list[RebuildOutcome] = []
+        for position, source in enumerate(sources, start=1):
+            tracker.begin_source(source.id, position)
+            outcomes_server.append(_rebuild_source_server(ctx, source, processors))
+        return outcomes_server
 
     outcomes: list[RebuildOutcome] = []
-    for source in sources:
+    for position, source in enumerate(sources, start=1):
+        tracker.begin_source(source.id, position)
         project_id = paths.project_id_for_path(Path(source.path))
         if fresh:
             moved = _backup_derived_state(ctx, project_id)

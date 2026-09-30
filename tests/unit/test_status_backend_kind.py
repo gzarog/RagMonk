@@ -106,6 +106,10 @@ def test_collect_status_reports_error_when_server_unreachable(
     assert "counts" not in data["backend"]
     assert "error" in data["backend"]
     assert "unreachable" in data["backend"]["error"]
+    # Status observability V1: surfaced as a failed health verdict with a
+    # backend-scoped problem, never a crash.
+    assert data["health"]["status"] == "failed"
+    assert data["problems"][0]["scope"] == "backend"
 
 
 def test_local_mode_status_json_output_unchanged_shape(

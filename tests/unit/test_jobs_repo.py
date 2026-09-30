@@ -120,3 +120,60 @@ def test_queue_depth_counts_queued_and_retry(conn: sqlite3.Connection) -> None:
         conn, job2, error_code="E", error_message="m", next_attempt_at=None, permanent=False
     )
     assert jobs_repo.queue_depth(conn) == 2
+
+
+# -- queue_stats (status observability V1) ------------------------------
+
+
+def test_queue_stats_empty_queue(conn: sqlite3.Connection) -> None:
+    stats = jobs_repo.queue_stats(conn)
+    assert stats["queued"] == stats["processing"] == stats["retry"] == stats["failed"] == 0
+    assert stats["depth"] == 0
+    assert stats["oldest_pending_created_at"] is None
+    assert stats["next_retry_at"] is None
+    assert stats["max_attempt_count"] == 0
+
+
+def test_queue_stats_separates_queued_retry_processing_failed(conn: sqlite3.Connection) -> None:
+    for file_id in ("f1", "f2", "f3", "f4", "f5"):
+        _insert_file(conn, file_id)
+        jobs_repo.enqueue(conn, source_id="src-1", file_id=file_id)
+    processing = jobs_repo.claim_next(conn)
+    retrying = jobs_repo.claim_next(conn)
+    failing = jobs_repo.claim_next(conn)
+    assert processing is not None and retrying is not None and failing is not None
+    jobs_repo.fail_with_backoff(
+        conn,
+        retrying.id,
+        error_code="E",
+        error_message="try again",
+        next_attempt_at="2999-01-01T00:00:00+00:00",
+        permanent=False,
+    )
+    jobs_repo.fail_with_backoff(
+        conn, failing.id, error_code="E", error_message="dead", next_attempt_at=None, permanent=True
+    )
+
+    stats = jobs_repo.queue_stats(conn)
+    assert stats["queued"] == 2
+    assert stats["processing"] == 1
+    assert stats["retry"] == 1
+    assert stats["failed"] == 1
+    # Backward compatible with queue_depth: queued + retry.
+    assert stats["depth"] == 3 == jobs_repo.queue_depth(conn)
+    assert stats["next_retry_at"] == "2999-01-01T00:00:00+00:00"
+    assert stats["oldest_pending_created_at"] is not None
+    assert stats["oldest_processing_started_at"] is not None
+    assert stats["max_attempt_count"] == 1
+
+
+def test_queue_stats_source_scoped(conn: sqlite3.Connection) -> None:
+    _insert_file(conn, "a")
+    _insert_file(conn, "b")
+    jobs_repo.enqueue(conn, source_id="src-1", file_id="a")
+    jobs_repo.enqueue(conn, source_id="src-2", file_id="b")
+
+    assert jobs_repo.queue_stats(conn)["queued"] == 2
+    assert jobs_repo.queue_stats(conn, "src-1")["queued"] == 1
+    assert jobs_repo.queue_stats(conn, "src-2")["depth"] == 1
+    assert jobs_repo.queue_stats(conn, "missing")["depth"] == 0
