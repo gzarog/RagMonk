@@ -24,6 +24,9 @@ DOCUMENT_EXTENSIONS: frozenset[str] = frozenset(
         ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx",
         ".md", ".markdown", ".txt", ".rst", ".csv", ".html", ".htm",
         ".odt", ".rtf",
+        # RFC 822 email -- converted via Docling's InputFormat.EMAIL (see
+        # documents/docling_adapter.py's EXTENSION_TO_FORMAT).
+        ".eml",
         # Search Quality Improvement Plan, Phase 10: genuinely converted
         # (see documents/docling_adapter.py's EXTENSION_TO_FORMAT) --
         # .ods/.odp join .odt, .epub is new, and the image extensions are
