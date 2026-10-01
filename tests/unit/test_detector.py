@@ -38,3 +38,8 @@ def test_phase_10_document_extensions_are_recognized() -> None:
         "page.tiff",
     ):
         assert classify(Path(name)) is FileKind.DOCUMENT, name
+
+
+def test_eml_is_recognized_as_document() -> None:
+    assert classify(Path("message.eml")) is FileKind.DOCUMENT
+    assert classify(Path("MESSAGE.EML")) is FileKind.DOCUMENT
