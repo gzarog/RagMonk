@@ -229,9 +229,9 @@ fn rebuilding_from_scratch_reproduces_identical_ids() {
     let first = dump(&f);
     assert!(first.len() > 300, "{}", first.len());
 
-    // Wipe all V2 state and rebuild the same source from scratch.
-    let home_root = f.layout.root().parent().unwrap().to_path_buf();
-    std::fs::remove_dir_all(f.layout.root()).unwrap();
+    // Rebuild the same source from scratch in a fresh, empty home (open
+    // handles keep Windows from deleting the first one).
+    let home_root = f.layout.root().parent().unwrap().with_file_name("home-again");
     let home = ragmonk_core::paths::Home::new(&home_root);
     f.layout = V2Layout::new(&home);
     f.cp = common::control(&home);
