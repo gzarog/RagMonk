@@ -59,10 +59,11 @@ CREATE TABLE migration_log (
 "#,
 }];
 
-pub const KNOWLEDGE_MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "v2_knowledge",
-    sql: r#"
+pub const KNOWLEDGE_MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "v2_knowledge",
+        sql: r#"
 CREATE TABLE metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -255,4 +256,16 @@ CREATE VIRTUAL TABLE path_fts USING fts5(
     file_id UNINDEXED, build_id UNINDEXED, path
 );
 "#,
-}];
+    },
+    Migration {
+        version: 2,
+        name: "file_retry_state",
+        sql: r#"
+-- Durable per-file retry state (RUST-04): a transiently failing file is
+-- retried on a later run once next_attempt_at is due, like the reference's
+-- job backoff, without blocking publication of the rest of the source.
+ALTER TABLE files ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE files ADD COLUMN next_attempt_at TEXT;
+"#,
+    },
+];

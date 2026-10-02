@@ -413,6 +413,23 @@ impl ControlPlane {
             )
     }
 
+    /// Records whether the source root was reachable on the last pass.
+    pub fn set_online(&mut self, source_id: &str, online: bool, error: Option<&str>) -> Result<()> {
+        self.conn
+            .execute(
+                "UPDATE source_state SET online_status = ?1, last_error = COALESCE(?2, last_error),
+                    last_scan_at = ?3, updated_at = ?3 WHERE source_id = ?4",
+                params![
+                    if online { "active" } else { "offline" },
+                    error,
+                    now_iso(),
+                    source_id
+                ],
+            )
+            .map_err(StorageError::sqlite("set online status"))?;
+        Ok(())
+    }
+
     /// Forces a full rebuild (e.g. `ragmonk rebuild`, version change).
     pub fn require_full_rebuild(&mut self, source_id: &str, reason: &str) -> Result<()> {
         let n = self
