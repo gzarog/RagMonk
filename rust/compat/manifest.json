@@ -21,7 +21,7 @@
         {"id": "config-get-storage", "args": ["config", "get", "storage"], "output": "text", "rust_phase": "RUST-12"},
         {"id": "config-get-scalar", "args": ["config", "get", "runtime.max_workers"], "output": "text", "rust_phase": "RUST-01"},
         {"id": "config-get-unknown", "args": ["config", "get", "no.such.key"], "output": "none", "rust_phase": "RUST-01", "compare_stderr": true},
-        {"id": "home-inventory", "sqlite_inventory": true, "rust_phase": "RUST-02"}
+        {"id": "home-inventory", "sqlite_inventory": true}
       ]
     },
     {
@@ -47,7 +47,7 @@
         {"id": "callers-speak", "args": ["callers", "speak", "--json"], "unordered_arrays": ["edges"], "rust_phase": "RUST-10"},
         {"id": "callees-bark", "args": ["callees", "bark", "--json"], "unordered_arrays": ["edges"], "rust_phase": "RUST-10"},
         {"id": "docs", "args": ["docs", "--json"], "rust_phase": "RUST-07"},
-        {"id": "knowledge-inventory", "sqlite_inventory": true, "rust_phase": "RUST-02"}
+        {"id": "knowledge-inventory", "sqlite_inventory": true}
       ]
     }
   ]

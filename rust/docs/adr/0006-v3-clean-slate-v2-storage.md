@@ -54,3 +54,10 @@ index-derived storage.
 ## Consequences
 Rust V2 and Python V1 can coexist on one home during development. Disk use
 grows until the RUST-15/16 cleanup removes V1 data.
+
+## Compat manifest note
+The `home-inventory`/`knowledge-inventory` manifest steps snapshot the
+Python V1 SQLite layout. Under the V3 plan that layout is not a contract,
+so they no longer carry a `rust_phase`: they remain Python-only reference
+captures (stability-checked), and V2 storage is verified by the
+`ragmonk-storage` tests instead.
