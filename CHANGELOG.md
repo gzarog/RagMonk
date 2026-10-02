@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### EML attachment knowledge extraction
+
+- **Supported `.eml` attachments are indexed.** PDF/DOCX/XLSX/PPTX/TXT/… attachments go
+  through the existing document pipeline and are stored as child documents of the email
+  (same file, generation and source), in local SQLite, OpenSearch and Elasticsearch.
+- Search/MCP results for attachment text carry `location.attachment` provenance (name,
+  content type, format, ordinal, parent email title) and keep the real `.eml` path.
+- Reindexing or deleting an `.eml` atomically replaces or removes its attachments.
+- Unsupported, empty, oversized, nested-email and corrupt attachments are skipped or
+  reported (`ragmonk index` prints per-source attachment counts) without failing the email.
+- New settings: `documents.email_attachments` (default `true`),
+  `email_attachment_max_bytes` (25 MiB), `email_attachment_max_count` (50),
+  `email_attachment_total_max_bytes` (100 MiB).
+- Knowledge DB migration 16 rebuilds `documents` (drops `UNIQUE(file_id)`, adds
+  provenance columns); existing rows are kept and need no reindex. `.eml` files get a new
+  parser identity, so they are reprocessed once to pick up attachments.
+
 ### Indexing speed
 
 - **Cross-domain linking is much faster, with identical output.** Needle patterns are

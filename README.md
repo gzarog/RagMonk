@@ -273,6 +273,7 @@ Settings live in `~/.ragmonk/config.yaml` (Windows: `%LOCALAPPDATA%\RagMonk`). C
 | `documents.pdf_mode` | `accurate` | `fast` = text layer only, much faster, no layout/tables |
 | `documents.pdf_table_structure` | `true` | `false` = skip table detection (faster) |
 | `documents.pdf_process_workers` | `1` | Convert PDFs in N parallel processes (more RAM) |
+| `documents.email_attachments` | `true` | Index supported `.eml` attachments as child documents |
 | `search.semantic` | `false` | Local embedding-based semantic search |
 | `indexing.watch` | `true` | Daemon watches folders for changes |
 | `indexing.max_file_size_mb` | `100` | Skip larger files |

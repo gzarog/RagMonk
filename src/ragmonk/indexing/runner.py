@@ -8,6 +8,7 @@ instead of a parallel reimplementation.
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
 import zlib
@@ -104,7 +105,10 @@ def build_processor_registry(config: RagMonkConfig) -> ProcessorRegistry:
         registry.register(
             FileKind.DOCUMENT,
             document_processor,
-            version_provider=document_version_stamp,
+            version_provider=functools.partial(
+                document_version_stamp,
+                email_attachments=config.documents.email_attachments,
+            ),
             prepare=prepare_document,
             publish=publish_document,
             prepare_setup=docling_adapter.cap_native_thread_pools,

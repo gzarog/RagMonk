@@ -78,7 +78,11 @@ from ragmonk.backends.models import (
     SearchHit,
     ServerWritePass,
 )
-from ragmonk.backends.server_common import ServerReadMixin, _batches
+from ragmonk.backends.server_common import (
+    ServerReadMixin,
+    _batches,
+    attachment_payload_fields,
+)
 from ragmonk.core.config import ServerStorageConfig
 from ragmonk.core.models import EmbeddingSubjectType
 
@@ -699,16 +703,32 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
     def _build_document_actions(self, prepared_document: PreparedDocument) -> list[BulkAction]:
         if prepared_document.delete_only or prepared_document.document is None:
             return []
+        actions: list[BulkAction] = []
+        # EML attachment knowledge extraction V1: the parent email and each
+        # attachment child document share one file_id/generation, so the
+        # file-scoped deletes above remove all of them together.
+        for item in (prepared_document, *prepared_document.attachments):
+            if item.document is not None:
+                actions.extend(self._build_single_document_actions(item))
+        return actions
+
+    def _build_single_document_actions(
+        self, prepared_document: PreparedDocument
+    ) -> list[BulkAction]:
+        assert prepared_document.document is not None
         source_id = prepared_document.source_id
         file_id = prepared_document.file_id
         generation = str(prepared_document.generation)
         document = prepared_document.document
         doc_title = prepared_document.doc_title
+        provenance = attachment_payload_fields(document, prepared_document.parent_title)
         actions = [
             BulkAction(
                 op="index",
                 index=mappings.content_index(self._prefix),
-                doc_id=ids.document_doc_id(source_id, file_id, generation),
+                doc_id=ids.document_doc_id(
+                    source_id, file_id, generation, attachment_index=document.attachment_index
+                ),
                 source={
                     "doc_kind": "document",
                     "source_id": source_id,
@@ -722,6 +742,7 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                     "doc_meta": _document_meta(document),
                     "created_at": document.created_at,
                     "updated_at": document.updated_at,
+                    **provenance,
                 },
             )
         ]
@@ -749,6 +770,7 @@ class ElasticsearchKnowledgeBackend(ServerReadMixin, KnowledgeBackend):
                         "page_end": chunk.page_end,
                         "created_at": document.created_at,
                         "updated_at": document.updated_at,
+                        **provenance,
                     },
                 )
             )

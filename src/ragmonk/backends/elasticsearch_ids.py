@@ -59,9 +59,24 @@ def generation_marker_id(source_id: str) -> str:
     return _digest("generation-marker", source_id)
 
 
-def document_doc_id(source_id: str, file_id: str, generation: str | None = None) -> str:
-    """The ``{prefix}-content`` id for a file's ``Document`` row."""
-    return _digest(*_with_generation(("document", source_id, file_id), generation))
+def document_doc_id(
+    source_id: str,
+    file_id: str,
+    generation: str | None = None,
+    *,
+    attachment_index: int | None = None,
+) -> str:
+    """The ``{prefix}-content`` id for a file's ``Document`` row.
+
+    ``attachment_index`` (EML attachment knowledge extraction V1) keys an
+    email attachment child document by its stable MIME ordinal, so the
+    parent email and each attachment get distinct, deterministic ids within
+    one generation. ``None`` keeps the pre-V1 id of a top-level document.
+    """
+    parts: tuple[str, ...] = ("document", source_id, file_id)
+    if attachment_index is not None:
+        parts = (*parts, "attachment", str(attachment_index))
+    return _digest(*_with_generation(parts, generation))
 
 
 def entity_doc_id(source_id: str, file_id: str, entity_id: str) -> str:

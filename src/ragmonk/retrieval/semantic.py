@@ -166,6 +166,13 @@ def _embed_query_cached(query: str, *, config: SearchConfig) -> list[float] | No
     )
 
 
+def _attachment_location(payload: dict[str, Any]) -> dict[str, object] | None:
+    from ragmonk.backends.server_common import attachment_provenance_from_payload
+
+    attachment = attachment_provenance_from_payload(payload)
+    return {"attachment": attachment} if attachment else None
+
+
 def _semantic_search_server(
     ctx: AppContext, query_vector: list[float], *, limit: int, k: int
 ) -> SemanticSearchResult:
@@ -205,7 +212,7 @@ def _semantic_search_server(
             source_id=str(hit.payload.get("source_id", "")),
             score=hit.score,
             snippet=str(hit.payload.get("snippet") or ""),
-            location=None,
+            location=_attachment_location(hit.payload),
         )
         for hit in raw_hits
     ]

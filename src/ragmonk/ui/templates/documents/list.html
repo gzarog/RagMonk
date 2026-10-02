@@ -37,7 +37,7 @@
     <tbody>
       {% for d in result.documents %}
       <tr>
-        <td><a href="/documents/{{ d.source_id }}/{{ d.id }}">{{ d.name }}</a><br><span class="tag mono">{{ d.path }}</span></td>
+        <td><a href="/documents/{{ d.source_id }}/{{ d.id }}">{{ d.name }}</a>{% if d.attachment %} <span class="tag">attachment</span>{% endif %}<br><span class="tag mono">{{ d.path }}</span></td>
         <td>{{ d.source_id }}</td>
         <td>{{ d.format }}</td>
         <td>{{ d.size or "—" }}</td>

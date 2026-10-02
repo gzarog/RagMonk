@@ -95,6 +95,16 @@ class PreparedDocument:
     chunk_ids: list[str] = field(default_factory=list)
     chunks: list[Chunk] = field(default_factory=list)
     doc_title: str = ""
+    # EML attachment knowledge extraction V1: an ``.eml``'s converted
+    # attachments, each a complete child payload (its ``document`` carries
+    # ``parent_document_id``/``attachment_*`` provenance) sharing this
+    # payload's ``file_id``/``source_id``/``generation``. Every backend
+    # publishes them together with the parent, and every file-scoped
+    # delete removes them with it. Never nested further.
+    attachments: list[PreparedDocument] = field(default_factory=list)
+    # Set on an attachment child payload only: the parent email's title,
+    # denormalized onto server payloads for result provenance.
+    parent_title: str = ""
 
 
 @dataclass(slots=True)
@@ -238,6 +248,13 @@ class DocumentRecord:
     is_scanned: bool = False
     created_at: str = ""
     updated_at: str = ""
+    # EML attachment knowledge extraction V1 (all ``None`` for a top-level
+    # document): see ``core.models.Document``.
+    parent_document_id: str | None = None
+    attachment_name: str | None = None
+    attachment_content_type: str | None = None
+    attachment_index: int | None = None
+    attachment_content_id: str | None = None
 
 
 @dataclass(slots=True)

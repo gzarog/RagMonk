@@ -345,3 +345,34 @@ def test_ai_provider_is_not_validated_to_a_closed_set_at_load_time(tmp_path: Pat
     cwd = tmp_path / "cwd"
     config = load_config(home=home, cwd=cwd, environ={"RAGMONK_AI__PROVIDER": "codex"})
     assert config.ai.provider == "codex"
+
+
+def test_documents_email_attachment_defaults() -> None:
+    documents = RagMonkConfig().documents
+    assert documents.email_attachments is True
+    assert documents.email_attachment_max_bytes == 25 * 1024 * 1024
+    assert documents.email_attachment_max_count == 50
+    assert documents.email_attachment_total_max_bytes == 100 * 1024 * 1024
+
+
+def test_documents_email_attachment_env_overrides(tmp_path: Path) -> None:
+    environ = {
+        "RAGMONK_DOCUMENTS__EMAIL_ATTACHMENTS": "false",
+        "RAGMONK_DOCUMENTS__EMAIL_ATTACHMENT_MAX_COUNT": "3",
+    }
+    config = load_config(home=tmp_path / "home", cwd=tmp_path / "cwd", environ=environ)
+    assert config.documents.email_attachments is False
+    assert config.documents.email_attachment_max_count == 3
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "email_attachment_max_bytes",
+        "email_attachment_max_count",
+        "email_attachment_total_max_bytes",
+    ],
+)
+def test_documents_email_attachment_limits_must_be_positive(field: str) -> None:
+    with pytest.raises(ValueError, match=field):
+        RagMonkConfig.model_validate({"documents": {field: 0}})

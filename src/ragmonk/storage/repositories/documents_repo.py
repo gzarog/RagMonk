@@ -117,6 +117,11 @@ def _row_to_document(row: sqlite3.Row) -> Document:
         generation=row["generation"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        parent_document_id=row["parent_document_id"],
+        attachment_name=row["attachment_name"],
+        attachment_content_type=row["attachment_content_type"],
+        attachment_index=row["attachment_index"],
+        attachment_content_id=row["attachment_content_id"],
     )
 
 
@@ -128,6 +133,11 @@ def delete_by_file(conn: sqlite3.Connection, file_id: str) -> None:
     ``with transaction(conn):`` block as the subsequent inserts so a
     reader never observes a document with zero or partial content
     mid-reindex.
+
+    Removes the whole file-scoped generation, including any email
+    attachment child documents (they share the parent email's
+    ``file_id``) -- child rows first, then the top-level document, so a
+    reindexed email can never keep a stale, since-removed attachment.
     """
     links_repo.delete_by_document_file(conn, file_id)
     conn.execute(
@@ -136,6 +146,9 @@ def delete_by_file(conn: sqlite3.Connection, file_id: str) -> None:
         (file_id,),
     )
     conn.execute("DELETE FROM document_sections WHERE file_id = ?", (file_id,))
+    conn.execute(
+        "DELETE FROM documents WHERE file_id = ? AND parent_document_id IS NOT NULL", (file_id,)
+    )
     conn.execute("DELETE FROM documents WHERE file_id = ?", (file_id,))
 
 
@@ -145,8 +158,10 @@ def insert_document(conn: sqlite3.Connection, document: Document) -> None:
         INSERT INTO documents (
             id, source_id, file_id, format, title, author, page_count,
             section_count, paragraph_count, table_count, is_scanned,
-            content_hash, generation, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            content_hash, generation, created_at, updated_at,
+            parent_document_id, attachment_name, attachment_content_type,
+            attachment_index, attachment_content_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             document.id,
@@ -164,6 +179,11 @@ def insert_document(conn: sqlite3.Connection, document: Document) -> None:
             document.generation,
             document.created_at,
             document.updated_at,
+            document.parent_document_id,
+            document.attachment_name,
+            document.attachment_content_type,
+            document.attachment_index,
+            document.attachment_content_id,
         ),
     )
 
@@ -412,11 +432,13 @@ def get_chunk_neighbors(
     that should turn an otherwise-successful search into an error.
     """
     self_row = conn.execute(
-        "SELECT parent_id, order_index FROM document_sections WHERE id = ?", (unit_id,)
+        "SELECT document_id, parent_id, order_index FROM document_sections WHERE id = ?",
+        (unit_id,),
     ).fetchone()
     if self_row is None:
         return ChunkNeighbors(parent_heading=None, previous=[], next=[])
 
+    document_id = self_row["document_id"]
     parent_id = self_row["parent_id"]
     order_index = self_row["order_index"]
 
@@ -429,18 +451,18 @@ def get_chunk_neighbors(
     previous: list[DocumentUnit] = []
     if previous_chunks > 0:
         rows = conn.execute(
-            "SELECT * FROM document_sections WHERE parent_id IS ? AND order_index < ? "
-            "ORDER BY order_index DESC LIMIT ?",
-            (parent_id, order_index, previous_chunks),
+            "SELECT * FROM document_sections WHERE document_id = ? AND parent_id IS ? "
+            "AND order_index < ? ORDER BY order_index DESC LIMIT ?",
+            (document_id, parent_id, order_index, previous_chunks),
         ).fetchall()
         previous = [_row_to_unit(row) for row in reversed(rows)]
 
     next_units: list[DocumentUnit] = []
     if next_chunks > 0:
         rows = conn.execute(
-            "SELECT * FROM document_sections WHERE parent_id IS ? AND order_index > ? "
-            "ORDER BY order_index ASC LIMIT ?",
-            (parent_id, order_index, next_chunks),
+            "SELECT * FROM document_sections WHERE document_id = ? AND parent_id IS ? "
+            "AND order_index > ? ORDER BY order_index ASC LIMIT ?",
+            (document_id, parent_id, order_index, next_chunks),
         ).fetchall()
         next_units = [_row_to_unit(row) for row in rows]
 
@@ -450,6 +472,17 @@ def get_chunk_neighbors(
 def list_units_by_file(conn: sqlite3.Connection, file_id: str) -> list[DocumentUnit]:
     rows = conn.execute(
         "SELECT * FROM document_sections WHERE file_id = ? ORDER BY order_index", (file_id,)
+    ).fetchall()
+    return [_row_to_unit(row) for row in rows]
+
+
+def list_units_by_document(conn: sqlite3.Connection, document_id: str) -> list[DocumentUnit]:
+    """One document's own units -- unlike ``list_units_by_file``, which
+    for an ``.eml`` also returns its attachment child documents' units.
+    """
+    rows = conn.execute(
+        "SELECT * FROM document_sections WHERE document_id = ? ORDER BY order_index",
+        (document_id,),
     ).fetchall()
     return [_row_to_unit(row) for row in rows]
 
@@ -516,8 +549,21 @@ def get_document(conn: sqlite3.Connection, document_id: str) -> Document | None:
 
 
 def get_document_by_file(conn: sqlite3.Connection, file_id: str) -> Document | None:
-    row = conn.execute("SELECT * FROM documents WHERE file_id = ?", (file_id,)).fetchone()
+    """The file's top-level document (never an email attachment child)."""
+    row = conn.execute(
+        "SELECT * FROM documents WHERE file_id = ? AND parent_document_id IS NULL",
+        (file_id,),
+    ).fetchone()
     return _row_to_document(row) if row is not None else None
+
+
+def list_attachments(conn: sqlite3.Connection, parent_document_id: str) -> list[Document]:
+    """An email document's attachment child documents, in MIME order."""
+    rows = conn.execute(
+        "SELECT * FROM documents WHERE parent_document_id = ? ORDER BY attachment_index",
+        (parent_document_id,),
+    ).fetchall()
+    return [_row_to_document(row) for row in rows]
 
 
 def list_by_source(conn: sqlite3.Connection, source_id: str) -> list[Document]:
@@ -577,6 +623,33 @@ class DocumentSearchRow:
     page_start: int | None = None
     page_end: int | None = None
     heading_path: list[str] = field(default_factory=list)
+    # EML attachment knowledge extraction V1: set when the hit belongs to an
+    # email attachment child document (``path`` is then the real parent
+    # ``.eml`` path, never a fabricated one). See ``attachment_provenance``.
+    attachment: dict[str, object] | None = None
+
+
+def attachment_provenance(row: sqlite3.Row) -> dict[str, object] | None:
+    """Search-result provenance for an attachment hit, from a row carrying
+    the ``_ATTACHMENT_COLUMNS`` projection; ``None`` for a normal document.
+    """
+    if row["parent_document_id"] is None:
+        return None
+    return {
+        "name": row["attachment_name"],
+        "content_type": row["attachment_content_type"],
+        "index": row["attachment_index"],
+        "format": row["attachment_format"],
+        "parent_document_id": row["parent_document_id"],
+        "parent_title": row["parent_title"],
+    }
+
+
+# Joined via ``LEFT JOIN documents p ON p.id = d.parent_document_id``.
+_ATTACHMENT_COLUMNS = (
+    "d.parent_document_id, d.attachment_name, d.attachment_content_type, "
+    "d.attachment_index, d.format AS attachment_format, p.title AS parent_title"
+)
 
 
 def search_title_projection(
@@ -587,17 +660,24 @@ def search_title_projection(
     ``list_all()`` full-corpus Python scan.
     """
     rows = conn.execute(
-        """
-        SELECT d.id, d.title, f.path, f.mtime
+        f"""
+        SELECT d.id, d.title, f.path, f.mtime, {_ATTACHMENT_COLUMNS}
         FROM documents d
         JOIN files f ON f.id = d.file_id
+        LEFT JOIN documents p ON p.id = d.parent_document_id
         WHERE d.title = ? COLLATE NOCASE
         LIMIT ?
         """,
         (title, limit),
     ).fetchall()
     return [
-        DocumentSearchRow(id=row["id"], title=row["title"], path=row["path"], mtime=row["mtime"])
+        DocumentSearchRow(
+            id=row["id"],
+            title=row["title"],
+            path=row["path"],
+            mtime=row["mtime"],
+            attachment=attachment_provenance(row),
+        )
         for row in rows
     ]
 
@@ -626,13 +706,14 @@ def search_fts_projection(
         f"""
         SELECT df.document_id, df.section_id, df.heading_text, df.body,
                df.doc_title, d.title AS document_title, f.path, f.mtime,
-               ds.page_start, ds.page_end, ds.heading_path,
+               ds.page_start, ds.page_end, ds.heading_path, {_ATTACHMENT_COLUMNS},
                {_BM25_DOCUMENT_FTS_EXPR} AS rank,
                snippet(document_fts, -1, '', '', '...', ?) AS match_snippet
         FROM document_fts df
         JOIN documents d ON d.id = df.document_id
         JOIN files f ON f.id = d.file_id
         JOIN document_sections ds ON ds.id = df.section_id
+        LEFT JOIN documents p ON p.id = d.parent_document_id
         WHERE document_fts MATCH ?
         ORDER BY rank
         LIMIT ?
@@ -658,6 +739,7 @@ def search_fts_projection(
                 page_start=row["page_start"],
                 page_end=row["page_end"],
                 heading_path=json.loads(row["heading_path"]) if row["heading_path"] else [],
+                attachment=attachment_provenance(row),
             )
         )
     return results

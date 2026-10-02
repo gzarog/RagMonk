@@ -302,3 +302,97 @@ def test_oversized_pdf_is_skipped_limit_without_model_download(
     assert len(rows) == 1
     assert rows[0]["status"] == "skipped_limit"
     assert rows[0]["format"] is None
+
+
+# -- EML attachment knowledge extraction V1 ---------------------------------
+
+
+def _search_hits(runner: CliRunner, query: str) -> list[dict]:  # type: ignore[type-arg]
+    # Every CliRunner invocation shares this test process, so the
+    # process-local search cache (keyed on ``PRAGMA data_version``, which a
+    # fresh connection can repeat) must not serve a pre-reindex result.
+    from ragmonk.retrieval import cache as search_cache
+
+    search_cache.reset_caches()
+    result = runner.invoke(app, ["search", query, "--json"])
+    assert result.exit_code == 0, result.output
+    return [r for r in json.loads(result.output)["data"]["results"] if r["kind"] == "document"]
+
+
+def test_eml_attachments_are_indexed_searchable_and_reconciled(
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "mail_project"
+    root.mkdir()
+    shutil.copy(FIXTURES / "email_with_attachments.eml", root / "planning.eml")
+    shutil.copy(FIXTURES / "email_with_corrupt_attachment.eml", root / "broken.eml")
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    _add_source(runner, root)
+    result = runner.invoke(app, ["index"])
+    assert result.exit_code == 0, result.output
+    assert "email attachments seen=7 indexed=5 skipped=1 failed=1" in result.output
+
+    # Attachments are derived documents, never synthetic source files.
+    status = runner.invoke(app, ["status", "--json"])
+    totals = json.loads(status.output)["data"]["totals"]["by_status"]
+    assert totals == {"indexed": 2}
+
+    # Text that exists only inside the DOCX attachment is found, with
+    # provenance naming both the attachment and the real parent .eml.
+    hits = _search_hits(runner, "quokkaledger")
+    assert hits, "attachment-only text must be searchable"
+    attachment = hits[0]["location"]["attachment"]
+    assert attachment["name"] == "report.docx"
+    assert attachment["parent_title"] == "Quarterly planning"
+    assert hits[0]["path"].endswith("planning.eml")
+    assert _search_hits(runner, "ibexvalid"), "valid attachment next to a corrupt one"
+    assert _search_hits(runner, "wombatbudget")
+
+    docs = runner.invoke(app, ["docs", "--json"])
+    rows = {Path(r["path"]).name: r for r in json.loads(docs.output)["data"]["documents"]}
+    assert rows["planning.eml"]["attachments"] == [
+        "notes.txt", "report.docx", "budget.xlsx", "Résumé – memo.md"
+    ]
+
+    # Reindex after the attachment is removed: no stale attachment knowledge.
+    (root / "planning.eml").write_bytes((FIXTURES / "sample.eml").read_bytes())
+    assert runner.invoke(app, ["index"]).exit_code == 0
+    assert _search_hits(runner, "quokkaledger") == []
+
+    # Deleting the .eml removes every attachment-derived document.
+    (root / "broken.eml").unlink()
+    assert runner.invoke(app, ["index"]).exit_code == 0
+    assert _search_hits(runner, "ibexvalid") == []
+    conn = _knowledge_conn(ragmonk_home, root)
+    try:
+        assert all(d.parent_document_id is None for d in documents_repo.list_all(conn))
+    finally:
+        conn.close()
+
+
+def test_eml_attachments_disabled_keeps_body_only_behavior(
+    ragmonk_home: Path, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "mail_project"
+    root.mkdir()
+    shutil.copy(FIXTURES / "email_with_attachments.eml", root / "planning.eml")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("RAGMONK_DOCUMENTS__EMAIL_ATTACHMENTS", "false")
+
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    _add_source(runner, root)
+    result = runner.invoke(app, ["index"])
+    assert result.exit_code == 0, result.output
+    assert "email attachments" not in result.output
+    assert _search_hits(runner, "quokkaledger") == []
+    assert _search_hits(runner, "planning material")
+
+    # Turning attachments on later reprocesses the unchanged .eml once
+    # (its parser identity changes), so attachments appear without
+    # touching the file.
+    monkeypatch.delenv("RAGMONK_DOCUMENTS__EMAIL_ATTACHMENTS")
+    result = runner.invoke(app, ["index"])
+    assert result.exit_code == 0, result.output
+    assert _search_hits(runner, "quokkaledger")

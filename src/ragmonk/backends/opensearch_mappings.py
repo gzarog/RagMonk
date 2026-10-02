@@ -45,6 +45,15 @@ _CONTENT_ADDITIVE_FIELDS: dict[str, Any] = {
     "page_start": _INT,
     "page_end": _INT,
     "doc_meta": {"type": "object", "enabled": False},
+    # EML attachment knowledge extraction V1: provenance on attachment
+    # child documents and their chunks (absent on everything else).
+    "parent_document_id": _KEYWORD,
+    "attachment_name": _KEYWORD,
+    "attachment_content_type": _KEYWORD,
+    "attachment_index": _INT,
+    "attachment_content_id": _KEYWORD,
+    "attachment_format": _KEYWORD,
+    "parent_title": _KEYWORD,
 }
 _RELATIONSHIPS_ADDITIVE_FIELDS: dict[str, Any] = {
     "relationship_id": _KEYWORD,
