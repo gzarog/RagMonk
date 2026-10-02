@@ -1,0 +1,12 @@
+{
+  "implementation": "python-reference",
+  "language": "csharp",
+  "files": 3001,
+  "corpus": "ragmonk-code-bench --files 3000 --emit-only DIR (identical input to rust-code-csharp-3000.json)",
+  "method": "wall time of `ragmonk index` CLI invocations (includes interpreter start-up, ~1 s) on the same machine, local storage mode",
+  "scenarios": [
+    {"scenario": "cold_index", "wall_time_s": 52.08},
+    {"scenario": "single_edit", "wall_time_s": 2.71},
+    {"scenario": "warm_unchanged", "wall_time_s": 1.71}
+  ]
+}

@@ -8,8 +8,10 @@ is still the product**; nothing here changes its behavior yet.
 |-------|--------|
 | `ragmonk-cli` | `ragmonk` binary: `version`, `config show/get/set`, `migrate-to-rust-v2 --check/--import-sources`, `server-v2 schema/init/legacy` |
 | `ragmonk-backends` | V2 OpenSearch/Elasticsearch schema, bounded bulk, atomic build publication, legacy cleanup (RUST-03) |
+| `ragmonk-code` | Tree-sitter code intelligence: reference `.scm` queries, extraction, resolution, framework rules, code graph, whole-build cross-file resolution (RUST-05) |
 | `ragmonk-core` | errors/exit codes, domain models, home layout, stable IDs, secret filter, path guard, version (RUST-01) |
 | `ragmonk-config` | `config.yaml` + env layering with PyYAML/pydantic-exact semantics (RUST-01) |
+| `ragmonk-indexing` | scanner, ignore rules, incremental diff, retries, run lock, bounded transactional V2 coordinator (RUST-04) |
 | `ragmonk-storage` | V2 SQLite control plane + per-source knowledge store, versioned migrations with backup, read-only V1 preflight/import (RUST-02) |
 | `ragmonk-telemetry` | JSON-lines logging, URL/credential redaction (RUST-01) |
 | `ragmonk-compat` | Python-vs-Rust differential harness; removed at RUST-16 |

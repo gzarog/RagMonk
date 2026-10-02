@@ -268,4 +268,46 @@ ALTER TABLE files ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE files ADD COLUMN next_attempt_at TEXT;
 "#,
     },
+    Migration {
+        version: 3,
+        name: "code_references",
+        sql: r#"
+-- Code intelligence (RUST-05): the raw reference text a relationship was
+-- extracted from, so cross-file targets can be re-resolved against the
+-- whole build before publication instead of depending on file order.
+ALTER TABLE relationships ADD COLUMN reference_text TEXT;
+CREATE INDEX idx_rel_resolver ON relationships(build_id, resolver);
+CREATE INDEX idx_rel_symbol ON relationships(build_id, target_symbol);
+
+-- Each lexical row now shares its base row's rowid, so per-file and
+-- per-build deletes are rowid lookups instead of full FTS scans (which made
+-- indexing quadratic). Existing rows are re-keyed with their content intact.
+CREATE VIRTUAL TABLE code_fts_v3 USING fts5(
+    entity_id UNINDEXED, build_id UNINDEXED, name, qualified_name, signature
+);
+INSERT INTO code_fts_v3 (rowid, entity_id, build_id, name, qualified_name, signature)
+    SELECT e.rowid, f.entity_id, f.build_id, f.name, f.qualified_name, f.signature
+    FROM code_fts f JOIN entities e ON e.id = f.entity_id AND e.build_id = f.build_id;
+DROP TABLE code_fts;
+ALTER TABLE code_fts_v3 RENAME TO code_fts;
+
+CREATE VIRTUAL TABLE chunk_fts_v3 USING fts5(
+    chunk_id UNINDEXED, build_id UNINDEXED, heading, body, title
+);
+INSERT INTO chunk_fts_v3 (rowid, chunk_id, build_id, heading, body, title)
+    SELECT c.rowid, f.chunk_id, f.build_id, f.heading, f.body, f.title
+    FROM chunk_fts f JOIN chunks c ON c.id = f.chunk_id AND c.build_id = f.build_id;
+DROP TABLE chunk_fts;
+ALTER TABLE chunk_fts_v3 RENAME TO chunk_fts;
+
+CREATE VIRTUAL TABLE path_fts_v3 USING fts5(
+    file_id UNINDEXED, build_id UNINDEXED, path
+);
+INSERT INTO path_fts_v3 (rowid, file_id, build_id, path)
+    SELECT fl.rowid, f.file_id, f.build_id, f.path
+    FROM path_fts f JOIN files fl ON fl.id = f.file_id AND fl.build_id = f.build_id;
+DROP TABLE path_fts;
+ALTER TABLE path_fts_v3 RENAME TO path_fts;
+"#,
+    },
 ];

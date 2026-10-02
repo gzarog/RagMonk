@@ -323,3 +323,236 @@ fn many_sources_make_progress_with_bounded_work() {
         .all(|s| !s.published && s.counts.unchanged == 5));
     eprintln!("150 sources x 5 files: cold {cold:?}, warm {warm_t:?}");
 }
+
+/// Fails the build after every file was written (before publication).
+struct FailingFinalizer;
+
+impl ragmonk_indexing::coordinator::BuildFinalizer for FailingFinalizer {
+    fn finalize(&self, _store: &mut ProjectStore, _build_id: &str) -> Result<(), ProcessError> {
+        Err(ProcessError {
+            code: "boom".into(),
+            message: "finalizer failed".into(),
+            transient: false,
+        })
+    }
+}
+
+/// (files visible in the active build, committed hash of the file).
+type Seen = Arc<std::sync::Mutex<Vec<(i64, Option<String>)>>>;
+
+/// Records what a separate reader connection sees while a build runs.
+struct Observer {
+    db: std::path::PathBuf,
+    build: String,
+    seen: Seen,
+}
+
+impl Processor for Observer {
+    fn prepare(&self, input: &PrepareInput) -> Result<FileKnowledge, ProcessError> {
+        let conn = rusqlite::Connection::open_with_flags(
+            &self.db,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let files: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE build_id = ?1",
+                [&self.build],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let hash: Option<String> = conn
+            .query_row(
+                "SELECT content_hash FROM files WHERE build_id = ?1 AND rel_path = ?2",
+                [&self.build, &input.rel_path],
+                |r| r.get(0),
+            )
+            .ok();
+        self.seen.lock().unwrap().push((files, hash));
+        Ok(FileKnowledge::default())
+    }
+}
+
+fn snapshot(
+    layout: &V2Layout,
+    src: &ragmonk_storage::control::SourceRecord,
+    build: &str,
+) -> Vec<String> {
+    let (store, _) =
+        ProjectStore::open(layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
+    let mut rows: Vec<String> = store
+        .files(build)
+        .unwrap()
+        .into_iter()
+        .map(|f| {
+            format!(
+                "{} {:?} {} {}",
+                f.rel_path, f.content_hash, f.size, f.status
+            )
+        })
+        .collect();
+    rows.sort();
+    rows
+}
+
+#[test]
+fn failed_incremental_build_rolls_back_completely() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("r");
+    for i in 0..20 {
+        common::write(&root, &format!("m{i}.py"), &format!("x = {i}\n"));
+    }
+    let home = common::home(tmp.path());
+    let layout = V2Layout::new(&home);
+    let mut cp = common::control(&home);
+    let src = common::add_source(&mut cp, &root, &[], &[]);
+    run_source(
+        &layout,
+        &mut cp,
+        &src,
+        &Registry::raw(),
+        &opts(),
+        &mut NoProgress,
+    )
+    .unwrap();
+    let active = cp.state(&src.id).unwrap().active_build_id.unwrap();
+    let before = snapshot(&layout, &src, &active);
+
+    common::write(&root, "m1.py", "x = 'changed'\n");
+    std::fs::remove_file(root.join("m2.py")).unwrap();
+    common::write(&root, "new.py", "y = 1\n");
+    let mut failing = Registry::raw();
+    failing.finalizers.push(Arc::new(FailingFinalizer));
+    let err = run_source(&layout, &mut cp, &src, &failing, &opts(), &mut NoProgress).unwrap_err();
+    assert!(
+        err.message().contains("finalizer failed"),
+        "{}",
+        err.message()
+    );
+
+    let state = cp.state(&src.id).unwrap();
+    assert_eq!(state.active_build_id.as_deref(), Some(active.as_str()));
+    assert_eq!(state.build_state, BuildState::Failed);
+    assert_eq!(
+        snapshot(&layout, &src, &active),
+        before,
+        "nothing of the failed pass is visible"
+    );
+
+    // The next good pass applies the same changes.
+    let ok = run_source(
+        &layout,
+        &mut cp,
+        &src,
+        &Registry::raw(),
+        &opts(),
+        &mut NoProgress,
+    )
+    .unwrap();
+    assert!(ok.published);
+    assert_eq!(
+        (ok.counts.changed, ok.counts.deleted, ok.counts.new),
+        (1, 1, 1)
+    );
+    assert_eq!(cp.state(&src.id).unwrap().build_state, BuildState::Ready);
+}
+
+#[test]
+fn failed_full_build_leaves_no_rows_and_previous_build_visible() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("r");
+    for i in 0..10 {
+        common::write(&root, &format!("m{i}.py"), &format!("x = {i}\n"));
+    }
+    let home = common::home(tmp.path());
+    let layout = V2Layout::new(&home);
+    let mut cp = common::control(&home);
+    let src = common::add_source(&mut cp, &root, &[], &[]);
+    run_source(
+        &layout,
+        &mut cp,
+        &src,
+        &Registry::raw(),
+        &opts(),
+        &mut NoProgress,
+    )
+    .unwrap();
+    let active = cp.state(&src.id).unwrap().active_build_id.unwrap();
+
+    // A version change forces a full rebuild, which then fails.
+    let mut failing = Registry::raw();
+    failing.versions.parser_version = "raw-2".into();
+    failing.finalizers.push(Arc::new(FailingFinalizer));
+    run_source(&layout, &mut cp, &src, &failing, &opts(), &mut NoProgress).unwrap_err();
+    assert_eq!(
+        cp.state(&src.id).unwrap().active_build_id.as_deref(),
+        Some(active.as_str())
+    );
+    let (store, _) =
+        ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
+    let builds: i64 = store
+        .connection()
+        .query_row("SELECT COUNT(*) FROM builds", [], |r| r.get(0))
+        .unwrap();
+    let rows: i64 = store
+        .connection()
+        .query_row(
+            "SELECT COUNT(*) FROM files WHERE build_id <> ?1",
+            [&active],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        (builds, rows),
+        (1, 0),
+        "the failed build was rolled back entirely"
+    );
+    assert_eq!(store.files(&active).unwrap().len(), 10);
+}
+
+#[test]
+fn readers_see_only_committed_state_during_a_build() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("r");
+    for i in 0..5 {
+        common::write(&root, &format!("m{i}.py"), &format!("x = {i}\n"));
+    }
+    let home = common::home(tmp.path());
+    let layout = V2Layout::new(&home);
+    let mut cp = common::control(&home);
+    let src = common::add_source(&mut cp, &root, &[], &[]);
+    run_source(
+        &layout,
+        &mut cp,
+        &src,
+        &Registry::raw(),
+        &opts(),
+        &mut NoProgress,
+    )
+    .unwrap();
+    let active = cp.state(&src.id).unwrap().active_build_id.unwrap();
+    let old_hash = snapshot(&layout, &src, &active)
+        .into_iter()
+        .find(|r| r.starts_with("m0.py "))
+        .unwrap();
+
+    std::fs::remove_file(root.join("m4.py")).unwrap();
+    common::write(&root, "m0.py", "x = 'edited'\n");
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut reg = Registry::raw();
+    reg.code = Arc::new(Observer {
+        db: layout.project_db(&project_id_for_canonical(&src.path)),
+        build: active.clone(),
+        seen: Arc::clone(&seen),
+    });
+    let r = run_source(&layout, &mut cp, &src, &reg, &opts(), &mut NoProgress).unwrap();
+    assert!(r.published);
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1);
+    // Mid-build, the deletion and the edit are not yet visible.
+    assert_eq!(seen[0].0, 5);
+    assert!(old_hash.contains(seen[0].1.as_deref().unwrap()));
+    let after = snapshot(&layout, &src, &active);
+    assert_eq!(after.len(), 4);
+    assert!(!after.contains(&old_hash));
+}

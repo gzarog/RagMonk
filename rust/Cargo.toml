@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/ragmonk-backends",
     "crates/ragmonk-cli",
+    "crates/ragmonk-code",
     "crates/ragmonk-compat",
     "crates/ragmonk-config",
     "crates/ragmonk-core",
@@ -30,6 +31,7 @@ anyhow = "1"
 ragmonk-backends = { path = "crates/ragmonk-backends" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 dunce = "1"
+ragmonk-code = { path = "crates/ragmonk-code" }
 ragmonk-config = { path = "crates/ragmonk-config" }
 ragmonk-core = { path = "crates/ragmonk-core" }
 ragmonk-indexing = { path = "crates/ragmonk-indexing" }
