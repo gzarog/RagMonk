@@ -231,7 +231,12 @@ fn rebuilding_from_scratch_reproduces_identical_ids() {
 
     // Rebuild the same source from scratch in a fresh, empty home (open
     // handles keep Windows from deleting the first one).
-    let home_root = f.layout.root().parent().unwrap().with_file_name("home-again");
+    let home_root = f
+        .layout
+        .root()
+        .parent()
+        .unwrap()
+        .with_file_name("home-again");
     let home = ragmonk_core::paths::Home::new(&home_root);
     f.layout = V2Layout::new(&home);
     f.cp = common::control(&home);
