@@ -1,0 +1,9 @@
+{
+  "phase": "RUST-06",
+  "implementation": "python-reference",
+  "documents": 10,
+  "configs": 3,
+  "chunks": 874,
+  "best_wall_time_s": 0.491,
+  "method": "chunker.chunk_document over the same golden normalized documents and configurations, tokenizer warmed, one pass"
+}
