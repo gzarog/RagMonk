@@ -354,3 +354,12 @@ python tests/fixtures/documents/generate_fixtures.py
 
 Keep commits focused and describe the "why" as well as the "what". Update
 `CHANGELOG.md` under "Unreleased" for user-visible changes.
+
+## Rust rewrite
+
+A native Rust rewrite is in progress under [`rust/`](rust/README.md). It is
+developed on `release/rust-rewrite-v1`: every rewrite PR comes from the
+phase's `feature/rust-NN-…` branch and **must target
+`release/rust-rewrite-v1`, never `main`/`master`** (enforced by the
+`Rewrite PR base guard` job). The Python application stays the reference
+until the final cutover phase.
