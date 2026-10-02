@@ -7,6 +7,7 @@ members = [
     "crates/ragmonk-compat",
     "crates/ragmonk-config",
     "crates/ragmonk-core",
+    "crates/ragmonk-documents",
     "crates/ragmonk-indexing",
     "crates/ragmonk-storage",
     "crates/ragmonk-telemetry",
@@ -33,6 +34,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 dunce = "1"
 ragmonk-code = { path = "crates/ragmonk-code" }
 ragmonk-config = { path = "crates/ragmonk-config" }
+ragmonk-documents = { path = "crates/ragmonk-documents" }
 ragmonk-core = { path = "crates/ragmonk-core" }
 ragmonk-indexing = { path = "crates/ragmonk-indexing" }
 ragmonk-storage = { path = "crates/ragmonk-storage" }
