@@ -43,7 +43,7 @@ Status: accepted (RUST-03)
   saved serving settings explicitly or on drop.
 * **Legacy cleanup.** `ragmonk server-v2 legacy` lists the exact V1 names
   (`{p}-files|content|relationships` for the configured prefix and the
-  historical `ragmonk`/`ragpilot` prefixes) with doc counts and a
+  historical prefixes in `legacy::LEGACY_PREFIXES`) with doc counts and a
   fingerprint. `--delete --confirm <fingerprint>` deletes those exact names
   only if the set is unchanged. Pattern deletes are never used and nothing
   else is touched. Per the project decision (ADR 0006) no index-level

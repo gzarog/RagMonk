@@ -2,7 +2,7 @@
 //!
 //! V1 created exactly `{prefix}-files`, `{prefix}-content` and
 //! `{prefix}-relationships`. Discovery matches those exact names for the
-//! configured prefix and the historical `ragmonk`/`ragpilot` prefixes; it
+//! configured prefix and the historical prefixes in [`LEGACY_PREFIXES`]; it
 //! never pattern-deletes, never touches V2 (`{prefix}-v2-*`) or any other
 //! index. Deletion requires the fingerprint printed by the preflight, so
 //! only the exact set the operator reviewed can be removed: if anything
@@ -15,7 +15,11 @@ use sha2::{Digest, Sha256};
 use crate::error::{BackendError, Result};
 use crate::transport::{Client, Method};
 
+/// Historical product prefixes (V3 plan `legacy_prefixes`); the second is
+/// the pre-rename product name, kept only so its indexes can be removed.
+// branding-audit-allow-start
 pub const LEGACY_PREFIXES: &[&str] = &["ragmonk", "ragpilot"];
+// branding-audit-allow-end
 pub const LEGACY_SUFFIXES: &[&str] = &["files", "content", "relationships"];
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -150,9 +154,12 @@ mod tests {
     #[test]
     fn candidates_are_exact_and_exclude_v2() {
         let (prefixes, names) = candidate_names("team");
-        assert_eq!(prefixes, vec!["team", "ragmonk", "ragpilot"]);
+        assert_eq!(
+            prefixes,
+            vec!["team", LEGACY_PREFIXES[0], LEGACY_PREFIXES[1]]
+        );
         assert!(names.contains(&"team-content".to_string()));
-        assert!(names.contains(&"ragpilot-relationships".to_string()));
+        assert!(names.contains(&format!("{}-relationships", LEGACY_PREFIXES[1])));
         assert!(!names.iter().any(|n| n.contains("-v2")));
         assert_eq!(names.len(), 9);
         let (_, dedup) = candidate_names("ragmonk");

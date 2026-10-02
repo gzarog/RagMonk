@@ -3,7 +3,7 @@
 //! Set `RAGMONK_TEST_OPENSEARCH_URL` / `RAGMONK_TEST_ELASTICSEARCH_URL` to a
 //! disposable test cluster. With `RAGMONK_REQUIRE_LIVE_SERVER=1` a missing
 //! URL is a failure instead of a skip (CI). WARNING: the legacy-cleanup
-//! scenario deletes `ragmonk-*`/`ragpilot-*` V1 index names it finds, so
+//! scenario deletes V1 index names of the historical prefixes it finds, so
 //! never point these variables at a real deployment.
 
 use std::time::Duration;
