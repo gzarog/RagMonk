@@ -49,7 +49,9 @@ def main() -> None:
         run(home, "index")
         # Disable the docs source after indexing: its V1 state stays populated.
         conn = sqlite3.connect(home / "sources.db")
-        source_id = conn.execute("SELECT id FROM sources WHERE path = ?", (str(docs),)).fetchone()[0]
+        source_id = conn.execute("SELECT id FROM sources WHERE path = ?", (str(docs),)).fetchone()[
+            0
+        ]
         conn.close()
         run(home, "source", "disable", source_id)
 

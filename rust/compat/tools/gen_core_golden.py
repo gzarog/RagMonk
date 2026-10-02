@@ -110,7 +110,10 @@ YAML_CASES: list[tuple[str, str]] = [
     ("chunk_min_over_max", "documents:\n  chunking:\n    max_tokens: 50\n    min_tokens: 60\n"),
     ("chunk_overlap_eq_max", "documents:\n  chunking:\n    max_tokens: 40\n    min_tokens: 10\n"),
     ("chunk_safety_big", "documents:\n  chunking:\n    safety_tokens: 256\n"),
-    ("chunk_multi_field_errors", "documents:\n  chunking:\n    min_tokens: 0\n    overlap_tokens: -1\n    safety_tokens: -2\n"),
+    (
+        "chunk_multi_field_errors",
+        "documents:\n  chunking:\n    min_tokens: 0\n    overlap_tokens: -1\n    safety_tokens: -2\n",  # noqa: E501
+    ),
     ("chunk_field_and_model", "documents:\n  chunking:\n    min_tokens: 0\n    max_tokens: 20\n"),
     ("chunk_strategy_bad", "documents:\n  chunking:\n    strategy: semantic\n"),
     ("chunk_max_null", "documents:\n  chunking:\n    max_tokens: null\n"),
@@ -122,7 +125,10 @@ YAML_CASES: list[tuple[str, str]] = [
     ("docs_pdf_mode_bad", "documents:\n  pdf_mode: turbo\n"),
     ("docs_pdf_workers_0", "documents:\n  pdf_process_workers: 0\n"),
     ("docs_pdf_workers_33", "documents:\n  pdf_process_workers: 33\n"),
-    ("docs_attach_limits_bad", "documents:\n  email_attachment_max_bytes: 0\n  email_attachment_max_count: -1\n  email_attachment_total_max_bytes: 0\n"),
+    (
+        "docs_attach_limits_bad",
+        "documents:\n  email_attachment_max_bytes: 0\n  email_attachment_max_count: -1\n  email_attachment_total_max_bytes: 0\n",  # noqa: E501
+    ),
     ("docs_email_off", "documents:\n  email_attachments: false\n"),
     ("search_fallback_str", "search:\n  output:\n    fallback: json\n"),
     ("search_fallback_mixed", "search:\n  output:\n    fallback: [json, 1]\n"),
@@ -131,12 +137,21 @@ YAML_CASES: list[tuple[str, str]] = [
     ("search_fallback_ok", "search:\n  output:\n    fallback: [table, files]\n"),
     ("search_snippet_0", "search:\n  output:\n    snippet_max_tokens: 0\n"),
     ("search_snippet_65", "search:\n  output:\n    snippet_max_tokens: 65\n"),
-    ("search_context_neg", "search:\n  context:\n    previous_chunks: -1\n    next_chunks: -2\n    max_tokens: 0\n"),
+    (
+        "search_context_neg",
+        "search:\n  context:\n    previous_chunks: -1\n    next_chunks: -2\n    max_tokens: 0\n",
+    ),
     ("search_reranker", "search:\n  reranker:\n    enabled: true\n    top_n: 0\n"),
-    ("search_semantic_on", "search:\n  semantic: true\n  semantic_top_k: 50\n  vector:\n    engine: bruteforce\n    rebuild_deleted_ratio: 0.5\n"),
+    (
+        "search_semantic_on",
+        "search:\n  semantic: true\n  semantic_top_k: 50\n  vector:\n    engine: bruteforce\n    rebuild_deleted_ratio: 0.5\n",  # noqa: E501
+    ),
     ("ai_base_url_int", "ai:\n  base_url: 5\n"),
     ("ai_base_url_null", "ai:\n  base_url: null\n"),
-    ("ai_provider", "ai:\n  provider: openai\n  model: gpt-x\n  base_url: https://api.example.com/v1\n"),
+    (
+        "ai_provider",
+        "ai:\n  provider: openai\n  model: gpt-x\n  base_url: https://api.example.com/v1\n",
+    ),
     ("ai_codex_bad", "ai:\n  codex:\n    auth_mode: apikey\n"),
     ("ai_copilot_bad", "ai:\n  github_copilot:\n    auth_mode: token\n"),
     ("section_scalar", "runtime: x\n"),
@@ -145,15 +160,33 @@ YAML_CASES: list[tuple[str, str]] = [
     ("nested_section_scalar", "documents:\n  chunking: 5\n"),
     ("version_str", "version: '2'\n"),
     ("version_bad", "version: two\n"),
-    ("storage_server", "storage:\n  mode: server\n  server:\n    engine: elasticsearch\n    url: https://es.example.com:9200\n    index_prefix: team\n    verify_tls: false\n    request_timeout_seconds: 10\n    bulk:\n      max_actions: 100\n      max_bytes: 1000\n      concurrency: 4\n      max_retries: 0\n"),
-    ("storage_url_creds", "storage:\n  server:\n    url: https://user:hunter2@es.example.com:9200\n"),
-    ("storage_url_creds_noscheme", "storage:\n  server:\n    url: user:hunter2@es.example.com:9200\n"),
+    (
+        "storage_server",
+        "storage:\n  mode: server\n  server:\n    engine: elasticsearch\n    url: https://es.example.com:9200\n    index_prefix: team\n    verify_tls: false\n    request_timeout_seconds: 10\n    bulk:\n      max_actions: 100\n      max_bytes: 1000\n      concurrency: 4\n      max_retries: 0\n",  # noqa: E501
+    ),
+    (
+        "storage_url_creds",
+        "storage:\n  server:\n    url: https://user:hunter2@es.example.com:9200\n",
+    ),
+    (
+        "storage_url_creds_noscheme",
+        "storage:\n  server:\n    url: user:hunter2@es.example.com:9200\n",
+    ),
     ("storage_url_at_in_path", "storage:\n  server:\n    url: https://es.example.com/a@b\n"),
     ("storage_mode_engine_bad", "storage:\n  mode: x\n  server:\n    engine: y\n"),
     ("storage_timeout_zero", "storage:\n  server:\n    request_timeout_seconds: 0\n"),
-    ("storage_bulk_bad", "storage:\n  server:\n    bulk:\n      max_actions: 0\n      max_bytes: 0\n      concurrency: 0\n      max_retries: -1\n"),
-    ("updates", "updates:\n  enabled: false\n  check_interval_hours: 6\n  notify: false\n  channel: beta\n"),
-    ("many_errors_order", "storage:\n  mode: x\nruntime:\n  max_workers: x\n  log_level: 3\nindexing:\n  watch: 7\n"),
+    (
+        "storage_bulk_bad",
+        "storage:\n  server:\n    bulk:\n      max_actions: 0\n      max_bytes: 0\n      concurrency: 0\n      max_retries: -1\n",  # noqa: E501
+    ),
+    (
+        "updates",
+        "updates:\n  enabled: false\n  check_interval_hours: 6\n  notify: false\n  channel: beta\n",
+    ),
+    (
+        "many_errors_order",
+        "storage:\n  mode: x\nruntime:\n  max_workers: x\n  log_level: 3\nindexing:\n  watch: 7\n",
+    ),
     ("anchor_alias", "base: &b\n  max_workers: 9\nruntime: *b\n"),
     ("merge_key", "base: &b\n  max_workers: 9\nruntime:\n  <<: *b\n  log_level: warn\n"),
     ("int_keys_top", "1: x\nruntime:\n  max_workers: 2\n"),
@@ -163,11 +196,11 @@ YAML_CASES: list[tuple[str, str]] = [
     ("string_needs_quotes", "ai:\n  model: 'a: b'\n  provider: '#hash'\n"),
     ("string_looks_numeric", "ai:\n  model: '123'\n  provider: '1.5'\n"),
     ("string_leading_space", "ai:\n  model: ' padded'\n"),
-    ("string_multiline", "ai:\n  model: \"line1\\nline2\"\n"),
-    ("string_with_quote", "ai:\n  model: \"it's\"\n"),
+    ("string_multiline", 'ai:\n  model: "line1\\nline2"\n'),
+    ("string_with_quote", 'ai:\n  model: "it\'s"\n'),
     ("string_empty", "ai:\n  model: ''\n"),
     ("string_null_word", "ai:\n  model: 'null'\n"),
-    ("string_tab", "ai:\n  model: \"a\\tb\"\n"),
+    ("string_tab", 'ai:\n  model: "a\\tb"\n'),
     ("yaml_syntax_error", "runtime: [\n"),
     ("duplicate_keys", "runtime:\n  max_workers: 1\n  max_workers: 2\n"),
     ("flow_mapping", "runtime: {max_workers: 7, log_level: error}\n"),
@@ -210,7 +243,10 @@ YAML_CASES: list[tuple[str, str]] = [
     ("yaml_explicit_int_tag", "runtime:\n  max_workers: !!int '7'\n"),
     ("yaml_explicit_float_tag", "mcp:\n  request_timeout_seconds: !!float '2'\n"),
     ("yaml_value_eq", "ai:\n  model: =\n"),
-    ("yaml_merge_list", "a: &a\n  max_workers: 4\nb: &b\n  log_level: warn\nruntime:\n  <<: [*a, *b]\n"),
+    (
+        "yaml_merge_list",
+        "a: &a\n  max_workers: 4\nb: &b\n  log_level: warn\nruntime:\n  <<: [*a, *b]\n",
+    ),
     ("str_with_hash_space", "ai:\n  model: 'a #b'\n"),
     ("str_colon_end", "ai:\n  model: 'a:'\n"),
     ("str_dash_start", "ai:\n  model: '- a'\n"),
@@ -219,14 +255,14 @@ YAML_CASES: list[tuple[str, str]] = [
     ("str_trailing_space", "ai:\n  model: 'x '\n"),
     ("str_long_quoted_fold", "ai:\n  model: '" + "ab: " * 30 + "'\n"),
     ("str_long_unicode", "ai:\n  model: '" + "é " * 50 + "'\n"),
-    ("str_crlf", "ai:\n  model: \"a\\r\\nb\"\n"),
-    ("str_control", "ai:\n  model: \"a\\x01b\"\n"),
-    ("str_emoji", "ai:\n  model: \"\U0001F600\"\n"),
-    ("str_nbsp", "ai:\n  model: \"a\\u00a0b\"\n"),
-    ("str_bom", "ai:\n  model: \"\\ufeffx\"\n"),
+    ("str_crlf", 'ai:\n  model: "a\\r\\nb"\n'),
+    ("str_control", 'ai:\n  model: "a\\x01b"\n'),
+    ("str_emoji", 'ai:\n  model: "\U0001f600"\n'),
+    ("str_nbsp", 'ai:\n  model: "a\\u00a0b"\n'),
+    ("str_bom", 'ai:\n  model: "\\ufeffx"\n'),
     ("str_only_spaces", "ai:\n  model: '   '\n"),
-    ("str_multiline_trailing", "ai:\n  model: \"a\\n\"\n"),
-    ("str_many_newlines", "ai:\n  model: \"a\\n\\n\\nb\"\n"),
+    ("str_multiline_trailing", 'ai:\n  model: "a\\n"\n'),
+    ("str_many_newlines", 'ai:\n  model: "a\\n\\n\\nb"\n'),
     ("str_dot_inf_word", "ai:\n  model: '.inf'\n"),
     ("str_tilde_word", "ai:\n  model: '~'\n"),
     ("str_yes_word", "ai:\n  model: 'yes'\n"),
@@ -244,7 +280,7 @@ YAML_CASES: list[tuple[str, str]] = [
     ("str_pipe", "ai:\n  model: '|x'\n"),
     ("str_gt", "ai:\n  model: '>x'\n"),
     ("str_bang", "ai:\n  model: '!x'\n"),
-    ("str_quote_start", "ai:\n  model: \"'x\"\n"),
+    ("str_quote_start", 'ai:\n  model: "\'x"\n'),
     ("str_dquote_start", "ai:\n  model: '\"x'\n"),
     ("str_doc_start", "ai:\n  model: '---'\n"),
     ("str_doc_end", "ai:\n  model: '...'\n"),
@@ -291,11 +327,21 @@ ENV_CASES: list[tuple[str, dict[str, str]]] = [
 
 LAYER_CASES = [
     # (name, user_yaml, project_yaml, env)
-    ("project_over_user", "runtime:\n  max_workers: 2\n  log_level: warn\n", "runtime:\n  max_workers: 3\n", {}),
+    (
+        "project_over_user",
+        "runtime:\n  max_workers: 2\n  log_level: warn\n",
+        "runtime:\n  max_workers: 3\n",
+        {},
+    ),
     ("env_over_project", "", "runtime:\n  max_workers: 3\n", {"RAGMONK_RUNTIME__MAX_WORKERS": "4"}),
     ("project_scalar_replaces_section", "runtime:\n  max_workers: 2\n", "runtime: 5\n", {}),
     ("project_invalid_toplevel", "", "- x\n", {}),
-    ("layer_env_overrides_user", "runtime:\n  max_workers: 2\n", "", {"RAGMONK_RUNTIME__MAX_WORKERS": "11"}),
+    (
+        "layer_env_overrides_user",
+        "runtime:\n  max_workers: 2\n",
+        "",
+        {"RAGMONK_RUNTIME__MAX_WORKERS": "11"},
+    ),
 ]
 
 
@@ -333,6 +379,7 @@ def gen_config() -> list[dict]:
 
 # --- ids / paths / redaction -----------------------------------------------
 
+
 def gen_ids() -> dict:
     canonical_paths = [
         "/home/user/repo",
@@ -353,23 +400,45 @@ def gen_ids() -> dict:
         out["project_ids"].append(
             {"canonical_path": p, "id": __import__("hashlib").sha256(p.encode()).hexdigest()[:12]}
         )
-    for raw in ["/a/b", "//server/share", "///triple", "\\\\host\\s", "smb://h/s", "nfs://h", "afp://h", "C:\\x", "relative", "http://h"]:
+    for raw in [
+        "/a/b",
+        "//server/share",
+        "///triple",
+        "\\\\host\\s",
+        "smb://h/s",
+        "nfs://h",
+        "afp://h",
+        "C:\\x",
+        "relative",
+        "http://h",
+    ]:
         out["source_types"].append({"raw": raw, "type": str(detect_source_type(raw))})
     for mod_name, mod in (("opensearch", opensearch_ids), ("elasticsearch", elasticsearch_ids)):
         for sid, fid in server_args:
             for gen in (None, "g1"):
-                out["server"].append({
-                    "module": mod_name, "source_id": sid, "file_id": fid, "generation": gen,
-                    "file_doc_id": mod.file_doc_id(sid, fid, gen),
-                    "generation_marker_id": mod.generation_marker_id(sid),
-                    "document_doc_id": mod.document_doc_id(sid, fid, gen),
-                    "document_doc_id_att3": mod.document_doc_id(sid, fid, gen, attachment_index=3),
-                    "entity_doc_id": mod.entity_doc_id(sid, fid, "e1"),
-                    "chunk_doc_id": mod.chunk_doc_id(sid, fid, "c1"),
-                    "relationship_doc_id": mod.relationship_doc_id(sid, fid, "r1"),
-                    "link_doc_id": mod.link_doc_id(sid, "e1", "d1", None, "documented_by", "exact_name", gen),
-                    "link_doc_id_section": mod.link_doc_id(sid, "e1", "d1", "s9", "mentioned_in", "alias", gen),
-                })
+                out["server"].append(
+                    {
+                        "module": mod_name,
+                        "source_id": sid,
+                        "file_id": fid,
+                        "generation": gen,
+                        "file_doc_id": mod.file_doc_id(sid, fid, gen),
+                        "generation_marker_id": mod.generation_marker_id(sid),
+                        "document_doc_id": mod.document_doc_id(sid, fid, gen),
+                        "document_doc_id_att3": mod.document_doc_id(
+                            sid, fid, gen, attachment_index=3
+                        ),
+                        "entity_doc_id": mod.entity_doc_id(sid, fid, "e1"),
+                        "chunk_doc_id": mod.chunk_doc_id(sid, fid, "c1"),
+                        "relationship_doc_id": mod.relationship_doc_id(sid, fid, "r1"),
+                        "link_doc_id": mod.link_doc_id(
+                            sid, "e1", "d1", None, "documented_by", "exact_name", gen
+                        ),
+                        "link_doc_id_section": mod.link_doc_id(
+                            sid, "e1", "d1", "s9", "mentioned_in", "alias", gen
+                        ),
+                    }
+                )
     return out
 
 
@@ -402,37 +471,91 @@ def gen_redaction() -> dict:
             else:
                 os.environ[k] = v
     urls = [
-        "", "https://h:9200", "https://u:p@h:9200/x?q=1#f", "https://u@h", "user:pw@host:9200",
-        "http://[::1]:9200", "http://u:p@[::1]:9200", "http://[::1", "https://a@b@c/x", "no-scheme-host",
+        "",
+        "https://h:9200",
+        "https://u:p@h:9200/x?q=1#f",
+        "https://u@h",
+        "user:pw@host:9200",
+        "http://[::1]:9200",
+        "http://u:p@[::1]:9200",
+        "http://[::1",
+        "https://a@b@c/x",
+        "no-scheme-host",
     ]
-    url_cases = [{"url": u, "redacted": redact_url(u), "has_userinfo": url_has_userinfo(u)} for u in urls]
+    url_cases = [
+        {"url": u, "redacted": redact_url(u), "has_userinfo": url_has_userinfo(u)} for u in urls
+    ]
     return {"env": env, "texts": text_cases, "urls": url_cases}
 
 
 def gen_misc() -> dict:
-    names = [".env", ".env.local", "env", "a.pem", "A.PEM", "server.key", "key", "id_rsa", "id_rsa.pub",
-             "id_ed25519", "credentials", "credentials.json", "Credentials.json", "secrets.yaml",
-             "my_secrets", "readme.md", "x.keys", "[a].pem", ".envrc"]
+    names = [
+        ".env",
+        ".env.local",
+        "env",
+        "a.pem",
+        "A.PEM",
+        "server.key",
+        "key",
+        "id_rsa",
+        "id_rsa.pub",
+        "id_ed25519",
+        "credentials",
+        "credentials.json",
+        "Credentials.json",
+        "secrets.yaml",
+        "my_secrets",
+        "readme.md",
+        "x.keys",
+        "[a].pem",
+        ".envrc",
+    ]
     secrets = [{"name": n, "secret": is_secret_filename(n)} for n in names]
     locks = []
-    for owner in [None, {}, {"pid": 42, "operation": "index", "source_id": "src_1", "hostname": "box"},
-                  {"pid": None, "operation": "rebuild"}, {"pid": 7}]:
+    for owner in [
+        None,
+        {},
+        {"pid": 42, "operation": "index", "source_id": "src_1", "hostname": "box"},
+        {"pid": None, "operation": "rebuild"},
+        {"pid": 7},
+    ]:
         for timeout in (30.0, 0.5, 1e-07, 3600.0, 2.25):
             err = RunLockTimeoutError("/x/locks/index.lock", timeout, owner=owner)
-            locks.append({"owner": owner, "timeout": timeout, "message": str(err), "exit_code": err.exit_code})
+            locks.append(
+                {
+                    "owner": owner,
+                    "timeout": timeout,
+                    "message": str(err),
+                    "exit_code": err.exit_code,
+                }
+            )
     rel = {
-        "sources_db": "sources.db", "user_config": "config.yaml", "logs": "logs", "backups": "backups",
-        "locks": "locks", "tmp": "tmp", "daemon_pid": "daemon.pid", "daemon_health": "daemon_health.json",
-        "index_progress": "index_progress.json", "install_info": "install_info.json", "update_cache": "update.json",
+        "sources_db": "sources.db",
+        "user_config": "config.yaml",
+        "logs": "logs",
+        "backups": "backups",
+        "locks": "locks",
+        "tmp": "tmp",
+        "daemon_pid": "daemon.pid",
+        "daemon_health": "daemon_health.json",
+        "index_progress": "index_progress.json",
+        "install_info": "install_info.json",
+        "update_cache": "update.json",
         "projects": "projects",
     }
     home = Path("/H")
     check = {
-        "sources_db": paths.sources_db_path(home), "user_config": paths.user_config_path(home),
-        "logs": paths.logs_dir(home), "backups": paths.backups_dir(home), "locks": paths.locks_dir(home),
-        "tmp": paths.tmp_dir(home), "daemon_pid": paths.daemon_pid_path(home),
-        "daemon_health": paths.daemon_health_path(home), "index_progress": paths.index_progress_path(home),
-        "install_info": paths.install_info_path(home), "update_cache": paths.update_cache_path(home),
+        "sources_db": paths.sources_db_path(home),
+        "user_config": paths.user_config_path(home),
+        "logs": paths.logs_dir(home),
+        "backups": paths.backups_dir(home),
+        "locks": paths.locks_dir(home),
+        "tmp": paths.tmp_dir(home),
+        "daemon_pid": paths.daemon_pid_path(home),
+        "daemon_health": paths.daemon_health_path(home),
+        "index_progress": paths.index_progress_path(home),
+        "install_info": paths.install_info_path(home),
+        "update_cache": paths.update_cache_path(home),
         "projects": paths.projects_dir(home),
     }
     assert all(check[k] == home / v for k, v in rel.items())
