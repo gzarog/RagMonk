@@ -1,0 +1,66 @@
+{
+  "plan_id": "ragmonk-full-rust-rewrite-v1",
+  "phase": "RUST-00",
+  "reference_commit": "1e92ed42e258898572e8dc57b1ce2608435686d9",
+  "hardware_class": "shared cloud CI-sized container -- NOT reference hardware; use only for same-machine relative comparisons",
+  "environment": {
+    "python_version": "3.12.3 (main, Jun 19 2026, 12:46:00) [GCC 13.3.0]",
+    "platform": "Linux-6.18.44-fc-v51-x86_64-with-glibc2.39",
+    "processor": "x86_64",
+    "cpu_count": 4,
+    "ragmonk_version": "0.3.29",
+    "docling_available": true
+  },
+  "indexing_tiny": {
+    "cold_index": {
+      "wall_time_s": 5.9005,
+      "scanned": 55,
+      "new": 55,
+      "changed": 0
+    },
+    "warm_unchanged": {
+      "wall_time_s": 0.0126,
+      "scanned": 55,
+      "new": 0,
+      "changed": 0
+    },
+    "single_edit": {
+      "wall_time_s": 0.0233,
+      "scanned": 55,
+      "new": 0,
+      "changed": 1
+    },
+    "one_percent_change": {
+      "wall_time_s": 0.0343,
+      "scanned": 55,
+      "new": 0,
+      "changed": 1
+    },
+    "burst_change": {
+      "wall_time_s": 0.0412,
+      "scanned": 55,
+      "new": 0,
+      "changed": 2
+    },
+    "rename": {
+      "wall_time_s": 0.0133,
+      "scanned": 55,
+      "new": 0,
+      "changed": 0
+    },
+    "delete": {
+      "wall_time_s": 0.014,
+      "scanned": 54,
+      "new": 0,
+      "changed": 0
+    }
+  },
+  "artifacts": {
+    "indexing": "python-indexing-tiny.json",
+    "cli_startup": "python-cli-startup.txt",
+    "search": "python-search-small.txt"
+  },
+  "not_captured": {
+    "server_indexing": "no OpenSearch/Elasticsearch cluster reachable in the capture environment; RUST-03 must capture this baseline against a live cluster before claiming request-count parity"
+  }
+}

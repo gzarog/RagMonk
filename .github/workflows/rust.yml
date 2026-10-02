@@ -1,0 +1,125 @@
+name: Rust rewrite
+
+on:
+  pull_request:
+  push:
+    branches: ["release/rust-rewrite-v1"]
+
+defaults:
+  run:
+    working-directory: rust
+
+jobs:
+  # Mechanical check of the rewrite's branch policy (see
+  # rust/docs/adr/0004-release-branch-flow.md): every rewrite feature branch
+  # merges into release/rust-rewrite-v1, never main/master.
+  pr-base-guard:
+    name: Rewrite PR base guard
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Check PR base branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          echo "head=$HEAD_REF base=$BASE_REF"
+          case "$HEAD_REF" in
+            feature/rust-*)
+              if [ "$BASE_REF" != "release/rust-rewrite-v1" ]; then
+                echo "::error::Rust rewrite branch $HEAD_REF must target release/rust-rewrite-v1, not $BASE_REF"
+                exit 1
+              fi ;;
+          esac
+          case "$BASE_REF" in
+            main|master)
+              if [ "$HEAD_REF" = "release/rust-rewrite-v1" ]; then
+                echo "::error::Promoting release/rust-rewrite-v1 to $BASE_REF is a separate human decision outside the rewrite plan"
+                exit 1
+              fi ;;
+          esac
+
+  rust-checks:
+    name: Rust fmt/clippy/test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the toolchain; rustup installs it on first use.
+      - name: Show toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: cargo fmt
+        run: cargo fmt --all --check
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: cargo test
+        run: cargo test --workspace
+      - name: cargo build --release
+        run: cargo build --workspace --release
+
+  # RUST-00 verification gate: capture the Python reference twice through
+  # the compat harness and prove the canonical output is identical.
+  compat-baseline:
+    name: Python reference stability (compat harness)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Install CPU-only torch
+        working-directory: .
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - name: Install Python reference
+        working-directory: .
+        run: pip install -e ".[dev]"
+      - name: Build harness
+        run: cargo build -p ragmonk-compat -p ragmonk-cli
+      - name: Capture Python reference twice and compare
+        working-directory: .
+        run: >
+          rust/target/debug/ragmonk-compat stability --impl python
+          --program "$(command -v ragmonk)" --runs 2
+          --out "$RUNNER_TEMP/python-capture.json"
+      # Informational: dependency ranges in pyproject.toml are not locked, so
+      # a fresh resolution can legitimately drift from the committed baseline.
+      - name: Compare with committed baseline (informational)
+        working-directory: .
+        continue-on-error: true
+        run: >
+          rust/target/debug/ragmonk-compat compare
+          rust/compat/baseline/python-1e92ed4.json "$RUNNER_TEMP/python-capture.json"
+      - name: Rust candidate RUST-00 steps
+        working-directory: .
+        run: |
+          rust/target/debug/ragmonk-compat capture --impl rust --program rust/target/debug/ragmonk \
+            --scenario cli-basics --out "$RUNNER_TEMP/rust-cli-basics.json"
+          python - "$RUNNER_TEMP/rust-cli-basics.json" rust/compat/baseline/python-1e92ed4.json <<'PY'
+          import json, sys
+          rust = json.load(open(sys.argv[1]))
+          py = json.load(open(sys.argv[2]))
+          manifest = json.load(open("rust/compat/manifest.json"))
+          gated = {(s["id"], st["id"]) for s in manifest["scenarios"] for st in s["steps"] if st.get("rust_phase") == "RUST-00"}
+          def steps(cap):
+              return {(s["id"], st["id"]): st for s in cap["scenarios"] for st in s["steps"]}
+          r, p = steps(rust), steps(py)
+          bad = [k for k in sorted(gated) if r[k]["exit_code"] != p[k]["exit_code"]]
+          print("RUST-00 gated steps:", sorted(gated))
+          sys.exit(f"exit-code mismatch: {bad}" if bad else 0)
+          PY
