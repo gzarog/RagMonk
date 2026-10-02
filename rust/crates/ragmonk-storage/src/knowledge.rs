@@ -5,7 +5,7 @@
 //! for one file are a single short transaction (callers prepare/convert/
 //! embed before calling, never inside).
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::control::{IndexVersions, RebuildPlan};
@@ -36,7 +36,7 @@ pub struct FileRow {
     pub next_attempt_at: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct EntityRow {
     pub id: String,
     pub file_id: String,
@@ -48,9 +48,11 @@ pub struct EntityRow {
     pub signature: Option<String>,
     pub start_line: i64,
     pub end_line: i64,
+    pub start_col: i64,
+    pub end_col: i64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct RelationshipRow {
     pub id: String,
     pub file_id: String,
@@ -62,6 +64,9 @@ pub struct RelationshipRow {
     pub confidence: String,
     pub source_location: Option<String>,
     pub evidence: Option<String>,
+    /// Raw reference text (call/base/import/decorator head) the target
+    /// was resolved from; `None` for structural edges.
+    pub reference_text: Option<String>,
 }
 
 /// EML attachment provenance for a child document.
@@ -188,6 +193,48 @@ impl ProjectStore {
         &self.conn
     }
 
+    // ---- sessions ----------------------------------------------------
+
+    /// Starts one write transaction spanning many operations (an in-place
+    /// incremental build). Readers keep seeing the last committed state
+    /// until [`commit_session`](Self::commit_session); a crash or
+    /// [`rollback_session`](Self::rollback_session) discards everything.
+    pub fn begin_session(&mut self) -> Result<()> {
+        self.conn
+            .execute_batch("BEGIN IMMEDIATE")
+            .map_err(StorageError::sqlite("begin session"))
+    }
+
+    pub fn commit_session(&mut self) -> Result<()> {
+        self.conn
+            .execute_batch("COMMIT")
+            .map_err(StorageError::sqlite("commit session"))
+    }
+
+    pub fn rollback_session(&mut self) -> Result<()> {
+        if self.conn.is_autocommit() {
+            return Ok(());
+        }
+        self.conn
+            .execute_batch("ROLLBACK")
+            .map_err(StorageError::sqlite("rollback session"))
+    }
+
+    pub fn in_session(&self) -> bool {
+        !self.conn.is_autocommit()
+    }
+
+    /// Records that an in-place incremental update of `build_id` finished.
+    pub fn touch_build(&mut self, build_id: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "UPDATE builds SET finished_at = ?2 WHERE id = ?1",
+                params![build_id, now_iso()],
+            )
+            .map_err(StorageError::sqlite("touch build"))?;
+        Ok(())
+    }
+
     // ---- builds ----------------------------------------------------
 
     pub fn create_build(
@@ -256,7 +303,13 @@ impl ProjectStore {
         write_tx(&mut self.conn, |tx| {
             let ids: Vec<String> = {
                 let mut stmt = tx
-                    .prepare("SELECT id FROM builds WHERE status IN ('aborted', 'superseded') AND id <> ?1")
+                    .prepare(
+                        // 'building' rows are leftovers of a run that died
+                        // after committing a build but before publishing it
+                        // (callers hold the run lock, so none is in flight).
+                        "SELECT id FROM builds WHERE status IN ('aborted', 'superseded', 'building')
+                           AND id <> ?1",
+                    )
                     .map_err(StorageError::sqlite("gc builds"))?;
                 let rows = stmt
                     .query_map([keep], |r| r.get(0))
@@ -328,10 +381,39 @@ impl ProjectStore {
         file: &FileRow,
         knowledge: &FileKnowledge,
     ) -> Result<()> {
+        self.put_files(build_id, &[(file, knowledge)])
+    }
+
+    /// Writes several files in one transaction (the writer batches results
+    /// that are already available; each file still replaces all its rows).
+    pub fn put_files(
+        &mut self,
+        build_id: &str,
+        files: &[(&FileRow, &FileKnowledge)],
+    ) -> Result<()> {
         let now = now_iso();
+        let source_id = self.source_id.clone();
         write_tx(&mut self.conn, |tx| {
+            for (file, knowledge) in files {
+                put_file_rows(tx, &source_id, build_id, file, knowledge, &now)?;
+            }
+            Ok(())
+        })
+    }
+}
+
+fn put_file_rows(
+    tx: &Connection,
+    source_id: &str,
+    build_id: &str,
+    file: &FileRow,
+    knowledge: &FileKnowledge,
+    now: &str,
+) -> Result<()> {
+    {
+        {
             delete_file_rows(tx, build_id, &file.id)?;
-            tx.execute(
+            cached(tx,
                 "INSERT INTO files (id, source_id, rel_path, kind, size, mtime, content_hash, status,
                     build_id, parser_version, chunker_version, converter_version,
                     embedding_model_id, embedding_text_version, last_indexed_at, last_error,
@@ -339,7 +421,7 @@ impl ProjectStore {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?15, ?15,
                     ?17, ?18)",
                 params![
-                    file.id, self.source_id, file.rel_path, file.kind, file.size, file.mtime,
+                    file.id, source_id, file.rel_path, file.kind, file.size, file.mtime,
                     file.content_hash, file.status, build_id, file.parser_version,
                     file.chunker_version, file.converter_version, file.embedding_model_id,
                     file.embedding_text_version, now, file.last_error, file.attempt_count,
@@ -347,22 +429,26 @@ impl ProjectStore {
                 ],
             )
             .map_err(StorageError::sqlite("insert file"))?;
-            tx.execute(
-                "INSERT INTO path_fts (file_id, build_id, path) VALUES (?1, ?2, ?3)",
+            cached(
+                tx,
+                "INSERT INTO path_fts (rowid, file_id, build_id, path)
+                 VALUES (last_insert_rowid(), ?1, ?2, ?3)",
                 params![file.id, build_id, file.rel_path],
             )
             .map_err(StorageError::sqlite("index path"))?;
             insert_knowledge(tx, build_id, knowledge)
-        })
+        }
     }
+}
 
+impl ProjectStore {
     /// Copies an unchanged file's rows from the active build into a new
     /// incremental build without re-extracting it.
     pub fn carry_forward(&mut self, from_build: &str, to_build: &str, file_id: &str) -> Result<()> {
         write_tx(&mut self.conn, |tx| {
             delete_file_rows(tx, to_build, file_id)?;
             let exec = |sql: &str| {
-                tx.execute(sql, params![to_build, from_build, file_id])
+                cached(tx, sql, params![to_build, from_build, file_id])
                     .map_err(StorageError::sqlite("carry forward"))
             };
             exec("INSERT INTO files (id, source_id, rel_path, kind, size, mtime, content_hash, status,
@@ -375,8 +461,8 @@ impl ProjectStore {
                     attempt_count, next_attempt_at
                   FROM files WHERE build_id = ?2 AND id = ?3")?;
             exec(
-                "INSERT INTO path_fts (file_id, build_id, path)
-                  SELECT id, ?1, rel_path FROM files WHERE build_id = ?2 AND id = ?3",
+                "INSERT INTO path_fts (rowid, file_id, build_id, path)
+                  SELECT rowid, id, ?1, rel_path FROM files WHERE build_id = ?1 AND id = ?3",
             )?;
             exec(
                 "INSERT INTO entities SELECT id, ?1, file_id, kind, name, qualified_name, language,
@@ -384,12 +470,13 @@ impl ProjectStore {
                   FROM entities WHERE build_id = ?2 AND file_id = ?3",
             )?;
             exec(
-                "INSERT INTO code_fts (entity_id, build_id, name, qualified_name, signature)
-                  SELECT id, ?1, name, qualified_name, COALESCE(signature, '')
-                  FROM entities WHERE build_id = ?2 AND file_id = ?3",
+                "INSERT INTO code_fts (rowid, entity_id, build_id, name, qualified_name, signature)
+                  SELECT rowid, id, ?1, name, qualified_name, COALESCE(signature, '')
+                  FROM entities WHERE build_id = ?1 AND file_id = ?3",
             )?;
             exec("INSERT INTO relationships SELECT id, ?1, file_id, relationship_type, source_entity_id,
-                    target_entity_id, target_symbol, resolver, confidence, source_location, evidence
+                    target_entity_id, target_symbol, resolver, confidence, source_location, evidence,
+                    reference_text
                   FROM relationships WHERE build_id = ?2 AND file_id = ?3")?;
             exec(
                 "INSERT INTO documents SELECT id, ?1, file_id, format, title, author, page_count,
@@ -402,10 +489,11 @@ impl ProjectStore {
                     page_end, table_rows, caption
                   FROM chunks WHERE build_id = ?2 AND file_id = ?3")?;
             exec(
-                "INSERT INTO chunk_fts (chunk_id, build_id, heading, body, title)
-                  SELECT c.id, ?1, f.heading, f.body, f.title
-                  FROM chunks c JOIN chunk_fts f ON f.chunk_id = c.id AND f.build_id = c.build_id
-                  WHERE c.build_id = ?2 AND c.file_id = ?3",
+                "INSERT INTO chunk_fts (rowid, chunk_id, build_id, heading, body, title)
+                  SELECT n.rowid, n.id, ?1, f.heading, f.body, f.title
+                  FROM chunks o JOIN chunk_fts f ON f.rowid = o.rowid
+                    JOIN chunks n ON n.build_id = ?1 AND n.id = o.id
+                  WHERE o.build_id = ?2 AND o.file_id = ?3",
             )?;
             Ok(())
         })
@@ -438,7 +526,7 @@ impl ProjectStore {
                 }
             }
             let exec = |sql: &str| {
-                tx.execute(sql, params![to_build, from_build])
+                cached(tx, sql, params![to_build, from_build])
                     .map_err(StorageError::sqlite("carry forward"))
             };
             let n = exec(
@@ -453,9 +541,10 @@ impl ProjectStore {
                  FROM files WHERE build_id = ?2 AND id NOT IN (SELECT id FROM carry_skip)",
             )?;
             exec(
-                "INSERT INTO path_fts (file_id, build_id, path)
-                  SELECT id, ?1, rel_path FROM files WHERE build_id = ?2
-                    AND id NOT IN (SELECT id FROM carry_skip)",
+                "INSERT INTO path_fts (rowid, file_id, build_id, path)
+                  SELECT n.rowid, n.id, ?1, n.rel_path
+                  FROM files o JOIN files n ON n.build_id = ?1 AND n.id = o.id
+                  WHERE o.build_id = ?2 AND o.id NOT IN (SELECT id FROM carry_skip)",
             )?;
             exec(
                 "INSERT INTO entities SELECT id, ?1, file_id, kind, name, qualified_name, language,
@@ -463,12 +552,14 @@ impl ProjectStore {
                   FROM entities WHERE build_id = ?2 AND file_id NOT IN (SELECT id FROM carry_skip)",
             )?;
             exec(
-                "INSERT INTO code_fts (entity_id, build_id, name, qualified_name, signature)
-                  SELECT id, ?1, name, qualified_name, COALESCE(signature, '')
-                  FROM entities WHERE build_id = ?2 AND file_id NOT IN (SELECT id FROM carry_skip)",
+                "INSERT INTO code_fts (rowid, entity_id, build_id, name, qualified_name, signature)
+                  SELECT n.rowid, n.id, ?1, n.name, n.qualified_name, COALESCE(n.signature, '')
+                  FROM entities o JOIN entities n ON n.build_id = ?1 AND n.id = o.id
+                  WHERE o.build_id = ?2 AND o.file_id NOT IN (SELECT id FROM carry_skip)",
             )?;
             exec("INSERT INTO relationships SELECT id, ?1, file_id, relationship_type, source_entity_id,
-                    target_entity_id, target_symbol, resolver, confidence, source_location, evidence
+                    target_entity_id, target_symbol, resolver, confidence, source_location, evidence,
+                    reference_text
                   FROM relationships WHERE build_id = ?2 AND file_id NOT IN (SELECT id FROM carry_skip)")?;
             exec("INSERT INTO documents SELECT id, ?1, file_id, format, title, author, page_count,
                     is_scanned, content_hash, parent_document_id, attachment_name,
@@ -479,10 +570,11 @@ impl ProjectStore {
                     page_end, table_rows, caption
                   FROM chunks WHERE build_id = ?2 AND file_id NOT IN (SELECT id FROM carry_skip)")?;
             exec(
-                "INSERT INTO chunk_fts (chunk_id, build_id, heading, body, title)
-                  SELECT f.chunk_id, ?1, f.heading, f.body, f.title
-                  FROM chunk_fts f JOIN chunks c ON c.id = f.chunk_id AND c.build_id = f.build_id
-                  WHERE f.build_id = ?2 AND c.file_id NOT IN (SELECT id FROM carry_skip)",
+                "INSERT INTO chunk_fts (rowid, chunk_id, build_id, heading, body, title)
+                  SELECT n.rowid, n.id, ?1, f.heading, f.body, f.title
+                  FROM chunks o JOIN chunk_fts f ON f.rowid = o.rowid
+                    JOIN chunks n ON n.build_id = ?1 AND n.id = o.id
+                  WHERE o.build_id = ?2 AND o.file_id NOT IN (SELECT id FROM carry_skip)",
             )?;
             {
                 let mut up = tx
@@ -554,33 +646,16 @@ impl ProjectStore {
     // ---- reads (always scoped to one build) ---------------------------
 
     pub fn entities_named(&self, build_id: &str, name: &str) -> Result<Vec<EntityRow>> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT id, file_id, kind, name, qualified_name, language, parent_id, signature,
-                    start_line, end_line
-                 FROM entities WHERE build_id = ?1 AND (name = ?2 OR qualified_name = ?2)
-                 ORDER BY qualified_name, id",
-            )
-            .map_err(StorageError::sqlite("entities by name"))?;
-        let rows = stmt
-            .query_map(params![build_id, name], |r| {
-                Ok(EntityRow {
-                    id: r.get(0)?,
-                    file_id: r.get(1)?,
-                    kind: r.get(2)?,
-                    name: r.get(3)?,
-                    qualified_name: r.get(4)?,
-                    language: r.get(5)?,
-                    parent_id: r.get(6)?,
-                    signature: r.get(7)?,
-                    start_line: r.get(8)?,
-                    end_line: r.get(9)?,
-                })
-            })
-            .map_err(StorageError::sqlite("entities by name"))?;
-        rows.collect::<rusqlite::Result<_>>()
-            .map_err(StorageError::sqlite("entities by name"))
+        self.query_rows(
+            "entities by name",
+            &format!(
+                "SELECT {ENTITY_COLUMNS} FROM entities
+                 WHERE build_id = ?1 AND (name = ?2 OR qualified_name = ?2)
+                 ORDER BY qualified_name, id"
+            ),
+            &[&build_id, &name],
+            entity_from_row,
+        )
     }
 
     pub fn documents(&self, build_id: &str) -> Result<Vec<DocumentRow>> {
@@ -747,7 +822,8 @@ impl ProjectStore {
                 .optional()
                 .map_err(StorageError::sqlite("claim job"))?;
             if let Some(job) = &job {
-                tx.execute(
+                cached(
+                    tx,
                     "UPDATE index_jobs SET status = 'processing', started_at = ?1 WHERE id = ?2",
                     params![now, job.id],
                 )
@@ -848,11 +924,11 @@ impl ProjectStore {
     }
 }
 
-fn delete_build_rows(tx: &Transaction<'_>, build_id: &str) -> Result<()> {
+fn delete_build_rows(tx: &Connection, build_id: &str) -> Result<()> {
     for sql in [
-        "DELETE FROM code_fts WHERE build_id = ?1",
-        "DELETE FROM chunk_fts WHERE build_id = ?1",
-        "DELETE FROM path_fts WHERE build_id = ?1",
+        "DELETE FROM code_fts WHERE rowid IN (SELECT rowid FROM entities WHERE build_id = ?1)",
+        "DELETE FROM chunk_fts WHERE rowid IN (SELECT rowid FROM chunks WHERE build_id = ?1)",
+        "DELETE FROM path_fts WHERE rowid IN (SELECT rowid FROM files WHERE build_id = ?1)",
         "DELETE FROM cross_links WHERE build_id = ?1",
         "DELETE FROM chunks WHERE build_id = ?1",
         "DELETE FROM documents WHERE build_id = ?1",
@@ -861,19 +937,19 @@ fn delete_build_rows(tx: &Transaction<'_>, build_id: &str) -> Result<()> {
         "DELETE FROM index_jobs WHERE build_id = ?1",
         "DELETE FROM files WHERE build_id = ?1",
     ] {
-        tx.execute(sql, [build_id])
-            .map_err(StorageError::sqlite("delete build rows"))?;
+        cached(tx, sql, [build_id]).map_err(StorageError::sqlite("delete build rows"))?;
     }
     Ok(())
 }
 
-fn delete_file_rows(tx: &Transaction<'_>, build_id: &str, file_id: &str) -> Result<()> {
+fn delete_file_rows(tx: &Connection, build_id: &str, file_id: &str) -> Result<()> {
     for sql in [
-        "DELETE FROM code_fts WHERE build_id = ?1 AND entity_id IN
-            (SELECT id FROM entities WHERE build_id = ?1 AND file_id = ?2)",
-        "DELETE FROM chunk_fts WHERE build_id = ?1 AND chunk_id IN
-            (SELECT id FROM chunks WHERE build_id = ?1 AND file_id = ?2)",
-        "DELETE FROM path_fts WHERE build_id = ?1 AND file_id = ?2",
+        "DELETE FROM code_fts WHERE rowid IN
+            (SELECT rowid FROM entities WHERE build_id = ?1 AND file_id = ?2)",
+        "DELETE FROM chunk_fts WHERE rowid IN
+            (SELECT rowid FROM chunks WHERE build_id = ?1 AND file_id = ?2)",
+        "DELETE FROM path_fts WHERE rowid IN
+            (SELECT rowid FROM files WHERE build_id = ?1 AND id = ?2)",
         "DELETE FROM cross_links WHERE build_id = ?1 AND document_id IN
             (SELECT id FROM documents WHERE build_id = ?1 AND file_id = ?2)",
         "DELETE FROM cross_links WHERE build_id = ?1 AND entity_id IN
@@ -884,19 +960,20 @@ fn delete_file_rows(tx: &Transaction<'_>, build_id: &str, file_id: &str) -> Resu
         "DELETE FROM entities WHERE build_id = ?1 AND file_id = ?2",
         "DELETE FROM files WHERE build_id = ?1 AND id = ?2",
     ] {
-        tx.execute(sql, params![build_id, file_id])
+        cached(tx, sql, params![build_id, file_id])
             .map_err(StorageError::sqlite("delete file rows"))?;
     }
     Ok(())
 }
 
-fn insert_knowledge(tx: &Transaction<'_>, build_id: &str, k: &FileKnowledge) -> Result<()> {
+fn insert_knowledge(tx: &Connection, build_id: &str, k: &FileKnowledge) -> Result<()> {
     let err = |what: &'static str| StorageError::sqlite(what);
     for e in &k.entities {
-        tx.execute(
+        cached(
+            tx,
             "INSERT INTO entities (id, build_id, file_id, kind, name, qualified_name, language,
-                parent_id, signature, start_line, end_line)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                parent_id, signature, start_line, end_line, start_col, end_col)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 e.id,
                 build_id,
@@ -908,13 +985,16 @@ fn insert_knowledge(tx: &Transaction<'_>, build_id: &str, k: &FileKnowledge) -> 
                 e.parent_id,
                 e.signature,
                 e.start_line,
-                e.end_line
+                e.end_line,
+                e.start_col,
+                e.end_col
             ],
         )
         .map_err(err("insert entity"))?;
-        tx.execute(
-            "INSERT INTO code_fts (entity_id, build_id, name, qualified_name, signature)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+        cached(
+            tx,
+            "INSERT INTO code_fts (rowid, entity_id, build_id, name, qualified_name, signature)
+             VALUES (last_insert_rowid(), ?1, ?2, ?3, ?4, ?5)",
             params![
                 e.id,
                 build_id,
@@ -926,10 +1006,12 @@ fn insert_knowledge(tx: &Transaction<'_>, build_id: &str, k: &FileKnowledge) -> 
         .map_err(err("index entity"))?;
     }
     for r in &k.relationships {
-        tx.execute(
+        cached(
+            tx,
             "INSERT INTO relationships (id, build_id, file_id, relationship_type, source_entity_id,
-                target_entity_id, target_symbol, resolver, confidence, source_location, evidence)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                target_entity_id, target_symbol, resolver, confidence, source_location, evidence,
+                reference_text)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 r.id,
                 build_id,
@@ -941,14 +1023,16 @@ fn insert_knowledge(tx: &Transaction<'_>, build_id: &str, k: &FileKnowledge) -> 
                 r.resolver,
                 r.confidence,
                 r.source_location,
-                r.evidence
+                r.evidence,
+                r.reference_text
             ],
         )
         .map_err(err("insert relationship"))?;
     }
     for d in &k.documents {
         let a = d.attachment.as_ref();
-        tx.execute(
+        cached(
+            tx,
             "INSERT INTO documents (id, build_id, file_id, format, title, author, page_count,
                 is_scanned, content_hash, parent_document_id, attachment_name,
                 attachment_content_type, attachment_index, attachment_content_id)
@@ -978,7 +1062,8 @@ fn insert_knowledge(tx: &Transaction<'_>, build_id: &str, k: &FileKnowledge) -> 
             .table_rows
             .as_ref()
             .map(|r| serde_json::to_string(r).unwrap_or_else(|_| "[]".into()));
-        tx.execute(
+        cached(
+            tx,
             "INSERT INTO chunks (id, build_id, document_id, file_id, kind, ordinal, heading_path,
                 heading_level, text, search_text, embedding_text, token_count, page_start,
                 page_end, table_rows, caption)
@@ -1008,11 +1093,265 @@ fn insert_knowledge(tx: &Transaction<'_>, build_id: &str, k: &FileKnowledge) -> 
             .iter()
             .find(|d| d.id == c.document_id)
             .and_then(|d| d.title.clone());
-        tx.execute(
-            "INSERT INTO chunk_fts (chunk_id, build_id, heading, body, title) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![c.id, build_id, c.heading_path.join(" > "), c.search_text, title.unwrap_or_default()],
+        cached(
+            tx,
+            "INSERT INTO chunk_fts (rowid, chunk_id, build_id, heading, body, title)
+             VALUES (last_insert_rowid(), ?1, ?2, ?3, ?4, ?5)",
+            params![
+                c.id,
+                build_id,
+                c.heading_path.join(" > "),
+                c.search_text,
+                title.unwrap_or_default()
+            ],
         )
         .map_err(err("index chunk"))?;
     }
     Ok(())
+}
+
+// ---- code graph (RUST-05) ----------------------------------------------
+
+const ENTITY_COLUMNS: &str = "id, file_id, kind, name, qualified_name, language, parent_id,
+    signature, start_line, end_line, start_col, end_col";
+const RELATIONSHIP_COLUMNS: &str = "id, file_id, relationship_type, source_entity_id,
+    target_entity_id, target_symbol, resolver, confidence, source_location, evidence,
+    reference_text";
+
+/// Resolvers whose outcome depends on other files and is therefore
+/// recomputed against the whole build before publication.
+pub const CROSS_FILE_RESOLVERS: &[&str] = &[
+    "pending",
+    "cross_file_qualified",
+    "cross_file_qualified_ambiguous",
+    "name_only",
+    "unresolved",
+];
+
+fn entity_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<EntityRow> {
+    Ok(EntityRow {
+        id: r.get(0)?,
+        file_id: r.get(1)?,
+        kind: r.get(2)?,
+        name: r.get(3)?,
+        qualified_name: r.get(4)?,
+        language: r.get(5)?,
+        parent_id: r.get(6)?,
+        signature: r.get(7)?,
+        start_line: r.get(8)?,
+        end_line: r.get(9)?,
+        start_col: r.get(10)?,
+        end_col: r.get(11)?,
+    })
+}
+
+fn relationship_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RelationshipRow> {
+    Ok(RelationshipRow {
+        id: r.get(0)?,
+        file_id: r.get(1)?,
+        relationship_type: r.get(2)?,
+        source_entity_id: r.get(3)?,
+        target_entity_id: r.get(4)?,
+        target_symbol: r.get(5)?,
+        resolver: r.get(6)?,
+        confidence: r.get(7)?,
+        source_location: r.get(8)?,
+        evidence: r.get(9)?,
+        reference_text: r.get(10)?,
+    })
+}
+
+/// A new cross-file resolution outcome for one relationship.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolution {
+    pub id: String,
+    pub target_entity_id: Option<String>,
+    pub target_symbol: Option<String>,
+    pub resolver: String,
+    pub confidence: String,
+}
+
+/// Which endpoint of a relationship to match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Endpoint {
+    Source,
+    Target,
+}
+
+impl ProjectStore {
+    fn query_rows<T>(
+        &self,
+        what: &'static str,
+        sql: &str,
+        args: &[&dyn rusqlite::ToSql],
+        map: fn(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+    ) -> Result<Vec<T>> {
+        let mut stmt = self.conn.prepare(sql).map_err(StorageError::sqlite(what))?;
+        let rows = stmt
+            .query_map(args, map)
+            .map_err(StorageError::sqlite(what))?;
+        rows.collect::<rusqlite::Result<_>>()
+            .map_err(StorageError::sqlite(what))
+    }
+
+    /// Every entity of the build (for whole-build resolution).
+    pub fn all_entities(&self, build_id: &str) -> Result<Vec<EntityRow>> {
+        self.query_rows(
+            "all entities",
+            &format!("SELECT {ENTITY_COLUMNS} FROM entities WHERE build_id = ?1 ORDER BY file_id, start_line, id"),
+            &[&build_id],
+            entity_from_row,
+        )
+    }
+
+    pub fn entity(&self, build_id: &str, id: &str) -> Result<Option<EntityRow>> {
+        Ok(self
+            .query_rows(
+                "entity",
+                &format!("SELECT {ENTITY_COLUMNS} FROM entities WHERE build_id = ?1 AND id = ?2"),
+                &[&build_id, &id],
+                entity_from_row,
+            )?
+            .pop())
+    }
+
+    pub fn file_entities(&self, build_id: &str, file_id: &str) -> Result<Vec<EntityRow>> {
+        self.query_rows(
+            "file entities",
+            &format!(
+                "SELECT {ENTITY_COLUMNS} FROM entities WHERE build_id = ?1 AND file_id = ?2
+                 ORDER BY start_line, start_col, id"
+            ),
+            &[&build_id, &file_id],
+            entity_from_row,
+        )
+    }
+
+    pub fn file_relationships(
+        &self,
+        build_id: &str,
+        file_id: &str,
+    ) -> Result<Vec<RelationshipRow>> {
+        self.query_rows(
+            "file relationships",
+            &format!(
+                "SELECT {RELATIONSHIP_COLUMNS} FROM relationships
+                 WHERE build_id = ?1 AND file_id = ?2 ORDER BY id"
+            ),
+            &[&build_id, &file_id],
+            relationship_from_row,
+        )
+    }
+
+    /// Relationships whose target depends on other files.
+    pub fn cross_file_references(&self, build_id: &str) -> Result<Vec<RelationshipRow>> {
+        let list = CROSS_FILE_RESOLVERS
+            .iter()
+            .map(|r| format!("'{r}'"))
+            .collect::<Vec<_>>()
+            .join(",");
+        self.query_rows(
+            "cross-file references",
+            &format!(
+                "SELECT {RELATIONSHIP_COLUMNS} FROM relationships
+                 WHERE build_id = ?1 AND reference_text IS NOT NULL AND resolver IN ({list})
+                 ORDER BY id"
+            ),
+            &[&build_id],
+            relationship_from_row,
+        )
+    }
+
+    /// Applies resolution outcomes in one transaction; returns rows changed.
+    pub fn apply_resolutions(&mut self, build_id: &str, outcomes: &[Resolution]) -> Result<usize> {
+        if outcomes.is_empty() {
+            return Ok(0);
+        }
+        write_tx(&mut self.conn, |tx| {
+            let mut stmt = tx
+                .prepare(
+                    "UPDATE relationships SET target_entity_id = ?3, target_symbol = ?4,
+                        resolver = ?5, confidence = ?6
+                     WHERE build_id = ?1 AND id = ?2",
+                )
+                .map_err(StorageError::sqlite("apply resolution"))?;
+            let mut n = 0;
+            for o in outcomes {
+                n += stmt
+                    .execute(params![
+                        build_id,
+                        o.id,
+                        o.target_entity_id,
+                        o.target_symbol,
+                        o.resolver,
+                        o.confidence
+                    ])
+                    .map_err(StorageError::sqlite("apply resolution"))?;
+            }
+            Ok(n)
+        })
+    }
+
+    /// Relationships touching `entity_id` at `endpoint`, optionally filtered
+    /// by type, deterministically ordered (type, target, id).
+    pub fn edges(
+        &self,
+        build_id: &str,
+        endpoint: Endpoint,
+        entity_id: &str,
+        types: &[&str],
+        limit: i64,
+    ) -> Result<Vec<RelationshipRow>> {
+        let column = match endpoint {
+            Endpoint::Source => "source_entity_id",
+            Endpoint::Target => "target_entity_id",
+        };
+        self.edges_where(build_id, column, entity_id, types, limit)
+    }
+
+    /// Unresolved relationships recorded only under a bare symbol.
+    pub fn edges_to_symbol(
+        &self,
+        build_id: &str,
+        symbol: &str,
+        types: &[&str],
+        limit: i64,
+    ) -> Result<Vec<RelationshipRow>> {
+        self.edges_where(build_id, "target_symbol", symbol, types, limit)
+    }
+
+    fn edges_where(
+        &self,
+        build_id: &str,
+        column: &str,
+        value: &str,
+        types: &[&str],
+        limit: i64,
+    ) -> Result<Vec<RelationshipRow>> {
+        let mut sql = format!(
+            "SELECT {RELATIONSHIP_COLUMNS} FROM relationships WHERE build_id = ?1 AND {column} = ?2"
+        );
+        let type_list: Vec<String> = types.iter().map(|t| (*t).to_owned()).collect();
+        if !type_list.is_empty() {
+            let marks = (0..type_list.len())
+                .map(|i| format!("?{}", i + 4))
+                .collect::<Vec<_>>()
+                .join(",");
+            sql.push_str(&format!(" AND relationship_type IN ({marks})"));
+        }
+        sql.push_str(
+            " ORDER BY relationship_type, COALESCE(target_entity_id, target_symbol, ''), id LIMIT ?3",
+        );
+        let mut args: Vec<&dyn rusqlite::ToSql> = vec![&build_id, &value, &limit];
+        for t in &type_list {
+            args.push(t);
+        }
+        self.query_rows("edges", &sql, &args, relationship_from_row)
+    }
+}
+
+/// Executes through the connection's prepared-statement cache (the writer
+/// runs the same few statements for every file).
+fn cached(tx: &Connection, sql: &str, params: impl rusqlite::Params) -> rusqlite::Result<usize> {
+    tx.prepare_cached(sql)?.execute(params)
 }

@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 
 use crate::error::{Result, StorageError};
 
@@ -31,6 +31,7 @@ pub fn open(path: &Path, cache_size_mb: i64) -> Result<Connection> {
         cache_size_mb.max(1) * 1024
     ))
     .map_err(StorageError::sqlite(ctx))?;
+    conn.set_prepared_statement_cache_capacity(64);
     Ok(conn)
 }
 
@@ -55,10 +56,19 @@ pub fn open_read_only(path: &Path) -> Result<Connection> {
 /// `BEGIN IMMEDIATE` transaction: commits on `Ok`, rolls back on `Err`.
 /// Callers must not hold it across ML inference, document conversion or
 /// network I/O.
-pub fn write_tx<T>(
-    conn: &mut Connection,
-    f: impl FnOnce(&Transaction<'_>) -> Result<T>,
-) -> Result<T> {
+/// Runs `f` atomically: its own IMMEDIATE transaction, or a savepoint when
+/// the connection is already inside a session (see
+/// `ProjectStore::begin_session`), so nested writes commit with it.
+pub fn write_tx<T>(conn: &mut Connection, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+    if !conn.is_autocommit() {
+        let sp = conn
+            .savepoint()
+            .map_err(StorageError::sqlite("begin savepoint"))?;
+        let out = f(&sp)?;
+        sp.commit()
+            .map_err(StorageError::sqlite("release savepoint"))?;
+        return Ok(out);
+    }
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(StorageError::sqlite("begin transaction"))?;

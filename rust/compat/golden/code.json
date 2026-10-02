@@ -1,0 +1,5097 @@
+{
+ "files": {
+  "csharp/Animals.cs": {
+   "entities": [
+    {
+     "key": "csharp/Animals.cs#0",
+     "kind": "namespace",
+     "name": "Animals",
+     "parent": null,
+     "qualified_name": "Animals",
+     "range": [
+      4,
+      0,
+      37,
+      1
+     ],
+     "signature": "namespace Animals"
+    },
+    {
+     "key": "csharp/Animals.cs#1",
+     "kind": "interface",
+     "name": "IAnimal",
+     "parent": "csharp/Animals.cs#0",
+     "qualified_name": "Animals.IAnimal",
+     "range": [
+      6,
+      4,
+      9,
+      5
+     ],
+     "signature": "public interface IAnimal"
+    },
+    {
+     "key": "csharp/Animals.cs#2",
+     "kind": "class",
+     "name": "Dog",
+     "parent": "csharp/Animals.cs#0",
+     "qualified_name": "Animals.Dog",
+     "range": [
+      11,
+      4,
+      31,
+      5
+     ],
+     "signature": "public class Dog : IAnimal"
+    },
+    {
+     "key": "csharp/Animals.cs#3",
+     "kind": "class",
+     "name": "Puppy",
+     "parent": "csharp/Animals.cs#0",
+     "qualified_name": "Animals.Puppy",
+     "range": [
+      33,
+      4,
+      36,
+      5
+     ],
+     "signature": "public class Puppy : Dog"
+    },
+    {
+     "key": "csharp/Animals.cs#4",
+     "kind": "method",
+     "name": "Speak",
+     "parent": "csharp/Animals.cs#1",
+     "qualified_name": "Animals.IAnimal.Speak",
+     "range": [
+      8,
+      8,
+      8,
+      23
+     ],
+     "signature": "string Speak();"
+    },
+    {
+     "key": "csharp/Animals.cs#5",
+     "kind": "property",
+     "name": "Name",
+     "parent": "csharp/Animals.cs#2",
+     "qualified_name": "Animals.Dog.Name",
+     "range": [
+      13,
+      8,
+      13,
+      40
+     ],
+     "signature": "public string Name { get; set; }"
+    },
+    {
+     "key": "csharp/Animals.cs#6",
+     "kind": "method",
+     "name": "Dog",
+     "parent": "csharp/Animals.cs#2",
+     "qualified_name": "Animals.Dog.Dog",
+     "range": [
+      15,
+      8,
+      18,
+      9
+     ],
+     "signature": "public Dog(string name)"
+    },
+    {
+     "key": "csharp/Animals.cs#7",
+     "kind": "method",
+     "name": "Speak",
+     "parent": "csharp/Animals.cs#2",
+     "qualified_name": "Animals.Dog.Speak",
+     "range": [
+      20,
+      8,
+      25,
+      9
+     ],
+     "signature": "[Route(\"api/dogs/{id}\")]"
+    },
+    {
+     "key": "csharp/Animals.cs#8",
+     "kind": "method",
+     "name": "Bark",
+     "parent": "csharp/Animals.cs#2",
+     "qualified_name": "Animals.Dog.Bark",
+     "range": [
+      27,
+      8,
+      30,
+      9
+     ],
+     "signature": "private string Bark()"
+    },
+    {
+     "key": "csharp/Animals.cs#9",
+     "kind": "method",
+     "name": "Puppy",
+     "parent": "csharp/Animals.cs#3",
+     "qualified_name": "Animals.Puppy.Puppy",
+     "range": [
+      35,
+      8,
+      35,
+      50
+     ],
+     "signature": "public Puppy(string name) : base(name) { }"
+    }
+   ],
+   "language": "csharp",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": "Bark",
+     "location": "csharp/Animals.cs:24",
+     "resolver": "same_file_name",
+     "source": "csharp/Animals.cs#7",
+     "symbol": null,
+     "target": "csharp/Animals.cs#8",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "IAnimal",
+     "location": "csharp/Animals.cs:11",
+     "resolver": "same_file_name",
+     "source": "csharp/Animals.cs#2",
+     "symbol": null,
+     "target": "csharp/Animals.cs#1",
+     "type": "extends"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:11",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#0",
+     "symbol": null,
+     "target": "csharp/Animals.cs#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:11",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#2",
+     "symbol": null,
+     "target": "csharp/Animals.cs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:13",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#2",
+     "symbol": null,
+     "target": "csharp/Animals.cs#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:13",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#5",
+     "symbol": null,
+     "target": "csharp/Animals.cs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:15",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#2",
+     "symbol": null,
+     "target": "csharp/Animals.cs#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:15",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#6",
+     "symbol": null,
+     "target": "csharp/Animals.cs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:20",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#2",
+     "symbol": null,
+     "target": "csharp/Animals.cs#7",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:20",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#7",
+     "symbol": null,
+     "target": "csharp/Animals.cs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:27",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#2",
+     "symbol": null,
+     "target": "csharp/Animals.cs#8",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:27",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#8",
+     "symbol": null,
+     "target": "csharp/Animals.cs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:33",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#0",
+     "symbol": null,
+     "target": "csharp/Animals.cs#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:33",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#3",
+     "symbol": null,
+     "target": "csharp/Animals.cs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:35",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#3",
+     "symbol": null,
+     "target": "csharp/Animals.cs#9",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:35",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#9",
+     "symbol": null,
+     "target": "csharp/Animals.cs#3",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:6",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#0",
+     "symbol": null,
+     "target": "csharp/Animals.cs#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:6",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#1",
+     "symbol": null,
+     "target": "csharp/Animals.cs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:8",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#1",
+     "symbol": null,
+     "target": "csharp/Animals.cs#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Animals.cs:8",
+     "resolver": "structural",
+     "source": "csharp/Animals.cs#4",
+     "symbol": null,
+     "target": "csharp/Animals.cs#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "heuristic",
+     "evidence": "HttpGet",
+     "location": "csharp/Animals.cs",
+     "resolver": "framework:csharp_route_attribute",
+     "source": "csharp/Animals.cs#7",
+     "symbol": "http_endpoint:GET:",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "heuristic",
+     "evidence": "Route(\"api/dogs/{id}\")",
+     "location": "csharp/Animals.cs",
+     "resolver": "framework:csharp_route_attribute",
+     "source": "csharp/Animals.cs#7",
+     "symbol": "http_endpoint:ANY:api/dogs/{id}",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "high",
+     "evidence": "Dog",
+     "location": "csharp/Animals.cs:33",
+     "resolver": "same_file_name_ambiguous",
+     "source": "csharp/Animals.cs#3",
+     "symbol": null,
+     "target": "csharp/Animals.cs#2",
+     "type": "extends"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "HttpGet",
+     "location": "csharp/Animals.cs:21",
+     "resolver": "unresolved",
+     "source": "csharp/Animals.cs#7",
+     "symbol": "HttpGet",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Route(\"api/dogs/{id}\")",
+     "location": "csharp/Animals.cs:20",
+     "resolver": "unresolved",
+     "source": "csharp/Animals.cs#7",
+     "symbol": "Route",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "System",
+     "location": "csharp/Animals.cs:1",
+     "resolver": "unresolved",
+     "source": "csharp/Animals.cs#0",
+     "symbol": "System",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "System.Collections.Generic",
+     "location": "csharp/Animals.cs:2",
+     "resolver": "unresolved",
+     "source": "csharp/Animals.cs#0",
+     "symbol": "Generic",
+     "target": null,
+     "type": "imports"
+    }
+   ]
+  },
+  "csharp/Api/Controllers.cs": {
+   "entities": [
+    {
+     "key": "csharp/Api/Controllers.cs#0",
+     "kind": "namespace",
+     "name": "Api.Controllers",
+     "parent": null,
+     "qualified_name": "Api.Controllers",
+     "range": [
+      4,
+      0,
+      32,
+      1
+     ],
+     "signature": "namespace Api.Controllers"
+    },
+    {
+     "key": "csharp/Api/Controllers.cs#1",
+     "kind": "class",
+     "name": "DogsController",
+     "parent": "csharp/Api/Controllers.cs#0",
+     "qualified_name": "Api.Controllers.DogsController",
+     "range": [
+      6,
+      4,
+      27,
+      5
+     ],
+     "signature": "[ApiController]"
+    },
+    {
+     "key": "csharp/Api/Controllers.cs#2",
+     "kind": "struct",
+     "name": "Point",
+     "parent": "csharp/Api/Controllers.cs#0",
+     "qualified_name": "Api.Controllers.Point",
+     "range": [
+      29,
+      4,
+      29,
+      55
+     ],
+     "signature": "public struct Point { public int X; public int Y; }"
+    },
+    {
+     "key": "csharp/Api/Controllers.cs#3",
+     "kind": "enum",
+     "name": "Color",
+     "parent": "csharp/Api/Controllers.cs#0",
+     "qualified_name": "Api.Controllers.Color",
+     "range": [
+      31,
+      4,
+      31,
+      36
+     ],
+     "signature": "public enum Color { Red, Green }"
+    },
+    {
+     "key": "csharp/Api/Controllers.cs#4",
+     "kind": "field",
+     "name": "count",
+     "parent": "csharp/Api/Controllers.cs#1",
+     "qualified_name": "Api.Controllers.DogsController.count",
+     "range": [
+      9,
+      8,
+      9,
+      39
+     ],
+     "signature": "private readonly int count = 0;"
+    },
+    {
+     "key": "csharp/Api/Controllers.cs#5",
+     "kind": "method",
+     "name": "Create",
+     "parent": "csharp/Api/Controllers.cs#1",
+     "qualified_name": "Api.Controllers.DogsController.Create",
+     "range": [
+      11,
+      8,
+      16,
+      9
+     ],
+     "signature": "[HttpPost(\"api/dogs\")]"
+    },
+    {
+     "key": "csharp/Api/Controllers.cs#6",
+     "kind": "method",
+     "name": "Delete",
+     "parent": "csharp/Api/Controllers.cs#1",
+     "qualified_name": "Api.Controllers.DogsController.Delete",
+     "range": [
+      18,
+      8,
+      19,
+      38
+     ],
+     "signature": "[HttpDelete]"
+    },
+    {
+     "key": "csharp/Api/Controllers.cs#7",
+     "kind": "method",
+     "name": "List",
+     "parent": "csharp/Api/Controllers.cs#1",
+     "qualified_name": "Api.Controllers.DogsController.List",
+     "range": [
+      21,
+      8,
+      22,
+      30
+     ],
+     "signature": "[Route(\"api/dogs/all\")]"
+    },
+    {
+     "key": "csharp/Api/Controllers.cs#8",
+     "kind": "method",
+     "name": "List",
+     "parent": "csharp/Api/Controllers.cs#1",
+     "qualified_name": "Api.Controllers.DogsController.List",
+     "range": [
+      24,
+      8,
+      24,
+      56
+     ],
+     "signature": "public void List(int page) { Helper.Run(page); }"
+    },
+    {
+     "key": "csharp/Api/Controllers.cs#9",
+     "kind": "method",
+     "name": "Dispose",
+     "parent": "csharp/Api/Controllers.cs#1",
+     "qualified_name": "Api.Controllers.DogsController.Dispose",
+     "range": [
+      26,
+      8,
+      26,
+      33
+     ],
+     "signature": "public void Dispose() { }"
+    },
+    {
+     "key": "csharp/Api/Controllers.cs#10",
+     "kind": "field",
+     "name": "X",
+     "parent": "csharp/Api/Controllers.cs#2",
+     "qualified_name": "Api.Controllers.Point.X",
+     "range": [
+      29,
+      26,
+      29,
+      39
+     ],
+     "signature": "public int X;"
+    },
+    {
+     "key": "csharp/Api/Controllers.cs#11",
+     "kind": "field",
+     "name": "Y",
+     "parent": "csharp/Api/Controllers.cs#2",
+     "qualified_name": "Api.Controllers.Point.Y",
+     "range": [
+      29,
+      40,
+      29,
+      53
+     ],
+     "signature": "public int Y;"
+    }
+   ],
+   "language": "csharp",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:11",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#1",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:11",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#5",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:18",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#1",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:18",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#6",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:21",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#1",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#7",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:21",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#7",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:24",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#1",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#8",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:24",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#8",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:26",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#1",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#9",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:26",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#9",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:29",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#0",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:29",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#10",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:29",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#11",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:29",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#2",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:29",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#2",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#10",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:29",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#2",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#11",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:31",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#0",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:31",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#3",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:6",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#0",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:6",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#1",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:9",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#1",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "csharp/Api/Controllers.cs:9",
+     "resolver": "structural",
+     "source": "csharp/Api/Controllers.cs#4",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "heuristic",
+     "evidence": "HttpDelete",
+     "location": "csharp/Api/Controllers.cs",
+     "resolver": "framework:csharp_route_attribute",
+     "source": "csharp/Api/Controllers.cs#6",
+     "symbol": "http_endpoint:DELETE:",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "heuristic",
+     "evidence": "HttpPost(\"api/dogs\")",
+     "location": "csharp/Api/Controllers.cs",
+     "resolver": "framework:csharp_route_attribute",
+     "source": "csharp/Api/Controllers.cs#5",
+     "symbol": "http_endpoint:POST:api/dogs",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "heuristic",
+     "evidence": "Route(\"api/dogs/all\")",
+     "location": "csharp/Api/Controllers.cs",
+     "resolver": "framework:csharp_route_attribute",
+     "source": "csharp/Api/Controllers.cs#7",
+     "symbol": "http_endpoint:ANY:api/dogs/all",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "high",
+     "evidence": "Animals",
+     "location": "csharp/Api/Controllers.cs:2",
+     "resolver": "cross_file_qualified",
+     "source": "csharp/Api/Controllers.cs#0",
+     "symbol": null,
+     "target": "csharp/Animals.cs#0",
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "ControllerBase",
+     "location": "csharp/Api/Controllers.cs:7",
+     "resolver": "unresolved",
+     "source": "csharp/Api/Controllers.cs#1",
+     "symbol": "ControllerBase",
+     "target": null,
+     "type": "extends"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Dog",
+     "location": "csharp/Api/Controllers.cs:14",
+     "resolver": "name_only",
+     "source": "csharp/Api/Controllers.cs#5",
+     "symbol": null,
+     "target": "csharp/Animals.cs#2",
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Helper.Run",
+     "location": "csharp/Api/Controllers.cs:24",
+     "resolver": "name_only",
+     "source": "csharp/Api/Controllers.cs#8",
+     "symbol": null,
+     "target": "go/svc/svc.go#5",
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "HttpDelete",
+     "location": "csharp/Api/Controllers.cs:18",
+     "resolver": "unresolved",
+     "source": "csharp/Api/Controllers.cs#6",
+     "symbol": "HttpDelete",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "HttpPost(\"api/dogs\")",
+     "location": "csharp/Api/Controllers.cs:11",
+     "resolver": "unresolved",
+     "source": "csharp/Api/Controllers.cs#5",
+     "symbol": "HttpPost",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "IDisposable",
+     "location": "csharp/Api/Controllers.cs:7",
+     "resolver": "unresolved",
+     "source": "csharp/Api/Controllers.cs#1",
+     "symbol": "IDisposable",
+     "target": null,
+     "type": "extends"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Microsoft.AspNetCore.Mvc",
+     "location": "csharp/Api/Controllers.cs:1",
+     "resolver": "unresolved",
+     "source": "csharp/Api/Controllers.cs#0",
+     "symbol": "Mvc",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Ok",
+     "location": "csharp/Api/Controllers.cs:15",
+     "resolver": "unresolved",
+     "source": "csharp/Api/Controllers.cs#5",
+     "symbol": "Ok",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Route(\"api/dogs/all\")",
+     "location": "csharp/Api/Controllers.cs:21",
+     "resolver": "unresolved",
+     "source": "csharp/Api/Controllers.cs#7",
+     "symbol": "Route",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "d.Speak",
+     "location": "csharp/Api/Controllers.cs:15",
+     "resolver": "name_only",
+     "source": "csharp/Api/Controllers.cs#5",
+     "symbol": null,
+     "target": "csharp/Animals.cs#7",
+     "type": "calls"
+    }
+   ]
+  },
+  "go/animals.go": {
+   "entities": [
+    {
+     "key": "go/animals.go#0",
+     "kind": "namespace",
+     "name": "animals",
+     "parent": null,
+     "qualified_name": "animals",
+     "range": [
+      1,
+      0,
+      1,
+      15
+     ],
+     "signature": "package animals"
+    },
+    {
+     "key": "go/animals.go#1",
+     "kind": "interface",
+     "name": "Animal",
+     "parent": "go/animals.go#0",
+     "qualified_name": "animals.Animal",
+     "range": [
+      8,
+      5,
+      10,
+      1
+     ],
+     "signature": "Animal interface {"
+    },
+    {
+     "key": "go/animals.go#2",
+     "kind": "struct",
+     "name": "Dog",
+     "parent": "go/animals.go#0",
+     "qualified_name": "animals.Dog",
+     "range": [
+      12,
+      5,
+      14,
+      1
+     ],
+     "signature": "Dog struct {"
+    },
+    {
+     "key": "go/animals.go#3",
+     "kind": "method",
+     "name": "Speak",
+     "parent": "go/animals.go#1",
+     "qualified_name": "animals.Animal.Speak",
+     "range": [
+      9,
+      1,
+      9,
+      15
+     ],
+     "signature": "Speak() string"
+    },
+    {
+     "key": "go/animals.go#4",
+     "kind": "field",
+     "name": "Name",
+     "parent": "go/animals.go#2",
+     "qualified_name": "animals.Dog.Name",
+     "range": [
+      13,
+      1,
+      13,
+      12
+     ],
+     "signature": "Name string"
+    },
+    {
+     "key": "go/animals.go#5",
+     "kind": "method",
+     "name": "Speak",
+     "parent": "go/animals.go#2",
+     "qualified_name": "animals.Dog.Speak",
+     "range": [
+      16,
+      0,
+      18,
+      1
+     ],
+     "signature": "func (d *Dog) Speak() string {"
+    },
+    {
+     "key": "go/animals.go#6",
+     "kind": "function",
+     "name": "NewDog",
+     "parent": "go/animals.go#0",
+     "qualified_name": "animals.NewDog",
+     "range": [
+      20,
+      0,
+      23,
+      1
+     ],
+     "signature": "func NewDog(name string) *Dog {"
+    }
+   ],
+   "language": "go",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:12",
+     "resolver": "structural",
+     "source": "go/animals.go#0",
+     "symbol": null,
+     "target": "go/animals.go#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:12",
+     "resolver": "structural",
+     "source": "go/animals.go#2",
+     "symbol": null,
+     "target": "go/animals.go#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:13",
+     "resolver": "structural",
+     "source": "go/animals.go#2",
+     "symbol": null,
+     "target": "go/animals.go#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:13",
+     "resolver": "structural",
+     "source": "go/animals.go#4",
+     "symbol": null,
+     "target": "go/animals.go#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:16",
+     "resolver": "structural",
+     "source": "go/animals.go#2",
+     "symbol": null,
+     "target": "go/animals.go#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:16",
+     "resolver": "structural",
+     "source": "go/animals.go#5",
+     "symbol": null,
+     "target": "go/animals.go#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:20",
+     "resolver": "structural",
+     "source": "go/animals.go#0",
+     "symbol": null,
+     "target": "go/animals.go#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:20",
+     "resolver": "structural",
+     "source": "go/animals.go#6",
+     "symbol": null,
+     "target": "go/animals.go#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:8",
+     "resolver": "structural",
+     "source": "go/animals.go#0",
+     "symbol": null,
+     "target": "go/animals.go#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:8",
+     "resolver": "structural",
+     "source": "go/animals.go#1",
+     "symbol": null,
+     "target": "go/animals.go#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:9",
+     "resolver": "structural",
+     "source": "go/animals.go#1",
+     "symbol": null,
+     "target": "go/animals.go#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/animals.go:9",
+     "resolver": "structural",
+     "source": "go/animals.go#3",
+     "symbol": null,
+     "target": "go/animals.go#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "fmt",
+     "location": "go/animals.go:4",
+     "resolver": "unresolved",
+     "source": "go/animals.go#0",
+     "symbol": "fmt",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "fmt.Sprintf",
+     "location": "go/animals.go:17",
+     "resolver": "unresolved",
+     "source": "go/animals.go#5",
+     "symbol": "Sprintf",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "strings",
+     "location": "go/animals.go:5",
+     "resolver": "unresolved",
+     "source": "go/animals.go#0",
+     "symbol": "strings",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "strings.ToUpper",
+     "location": "go/animals.go:21",
+     "resolver": "unresolved",
+     "source": "go/animals.go#6",
+     "symbol": "ToUpper",
+     "target": null,
+     "type": "calls"
+    }
+   ]
+  },
+  "go/svc/svc.go": {
+   "entities": [
+    {
+     "key": "go/svc/svc.go#0",
+     "kind": "namespace",
+     "name": "svc",
+     "parent": null,
+     "qualified_name": "svc",
+     "range": [
+      1,
+      0,
+      1,
+      11
+     ],
+     "signature": "package svc"
+    },
+    {
+     "key": "go/svc/svc.go#1",
+     "kind": "struct",
+     "name": "Store",
+     "parent": "go/svc/svc.go#0",
+     "qualified_name": "svc.Store",
+     "range": [
+      5,
+      5,
+      7,
+      1
+     ],
+     "signature": "Store struct {"
+    },
+    {
+     "key": "go/svc/svc.go#2",
+     "kind": "field",
+     "name": "items",
+     "parent": "go/svc/svc.go#1",
+     "qualified_name": "svc.Store.items",
+     "range": [
+      6,
+      1,
+      6,
+      15
+     ],
+     "signature": "items []string"
+    },
+    {
+     "key": "go/svc/svc.go#3",
+     "kind": "method",
+     "name": "Add",
+     "parent": "go/svc/svc.go#1",
+     "qualified_name": "svc.Store.Add",
+     "range": [
+      9,
+      0,
+      12,
+      1
+     ],
+     "signature": "func (s Store) Add(item string) {"
+    },
+    {
+     "key": "go/svc/svc.go#4",
+     "kind": "method",
+     "name": "Len",
+     "parent": "go/svc/svc.go#1",
+     "qualified_name": "svc.Store.Len",
+     "range": [
+      14,
+      0,
+      14,
+      49
+     ],
+     "signature": "func (s *Store) Len() int { return len(s.items) }"
+    },
+    {
+     "key": "go/svc/svc.go#5",
+     "kind": "function",
+     "name": "Run",
+     "parent": "go/svc/svc.go#0",
+     "qualified_name": "svc.Run",
+     "range": [
+      16,
+      0,
+      20,
+      1
+     ],
+     "signature": "func Run() {"
+    }
+   ],
+   "language": "go",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": "s.Add",
+     "location": "go/svc/svc.go:18",
+     "resolver": "same_file_name",
+     "source": "go/svc/svc.go#5",
+     "symbol": null,
+     "target": "go/svc/svc.go#3",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "s.Len",
+     "location": "go/svc/svc.go:19",
+     "resolver": "same_file_name",
+     "source": "go/svc/svc.go#5",
+     "symbol": null,
+     "target": "go/svc/svc.go#4",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/svc/svc.go:14",
+     "resolver": "structural",
+     "source": "go/svc/svc.go#1",
+     "symbol": null,
+     "target": "go/svc/svc.go#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/svc/svc.go:14",
+     "resolver": "structural",
+     "source": "go/svc/svc.go#4",
+     "symbol": null,
+     "target": "go/svc/svc.go#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/svc/svc.go:16",
+     "resolver": "structural",
+     "source": "go/svc/svc.go#0",
+     "symbol": null,
+     "target": "go/svc/svc.go#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/svc/svc.go:16",
+     "resolver": "structural",
+     "source": "go/svc/svc.go#5",
+     "symbol": null,
+     "target": "go/svc/svc.go#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/svc/svc.go:5",
+     "resolver": "structural",
+     "source": "go/svc/svc.go#0",
+     "symbol": null,
+     "target": "go/svc/svc.go#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/svc/svc.go:5",
+     "resolver": "structural",
+     "source": "go/svc/svc.go#1",
+     "symbol": null,
+     "target": "go/svc/svc.go#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/svc/svc.go:6",
+     "resolver": "structural",
+     "source": "go/svc/svc.go#1",
+     "symbol": null,
+     "target": "go/svc/svc.go#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/svc/svc.go:6",
+     "resolver": "structural",
+     "source": "go/svc/svc.go#2",
+     "symbol": null,
+     "target": "go/svc/svc.go#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/svc/svc.go:9",
+     "resolver": "structural",
+     "source": "go/svc/svc.go#1",
+     "symbol": null,
+     "target": "go/svc/svc.go#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "go/svc/svc.go:9",
+     "resolver": "structural",
+     "source": "go/svc/svc.go#3",
+     "symbol": null,
+     "target": "go/svc/svc.go#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "high",
+     "evidence": "animals",
+     "location": "go/svc/svc.go:3",
+     "resolver": "cross_file_qualified",
+     "source": "go/svc/svc.go#0",
+     "symbol": null,
+     "target": "go/animals.go#0",
+     "type": "imports"
+    },
+    {
+     "confidence": "high",
+     "evidence": "animals.NewDog",
+     "location": "go/svc/svc.go:11",
+     "resolver": "cross_file_qualified",
+     "source": "go/svc/svc.go#3",
+     "symbol": null,
+     "target": "go/animals.go#6",
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "append",
+     "location": "go/svc/svc.go:10",
+     "resolver": "unresolved",
+     "source": "go/svc/svc.go#3",
+     "symbol": "append",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "fmt.Println",
+     "location": "go/svc/svc.go:19",
+     "resolver": "unresolved",
+     "source": "go/svc/svc.go#5",
+     "symbol": "Println",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "len",
+     "location": "go/svc/svc.go:14",
+     "resolver": "unresolved",
+     "source": "go/svc/svc.go#4",
+     "symbol": "len",
+     "target": null,
+     "type": "calls"
+    }
+   ]
+  },
+  "java/Animals.java": {
+   "entities": [
+    {
+     "key": "java/Animals.java#0",
+     "kind": "namespace",
+     "name": "com.example.animals",
+     "parent": null,
+     "qualified_name": "com.example.animals",
+     "range": [
+      1,
+      0,
+      1,
+      28
+     ],
+     "signature": "package com.example.animals;"
+    },
+    {
+     "key": "java/Animals.java#1",
+     "kind": "interface",
+     "name": "Animal",
+     "parent": "java/Animals.java#0",
+     "qualified_name": "com.example.animals.Animal",
+     "range": [
+      6,
+      0,
+      8,
+      1
+     ],
+     "signature": "public interface Animal {"
+    },
+    {
+     "key": "java/Animals.java#2",
+     "kind": "class",
+     "name": "Dog",
+     "parent": "java/Animals.java#0",
+     "qualified_name": "com.example.animals.Dog",
+     "range": [
+      10,
+      0,
+      24,
+      1
+     ],
+     "signature": "public class Dog implements Animal {"
+    },
+    {
+     "key": "java/Animals.java#3",
+     "kind": "class",
+     "name": "Puppy",
+     "parent": "java/Animals.java#0",
+     "qualified_name": "com.example.animals.Puppy",
+     "range": [
+      26,
+      0,
+      30,
+      1
+     ],
+     "signature": "class Puppy extends Dog {"
+    },
+    {
+     "key": "java/Animals.java#4",
+     "kind": "method",
+     "name": "speak",
+     "parent": "java/Animals.java#1",
+     "qualified_name": "com.example.animals.Animal.speak",
+     "range": [
+      7,
+      4,
+      7,
+      19
+     ],
+     "signature": "String speak();"
+    },
+    {
+     "key": "java/Animals.java#5",
+     "kind": "field",
+     "name": "name",
+     "parent": "java/Animals.java#2",
+     "qualified_name": "com.example.animals.Dog.name",
+     "range": [
+      11,
+      4,
+      11,
+      24
+     ],
+     "signature": "private String name;"
+    },
+    {
+     "key": "java/Animals.java#6",
+     "kind": "method",
+     "name": "Dog",
+     "parent": "java/Animals.java#2",
+     "qualified_name": "com.example.animals.Dog.Dog",
+     "range": [
+      13,
+      4,
+      15,
+      5
+     ],
+     "signature": "public Dog(String name) {"
+    },
+    {
+     "key": "java/Animals.java#7",
+     "kind": "method",
+     "name": "speak",
+     "parent": "java/Animals.java#2",
+     "qualified_name": "com.example.animals.Dog.speak",
+     "range": [
+      17,
+      4,
+      19,
+      5
+     ],
+     "signature": "public String speak() {"
+    },
+    {
+     "key": "java/Animals.java#8",
+     "kind": "method",
+     "name": "bark",
+     "parent": "java/Animals.java#2",
+     "qualified_name": "com.example.animals.Dog.bark",
+     "range": [
+      21,
+      4,
+      23,
+      5
+     ],
+     "signature": "private String bark() {"
+    },
+    {
+     "key": "java/Animals.java#9",
+     "kind": "method",
+     "name": "Puppy",
+     "parent": "java/Animals.java#3",
+     "qualified_name": "com.example.animals.Puppy.Puppy",
+     "range": [
+      27,
+      4,
+      29,
+      5
+     ],
+     "signature": "public Puppy(String name) {"
+    }
+   ],
+   "language": "java",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": "Animal",
+     "location": "java/Animals.java:10",
+     "resolver": "same_file_name",
+     "source": "java/Animals.java#2",
+     "symbol": null,
+     "target": "java/Animals.java#1",
+     "type": "implements"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "bark",
+     "location": "java/Animals.java:18",
+     "resolver": "same_file_name",
+     "source": "java/Animals.java#7",
+     "symbol": null,
+     "target": "java/Animals.java#8",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:10",
+     "resolver": "structural",
+     "source": "java/Animals.java#0",
+     "symbol": null,
+     "target": "java/Animals.java#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:10",
+     "resolver": "structural",
+     "source": "java/Animals.java#2",
+     "symbol": null,
+     "target": "java/Animals.java#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:11",
+     "resolver": "structural",
+     "source": "java/Animals.java#2",
+     "symbol": null,
+     "target": "java/Animals.java#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:11",
+     "resolver": "structural",
+     "source": "java/Animals.java#5",
+     "symbol": null,
+     "target": "java/Animals.java#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:13",
+     "resolver": "structural",
+     "source": "java/Animals.java#2",
+     "symbol": null,
+     "target": "java/Animals.java#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:13",
+     "resolver": "structural",
+     "source": "java/Animals.java#6",
+     "symbol": null,
+     "target": "java/Animals.java#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:17",
+     "resolver": "structural",
+     "source": "java/Animals.java#2",
+     "symbol": null,
+     "target": "java/Animals.java#7",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:17",
+     "resolver": "structural",
+     "source": "java/Animals.java#7",
+     "symbol": null,
+     "target": "java/Animals.java#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:21",
+     "resolver": "structural",
+     "source": "java/Animals.java#2",
+     "symbol": null,
+     "target": "java/Animals.java#8",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:21",
+     "resolver": "structural",
+     "source": "java/Animals.java#8",
+     "symbol": null,
+     "target": "java/Animals.java#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:26",
+     "resolver": "structural",
+     "source": "java/Animals.java#0",
+     "symbol": null,
+     "target": "java/Animals.java#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:26",
+     "resolver": "structural",
+     "source": "java/Animals.java#3",
+     "symbol": null,
+     "target": "java/Animals.java#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:27",
+     "resolver": "structural",
+     "source": "java/Animals.java#3",
+     "symbol": null,
+     "target": "java/Animals.java#9",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:27",
+     "resolver": "structural",
+     "source": "java/Animals.java#9",
+     "symbol": null,
+     "target": "java/Animals.java#3",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:6",
+     "resolver": "structural",
+     "source": "java/Animals.java#0",
+     "symbol": null,
+     "target": "java/Animals.java#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:6",
+     "resolver": "structural",
+     "source": "java/Animals.java#1",
+     "symbol": null,
+     "target": "java/Animals.java#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:7",
+     "resolver": "structural",
+     "source": "java/Animals.java#1",
+     "symbol": null,
+     "target": "java/Animals.java#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/Animals.java:7",
+     "resolver": "structural",
+     "source": "java/Animals.java#4",
+     "symbol": null,
+     "target": "java/Animals.java#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "high",
+     "evidence": "Dog",
+     "location": "java/Animals.java:26",
+     "resolver": "same_file_name_ambiguous",
+     "source": "java/Animals.java#3",
+     "symbol": null,
+     "target": "java/Animals.java#2",
+     "type": "extends"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "java.util.ArrayList",
+     "location": "java/Animals.java:4",
+     "resolver": "unresolved",
+     "source": "java/Animals.java#0",
+     "symbol": "ArrayList",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "java.util.List",
+     "location": "java/Animals.java:3",
+     "resolver": "name_only",
+     "source": "java/Animals.java#0",
+     "symbol": null,
+     "target": "csharp/Api/Controllers.cs#7",
+     "type": "imports"
+    }
+   ]
+  },
+  "java/more/Service.java": {
+   "entities": [
+    {
+     "key": "java/more/Service.java#0",
+     "kind": "namespace",
+     "name": "com.example.more",
+     "parent": null,
+     "qualified_name": "com.example.more",
+     "range": [
+      1,
+      0,
+      1,
+      25
+     ],
+     "signature": "package com.example.more;"
+    },
+    {
+     "key": "java/more/Service.java#1",
+     "kind": "class",
+     "name": "Service",
+     "parent": "java/more/Service.java#0",
+     "qualified_name": "com.example.more.Service",
+     "range": [
+      5,
+      0,
+      19,
+      1
+     ],
+     "signature": "public class Service extends Base implements Runnable, Closeable {"
+    },
+    {
+     "key": "java/more/Service.java#2",
+     "kind": "enum",
+     "name": "Level",
+     "parent": "java/more/Service.java#0",
+     "qualified_name": "com.example.more.Level",
+     "range": [
+      21,
+      0,
+      21,
+      24
+     ],
+     "signature": "enum Level { LOW, HIGH }"
+    },
+    {
+     "key": "java/more/Service.java#3",
+     "kind": "field",
+     "name": "count",
+     "parent": "java/more/Service.java#1",
+     "qualified_name": "com.example.more.Service.count",
+     "range": [
+      6,
+      4,
+      6,
+      26
+     ],
+     "signature": "private int count = 0;"
+    },
+    {
+     "key": "java/more/Service.java#4",
+     "kind": "method",
+     "name": "run",
+     "parent": "java/more/Service.java#1",
+     "qualified_name": "com.example.more.Service.run",
+     "range": [
+      8,
+      4,
+      14,
+      5
+     ],
+     "signature": "@Override"
+    },
+    {
+     "key": "java/more/Service.java#5",
+     "kind": "method",
+     "name": "close",
+     "parent": "java/more/Service.java#1",
+     "qualified_name": "com.example.more.Service.close",
+     "range": [
+      16,
+      4,
+      16,
+      26
+     ],
+     "signature": "public void close() {}"
+    },
+    {
+     "key": "java/more/Service.java#6",
+     "kind": "method",
+     "name": "helper",
+     "parent": "java/more/Service.java#1",
+     "qualified_name": "com.example.more.Service.helper",
+     "range": [
+      18,
+      4,
+      18,
+      28
+     ],
+     "signature": "private void helper() {}"
+    }
+   ],
+   "language": "java",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": "helper",
+     "location": "java/more/Service.java:13",
+     "resolver": "same_file_name",
+     "source": "java/more/Service.java#4",
+     "symbol": null,
+     "target": "java/more/Service.java#6",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:16",
+     "resolver": "structural",
+     "source": "java/more/Service.java#1",
+     "symbol": null,
+     "target": "java/more/Service.java#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:16",
+     "resolver": "structural",
+     "source": "java/more/Service.java#5",
+     "symbol": null,
+     "target": "java/more/Service.java#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:18",
+     "resolver": "structural",
+     "source": "java/more/Service.java#1",
+     "symbol": null,
+     "target": "java/more/Service.java#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:18",
+     "resolver": "structural",
+     "source": "java/more/Service.java#6",
+     "symbol": null,
+     "target": "java/more/Service.java#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:21",
+     "resolver": "structural",
+     "source": "java/more/Service.java#0",
+     "symbol": null,
+     "target": "java/more/Service.java#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:21",
+     "resolver": "structural",
+     "source": "java/more/Service.java#2",
+     "symbol": null,
+     "target": "java/more/Service.java#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:5",
+     "resolver": "structural",
+     "source": "java/more/Service.java#0",
+     "symbol": null,
+     "target": "java/more/Service.java#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:5",
+     "resolver": "structural",
+     "source": "java/more/Service.java#1",
+     "symbol": null,
+     "target": "java/more/Service.java#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:6",
+     "resolver": "structural",
+     "source": "java/more/Service.java#1",
+     "symbol": null,
+     "target": "java/more/Service.java#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:6",
+     "resolver": "structural",
+     "source": "java/more/Service.java#3",
+     "symbol": null,
+     "target": "java/more/Service.java#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:8",
+     "resolver": "structural",
+     "source": "java/more/Service.java#1",
+     "symbol": null,
+     "target": "java/more/Service.java#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "java/more/Service.java:8",
+     "resolver": "structural",
+     "source": "java/more/Service.java#4",
+     "symbol": null,
+     "target": "java/more/Service.java#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "high",
+     "evidence": "com.example.animals.Dog",
+     "location": "java/more/Service.java:3",
+     "resolver": "cross_file_qualified",
+     "source": "java/more/Service.java#0",
+     "symbol": null,
+     "target": "java/Animals.java#2",
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "@Deprecated",
+     "location": "java/more/Service.java:9",
+     "resolver": "unresolved",
+     "source": "java/more/Service.java#4",
+     "symbol": "Deprecated",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "@Override",
+     "location": "java/more/Service.java:8",
+     "resolver": "unresolved",
+     "source": "java/more/Service.java#4",
+     "symbol": "Override",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Base",
+     "location": "java/more/Service.java:5",
+     "resolver": "unresolved",
+     "source": "java/more/Service.java#1",
+     "symbol": "Base",
+     "target": null,
+     "type": "extends"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Closeable",
+     "location": "java/more/Service.java:5",
+     "resolver": "unresolved",
+     "source": "java/more/Service.java#1",
+     "symbol": "Closeable",
+     "target": null,
+     "type": "implements"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Dog",
+     "location": "java/more/Service.java:11",
+     "resolver": "name_only",
+     "source": "java/more/Service.java#4",
+     "symbol": null,
+     "target": "csharp/Animals.cs#2",
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Runnable",
+     "location": "java/more/Service.java:5",
+     "resolver": "unresolved",
+     "source": "java/more/Service.java#1",
+     "symbol": "Runnable",
+     "target": null,
+     "type": "implements"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "speak",
+     "location": "java/more/Service.java:12",
+     "resolver": "name_only",
+     "source": "java/more/Service.java#4",
+     "symbol": null,
+     "target": "java/Animals.java#4",
+     "type": "calls"
+    }
+   ]
+  },
+  "javascript/animals.js": {
+   "entities": [
+    {
+     "key": "javascript/animals.js#0",
+     "kind": "namespace",
+     "name": "animals",
+     "parent": null,
+     "qualified_name": "javascript.animals",
+     "range": [
+      1,
+      0,
+      25,
+      0
+     ],
+     "signature": null
+    },
+    {
+     "key": "javascript/animals.js#1",
+     "kind": "class",
+     "name": "Animal",
+     "parent": "javascript/animals.js#0",
+     "qualified_name": "javascript.animals.Animal",
+     "range": [
+      4,
+      0,
+      6,
+      1
+     ],
+     "signature": "class Animal {"
+    },
+    {
+     "key": "javascript/animals.js#2",
+     "kind": "class",
+     "name": "Dog",
+     "parent": "javascript/animals.js#0",
+     "qualified_name": "javascript.animals.Dog",
+     "range": [
+      8,
+      0,
+      19,
+      1
+     ],
+     "signature": "class Dog extends Animal {"
+    },
+    {
+     "key": "javascript/animals.js#3",
+     "kind": "method",
+     "name": "speak",
+     "parent": "javascript/animals.js#1",
+     "qualified_name": "javascript.animals.Animal.speak",
+     "range": [
+      5,
+      2,
+      5,
+      27
+     ],
+     "signature": "speak() { return \"...\"; }"
+    },
+    {
+     "key": "javascript/animals.js#4",
+     "kind": "field",
+     "name": "name",
+     "parent": "javascript/animals.js#2",
+     "qualified_name": "javascript.animals.Dog.name",
+     "range": [
+      9,
+      2,
+      9,
+      14
+     ],
+     "signature": "name = \"rex\""
+    },
+    {
+     "key": "javascript/animals.js#5",
+     "kind": "method",
+     "name": "constructor",
+     "parent": "javascript/animals.js#2",
+     "qualified_name": "javascript.animals.Dog.constructor",
+     "range": [
+      11,
+      2,
+      14,
+      3
+     ],
+     "signature": "constructor(name) {"
+    },
+    {
+     "key": "javascript/animals.js#6",
+     "kind": "method",
+     "name": "bark",
+     "parent": "javascript/animals.js#2",
+     "qualified_name": "javascript.animals.Dog.bark",
+     "range": [
+      16,
+      2,
+      18,
+      3
+     ],
+     "signature": "bark() {"
+    },
+    {
+     "key": "javascript/animals.js#7",
+     "kind": "function",
+     "name": "makeDog",
+     "parent": "javascript/animals.js#0",
+     "qualified_name": "javascript.animals.makeDog",
+     "range": [
+      21,
+      0,
+      24,
+      1
+     ],
+     "signature": "function makeDog(name) {"
+    }
+   ],
+   "language": "javascript",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": "Animal",
+     "location": "javascript/animals.js:8",
+     "resolver": "same_file_name",
+     "source": "javascript/animals.js#2",
+     "symbol": null,
+     "target": "javascript/animals.js#1",
+     "type": "extends"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "Dog",
+     "location": "javascript/animals.js:22",
+     "resolver": "same_file_name",
+     "source": "javascript/animals.js#7",
+     "symbol": null,
+     "target": "javascript/animals.js#2",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "d.bark",
+     "location": "javascript/animals.js:23",
+     "resolver": "same_file_name",
+     "source": "javascript/animals.js#7",
+     "symbol": null,
+     "target": "javascript/animals.js#6",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "this.speak",
+     "location": "javascript/animals.js:17",
+     "resolver": "same_file_name",
+     "source": "javascript/animals.js#6",
+     "symbol": null,
+     "target": "javascript/animals.js#3",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:11",
+     "resolver": "structural",
+     "source": "javascript/animals.js#2",
+     "symbol": null,
+     "target": "javascript/animals.js#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:11",
+     "resolver": "structural",
+     "source": "javascript/animals.js#5",
+     "symbol": null,
+     "target": "javascript/animals.js#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:16",
+     "resolver": "structural",
+     "source": "javascript/animals.js#2",
+     "symbol": null,
+     "target": "javascript/animals.js#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:16",
+     "resolver": "structural",
+     "source": "javascript/animals.js#6",
+     "symbol": null,
+     "target": "javascript/animals.js#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:21",
+     "resolver": "structural",
+     "source": "javascript/animals.js#0",
+     "symbol": null,
+     "target": "javascript/animals.js#7",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:21",
+     "resolver": "structural",
+     "source": "javascript/animals.js#7",
+     "symbol": null,
+     "target": "javascript/animals.js#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:4",
+     "resolver": "structural",
+     "source": "javascript/animals.js#0",
+     "symbol": null,
+     "target": "javascript/animals.js#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:4",
+     "resolver": "structural",
+     "source": "javascript/animals.js#1",
+     "symbol": null,
+     "target": "javascript/animals.js#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:5",
+     "resolver": "structural",
+     "source": "javascript/animals.js#1",
+     "symbol": null,
+     "target": "javascript/animals.js#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:5",
+     "resolver": "structural",
+     "source": "javascript/animals.js#3",
+     "symbol": null,
+     "target": "javascript/animals.js#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:8",
+     "resolver": "structural",
+     "source": "javascript/animals.js#0",
+     "symbol": null,
+     "target": "javascript/animals.js#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:8",
+     "resolver": "structural",
+     "source": "javascript/animals.js#2",
+     "symbol": null,
+     "target": "javascript/animals.js#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:9",
+     "resolver": "structural",
+     "source": "javascript/animals.js#2",
+     "symbol": null,
+     "target": "javascript/animals.js#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/animals.js:9",
+     "resolver": "structural",
+     "source": "javascript/animals.js#4",
+     "symbol": null,
+     "target": "javascript/animals.js#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "fs",
+     "location": "javascript/animals.js:1",
+     "resolver": "unresolved",
+     "source": "javascript/animals.js#0",
+     "symbol": "fs",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "node:fs",
+     "location": "javascript/animals.js:2",
+     "resolver": "unresolved",
+     "source": "javascript/animals.js#0",
+     "symbol": "node:fs",
+     "target": null,
+     "type": "imports"
+    }
+   ]
+  },
+  "javascript/app.mjs": {
+   "entities": [
+    {
+     "key": "javascript/app.mjs#0",
+     "kind": "namespace",
+     "name": "app",
+     "parent": null,
+     "qualified_name": "javascript.app",
+     "range": [
+      1,
+      0,
+      13,
+      0
+     ],
+     "signature": null
+    },
+    {
+     "key": "javascript/app.mjs#1",
+     "kind": "class",
+     "name": "App",
+     "parent": "javascript/app.mjs#0",
+     "qualified_name": "javascript.app.App",
+     "range": [
+      3,
+      7,
+      7,
+      1
+     ],
+     "signature": "class App {"
+    },
+    {
+     "key": "javascript/app.mjs#2",
+     "kind": "method",
+     "name": "start",
+     "parent": "javascript/app.mjs#1",
+     "qualified_name": "javascript.app.App.start",
+     "range": [
+      4,
+      2,
+      6,
+      3
+     ],
+     "signature": "start() {"
+    },
+    {
+     "key": "javascript/app.mjs#3",
+     "kind": "function",
+     "name": "main",
+     "parent": "javascript/app.mjs#0",
+     "qualified_name": "javascript.app.main",
+     "range": [
+      9,
+      7,
+      12,
+      1
+     ],
+     "signature": "function main() {"
+    }
+   ],
+   "language": "javascript",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": "App",
+     "location": "javascript/app.mjs:10",
+     "resolver": "same_file_name",
+     "source": "javascript/app.mjs#3",
+     "symbol": null,
+     "target": "javascript/app.mjs#1",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "new App().start",
+     "location": "javascript/app.mjs:10",
+     "resolver": "same_file_name",
+     "source": "javascript/app.mjs#3",
+     "symbol": null,
+     "target": "javascript/app.mjs#2",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/app.mjs:3",
+     "resolver": "structural",
+     "source": "javascript/app.mjs#0",
+     "symbol": null,
+     "target": "javascript/app.mjs#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/app.mjs:3",
+     "resolver": "structural",
+     "source": "javascript/app.mjs#1",
+     "symbol": null,
+     "target": "javascript/app.mjs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/app.mjs:4",
+     "resolver": "structural",
+     "source": "javascript/app.mjs#1",
+     "symbol": null,
+     "target": "javascript/app.mjs#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/app.mjs:4",
+     "resolver": "structural",
+     "source": "javascript/app.mjs#2",
+     "symbol": null,
+     "target": "javascript/app.mjs#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/app.mjs:9",
+     "resolver": "structural",
+     "source": "javascript/app.mjs#0",
+     "symbol": null,
+     "target": "javascript/app.mjs#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "javascript/app.mjs:9",
+     "resolver": "structural",
+     "source": "javascript/app.mjs#3",
+     "symbol": null,
+     "target": "javascript/app.mjs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "./animals.js",
+     "location": "javascript/app.mjs:1",
+     "resolver": "unresolved",
+     "source": "javascript/app.mjs#0",
+     "symbol": "js",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "console.log",
+     "location": "javascript/app.mjs:11",
+     "resolver": "unresolved",
+     "source": "javascript/app.mjs#3",
+     "symbol": "log",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "makeDog",
+     "location": "javascript/app.mjs:5",
+     "resolver": "name_only",
+     "source": "javascript/app.mjs#2",
+     "symbol": null,
+     "target": "javascript/animals.js#7",
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "makeDog(\"rex\").bark",
+     "location": "javascript/app.mjs:5",
+     "resolver": "name_only",
+     "source": "javascript/app.mjs#2",
+     "symbol": null,
+     "target": "java/Animals.java#8",
+     "type": "calls"
+    }
+   ]
+  },
+  "misc/empty.cs": {
+   "entities": [
+    {
+     "key": "misc/empty.cs#0",
+     "kind": "namespace",
+     "name": "empty",
+     "parent": null,
+     "qualified_name": "misc.empty",
+     "range": [
+      1,
+      0,
+      2,
+      0
+     ],
+     "signature": null
+    },
+    {
+     "key": "misc/empty.cs#1",
+     "kind": "class",
+     "name": "Empty",
+     "parent": "misc/empty.cs#0",
+     "qualified_name": "misc.empty.Empty",
+     "range": [
+      1,
+      0,
+      1,
+      14
+     ],
+     "signature": "class Empty {}"
+    }
+   ],
+   "language": "csharp",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "misc/empty.cs:1",
+     "resolver": "structural",
+     "source": "misc/empty.cs#0",
+     "symbol": null,
+     "target": "misc/empty.cs#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "misc/empty.cs:1",
+     "resolver": "structural",
+     "source": "misc/empty.cs#1",
+     "symbol": null,
+     "target": "misc/empty.cs#0",
+     "type": "defined_in"
+    }
+   ]
+  },
+  "misc/script.rb": {
+   "language": null
+  },
+  "misc/zero.py": {
+   "entities": [
+    {
+     "key": "misc/zero.py#0",
+     "kind": "namespace",
+     "name": "zero",
+     "parent": null,
+     "qualified_name": "misc.zero",
+     "range": [
+      1,
+      0,
+      1,
+      0
+     ],
+     "signature": null
+    }
+   ],
+   "language": "python",
+   "relationships": []
+  },
+  "python/animals.py": {
+   "entities": [
+    {
+     "key": "python/animals.py#0",
+     "kind": "namespace",
+     "name": "animals",
+     "parent": null,
+     "qualified_name": "python.animals",
+     "range": [
+      1,
+      0,
+      28,
+      0
+     ],
+     "signature": null
+    },
+    {
+     "key": "python/animals.py#1",
+     "kind": "class",
+     "name": "Animal",
+     "parent": "python/animals.py#0",
+     "qualified_name": "python.animals.Animal",
+     "range": [
+      5,
+      0,
+      6,
+      8
+     ],
+     "signature": "class Animal:"
+    },
+    {
+     "key": "python/animals.py#2",
+     "kind": "class",
+     "name": "Dog",
+     "parent": "python/animals.py#0",
+     "qualified_name": "python.animals.Dog",
+     "range": [
+      9,
+      0,
+      21,
+      21
+     ],
+     "signature": "class Dog(Animal):"
+    },
+    {
+     "key": "python/animals.py#3",
+     "kind": "field",
+     "name": "species",
+     "parent": "python/animals.py#2",
+     "qualified_name": "python.animals.Dog.species",
+     "range": [
+      12,
+      4,
+      12,
+      27
+     ],
+     "signature": "species: str = \"canine\""
+    },
+    {
+     "key": "python/animals.py#4",
+     "kind": "method",
+     "name": "__init__",
+     "parent": "python/animals.py#2",
+     "qualified_name": "python.animals.Dog.__init__",
+     "range": [
+      14,
+      4,
+      15,
+      24
+     ],
+     "signature": "def __init__(self, name):"
+    },
+    {
+     "key": "python/animals.py#5",
+     "kind": "method",
+     "name": "bark",
+     "parent": "python/animals.py#2",
+     "qualified_name": "python.animals.Dog.bark",
+     "range": [
+      17,
+      4,
+      18,
+      27
+     ],
+     "signature": "def bark(self) -> str:"
+    },
+    {
+     "key": "python/animals.py#6",
+     "kind": "method",
+     "name": "speak",
+     "parent": "python/animals.py#2",
+     "qualified_name": "python.animals.Dog.speak",
+     "range": [
+      20,
+      4,
+      21,
+      21
+     ],
+     "signature": "def speak(self):"
+    },
+    {
+     "key": "python/animals.py#7",
+     "kind": "function",
+     "name": "list_dogs",
+     "parent": "python/animals.py#0",
+     "qualified_name": "python.animals.list_dogs",
+     "range": [
+      25,
+      0,
+      27,
+      19
+     ],
+     "signature": "def list_dogs():"
+    }
+   ],
+   "language": "python",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": "Animal",
+     "location": "python/animals.py:9",
+     "resolver": "same_file_name",
+     "source": "python/animals.py#2",
+     "symbol": null,
+     "target": "python/animals.py#1",
+     "type": "extends"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "Dog",
+     "location": "python/animals.py:26",
+     "resolver": "same_file_name",
+     "source": "python/animals.py#7",
+     "symbol": null,
+     "target": "python/animals.py#2",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "d.bark",
+     "location": "python/animals.py:27",
+     "resolver": "same_file_name",
+     "source": "python/animals.py#7",
+     "symbol": null,
+     "target": "python/animals.py#5",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "self.speak",
+     "location": "python/animals.py:18",
+     "resolver": "same_file_name",
+     "source": "python/animals.py#5",
+     "symbol": null,
+     "target": "python/animals.py#6",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:12",
+     "resolver": "structural",
+     "source": "python/animals.py#2",
+     "symbol": null,
+     "target": "python/animals.py#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:12",
+     "resolver": "structural",
+     "source": "python/animals.py#3",
+     "symbol": null,
+     "target": "python/animals.py#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:14",
+     "resolver": "structural",
+     "source": "python/animals.py#2",
+     "symbol": null,
+     "target": "python/animals.py#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:14",
+     "resolver": "structural",
+     "source": "python/animals.py#4",
+     "symbol": null,
+     "target": "python/animals.py#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:17",
+     "resolver": "structural",
+     "source": "python/animals.py#2",
+     "symbol": null,
+     "target": "python/animals.py#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:17",
+     "resolver": "structural",
+     "source": "python/animals.py#5",
+     "symbol": null,
+     "target": "python/animals.py#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:20",
+     "resolver": "structural",
+     "source": "python/animals.py#2",
+     "symbol": null,
+     "target": "python/animals.py#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:20",
+     "resolver": "structural",
+     "source": "python/animals.py#6",
+     "symbol": null,
+     "target": "python/animals.py#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:25",
+     "resolver": "structural",
+     "source": "python/animals.py#0",
+     "symbol": null,
+     "target": "python/animals.py#7",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:25",
+     "resolver": "structural",
+     "source": "python/animals.py#7",
+     "symbol": null,
+     "target": "python/animals.py#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:5",
+     "resolver": "structural",
+     "source": "python/animals.py#0",
+     "symbol": null,
+     "target": "python/animals.py#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:5",
+     "resolver": "structural",
+     "source": "python/animals.py#1",
+     "symbol": null,
+     "target": "python/animals.py#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:9",
+     "resolver": "structural",
+     "source": "python/animals.py#0",
+     "symbol": null,
+     "target": "python/animals.py#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/animals.py:9",
+     "resolver": "structural",
+     "source": "python/animals.py#2",
+     "symbol": null,
+     "target": "python/animals.py#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "heuristic",
+     "evidence": "@app.route(\"/dogs\", methods=[\"GET\"])",
+     "location": "python/animals.py",
+     "resolver": "framework:python_route_decorator",
+     "source": "python/animals.py#7",
+     "symbol": "http_endpoint:GET:/dogs",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "@app.route(\"/dogs\", methods=[\"GET\"])",
+     "location": "python/animals.py:24",
+     "resolver": "unresolved",
+     "source": "python/animals.py#7",
+     "symbol": "route",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "app.route",
+     "location": "python/animals.py:24",
+     "resolver": "unresolved",
+     "source": "python/animals.py#0",
+     "symbol": "route",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "os",
+     "location": "python/animals.py:1",
+     "resolver": "unresolved",
+     "source": "python/animals.py#0",
+     "symbol": "os",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "typing",
+     "location": "python/animals.py:2",
+     "resolver": "unresolved",
+     "source": "python/animals.py#0",
+     "symbol": "typing",
+     "target": null,
+     "type": "imports"
+    }
+   ]
+  },
+  "python/broken.py": {
+   "error": "parse_error",
+   "language": "python"
+  },
+  "python/pkg/helpers.py": {
+   "entities": [
+    {
+     "key": "python/pkg/helpers.py#0",
+     "kind": "namespace",
+     "name": "helpers",
+     "parent": null,
+     "qualified_name": "python.pkg.helpers",
+     "range": [
+      1,
+      0,
+      8,
+      0
+     ],
+     "signature": null
+    },
+    {
+     "key": "python/pkg/helpers.py#1",
+     "kind": "class",
+     "name": "Dog",
+     "parent": "python/pkg/helpers.py#0",
+     "qualified_name": "python.pkg.helpers.Dog",
+     "range": [
+      5,
+      0,
+      7,
+      22
+     ],
+     "signature": "class Dog:"
+    },
+    {
+     "key": "python/pkg/helpers.py#2",
+     "kind": "function",
+     "name": "helper",
+     "parent": "python/pkg/helpers.py#0",
+     "qualified_name": "python.pkg.helpers.helper",
+     "range": [
+      1,
+      0,
+      2,
+      12
+     ],
+     "signature": "def helper():"
+    },
+    {
+     "key": "python/pkg/helpers.py#3",
+     "kind": "method",
+     "name": "speak",
+     "parent": "python/pkg/helpers.py#1",
+     "qualified_name": "python.pkg.helpers.Dog.speak",
+     "range": [
+      6,
+      4,
+      7,
+      22
+     ],
+     "signature": "def speak(self):"
+    }
+   ],
+   "language": "python",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/helpers.py:1",
+     "resolver": "structural",
+     "source": "python/pkg/helpers.py#0",
+     "symbol": null,
+     "target": "python/pkg/helpers.py#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/helpers.py:1",
+     "resolver": "structural",
+     "source": "python/pkg/helpers.py#2",
+     "symbol": null,
+     "target": "python/pkg/helpers.py#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/helpers.py:5",
+     "resolver": "structural",
+     "source": "python/pkg/helpers.py#0",
+     "symbol": null,
+     "target": "python/pkg/helpers.py#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/helpers.py:5",
+     "resolver": "structural",
+     "source": "python/pkg/helpers.py#1",
+     "symbol": null,
+     "target": "python/pkg/helpers.py#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/helpers.py:6",
+     "resolver": "structural",
+     "source": "python/pkg/helpers.py#1",
+     "symbol": null,
+     "target": "python/pkg/helpers.py#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/helpers.py:6",
+     "resolver": "structural",
+     "source": "python/pkg/helpers.py#3",
+     "symbol": null,
+     "target": "python/pkg/helpers.py#1",
+     "type": "defined_in"
+    }
+   ]
+  },
+  "python/pkg/service.py": {
+   "entities": [
+    {
+     "key": "python/pkg/service.py#0",
+     "kind": "namespace",
+     "name": "service",
+     "parent": null,
+     "qualified_name": "python.pkg.service",
+     "range": [
+      1,
+      0,
+      32,
+      0
+     ],
+     "signature": null
+    },
+    {
+     "key": "python/pkg/service.py#1",
+     "kind": "class",
+     "name": "Kennel",
+     "parent": "python/pkg/service.py#0",
+     "qualified_name": "python.pkg.service.Kennel",
+     "range": [
+      7,
+      0,
+      16,
+      33
+     ],
+     "signature": "class Kennel(animals.Dog):"
+    },
+    {
+     "key": "python/pkg/service.py#2",
+     "kind": "field",
+     "name": "capacity",
+     "parent": "python/pkg/service.py#1",
+     "qualified_name": "python.pkg.service.Kennel.capacity",
+     "range": [
+      8,
+      4,
+      8,
+      17
+     ],
+     "signature": "capacity = 10"
+    },
+    {
+     "key": "python/pkg/service.py#3",
+     "kind": "method",
+     "name": "add",
+     "parent": "python/pkg/service.py#1",
+     "qualified_name": "python.pkg.service.Kennel.add",
+     "range": [
+      10,
+      4,
+      13,
+      31
+     ],
+     "signature": "def add(self, dog):"
+    },
+    {
+     "key": "python/pkg/service.py#4",
+     "kind": "method",
+     "name": "add",
+     "parent": "python/pkg/service.py#1",
+     "qualified_name": "python.pkg.service.Kennel.add",
+     "range": [
+      15,
+      4,
+      16,
+      33
+     ],
+     "signature": "def add(self, dog, extra):"
+    },
+    {
+     "key": "python/pkg/service.py#5",
+     "kind": "function",
+     "name": "get_kennel",
+     "parent": "python/pkg/service.py#0",
+     "qualified_name": "python.pkg.service.get_kennel",
+     "range": [
+      21,
+      0,
+      22,
+      29
+     ],
+     "signature": "def get_kennel(id):"
+    },
+    {
+     "key": "python/pkg/service.py#6",
+     "kind": "function",
+     "name": "create_kennel",
+     "parent": "python/pkg/service.py#0",
+     "qualified_name": "python.pkg.service.create_kennel",
+     "range": [
+      26,
+      0,
+      27,
+      29
+     ],
+     "signature": "def create_kennel():"
+    },
+    {
+     "key": "python/pkg/service.py#7",
+     "kind": "function",
+     "name": "helper",
+     "parent": "python/pkg/service.py#0",
+     "qualified_name": "python.pkg.service.helper",
+     "range": [
+      30,
+      0,
+      31,
+      18
+     ],
+     "signature": "def helper():"
+    }
+   ],
+   "language": "python",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": "Kennel",
+     "location": "python/pkg/service.py:22",
+     "resolver": "same_file_name",
+     "source": "python/pkg/service.py#5",
+     "symbol": null,
+     "target": "python/pkg/service.py#1",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "helper",
+     "location": "python/pkg/service.py:12",
+     "resolver": "same_file_name",
+     "source": "python/pkg/service.py#3",
+     "symbol": null,
+     "target": "python/pkg/service.py#7",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:10",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#1",
+     "symbol": null,
+     "target": "python/pkg/service.py#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:10",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#3",
+     "symbol": null,
+     "target": "python/pkg/service.py#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:15",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#1",
+     "symbol": null,
+     "target": "python/pkg/service.py#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:15",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#4",
+     "symbol": null,
+     "target": "python/pkg/service.py#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:21",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#0",
+     "symbol": null,
+     "target": "python/pkg/service.py#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:21",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#5",
+     "symbol": null,
+     "target": "python/pkg/service.py#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:26",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#0",
+     "symbol": null,
+     "target": "python/pkg/service.py#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:26",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#6",
+     "symbol": null,
+     "target": "python/pkg/service.py#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:30",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#0",
+     "symbol": null,
+     "target": "python/pkg/service.py#7",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:30",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#7",
+     "symbol": null,
+     "target": "python/pkg/service.py#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:7",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#0",
+     "symbol": null,
+     "target": "python/pkg/service.py#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:7",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#1",
+     "symbol": null,
+     "target": "python/pkg/service.py#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:8",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#1",
+     "symbol": null,
+     "target": "python/pkg/service.py#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "python/pkg/service.py:8",
+     "resolver": "structural",
+     "source": "python/pkg/service.py#2",
+     "symbol": null,
+     "target": "python/pkg/service.py#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "heuristic",
+     "evidence": "@app.get(\"/kennels/<id>\")",
+     "location": "python/pkg/service.py",
+     "resolver": "framework:python_route_decorator",
+     "source": "python/pkg/service.py#5",
+     "symbol": "http_endpoint:GET:/kennels/<id>",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "heuristic",
+     "evidence": "@router.route(\"/kennels\", methods=['POST'])",
+     "location": "python/pkg/service.py",
+     "resolver": "framework:python_route_decorator",
+     "source": "python/pkg/service.py#6",
+     "symbol": "http_endpoint:POST:/kennels",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "high",
+     "evidence": "Kennel().add",
+     "location": "python/pkg/service.py:22",
+     "resolver": "same_file_name_ambiguous",
+     "source": "python/pkg/service.py#5",
+     "symbol": null,
+     "target": "python/pkg/service.py#3",
+     "type": "calls"
+    },
+    {
+     "confidence": "high",
+     "evidence": "animals",
+     "location": "python/pkg/service.py:2",
+     "resolver": "cross_file_qualified",
+     "source": "python/pkg/service.py#0",
+     "symbol": null,
+     "target": "go/animals.go#0",
+     "type": "imports"
+    },
+    {
+     "confidence": "high",
+     "evidence": "animals.Dog",
+     "location": "python/pkg/service.py:13",
+     "resolver": "cross_file_qualified",
+     "source": "python/pkg/service.py#3",
+     "symbol": null,
+     "target": "go/animals.go#2",
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "@app.get(\"/kennels/<id>\")",
+     "location": "python/pkg/service.py:19",
+     "resolver": "unresolved",
+     "source": "python/pkg/service.py#5",
+     "symbol": "get",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "@login_required",
+     "location": "python/pkg/service.py:20",
+     "resolver": "unresolved",
+     "source": "python/pkg/service.py#5",
+     "symbol": "login_required",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "@router.route(\"/kennels\", methods=['POST'])",
+     "location": "python/pkg/service.py:25",
+     "resolver": "unresolved",
+     "source": "python/pkg/service.py#6",
+     "symbol": "route",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "app.get",
+     "location": "python/pkg/service.py:19",
+     "resolver": "unresolved",
+     "source": "python/pkg/service.py#0",
+     "symbol": "get",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "dog.bark",
+     "location": "python/pkg/service.py:11",
+     "resolver": "name_only",
+     "source": "python/pkg/service.py#3",
+     "symbol": null,
+     "target": "java/Animals.java#8",
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "os.path",
+     "location": "python/pkg/service.py:4",
+     "resolver": "unresolved",
+     "source": "python/pkg/service.py#0",
+     "symbol": "path",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "osp.join",
+     "location": "python/pkg/service.py:16",
+     "resolver": "unresolved",
+     "source": "python/pkg/service.py#4",
+     "symbol": "join",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "pkg",
+     "location": "python/pkg/service.py:3",
+     "resolver": "unresolved",
+     "source": "python/pkg/service.py#0",
+     "symbol": "pkg",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "router.route",
+     "location": "python/pkg/service.py:25",
+     "resolver": "unresolved",
+     "source": "python/pkg/service.py#0",
+     "symbol": "route",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "speak",
+     "location": "python/pkg/service.py:31",
+     "resolver": "name_only",
+     "source": "python/pkg/service.py#7",
+     "symbol": null,
+     "target": "java/Animals.java#4",
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "unknown_function",
+     "location": "python/pkg/service.py:27",
+     "resolver": "unresolved",
+     "source": "python/pkg/service.py#6",
+     "symbol": "unknown_function",
+     "target": null,
+     "type": "calls"
+    }
+   ]
+  },
+  "rust/animals.rs": {
+   "entities": [
+    {
+     "key": "rust/animals.rs#0",
+     "kind": "namespace",
+     "name": "animals",
+     "parent": null,
+     "qualified_name": "rust.animals",
+     "range": [
+      1,
+      0,
+      27,
+      0
+     ],
+     "signature": null
+    },
+    {
+     "key": "rust/animals.rs#1",
+     "kind": "interface",
+     "name": "Animal",
+     "parent": "rust/animals.rs#0",
+     "qualified_name": "rust.animals.Animal",
+     "range": [
+      4,
+      0,
+      6,
+      1
+     ],
+     "signature": "pub trait Animal {"
+    },
+    {
+     "key": "rust/animals.rs#2",
+     "kind": "struct",
+     "name": "Dog",
+     "parent": "rust/animals.rs#0",
+     "qualified_name": "rust.animals.Dog",
+     "range": [
+      8,
+      0,
+      10,
+      1
+     ],
+     "signature": "pub struct Dog {"
+    },
+    {
+     "key": "rust/animals.rs#3",
+     "kind": "method",
+     "name": "speak",
+     "parent": "rust/animals.rs#1",
+     "qualified_name": "rust.animals.Animal.speak",
+     "range": [
+      5,
+      4,
+      5,
+      30
+     ],
+     "signature": "fn speak(&self) -> String;"
+    },
+    {
+     "key": "rust/animals.rs#4",
+     "kind": "field",
+     "name": "name",
+     "parent": "rust/animals.rs#2",
+     "qualified_name": "rust.animals.Dog.name",
+     "range": [
+      9,
+      4,
+      9,
+      20
+     ],
+     "signature": "pub name: String"
+    },
+    {
+     "key": "rust/animals.rs#5",
+     "kind": "method",
+     "name": "speak",
+     "parent": "rust/animals.rs#2",
+     "qualified_name": "rust.animals.Dog.speak",
+     "range": [
+      13,
+      4,
+      15,
+      5
+     ],
+     "signature": "fn speak(&self) -> String {"
+    },
+    {
+     "key": "rust/animals.rs#6",
+     "kind": "method",
+     "name": "bark",
+     "parent": "rust/animals.rs#2",
+     "qualified_name": "rust.animals.Dog.bark",
+     "range": [
+      19,
+      4,
+      21,
+      5
+     ],
+     "signature": "fn bark(&self) -> String {"
+    },
+    {
+     "key": "rust/animals.rs#7",
+     "kind": "function",
+     "name": "make_dog",
+     "parent": "rust/animals.rs#0",
+     "qualified_name": "rust.animals.make_dog",
+     "range": [
+      24,
+      0,
+      26,
+      1
+     ],
+     "signature": "fn make_dog(name: String) -> Dog {"
+    }
+   ],
+   "language": "rust",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": "Animal",
+     "location": "rust/animals.rs:12",
+     "resolver": "same_file_name",
+     "source": "rust/animals.rs#2",
+     "symbol": null,
+     "target": "rust/animals.rs#1",
+     "type": "implements"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "self.bark",
+     "location": "rust/animals.rs:14",
+     "resolver": "same_file_name",
+     "source": "rust/animals.rs#5",
+     "symbol": null,
+     "target": "rust/animals.rs#6",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:13",
+     "resolver": "structural",
+     "source": "rust/animals.rs#2",
+     "symbol": null,
+     "target": "rust/animals.rs#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:13",
+     "resolver": "structural",
+     "source": "rust/animals.rs#5",
+     "symbol": null,
+     "target": "rust/animals.rs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:19",
+     "resolver": "structural",
+     "source": "rust/animals.rs#2",
+     "symbol": null,
+     "target": "rust/animals.rs#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:19",
+     "resolver": "structural",
+     "source": "rust/animals.rs#6",
+     "symbol": null,
+     "target": "rust/animals.rs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:24",
+     "resolver": "structural",
+     "source": "rust/animals.rs#0",
+     "symbol": null,
+     "target": "rust/animals.rs#7",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:24",
+     "resolver": "structural",
+     "source": "rust/animals.rs#7",
+     "symbol": null,
+     "target": "rust/animals.rs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:4",
+     "resolver": "structural",
+     "source": "rust/animals.rs#0",
+     "symbol": null,
+     "target": "rust/animals.rs#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:4",
+     "resolver": "structural",
+     "source": "rust/animals.rs#1",
+     "symbol": null,
+     "target": "rust/animals.rs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:5",
+     "resolver": "structural",
+     "source": "rust/animals.rs#1",
+     "symbol": null,
+     "target": "rust/animals.rs#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:5",
+     "resolver": "structural",
+     "source": "rust/animals.rs#3",
+     "symbol": null,
+     "target": "rust/animals.rs#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:8",
+     "resolver": "structural",
+     "source": "rust/animals.rs#0",
+     "symbol": null,
+     "target": "rust/animals.rs#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:8",
+     "resolver": "structural",
+     "source": "rust/animals.rs#2",
+     "symbol": null,
+     "target": "rust/animals.rs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:9",
+     "resolver": "structural",
+     "source": "rust/animals.rs#2",
+     "symbol": null,
+     "target": "rust/animals.rs#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/animals.rs:9",
+     "resolver": "structural",
+     "source": "rust/animals.rs#4",
+     "symbol": null,
+     "target": "rust/animals.rs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "format",
+     "location": "rust/animals.rs:20",
+     "resolver": "unresolved",
+     "source": "rust/animals.rs#6",
+     "symbol": "format",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "std::collections::HashMap",
+     "location": "rust/animals.rs:2",
+     "resolver": "unresolved",
+     "source": "rust/animals.rs#0",
+     "symbol": "std::collections::HashMap",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "std::fmt",
+     "location": "rust/animals.rs:1",
+     "resolver": "unresolved",
+     "source": "rust/animals.rs#0",
+     "symbol": "std::fmt",
+     "target": null,
+     "type": "imports"
+    }
+   ]
+  },
+  "rust/extra/lib.rs": {
+   "entities": [
+    {
+     "key": "rust/extra/lib.rs#0",
+     "kind": "namespace",
+     "name": "lib",
+     "parent": null,
+     "qualified_name": "rust.extra.lib",
+     "range": [
+      1,
+      0,
+      26,
+      0
+     ],
+     "signature": null
+    },
+    {
+     "key": "rust/extra/lib.rs#1",
+     "kind": "interface",
+     "name": "Greeter",
+     "parent": "rust/extra/lib.rs#0",
+     "qualified_name": "rust.extra.lib.Greeter",
+     "range": [
+      4,
+      0,
+      7,
+      1
+     ],
+     "signature": "pub trait Greeter {"
+    },
+    {
+     "key": "rust/extra/lib.rs#2",
+     "kind": "struct",
+     "name": "Bot",
+     "parent": "rust/extra/lib.rs#0",
+     "qualified_name": "rust.extra.lib.Bot",
+     "range": [
+      9,
+      0,
+      9,
+      31
+     ],
+     "signature": "pub struct Bot { name: String }"
+    },
+    {
+     "key": "rust/extra/lib.rs#3",
+     "kind": "enum",
+     "name": "Mode",
+     "parent": "rust/extra/lib.rs#0",
+     "qualified_name": "rust.extra.lib.Mode",
+     "range": [
+      19,
+      0,
+      19,
+      22
+     ],
+     "signature": "pub enum Mode { A, B }"
+    },
+    {
+     "key": "rust/extra/lib.rs#4",
+     "kind": "method",
+     "name": "greet",
+     "parent": "rust/extra/lib.rs#1",
+     "qualified_name": "rust.extra.lib.Greeter.greet",
+     "range": [
+      5,
+      4,
+      5,
+      30
+     ],
+     "signature": "fn greet(&self) -> String;"
+    },
+    {
+     "key": "rust/extra/lib.rs#5",
+     "kind": "method",
+     "name": "hello",
+     "parent": "rust/extra/lib.rs#1",
+     "qualified_name": "rust.extra.lib.Greeter.hello",
+     "range": [
+      6,
+      4,
+      6,
+      46
+     ],
+     "signature": "fn hello(&self) -> String { self.greet() }"
+    },
+    {
+     "key": "rust/extra/lib.rs#6",
+     "kind": "field",
+     "name": "name",
+     "parent": "rust/extra/lib.rs#2",
+     "qualified_name": "rust.extra.lib.Bot.name",
+     "range": [
+      9,
+      17,
+      9,
+      29
+     ],
+     "signature": "name: String"
+    },
+    {
+     "key": "rust/extra/lib.rs#7",
+     "kind": "method",
+     "name": "new",
+     "parent": "rust/extra/lib.rs#2",
+     "qualified_name": "rust.extra.lib.Bot.new",
+     "range": [
+      12,
+      4,
+      12,
+      69
+     ],
+     "signature": "pub fn new(name: &str) -> Self { Bot { name: name.to_string() } }"
+    },
+    {
+     "key": "rust/extra/lib.rs#8",
+     "kind": "method",
+     "name": "greet",
+     "parent": "rust/extra/lib.rs#2",
+     "qualified_name": "rust.extra.lib.Bot.greet",
+     "range": [
+      16,
+      4,
+      16,
+      61
+     ],
+     "signature": "fn greet(&self) -> String { format!(\"hi {}\", self.name) }"
+    },
+    {
+     "key": "rust/extra/lib.rs#9",
+     "kind": "function",
+     "name": "main",
+     "parent": "rust/extra/lib.rs#0",
+     "qualified_name": "rust.extra.lib.main",
+     "range": [
+      21,
+      0,
+      25,
+      1
+     ],
+     "signature": "fn main() {"
+    }
+   ],
+   "language": "rust",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": "Greeter",
+     "location": "rust/extra/lib.rs:15",
+     "resolver": "same_file_name",
+     "source": "rust/extra/lib.rs#2",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#1",
+     "type": "implements"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:12",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#2",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#7",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:12",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#7",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:16",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#2",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#8",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:16",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#8",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:19",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#0",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:19",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#3",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:21",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#0",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#9",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:21",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#9",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:4",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#0",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:4",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#1",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:5",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#1",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:5",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#4",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:6",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#1",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:6",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#5",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:9",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#0",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:9",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#2",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:9",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#2",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "rust/extra/lib.rs:9",
+     "resolver": "structural",
+     "source": "rust/extra/lib.rs#6",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "high",
+     "evidence": "self.greet",
+     "location": "rust/extra/lib.rs:6",
+     "resolver": "same_file_name_ambiguous",
+     "source": "rust/extra/lib.rs#5",
+     "symbol": null,
+     "target": "rust/extra/lib.rs#8",
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Bot::new",
+     "location": "rust/extra/lib.rs:22",
+     "resolver": "unresolved",
+     "source": "rust/extra/lib.rs#9",
+     "symbol": "Bot::new",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Dog::new",
+     "location": "rust/extra/lib.rs:24",
+     "resolver": "unresolved",
+     "source": "rust/extra/lib.rs#9",
+     "symbol": "Dog::new",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "crate::animals::Dog",
+     "location": "rust/extra/lib.rs:1",
+     "resolver": "unresolved",
+     "source": "rust/extra/lib.rs#0",
+     "symbol": "crate::animals::Dog",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "format",
+     "location": "rust/extra/lib.rs:16",
+     "resolver": "unresolved",
+     "source": "rust/extra/lib.rs#8",
+     "symbol": "format",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "name.to_string",
+     "location": "rust/extra/lib.rs:12",
+     "resolver": "unresolved",
+     "source": "rust/extra/lib.rs#7",
+     "symbol": "to_string",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "println",
+     "location": "rust/extra/lib.rs:23",
+     "resolver": "unresolved",
+     "source": "rust/extra/lib.rs#9",
+     "symbol": "println",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "std::io::Write",
+     "location": "rust/extra/lib.rs:2",
+     "resolver": "unresolved",
+     "source": "rust/extra/lib.rs#0",
+     "symbol": "std::io::Write",
+     "target": null,
+     "type": "imports"
+    }
+   ]
+  },
+  "typescript/animals.ts": {
+   "entities": [
+    {
+     "key": "typescript/animals.ts#0",
+     "kind": "namespace",
+     "name": "animals",
+     "parent": null,
+     "qualified_name": "typescript.animals",
+     "range": [
+      1,
+      0,
+      30,
+      0
+     ],
+     "signature": null
+    },
+    {
+     "key": "typescript/animals.ts#1",
+     "kind": "interface",
+     "name": "Shape",
+     "parent": "typescript/animals.ts#0",
+     "qualified_name": "typescript.animals.Shape",
+     "range": [
+      4,
+      7,
+      6,
+      1
+     ],
+     "signature": "interface Shape {"
+    },
+    {
+     "key": "typescript/animals.ts#2",
+     "kind": "class",
+     "name": "Circle",
+     "parent": "typescript/animals.ts#0",
+     "qualified_name": "typescript.animals.Circle",
+     "range": [
+      8,
+      7,
+      24,
+      1
+     ],
+     "signature": "class Circle extends Component implements Shape {"
+    },
+    {
+     "key": "typescript/animals.ts#3",
+     "kind": "enum",
+     "name": "Color",
+     "parent": "typescript/animals.ts#0",
+     "qualified_name": "typescript.animals.Color",
+     "range": [
+      26,
+      0,
+      29,
+      1
+     ],
+     "signature": "enum Color {"
+    },
+    {
+     "key": "typescript/animals.ts#4",
+     "kind": "method",
+     "name": "area",
+     "parent": "typescript/animals.ts#1",
+     "qualified_name": "typescript.animals.Shape.area",
+     "range": [
+      5,
+      2,
+      5,
+      16
+     ],
+     "signature": "area(): number"
+    },
+    {
+     "key": "typescript/animals.ts#5",
+     "kind": "field",
+     "name": "radius",
+     "parent": "typescript/animals.ts#2",
+     "qualified_name": "typescript.animals.Circle.radius",
+     "range": [
+      9,
+      2,
+      9,
+      16
+     ],
+     "signature": "radius: number"
+    },
+    {
+     "key": "typescript/animals.ts#6",
+     "kind": "field",
+     "name": "label",
+     "parent": "typescript/animals.ts#2",
+     "qualified_name": "typescript.animals.Circle.label",
+     "range": [
+      10,
+      2,
+      10,
+      29
+     ],
+     "signature": "private label: string = \"c\""
+    },
+    {
+     "key": "typescript/animals.ts#7",
+     "kind": "method",
+     "name": "constructor",
+     "parent": "typescript/animals.ts#2",
+     "qualified_name": "typescript.animals.Circle.constructor",
+     "range": [
+      12,
+      2,
+      15,
+      3
+     ],
+     "signature": "constructor(radius: number) {"
+    },
+    {
+     "key": "typescript/animals.ts#8",
+     "kind": "method",
+     "name": "area",
+     "parent": "typescript/animals.ts#2",
+     "qualified_name": "typescript.animals.Circle.area",
+     "range": [
+      17,
+      2,
+      19,
+      3
+     ],
+     "signature": "area(): number {"
+    },
+    {
+     "key": "typescript/animals.ts#9",
+     "kind": "method",
+     "name": "compute",
+     "parent": "typescript/animals.ts#2",
+     "qualified_name": "typescript.animals.Circle.compute",
+     "range": [
+      21,
+      2,
+      23,
+      3
+     ],
+     "signature": "private compute(): number {"
+    }
+   ],
+   "language": "typescript",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": "Shape",
+     "location": "typescript/animals.ts:8",
+     "resolver": "same_file_name",
+     "source": "typescript/animals.ts#2",
+     "symbol": null,
+     "target": "typescript/animals.ts#1",
+     "type": "implements"
+    },
+    {
+     "confidence": "exact",
+     "evidence": "this.compute",
+     "location": "typescript/animals.ts:18",
+     "resolver": "same_file_name",
+     "source": "typescript/animals.ts#8",
+     "symbol": null,
+     "target": "typescript/animals.ts#9",
+     "type": "calls"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:10",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#2",
+     "symbol": null,
+     "target": "typescript/animals.ts#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:10",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#6",
+     "symbol": null,
+     "target": "typescript/animals.ts#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:12",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#2",
+     "symbol": null,
+     "target": "typescript/animals.ts#7",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:12",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#7",
+     "symbol": null,
+     "target": "typescript/animals.ts#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:17",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#2",
+     "symbol": null,
+     "target": "typescript/animals.ts#8",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:17",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#8",
+     "symbol": null,
+     "target": "typescript/animals.ts#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:21",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#2",
+     "symbol": null,
+     "target": "typescript/animals.ts#9",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:21",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#9",
+     "symbol": null,
+     "target": "typescript/animals.ts#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:26",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#0",
+     "symbol": null,
+     "target": "typescript/animals.ts#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:26",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#3",
+     "symbol": null,
+     "target": "typescript/animals.ts#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:4",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#0",
+     "symbol": null,
+     "target": "typescript/animals.ts#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:4",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#1",
+     "symbol": null,
+     "target": "typescript/animals.ts#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:5",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#1",
+     "symbol": null,
+     "target": "typescript/animals.ts#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:5",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#4",
+     "symbol": null,
+     "target": "typescript/animals.ts#1",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:8",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#0",
+     "symbol": null,
+     "target": "typescript/animals.ts#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:8",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#2",
+     "symbol": null,
+     "target": "typescript/animals.ts#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:9",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#2",
+     "symbol": null,
+     "target": "typescript/animals.ts#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/animals.ts:9",
+     "resolver": "structural",
+     "source": "typescript/animals.ts#5",
+     "symbol": null,
+     "target": "typescript/animals.ts#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "./base",
+     "location": "typescript/animals.ts:1",
+     "resolver": "unresolved",
+     "source": "typescript/animals.ts#0",
+     "symbol": "/base",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "./foo",
+     "location": "typescript/animals.ts:2",
+     "resolver": "unresolved",
+     "source": "typescript/animals.ts#0",
+     "symbol": "/foo",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Component",
+     "location": "typescript/animals.ts:8",
+     "resolver": "unresolved",
+     "source": "typescript/animals.ts#2",
+     "symbol": "Component",
+     "target": null,
+     "type": "extends"
+    }
+   ]
+  },
+  "typescript/ui/view.tsx": {
+   "entities": [
+    {
+     "key": "typescript/ui/view.tsx#0",
+     "kind": "namespace",
+     "name": "view",
+     "parent": null,
+     "qualified_name": "typescript.ui.view",
+     "range": [
+      1,
+      0,
+      23,
+      0
+     ],
+     "signature": null
+    },
+    {
+     "key": "typescript/ui/view.tsx#1",
+     "kind": "interface",
+     "name": "Props",
+     "parent": "typescript/ui/view.tsx#0",
+     "qualified_name": "typescript.ui.view.Props",
+     "range": [
+      4,
+      0,
+      4,
+      32
+     ],
+     "signature": "interface Props { name: string }"
+    },
+    {
+     "key": "typescript/ui/view.tsx#2",
+     "kind": "class",
+     "name": "View",
+     "parent": "typescript/ui/view.tsx#0",
+     "qualified_name": "typescript.ui.view.View",
+     "range": [
+      6,
+      7,
+      18,
+      1
+     ],
+     "signature": "class View extends React.Component<Props> implements Renderable {"
+    },
+    {
+     "key": "typescript/ui/view.tsx#3",
+     "kind": "field",
+     "name": "title",
+     "parent": "typescript/ui/view.tsx#2",
+     "qualified_name": "typescript.ui.view.View.title",
+     "range": [
+      7,
+      2,
+      7,
+      24
+     ],
+     "signature": "@Input() title: string"
+    },
+    {
+     "key": "typescript/ui/view.tsx#4",
+     "kind": "method",
+     "name": "onClick",
+     "parent": "typescript/ui/view.tsx#2",
+     "qualified_name": "typescript.ui.view.View.onClick",
+     "range": [
+      10,
+      2,
+      13,
+      3
+     ],
+     "signature": "onClick(): void {"
+    },
+    {
+     "key": "typescript/ui/view.tsx#5",
+     "kind": "method",
+     "name": "render",
+     "parent": "typescript/ui/view.tsx#2",
+     "qualified_name": "typescript.ui.view.View.render",
+     "range": [
+      15,
+      2,
+      17,
+      3
+     ],
+     "signature": "render() {"
+    },
+    {
+     "key": "typescript/ui/view.tsx#6",
+     "kind": "function",
+     "name": "helper",
+     "parent": "typescript/ui/view.tsx#0",
+     "qualified_name": "typescript.ui.view.helper",
+     "range": [
+      20,
+      7,
+      22,
+      1
+     ],
+     "signature": "function helper(x: number): number {"
+    }
+   ],
+   "language": "tsx",
+   "relationships": [
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:10",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#2",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#4",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:10",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#4",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:15",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#2",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#5",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:15",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#5",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:20",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#0",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#6",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:20",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#6",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:4",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#0",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#1",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:4",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#1",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:6",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#0",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#2",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:6",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#2",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#0",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:7",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#2",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#3",
+     "type": "contains"
+    },
+    {
+     "confidence": "exact",
+     "evidence": null,
+     "location": "typescript/ui/view.tsx:7",
+     "resolver": "structural",
+     "source": "typescript/ui/view.tsx#3",
+     "symbol": null,
+     "target": "typescript/ui/view.tsx#2",
+     "type": "defined_in"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "../animals",
+     "location": "typescript/ui/view.tsx:2",
+     "resolver": "unresolved",
+     "source": "typescript/ui/view.tsx#0",
+     "symbol": "/animals",
+     "target": null,
+     "type": "imports"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "@HostListener(\"click\")",
+     "location": "typescript/ui/view.tsx:9",
+     "resolver": "unresolved",
+     "source": "typescript/ui/view.tsx#4",
+     "symbol": "HostListener",
+     "target": null,
+     "type": "references"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Dog",
+     "location": "typescript/ui/view.tsx:11",
+     "resolver": "name_only",
+     "source": "typescript/ui/view.tsx#4",
+     "symbol": null,
+     "target": "csharp/Animals.cs#2",
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "HostListener",
+     "location": "typescript/ui/view.tsx:9",
+     "resolver": "unresolved",
+     "source": "typescript/ui/view.tsx#2",
+     "symbol": "HostListener",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Input",
+     "location": "typescript/ui/view.tsx:7",
+     "resolver": "unresolved",
+     "source": "typescript/ui/view.tsx#3",
+     "symbol": "Input",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Math.max",
+     "location": "typescript/ui/view.tsx:21",
+     "resolver": "unresolved",
+     "source": "typescript/ui/view.tsx#6",
+     "symbol": "max",
+     "target": null,
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "React.Component",
+     "location": "typescript/ui/view.tsx:6",
+     "resolver": "unresolved",
+     "source": "typescript/ui/view.tsx#2",
+     "symbol": "Component",
+     "target": null,
+     "type": "extends"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "Renderable",
+     "location": "typescript/ui/view.tsx:6",
+     "resolver": "unresolved",
+     "source": "typescript/ui/view.tsx#2",
+     "symbol": "Renderable",
+     "target": null,
+     "type": "implements"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "d.bark",
+     "location": "typescript/ui/view.tsx:12",
+     "resolver": "name_only",
+     "source": "typescript/ui/view.tsx#4",
+     "symbol": null,
+     "target": "java/Animals.java#8",
+     "type": "calls"
+    },
+    {
+     "confidence": "medium",
+     "evidence": "react",
+     "location": "typescript/ui/view.tsx:1",
+     "resolver": "unresolved",
+     "source": "typescript/ui/view.tsx#0",
+     "symbol": "react",
+     "target": null,
+     "type": "imports"
+    }
+   ]
+  }
+ }
+}

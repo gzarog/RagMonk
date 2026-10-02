@@ -77,11 +77,19 @@ impl Processor for RawProcessor {
     }
 }
 
+/// Whole-build work that runs on the writer after every file of a build is
+/// written and before it is published (e.g. cross-file reference
+/// resolution). An error aborts the build; the previous build stays visible.
+pub trait BuildFinalizer: Send + Sync {
+    fn finalize(&self, store: &mut ProjectStore, build_id: &str) -> Result<(), ProcessError>;
+}
+
 /// Processors per file kind plus the versions they produce.
 pub struct Registry {
     pub code: Arc<dyn Processor>,
     pub document: Arc<dyn Processor>,
     pub unknown: Arc<dyn Processor>,
+    pub finalizers: Vec<Arc<dyn BuildFinalizer>>,
     pub versions: IndexVersions,
 }
 
@@ -92,6 +100,7 @@ impl Registry {
             code: raw.clone(),
             document: raw.clone(),
             unknown: raw,
+            finalizers: Vec::new(),
             versions: IndexVersions {
                 schema_version: V2_SCHEMA_VERSION,
                 parser_version: "raw-1".into(),
@@ -253,11 +262,14 @@ fn file_row(
     }
 }
 
+/// Most files the writer commits in one transaction.
+const WRITE_BATCH: usize = 64;
+
 fn run_workers(
     items: Vec<Work>,
     workers: usize,
     registry: &Registry,
-    mut on_done: impl FnMut(Done) -> Result<(), RagMonkError>,
+    mut on_done: impl FnMut(Vec<Done>) -> Result<(), RagMonkError>,
 ) -> Result<(), RagMonkError> {
     let bound = workers.saturating_mul(2).max(1);
     let (work_tx, work_rx) = sync_channel::<Work>(bound);
@@ -303,11 +315,20 @@ fn run_workers(
                 }
             }
         });
-        for done in done_rx {
+        // The writer takes whatever results are already waiting (bounded by
+        // the channel and WRITE_BATCH) and commits them in one transaction.
+        while let Ok(first) = done_rx.recv() {
+            let mut batch = vec![first];
+            while batch.len() < WRITE_BATCH {
+                match done_rx.try_recv() {
+                    Ok(d) => batch.push(d),
+                    Err(_) => break,
+                }
+            }
             if first_err.is_some() {
                 continue;
             }
-            if let Err(e) = on_done(done) {
+            if let Err(e) = on_done(batch) {
                 cancel.store(true, Ordering::Relaxed);
                 first_err = Some(e);
             }
@@ -411,10 +432,25 @@ pub fn run_source(
         }
     }
 
-    let build_id = v2::build_id(&source.id, &format!("{}-{}", now, std::process::id()));
-    let full = matches!(plan, RebuildPlan::Full { .. });
+    // Every build runs inside one SQLite transaction (a session), so each
+    // B-tree page is written about once and a failure or crash rolls the
+    // whole build back. A full rebuild writes a new build next to the
+    // visible one and switches over at publish; an incremental pass updates
+    // the active build in place, and readers keep the committed state until
+    // COMMIT. Incomplete work is never visible either way.
+    let (build_id, full) = match &plan {
+        RebuildPlan::Full { .. } => (
+            v2::build_id(&source.id, &format!("{}-{}", now, std::process::id())),
+            true,
+        ),
+        RebuildPlan::Incremental { active_build_id } => (active_build_id.clone(), false),
+    };
     control.begin_build(&source.id, &build_id).map_err(db_err)?;
     result.build_id = Some(build_id.clone());
+    if let Err(e) = store.begin_session() {
+        let _ = control.abort_build(&source.id, &build_id, &e.to_string());
+        return Err(db_err(e));
+    }
     let outcome = build(
         &mut store,
         &build_id,
@@ -428,22 +464,43 @@ pub fn run_source(
         progress,
         &mut result,
     );
-    match outcome {
-        Ok(()) => {
-            let started = Instant::now();
+    let outcome = outcome.and_then(|()| {
+        let started = Instant::now();
+        if full {
+            // Committed but still invisible: the control plane points at the
+            // previous build until publish_build switches it.
+            store.commit_session().map_err(db_err)?;
             control
                 .publish_build(&source.id, &build_id, &registry.versions, full)
                 .map_err(db_err)?;
             store.mark_published(&build_id).map_err(db_err)?;
             store.gc_builds(Some(&build_id)).map_err(db_err)?;
-            result.timings.publish_seconds = started.elapsed().as_secs_f64();
+        } else {
+            store.touch_build(&build_id).map_err(db_err)?;
+            store.commit_session().map_err(db_err)?;
+            // Already committed and consistent: if this fails or the process
+            // dies here, the next pass diffs against the updated build.
+            control
+                .publish_build(&source.id, &build_id, &registry.versions, full)
+                .map_err(db_err)?;
+        }
+        result.timings.publish_seconds = started.elapsed().as_secs_f64();
+        Ok(())
+    });
+    match outcome {
+        Ok(()) => {
             result.published = true;
             Ok(result)
         }
         Err(e) => {
             let _ = control.abort_build(&source.id, &build_id, e.message());
-            let _ = store.mark_aborted(&build_id);
-            let _ = store.gc_builds(state.active_build_id.as_deref());
+            if store.in_session() {
+                let _ = store.rollback_session();
+            } else if full {
+                // Failed after the build was committed (publish step).
+                let _ = store.mark_aborted(&build_id);
+                let _ = store.gc_builds(state.active_build_id.as_deref());
+            }
             Err(e)
         }
     }
@@ -463,12 +520,15 @@ fn build(
     progress: &mut dyn Progress,
     result: &mut SourceResult,
 ) -> Result<(), RagMonkError> {
-    store
-        .create_build(build_id, full, &registry.versions)
-        .map_err(db_err)?;
+    if full {
+        store
+            .create_build(build_id, full, &registry.versions)
+            .map_err(db_err)?;
+    }
     if let RebuildPlan::Incremental { active_build_id } = plan {
-        // One set-based copy of the active build minus every file that is
-        // reprocessed, deleted or moved away.
+        debug_assert_eq!(active_build_id, build_id);
+        // In place: drop deleted and moved-away files, refresh restat-only
+        // stats; reprocessed files replace their own rows when written.
         let mut exclude = Vec::new();
         let mut restat = Vec::new();
         for dec in decisions {
@@ -480,11 +540,12 @@ fn build(
                         restat.push((prev.id.clone(), sf.size, sf.mtime));
                     }
                 }
-                Change::Changed | Change::Deleted => {
+                Change::Deleted => {
                     if let Some(prev) = &dec.prev {
                         exclude.push(prev.id.clone());
                     }
                 }
+                Change::Changed => {}
                 Change::Moved => {
                     if let Some(old) = &dec.moved_from {
                         exclude.push(old.id.clone());
@@ -493,9 +554,14 @@ fn build(
                 Change::New => {}
             }
         }
-        store
-            .carry_forward_except(active_build_id, build_id, &exclude, &restat)
-            .map_err(db_err)?;
+        for file_id in &exclude {
+            store.remove_file(build_id, file_id).map_err(db_err)?;
+        }
+        for (file_id, size, mtime) in &restat {
+            store
+                .set_file_stat(build_id, file_id, *size, *mtime)
+                .map_err(db_err)?;
+        }
     }
     progress.event(&ProgressEvent::Stage {
         source_id: source_id.into(),
@@ -524,57 +590,72 @@ fn build(
         })
         .collect();
     let mut done = 0usize;
-    run_workers(items, opts.workers, registry, |d| {
-        let versions = &registry.versions;
-        let (row, knowledge) = match d.outcome {
-            Ok(_) if d.work.skip_limit => {
-                result.skipped_limit += 1;
-                (
-                    file_row(&d.work, versions, "skipped_limit", 0, None, None),
-                    FileKnowledge::default(),
-                )
-            }
-            Ok(k) => {
-                result.indexed += 1;
-                (file_row(&d.work, versions, "indexed", 0, None, None), k)
-            }
-            Err(e) => {
-                let attempts = d.work.prev_attempts + 1;
-                let permanent = !e.transient || retry::is_permanent(attempts);
-                let (status, next) = if permanent {
-                    result.failed += 1;
-                    ("failed", None)
-                } else {
-                    result.retrying += 1;
+    run_workers(items, opts.workers, registry, |batch| {
+        let mut rows = Vec::with_capacity(batch.len());
+        for d in batch {
+            let versions = &registry.versions;
+            let (row, knowledge) = match d.outcome {
+                Ok(_) if d.work.skip_limit => {
+                    result.skipped_limit += 1;
                     (
-                        "retry",
-                        Some(retry::next_attempt_at(attempts, chrono::Utc::now())),
+                        file_row(&d.work, versions, "skipped_limit", 0, None, None),
+                        FileKnowledge::default(),
                     )
-                };
-                store
-                    .record_error(
-                        Some(build_id),
-                        Some(&d.work.input.file_id),
-                        Some(&d.work.input.rel_path),
-                        &e.code,
-                        &e.message,
+                }
+                Ok(k) => {
+                    result.indexed += 1;
+                    (file_row(&d.work, versions, "indexed", 0, None, None), k)
+                }
+                Err(e) => {
+                    let attempts = d.work.prev_attempts + 1;
+                    let permanent = !e.transient || retry::is_permanent(attempts);
+                    let (status, next) = if permanent {
+                        result.failed += 1;
+                        ("failed", None)
+                    } else {
+                        result.retrying += 1;
+                        (
+                            "retry",
+                            Some(retry::next_attempt_at(attempts, chrono::Utc::now())),
+                        )
+                    };
+                    store
+                        .record_error(
+                            Some(build_id),
+                            Some(&d.work.input.file_id),
+                            Some(&d.work.input.rel_path),
+                            &e.code,
+                            &e.message,
+                        )
+                        .map_err(db_err)?;
+                    (
+                        file_row(&d.work, versions, status, attempts, next, Some(e.message)),
+                        FileKnowledge::default(),
                     )
-                    .map_err(db_err)?;
-                (
-                    file_row(&d.work, versions, status, attempts, next, Some(e.message)),
-                    FileKnowledge::default(),
-                )
-            }
-        };
-        store.put_file(build_id, &row, &knowledge).map_err(db_err)?;
-        done += 1;
-        progress.event(&ProgressEvent::FileDone {
-            source_id: source_id.into(),
-            done,
-            total,
-        });
+                }
+            };
+            rows.push((row, knowledge));
+        }
+        let refs: Vec<(&FileRow, &FileKnowledge)> = rows.iter().map(|(r, k)| (r, k)).collect();
+        store.put_files(build_id, &refs).map_err(db_err)?;
+        for _ in &rows {
+            done += 1;
+            progress.event(&ProgressEvent::FileDone {
+                source_id: source_id.into(),
+                done,
+                total,
+            });
+        }
         Ok(())
     })?;
+    for finalizer in &registry.finalizers {
+        finalizer.finalize(store, build_id).map_err(|e| {
+            RagMonkError::new(
+                ErrorKind::Generic,
+                format!("build finalization failed ({}): {}", e.code, e.message),
+            )
+        })?;
+    }
     result.timings.process_seconds = started.elapsed().as_secs_f64();
     Ok(())
 }

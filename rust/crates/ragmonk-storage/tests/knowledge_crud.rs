@@ -61,6 +61,7 @@ fn code_knowledge(f: &FileRow, name: &str) -> FileKnowledge {
         signature: Some(format!("def {n}()")),
         start_line: line,
         end_line: line + 1,
+        ..EntityRow::default()
     };
     FileKnowledge {
         entities: vec![entity(&caller, name, 1), entity(&callee, "helper", 5)],
@@ -75,6 +76,7 @@ fn code_knowledge(f: &FileRow, name: &str) -> FileKnowledge {
             confidence: "exact".into(),
             source_location: Some(format!("{}:2", f.rel_path)),
             evidence: Some("helper()".into()),
+            reference_text: Some("helper".into()),
         }],
         ..FileKnowledge::default()
     }
@@ -325,7 +327,7 @@ fn migration_from_v1_schema_backs_up_and_adds_retry_columns() {
         .unwrap();
     }
     let (store, applied) = ProjectStore::open(&layout, "p", "s", 8).unwrap();
-    assert_eq!((applied.from, applied.to), (1, 2));
+    assert_eq!((applied.from, applied.to), (1, 3));
     assert!(
         applied.backup.is_some(),
         "existing data is backed up before migrating"
@@ -338,12 +340,15 @@ fn migration_from_v1_schema_backs_up_and_adds_retry_columns() {
     let cols: i64 = store
         .connection()
         .query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('files') WHERE name IN ('attempt_count', 'next_attempt_at')",
+            "SELECT (SELECT COUNT(*) FROM pragma_table_info('files')
+                     WHERE name IN ('attempt_count', 'next_attempt_at'))
+                  + (SELECT COUNT(*) FROM pragma_table_info('relationships')
+                     WHERE name = 'reference_text')",
             [],
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(cols, 2);
+    assert_eq!(cols, 3);
 }
 
 #[test]
@@ -382,4 +387,61 @@ fn set_based_carry_forward_copies_everything_but_excluded_files() {
     let files = store.files("b2").unwrap();
     let ra = files.iter().find(|f| f.id == a.id).unwrap();
     assert_eq!((ra.size, ra.mtime), (99, 9.5));
+}
+
+#[test]
+fn migration_to_v3_rekeys_lexical_rows_and_keeps_search_working() {
+    use ragmonk_storage::migrate;
+    use ragmonk_storage::schema::KNOWLEDGE_MIGRATIONS;
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = V2Layout::new(&Home::new(tmp.path()));
+    // A schema-v2 database whose FTS rowids do not match the base rows.
+    {
+        let mut conn = ragmonk_storage::db::open(&layout.project_db("p"), 8).unwrap();
+        migrate::apply(
+            &mut conn,
+            "knowledge-p",
+            &KNOWLEDGE_MIGRATIONS[..2],
+            layout.migration_backups(),
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO builds (id, source_id, kind, status, versions, started_at)
+                VALUES ('b', 's', 'full', 'published', '{}', 't');
+             INSERT INTO files (id, source_id, rel_path, kind, size, mtime, status, build_id,
+                created_at, updated_at) VALUES ('f1', 's', 'src/alpha_module.py', 'code', 1, 1.0,
+                'indexed', 'b', 't', 't');
+             INSERT INTO path_fts (rowid, file_id, build_id, path) VALUES (999, 'f1', 'b', 'src/alpha_module.py');
+             INSERT INTO entities (id, build_id, file_id, kind, name, qualified_name, language,
+                start_line, end_line) VALUES ('e1', 'b', 'f1', 'function', 'alpha_fn', 'm.alpha_fn',
+                'python', 1, 2);
+             INSERT INTO code_fts (rowid, entity_id, build_id, name, qualified_name, signature)
+                VALUES (777, 'e1', 'b', 'alpha_fn', 'm.alpha_fn', 'def alpha_fn()');",
+        )
+        .unwrap();
+    }
+    let (mut store, applied) = ProjectStore::open(&layout, "p", "s", 8).unwrap();
+    assert_eq!((applied.from, applied.to), (2, 3));
+    assert!(applied.backup.is_some());
+    assert_eq!(
+        store.search_paths("b", "alpha_module", 5).unwrap()[0].id,
+        "f1"
+    );
+    assert_eq!(store.search_code("b", "alpha_fn", 5).unwrap()[0].id, "e1");
+    let aligned: i64 = store
+        .connection()
+        .query_row(
+            "SELECT COUNT(*) FROM code_fts c JOIN entities e ON e.rowid = c.rowid AND e.id = c.entity_id",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(aligned, 1);
+    // Per-file deletes now find the lexical rows by rowid.
+    store.remove_file("b", "f1").unwrap();
+    assert!(store
+        .search_paths("b", "alpha_module", 5)
+        .unwrap()
+        .is_empty());
+    assert!(store.search_code("b", "alpha_fn", 5).unwrap().is_empty());
 }
