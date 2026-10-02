@@ -385,6 +385,9 @@ impl ServerBackend {
     }
 
     fn delete_by_query(&self, query: &Value) -> Result<u64> {
+        // Delete-by-query only matches refreshed documents; make recent
+        // bulk writes visible first so none survive the delete.
+        self.refresh_build_indexes()?;
         let names: Vec<String> = IndexKind::BUILD_SCOPED
             .iter()
             .map(|k| self.index(*k))
