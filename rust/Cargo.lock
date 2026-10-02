@@ -562,7 +562,9 @@ dependencies = [
  "clap",
  "ragmonk-config",
  "ragmonk-core",
+ "ragmonk-storage",
  "ragmonk-telemetry",
+ "serde",
  "serde_json",
  "tempfile",
 ]
@@ -603,6 +605,19 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "ragmonk-storage"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "ragmonk-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
 ]

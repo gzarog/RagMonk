@@ -57,12 +57,20 @@ fn config_loading_matches_python() {
         };
         let actual = match load_config(&opts) {
             Ok(cfg) => Ok(dump_yaml(&cfg)),
-            Err(e) => Err((
-                e.message()
+            Err(e) => {
+                let mut msg = e
+                    .message()
                     .replace(&home.display().to_string(), "<HOME>")
-                    .replace(&cwd.display().to_string(), "<CWD>"),
-                e.exit_code(),
-            )),
+                    .replace(&cwd.display().to_string(), "<CWD>");
+                // Fixtures were generated on POSIX; Python on Windows prints
+                // `\` separators exactly like this port does.
+                if cfg!(windows) {
+                    msg = msg
+                        .replace("<HOME>\\", "<HOME>/")
+                        .replace("<CWD>\\", "<CWD>/");
+                }
+                Err((msg, e.exit_code()))
+            }
         };
         let expected = &case["expected"];
         let ok = match (known_divergence(name), &actual) {

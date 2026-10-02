@@ -5,6 +5,7 @@ members = [
     "crates/ragmonk-compat",
     "crates/ragmonk-config",
     "crates/ragmonk-core",
+    "crates/ragmonk-storage",
     "crates/ragmonk-telemetry",
 ]
 
@@ -28,6 +29,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 dunce = "1"
 ragmonk-config = { path = "crates/ragmonk-config" }
 ragmonk-core = { path = "crates/ragmonk-core" }
+ragmonk-storage = { path = "crates/ragmonk-storage" }
 ragmonk-telemetry = { path = "crates/ragmonk-telemetry" }
 clap = { version = "4.5", features = ["derive"] }
 regex = "1"

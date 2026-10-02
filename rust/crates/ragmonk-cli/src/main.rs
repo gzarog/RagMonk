@@ -38,6 +38,24 @@ enum Command {
     /// Inspect and edit configuration.
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Prepare the Rust V2 control plane from a Python-era home.
+    #[command(name = "migrate-to-rust-v2")]
+    MigrateToRustV2(MigrateArgs),
+}
+
+#[derive(clap::Args)]
+#[command(group(clap::ArgGroup::new("action").required(true).args(["check", "import_sources"])))]
+struct MigrateArgs {
+    /// Read-only report: preserved source/config definitions, ignored V1
+    /// index-derived state and what an import would write.
+    #[arg(long)]
+    check: bool,
+    /// Import V1 source definitions into the V2 control plane and mark
+    /// every source for a full V2 rebuild. Never modifies or deletes V1 data.
+    #[arg(long = "import-sources")]
+    import_sources: bool,
+    #[arg(long = "json")]
+    json: bool,
 }
 
 #[derive(Subcommand)]
@@ -94,6 +112,61 @@ fn load(home: &Home) -> Result<ragmonk_config::RagMonkConfig, RagMonkError> {
     })
 }
 
+fn print_json(data: &impl serde::Serialize) -> Result<(), RagMonkError> {
+    let envelope = serde_json::json!({ "schema_version": SCHEMA_VERSION, "data": data });
+    let text = serde_json::to_string_pretty(&envelope)
+        .map_err(|e| RagMonkError::new(ragmonk_core::ErrorKind::Generic, e.to_string()))?;
+    println!("{text}");
+    Ok(())
+}
+
+fn print_preflight(r: &ragmonk_storage::preflight::PreflightReport) {
+    println!("RagMonk home: {}", r.home);
+    println!(
+        "Python V1 sources.db: {}",
+        if r.v1_sources_db_present {
+            "present"
+        } else {
+            "absent"
+        }
+    );
+    println!(
+        "Rust V2 control plane: {} ({})",
+        r.v2_control_db,
+        if r.v2_control_present {
+            "present"
+        } else {
+            "will be created"
+        }
+    );
+    println!("Sources ({}):", r.sources.len());
+    for s in &r.sources {
+        let ignored: i64 = s.ignored_v1_state.tables.iter().map(|(_, n)| n).sum();
+        println!(
+            "  {} {} [{}{}] -> {}; ignoring {} V1 index row(s)",
+            s.id,
+            s.path,
+            if s.enabled { "enabled" } else { "disabled" },
+            if s.path_exists { "" } else { ", path missing" },
+            s.v2_action,
+            ignored
+        );
+    }
+    println!("Preserved:");
+    for p in &r.preserved {
+        println!("  - {p}");
+    }
+    println!("Ignored (never read by Rust V2):");
+    for p in &r.ignored {
+        println!("  - {p}");
+    }
+    println!("An import would write:");
+    for w in &r.writes {
+        println!("  - {w}");
+    }
+    println!("Nothing is deleted; Python V1 files are left untouched.");
+}
+
 fn run(cli: Cli) -> Result<(), RagMonkError> {
     match cli.command {
         Command::Version { json } => {
@@ -121,6 +194,37 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
             let path = write_user_config(&updated, &home)
                 .map_err(|e| RagMonkError::new(ragmonk_core::ErrorKind::Generic, e.to_string()))?;
             println!("Set {key} = {} in {}", py_repr(&stored), path.display());
+        }
+        Command::MigrateToRustV2(args) => {
+            let home = Home::discover();
+            if args.check {
+                let report = ragmonk_storage::preflight::preflight(&home)?;
+                if args.json {
+                    print_json(&report)?;
+                } else {
+                    print_preflight(&report);
+                }
+            } else {
+                let home = prepared_home()?;
+                let cache = load(&home)?.runtime.sqlite_cache_size_mb;
+                let result = ragmonk_storage::preflight::import_sources(&home, cache)?;
+                if args.json {
+                    print_json(&result)?;
+                } else {
+                    println!(
+                        "Imported {} source definition(s); {} already present.",
+                        result.imported.len(),
+                        result.already_present.len()
+                    );
+                    if let Some(b) = &result.control_backup {
+                        println!("Backed up the V2 control plane to {b}");
+                    }
+                    println!(
+                        "{} source(s) require a full Rust V2 rebuild.",
+                        result.needs_full_rebuild.len()
+                    );
+                }
+            }
         }
     }
     Ok(())

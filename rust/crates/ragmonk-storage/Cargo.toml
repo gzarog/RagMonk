@@ -1,24 +1,19 @@
 [package]
-name = "ragmonk-cli"
-description = "RagMonk native CLI (Rust rewrite; RUST-00 skeleton, not yet a production replacement)"
+name = "ragmonk-storage"
+description = "RagMonk V2 SQLite control plane, project knowledge schema, migrations and V1 preflight"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-[[bin]]
-name = "ragmonk"
-path = "src/main.rs"
-
 [dependencies]
-clap.workspace = true
-ragmonk-config.workspace = true
+chrono.workspace = true
 ragmonk-core.workspace = true
-ragmonk-storage.workspace = true
-ragmonk-telemetry.workspace = true
+rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
