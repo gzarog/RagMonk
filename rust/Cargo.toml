@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/ragmonk-backends",
     "crates/ragmonk-cli",
     "crates/ragmonk-compat",
     "crates/ragmonk-config",
@@ -25,6 +26,7 @@ todo = "deny"
 
 [workspace.dependencies]
 anyhow = "1"
+ragmonk-backends = { path = "crates/ragmonk-backends" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 dunce = "1"
 ragmonk-config = { path = "crates/ragmonk-config" }
@@ -33,6 +35,7 @@ ragmonk-storage = { path = "crates/ragmonk-storage" }
 ragmonk-telemetry = { path = "crates/ragmonk-telemetry" }
 clap = { version = "4.5", features = ["derive"] }
 regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
