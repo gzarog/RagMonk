@@ -115,7 +115,7 @@ jobs:
         env:
           # Highest merged rewrite phase; every manifest step it (or an
           # earlier phase) owns must match the Python reference.
-          RUST_PHASE: RUST-01
+          RUST_PHASE: RUST-02
       # Informational: the RUST-01 golden fixtures must still reflect the
       # Python reference (pydantic/PyYAML are not locked, so drift is
       # reported rather than failing the job).
