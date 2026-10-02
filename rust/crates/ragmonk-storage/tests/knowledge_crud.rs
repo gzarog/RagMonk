@@ -43,6 +43,7 @@ fn file(source: &str, rel: &str, hash: &str) -> FileRow {
         embedding_model_id: Some("m".into()),
         embedding_text_version: Some("e".into()),
         last_error: None,
+        ..FileRow::default()
     }
 }
 
@@ -298,4 +299,87 @@ fn jobs_claim_retry_fail_and_recover() {
     store
         .record_error(Some("b"), Some("f2"), Some("b.py"), "E", "fatal")
         .unwrap();
+}
+
+#[test]
+fn migration_from_v1_schema_backs_up_and_adds_retry_columns() {
+    use ragmonk_storage::migrate;
+    use ragmonk_storage::schema::KNOWLEDGE_MIGRATIONS;
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = V2Layout::new(&Home::new(tmp.path()));
+    // A database created by the RUST-02 build (schema version 1) with data.
+    {
+        let mut conn = ragmonk_storage::db::open(&layout.project_db("p"), 8).unwrap();
+        migrate::apply(
+            &mut conn,
+            "knowledge-p",
+            &KNOWLEDGE_MIGRATIONS[..1],
+            layout.migration_backups(),
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO builds (id, source_id, kind, status, versions, started_at)
+             VALUES ('b', 's', 'full', 'published', '{}', 't')",
+            [],
+        )
+        .unwrap();
+    }
+    let (store, applied) = ProjectStore::open(&layout, "p", "s", 8).unwrap();
+    assert_eq!((applied.from, applied.to), (1, 2));
+    assert!(
+        applied.backup.is_some(),
+        "existing data is backed up before migrating"
+    );
+    let builds: i64 = store
+        .connection()
+        .query_row("SELECT COUNT(*) FROM builds", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(builds, 1);
+    let cols: i64 = store
+        .connection()
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('files') WHERE name IN ('attempt_count', 'next_attempt_at')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(cols, 2);
+}
+
+#[test]
+fn set_based_carry_forward_copies_everything_but_excluded_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = V2Layout::new(&Home::new(tmp.path()));
+    let (mut store, _) = ProjectStore::open(&layout, "p", "s", 8).unwrap();
+    store.create_build("b1", true, &versions()).unwrap();
+    let a = file("s", "a.py", "1");
+    let b = file("s", "b.py", "2");
+    let mail = file("s", "m.eml", "3");
+    store
+        .put_file("b1", &a, &code_knowledge(&a, "alpha"))
+        .unwrap();
+    store
+        .put_file("b1", &b, &code_knowledge(&b, "bravo"))
+        .unwrap();
+    store
+        .put_file("b1", &mail, &email_knowledge(&mail))
+        .unwrap();
+    store.create_build("b2", false, &versions()).unwrap();
+    let n = store
+        .carry_forward_except(
+            "b1",
+            "b2",
+            std::slice::from_ref(&b.id),
+            &[(a.id.clone(), 99, 9.5)],
+        )
+        .unwrap();
+    assert_eq!(n, 2);
+    assert_eq!(store.count("entities", "b2").unwrap(), 2);
+    assert_eq!(store.count("documents", "b2").unwrap(), 2);
+    assert_eq!(store.search_code("b2", "alpha", 5).unwrap().len(), 1);
+    assert!(store.search_code("b2", "bravo", 5).unwrap().is_empty());
+    assert_eq!(store.search_chunks("b2", "zebra", 5).unwrap().len(), 1);
+    let files = store.files("b2").unwrap();
+    let ra = files.iter().find(|f| f.id == a.id).unwrap();
+    assert_eq!((ra.size, ra.mtime), (99, 9.5));
 }

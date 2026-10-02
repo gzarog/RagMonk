@@ -184,6 +184,7 @@ fn unpublished_v2_state_never_suppresses_a_full_rebuild() {
         embedding_model_id: None,
         embedding_text_version: None,
         last_error: None,
+        ..FileRow::default()
     };
     store
         .put_file("crashed", &file, &FileKnowledge::default())

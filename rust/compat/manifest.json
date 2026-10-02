@@ -40,7 +40,7 @@
         {"id": "source-add", "args": ["source", "add", "{source}"], "output": "text",
          "capture": {"name": "source_id", "regex": "(src_[0-9a-f]+)"}, "rust_phase": "RUST-12"},
         {"id": "index", "args": ["index"], "output": "text", "rust_phase": "RUST-12"},
-        {"id": "reindex-unchanged", "args": ["index"], "output": "text", "rust_phase": "RUST-04"},
+        {"id": "reindex-unchanged", "args": ["index"], "output": "text", "rust_phase": "RUST-12"},
         {"id": "status", "args": ["status", "--json"], "rust_phase": "RUST-11"},
         {"id": "search-bark", "args": ["search", "bark", "--json"], "rust_phase": "RUST-10"},
         {"id": "symbol-dog", "args": ["symbol", "Dog", "--json"], "rust_phase": "RUST-10"},

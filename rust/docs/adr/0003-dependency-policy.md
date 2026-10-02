@@ -14,7 +14,7 @@ Status: accepted (RUST-00)
 * TLS uses rustls; no OpenSSL requirement.
 * `Cargo.lock` is committed (the workspace ships binaries).
 * Toolchain is pinned by `rust/rust-toolchain.toml` (1.90.0); MSRV is the
-  workspace `rust-version` (1.88, raised from 1.85 in RUST-01 for `yaml-rust2`).
+  workspace `rust-version` (1.89: raised from 1.85 in RUST-01 for `yaml-rust2`, then to 1.89 in RUST-04 for `std::fs::File::try_lock`).
 * Python packages may be used only by migration/test tooling (the compat
   harness drives the Python reference as a subprocess) and never by the
   production runtime.

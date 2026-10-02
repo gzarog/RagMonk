@@ -6,6 +6,7 @@ members = [
     "crates/ragmonk-compat",
     "crates/ragmonk-config",
     "crates/ragmonk-core",
+    "crates/ragmonk-indexing",
     "crates/ragmonk-storage",
     "crates/ragmonk-telemetry",
 ]
@@ -13,7 +14,7 @@ members = [
 [workspace.package]
 version = "0.0.0"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.89"
 license = "MIT"
 publish = false
 
@@ -31,6 +32,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 dunce = "1"
 ragmonk-config = { path = "crates/ragmonk-config" }
 ragmonk-core = { path = "crates/ragmonk-core" }
+ragmonk-indexing = { path = "crates/ragmonk-indexing" }
 ragmonk-storage = { path = "crates/ragmonk-storage" }
 ragmonk-telemetry = { path = "crates/ragmonk-telemetry" }
 clap = { version = "4.5", features = ["derive"] }

@@ -136,7 +136,7 @@ impl RagMonkError {
 
 /// Untrusted owner metadata read from a lock file. `present` distinguishes
 /// Python's empty dict (no owner record) from a record whose fields are null.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct LockOwner {
     pub present: bool,
     pub pid: Option<String>,

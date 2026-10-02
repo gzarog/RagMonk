@@ -1,0 +1,156 @@
+{
+  "files": 500,
+  "implementation": "rust",
+  "phase": "RUST-04",
+  "plan_id": "ragmonk-full-rust-rewrite-v3-clean-slate",
+  "processing": "raw (scan/diff/hash/storage/publication only)",
+  "scenarios": [
+    {
+      "counts": {
+        "changed": 0,
+        "deleted": 0,
+        "hash_calls": 525,
+        "moved": 0,
+        "new": 525,
+        "scanned": 525,
+        "unchanged": 0,
+        "unseen_kept": 0
+      },
+      "scenario": "cold_index",
+      "timings": {
+        "classify_seconds": 0.016211557,
+        "hash_calls": 525,
+        "process_seconds": 0.233073047,
+        "publish_seconds": 0.000129117,
+        "scan_seconds": 0.007124106
+      },
+      "wall_time_s": 0.272767078
+    },
+    {
+      "counts": {
+        "changed": 0,
+        "deleted": 0,
+        "hash_calls": 0,
+        "moved": 0,
+        "new": 0,
+        "scanned": 525,
+        "unchanged": 525,
+        "unseen_kept": 0
+      },
+      "scenario": "warm_unchanged",
+      "timings": {
+        "classify_seconds": 0.001879356,
+        "hash_calls": 0,
+        "process_seconds": 0.0,
+        "publish_seconds": 0.0,
+        "scan_seconds": 0.010053678
+      },
+      "wall_time_s": 0.015305642
+    },
+    {
+      "counts": {
+        "changed": 1,
+        "deleted": 0,
+        "hash_calls": 1,
+        "moved": 0,
+        "new": 0,
+        "scanned": 525,
+        "unchanged": 524,
+        "unseen_kept": 0
+      },
+      "scenario": "single_edit",
+      "timings": {
+        "classify_seconds": 0.001358977,
+        "hash_calls": 1,
+        "process_seconds": 0.001098783,
+        "publish_seconds": 0.002401739,
+        "scan_seconds": 0.007009699
+      },
+      "wall_time_s": 0.028182071
+    },
+    {
+      "counts": {
+        "changed": 5,
+        "deleted": 0,
+        "hash_calls": 5,
+        "moved": 0,
+        "new": 0,
+        "scanned": 525,
+        "unchanged": 520,
+        "unseen_kept": 0
+      },
+      "scenario": "one_percent_change",
+      "timings": {
+        "classify_seconds": 0.001864731,
+        "hash_calls": 5,
+        "process_seconds": 0.002279328,
+        "publish_seconds": 0.002445538,
+        "scan_seconds": 0.00672325
+      },
+      "wall_time_s": 0.030219767
+    },
+    {
+      "counts": {
+        "changed": 25,
+        "deleted": 0,
+        "hash_calls": 25,
+        "moved": 0,
+        "new": 0,
+        "scanned": 525,
+        "unchanged": 500,
+        "unseen_kept": 0
+      },
+      "scenario": "burst_change",
+      "timings": {
+        "classify_seconds": 0.001930919,
+        "hash_calls": 25,
+        "process_seconds": 0.008630322,
+        "publish_seconds": 0.00272055,
+        "scan_seconds": 0.006751624
+      },
+      "wall_time_s": 0.039523685
+    },
+    {
+      "counts": {
+        "changed": 0,
+        "deleted": 0,
+        "hash_calls": 1,
+        "moved": 1,
+        "new": 0,
+        "scanned": 525,
+        "unchanged": 525,
+        "unseen_kept": 0
+      },
+      "scenario": "rename",
+      "timings": {
+        "classify_seconds": 0.001354622,
+        "hash_calls": 1,
+        "process_seconds": 0.000906535,
+        "publish_seconds": 0.00220726,
+        "scan_seconds": 0.006577396
+      },
+      "wall_time_s": 0.026007422
+    },
+    {
+      "counts": {
+        "changed": 0,
+        "deleted": 1,
+        "hash_calls": 0,
+        "moved": 0,
+        "new": 0,
+        "scanned": 524,
+        "unchanged": 524,
+        "unseen_kept": 0
+      },
+      "scenario": "delete",
+      "timings": {
+        "classify_seconds": 0.001195289,
+        "hash_calls": 0,
+        "process_seconds": 0.000322305,
+        "publish_seconds": 0.002467391,
+        "scan_seconds": 0.006795865
+      },
+      "wall_time_s": 0.025783667
+    }
+  ]
+}

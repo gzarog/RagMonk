@@ -1039,6 +1039,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ragmonk-indexing"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "ragmonk-config",
+ "ragmonk-core",
+ "ragmonk-storage",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "ragmonk-storage"
 version = "0.0.0"
 dependencies = [
