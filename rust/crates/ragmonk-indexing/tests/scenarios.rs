@@ -281,7 +281,11 @@ fn one_failing_source_does_not_stop_others_and_lock_is_bounded() {
     let err = index_all(&home, &mut cp, &Registry::raw(), &o, &mut NoProgress).unwrap_err();
     assert!(started.elapsed() < Duration::from_secs(3));
     assert!(
-        err.message().contains("operation=daemon"),
+        err.message().contains(if cfg!(windows) {
+            "owner unknown"
+        } else {
+            "operation=daemon"
+        }),
         "{}",
         err.message()
     );

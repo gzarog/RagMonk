@@ -229,10 +229,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("locks").join("index.lock");
         let held = RunLock::acquire(&p, "index", Some("src_1"), Duration::from_secs(1)).unwrap();
-        let owner = read_lock_owner(&p).unwrap();
-        assert_eq!(owner.operation.as_deref(), Some("index"));
-        assert_eq!(owner.source_id.as_deref(), Some("src_1"));
-        assert_eq!(owner.pid, Some(std::process::id().to_string()));
+        // Windows' whole-file lock hides metadata from other handles.
+        if cfg!(windows) {
+            assert!(read_lock_owner(&p).is_none());
+        } else {
+            let owner = read_lock_owner(&p).unwrap();
+            assert_eq!(owner.operation.as_deref(), Some("index"));
+            assert_eq!(owner.source_id.as_deref(), Some("src_1"));
+            assert_eq!(owner.pid, Some(std::process::id().to_string()));
+        }
 
         let started = Instant::now();
         let err = RunLock::acquire(&p, "rebuild", None, Duration::from_millis(200)).unwrap_err();
