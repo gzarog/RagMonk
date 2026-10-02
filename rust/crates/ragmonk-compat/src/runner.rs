@@ -10,7 +10,7 @@ use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::canon::{canonical_json, canonical_text, IdMode, Masks};
+use crate::canon::{canonical_json_with, canonical_text, IdMode, Masks};
 use crate::manifest::{Manifest, OutputKind, Scenario, Step};
 use crate::sqlite_inventory;
 
@@ -196,10 +196,11 @@ fn run_scenario(
     let mut steps = Vec::new();
     for (step, raw) in raws {
         let stdout = if step.sqlite_inventory {
-            canonical_json(
+            canonical_json_with(
                 &sqlite_inventory::inventory(&home, &rename)?,
                 &masks,
                 &step.volatile_keys,
+                &step.unordered_arrays,
             )
         } else {
             canonical_stdout(step, &raw.stdout, &masks)
@@ -226,7 +227,9 @@ fn canonical_stdout(step: &Step, stdout: &str, masks: &Masks) -> Value {
         OutputKind::Yaml => serde_yaml::from_str::<Value>(stdout).ok(),
     };
     match parsed {
-        Some(value) => canonical_json(&value, masks, &step.volatile_keys),
+        Some(value) => {
+            canonical_json_with(&value, masks, &step.volatile_keys, &step.unordered_arrays)
+        }
         // Unparseable structured output is recorded as text so a diff shows it.
         None => Value::Array(
             canonical_text(stdout, masks)

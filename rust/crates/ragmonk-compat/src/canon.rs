@@ -92,6 +92,17 @@ fn is_volatile_key(key: &str, extra: &[String]) -> bool {
 
 /// Canonicalizes a JSON value in place semantics (returns a new value).
 pub fn canonical_json(value: &Value, masks: &Masks, volatile_keys: &[String]) -> Value {
+    canonical_json_with(value, masks, volatile_keys, &[])
+}
+
+/// Like [`canonical_json`], additionally sorting arrays stored under any key
+/// in `unordered` by their canonical JSON text.
+pub fn canonical_json_with(
+    value: &Value,
+    masks: &Masks,
+    volatile_keys: &[String],
+    unordered: &[String],
+) -> Value {
     match value {
         Value::Object(map) => {
             let mut out = Map::new();
@@ -99,7 +110,13 @@ pub fn canonical_json(value: &Value, masks: &Masks, volatile_keys: &[String]) ->
                 let canon = if is_volatile_key(key, volatile_keys) && !inner.is_null() {
                     Value::String("<VOLATILE>".into())
                 } else {
-                    canonical_json(inner, masks, volatile_keys)
+                    let mut canon = canonical_json_with(inner, masks, volatile_keys, unordered);
+                    if let Value::Array(items) = &mut canon {
+                        if unordered.iter().any(|k| k == key) {
+                            items.sort_by_cached_key(Value::to_string);
+                        }
+                    }
+                    canon
                 };
                 out.insert(masks.apply_str(key), canon);
             }
@@ -108,7 +125,7 @@ pub fn canonical_json(value: &Value, masks: &Masks, volatile_keys: &[String]) ->
         Value::Array(items) => Value::Array(
             items
                 .iter()
-                .map(|v| canonical_json(v, masks, volatile_keys))
+                .map(|v| canonical_json_with(v, masks, volatile_keys, unordered))
                 .collect(),
         ),
         Value::String(s) => Value::String(masks.apply_str(s)),
@@ -160,6 +177,17 @@ mod tests {
                 "started_at": "<VOLATILE>",
             })
         );
+    }
+
+    #[test]
+    fn unordered_arrays_are_sorted_only_under_named_keys() {
+        let masks = Masks::default();
+        let a = json!({"edges": [{"e": "this"}, {"e": "self"}], "ranked": [2, 1]});
+        let b = json!({"edges": [{"e": "self"}, {"e": "this"}], "ranked": [2, 1]});
+        let unordered = vec!["edges".to_string()];
+        let ca = canonical_json_with(&a, &masks, &[], &unordered);
+        assert_eq!(ca, canonical_json_with(&b, &masks, &[], &unordered));
+        assert_eq!(ca["ranked"], json!([2, 1]));
     }
 
     #[test]

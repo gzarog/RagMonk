@@ -43,8 +43,8 @@
         {"id": "status", "args": ["status", "--json"], "rust_phase": "RUST-11"},
         {"id": "search-bark", "args": ["search", "bark", "--json"], "rust_phase": "RUST-10"},
         {"id": "symbol-dog", "args": ["symbol", "Dog", "--json"], "rust_phase": "RUST-10"},
-        {"id": "callers-speak", "args": ["callers", "speak", "--json"], "rust_phase": "RUST-10"},
-        {"id": "callees-bark", "args": ["callees", "bark", "--json"], "rust_phase": "RUST-10"},
+        {"id": "callers-speak", "args": ["callers", "speak", "--json"], "unordered_arrays": ["edges"], "rust_phase": "RUST-10"},
+        {"id": "callees-bark", "args": ["callees", "bark", "--json"], "unordered_arrays": ["edges"], "rust_phase": "RUST-10"},
         {"id": "docs", "args": ["docs", "--json"], "rust_phase": "RUST-07"},
         {"id": "knowledge-inventory", "sqlite_inventory": true, "rust_phase": "RUST-02"}
       ]

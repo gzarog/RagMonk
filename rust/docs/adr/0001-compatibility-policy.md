@@ -33,3 +33,10 @@ Baselines are committed under `rust/compat/baseline/` and regenerated only
 deliberately. Python dependency ranges are not locked, so a fresh Python
 resolution may drift from the baseline; CI reports that drift as
 informational, while two back-to-back captures must stay identical.
+
+## Addendum — unordered collections
+CI showed the Python reference returns tied `callers`/`callees` edges in a
+nondeterministic order (JS `this.speak` vs Python `self.speak`). Edge order
+among ties is therefore not a contract. Steps declare such arrays in
+`unordered_arrays` and the harness sorts them by canonical form; ranked
+result lists (e.g. search) stay order-sensitive.

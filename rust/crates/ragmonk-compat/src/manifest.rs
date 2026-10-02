@@ -63,6 +63,10 @@ pub struct Step {
     /// version strings that legitimately differ between implementations.
     #[serde(default)]
     pub volatile_keys: Vec<String>,
+    /// JSON object keys whose array values are unordered collections (e.g.
+    /// graph edges with tied ranks): they are sorted by canonical form.
+    #[serde(default)]
+    pub unordered_arrays: Vec<String>,
     /// Captures a variable from stdout for later steps.
     #[serde(default)]
     pub capture: Option<Capture>,

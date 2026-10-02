@@ -95,7 +95,7 @@ jobs:
         working-directory: .
         run: >
           rust/target/debug/ragmonk-compat stability --impl python
-          --program "$(command -v ragmonk)" --runs 2
+          --program "$(command -v ragmonk)" --runs 3
           --out "$RUNNER_TEMP/python-capture.json"
       # Informational: dependency ranges in pyproject.toml are not locked, so
       # a fresh resolution can legitimately drift from the committed baseline.

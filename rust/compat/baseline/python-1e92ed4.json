@@ -788,22 +788,22 @@
                 {
                   "confidence": "exact",
                   "depth": 1,
-                  "evidence": "this.speak",
+                  "evidence": "self.speak",
                   "relationship_type": "calls",
                   "resolver": "same_file_name",
                   "source_entity_id": "<ID>",
-                  "source_location": "<WORK>/source/code/javascript/animals.js:17",
+                  "source_location": "<WORK>/source/code/python/animals.py:18",
                   "target_entity_id": "<ID>",
                   "target_symbol": null
                 },
                 {
                   "confidence": "exact",
                   "depth": 1,
-                  "evidence": "self.speak",
+                  "evidence": "this.speak",
                   "relationship_type": "calls",
                   "resolver": "same_file_name",
                   "source_entity_id": "<ID>",
-                  "source_location": "<WORK>/source/code/python/animals.py:18",
+                  "source_location": "<WORK>/source/code/javascript/animals.js:17",
                   "target_entity_id": "<ID>",
                   "target_symbol": null
                 }
@@ -902,22 +902,22 @@
                 {
                   "confidence": "exact",
                   "depth": 1,
-                  "evidence": "this.speak",
+                  "evidence": "self.speak",
                   "relationship_type": "calls",
                   "resolver": "same_file_name",
                   "source_entity_id": "<ID>",
-                  "source_location": "<WORK>/source/code/javascript/animals.js:17",
+                  "source_location": "<WORK>/source/code/python/animals.py:18",
                   "target_entity_id": "<ID>",
                   "target_symbol": null
                 },
                 {
                   "confidence": "exact",
                   "depth": 1,
-                  "evidence": "self.speak",
+                  "evidence": "this.speak",
                   "relationship_type": "calls",
                   "resolver": "same_file_name",
                   "source_entity_id": "<ID>",
-                  "source_location": "<WORK>/source/code/python/animals.py:18",
+                  "source_location": "<WORK>/source/code/javascript/animals.js:17",
                   "target_entity_id": "<ID>",
                   "target_symbol": null
                 },
