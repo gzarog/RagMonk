@@ -81,6 +81,57 @@ fn walk(path: &str, left: &Value, right: &Value, tolerance: f64, out: &mut Vec<D
     }
 }
 
+/// Phase gate: for every manifest step owned by `phase` or an earlier
+/// phase, the candidate must match the reference's exit code and stdout
+/// (and stderr when the step opts in). Returns the differences.
+pub fn gate(
+    manifest: &crate::manifest::Manifest,
+    reference: &Value,
+    candidate: &Value,
+    phase: u32,
+    tolerance: f64,
+) -> Result<(Vec<String>, Vec<Difference>), String> {
+    let find = |cap: &Value, scenario: &str, step: &str| -> Option<Value> {
+        cap["scenarios"]
+            .as_array()?
+            .iter()
+            .find(|s| s["id"] == scenario)?["steps"]
+            .as_array()?
+            .iter()
+            .find(|st| st["id"] == step)
+            .cloned()
+    };
+    let mut gated = Vec::new();
+    let mut diffs = Vec::new();
+    for scenario in &manifest.scenarios {
+        for step in &scenario.steps {
+            let owned = step
+                .rust_phase
+                .as_deref()
+                .and_then(crate::manifest::phase_number)
+                .is_some_and(|p| p <= phase);
+            if !owned {
+                continue;
+            }
+            let id = format!("{}/{}", scenario.id, step.id);
+            let r = find(reference, &scenario.id, &step.id)
+                .ok_or_else(|| format!("reference capture lacks {id}"))?;
+            let c = find(candidate, &scenario.id, &step.id)
+                .ok_or_else(|| format!("candidate capture lacks {id}"))?;
+            let mut keys = vec!["exit_code", "timed_out", "stdout"];
+            if step.compare_stderr {
+                keys.push("stderr");
+            }
+            for key in keys {
+                let path = format!("{id}.{key}");
+                walk(&path, &r[key], &c[key], tolerance, &mut diffs);
+            }
+            gated.push(id);
+        }
+    }
+    Ok((gated, diffs))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

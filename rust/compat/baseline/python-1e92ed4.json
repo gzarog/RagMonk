@@ -12,7 +12,6 @@
           "exit_code": 0,
           "stdout": {
             "data": {
-              "python": "<VOLATILE>",
               "version": "<VOLATILE>"
             },
             "schema_version": "1"
@@ -274,6 +273,13 @@
             "        'bulk': {'max_actions': 500, 'max_bytes': 5000000, 'concurrency': 2, 'max_retries': 3}",
             "    }",
             "}"
+          ]
+        },
+        {
+          "id": "config-get-scalar",
+          "exit_code": 0,
+          "stdout": [
+            "6"
           ]
         },
         {

@@ -13,7 +13,7 @@ use std::time::Duration;
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
 use ragmonk_compat::canon::IdMode;
-use ragmonk_compat::compare::diff;
+use ragmonk_compat::compare::{diff, gate};
 use ragmonk_compat::manifest::Manifest;
 use ragmonk_compat::runner::{run_manifest, CaptureFile, Implementation, RunOptions};
 
@@ -74,6 +74,17 @@ enum Cmd {
         /// Optionally write the first capture here.
         #[arg(long)]
         out: Option<PathBuf>,
+    },
+    /// Gate a candidate capture on the steps owned by `--phase` or earlier.
+    Gate {
+        reference: PathBuf,
+        candidate: PathBuf,
+        #[arg(long)]
+        phase: String,
+        #[arg(long, default_value = "rust/compat/manifest.json")]
+        manifest: PathBuf,
+        #[arg(long, default_value_t = 1e-6)]
+        float_tolerance: f64,
     },
     /// Diff two canonical captures; exits 1 when they differ.
     Compare {
@@ -165,6 +176,31 @@ fn run() -> anyhow::Result<ExitCode> {
                 write_capture(&out, &first)?;
             }
             Ok(report(&all))
+        }
+        Cmd::Gate {
+            reference,
+            candidate,
+            phase,
+            manifest,
+            float_tolerance,
+        } => {
+            let manifest = Manifest::load(&manifest)?;
+            let number = ragmonk_compat::manifest::phase_number(&phase)
+                .with_context(|| format!("invalid phase {phase:?}"))?;
+            let (gated, diffs) = gate(
+                &manifest,
+                &load_value(&reference)?,
+                &load_value(&candidate)?,
+                number,
+                float_tolerance,
+            )
+            .map_err(anyhow::Error::msg)?;
+            anyhow::ensure!(
+                !gated.is_empty(),
+                "no manifest steps are owned by {phase} or earlier"
+            );
+            println!("gated steps ({}): {}", gated.len(), gated.join(", "));
+            Ok(report(&diffs))
         }
         Cmd::Compare {
             left,

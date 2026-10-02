@@ -1,0 +1,116 @@
+{
+ "env": {
+  "RAGMONK_OPENSEARCH_PASSWORD": "SECRETVALUE",
+  "RAGMONK_ELASTICSEARCH_API_KEY": "abc"
+ },
+ "texts": [
+  {
+   "input": "",
+   "output": ""
+  },
+  {
+   "input": "plain text",
+   "output": "plain text"
+  },
+  {
+   "input": "connect https://user:pass@host:9200/x failed",
+   "output": "connect https://host:9200/x failed"
+  },
+  {
+   "input": "two http://a:b@h1 and ftp://c@h2/p",
+   "output": "two http://h1 and ftp://h2/p"
+  },
+  {
+   "input": "bare user:pw@host.example.com:9200 here",
+   "output": "bare host.example.com:9200 here"
+  },
+  {
+   "input": "email me@example.com stays",
+   "output": "email me@example.com stays"
+  },
+  {
+   "input": "path /a/b:c@d stays?",
+   "output": "path /a/b:c@d stays?"
+  },
+  {
+   "input": "x:y@[::1]:9200",
+   "output": "[::1]:9200"
+  },
+  {
+   "input": "word_user:pw@host",
+   "output": "host"
+  },
+  {
+   "input": "already https://host:9200 clean",
+   "output": "already https://host:9200 clean"
+  },
+  {
+   "input": "ünï:pw@hóst",
+   "output": "hóst"
+  },
+  {
+   "input": "a:b@ c",
+   "output": "a:b@ c"
+  },
+  {
+   "input": "SECRETVALUE leaked in message",
+   "output": "*** leaked in message"
+  },
+  {
+   "input": "short abc leaked",
+   "output": "short abc leaked"
+  }
+ ],
+ "urls": [
+  {
+   "url": "",
+   "redacted": "",
+   "has_userinfo": false
+  },
+  {
+   "url": "https://h:9200",
+   "redacted": "https://h:9200",
+   "has_userinfo": false
+  },
+  {
+   "url": "https://u:p@h:9200/x?q=1#f",
+   "redacted": "https://h:9200/x?q=1#f",
+   "has_userinfo": true
+  },
+  {
+   "url": "https://u@h",
+   "redacted": "https://h",
+   "has_userinfo": true
+  },
+  {
+   "url": "user:pw@host:9200",
+   "redacted": "user:pw@host:9200",
+   "has_userinfo": true
+  },
+  {
+   "url": "http://[::1]:9200",
+   "redacted": "http://[::1]:9200",
+   "has_userinfo": false
+  },
+  {
+   "url": "http://u:p@[::1]:9200",
+   "redacted": "http://[::1]:9200",
+   "has_userinfo": true
+  },
+  {
+   "url": "http://[::1",
+   "redacted": "http://[::1",
+   "has_userinfo": false
+  },
+  {
+   "url": "https://a@b@c/x",
+   "redacted": "https://c/x",
+   "has_userinfo": true
+  },
+  {
+   "url": "no-scheme-host",
+   "redacted": "no-scheme-host",
+   "has_userinfo": false
+  }
+ ]
+}

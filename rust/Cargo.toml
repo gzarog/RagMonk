@@ -1,11 +1,17 @@
 [workspace]
 resolver = "2"
-members = ["crates/ragmonk-cli", "crates/ragmonk-compat"]
+members = [
+    "crates/ragmonk-cli",
+    "crates/ragmonk-compat",
+    "crates/ragmonk-config",
+    "crates/ragmonk-core",
+    "crates/ragmonk-telemetry",
+]
 
 [workspace.package]
 version = "0.0.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "MIT"
 publish = false
 
@@ -18,11 +24,21 @@ todo = "deny"
 
 [workspace.dependencies]
 anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+dunce = "1"
+ragmonk-config = { path = "crates/ragmonk-config" }
+ragmonk-core = { path = "crates/ragmonk-core" }
+ragmonk-telemetry = { path = "crates/ragmonk-telemetry" }
 clap = { version = "4.5", features = ["derive"] }
 regex = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
+sha1 = "0.10"
+sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "registry"] }
+yaml-rust2 = "0.10"

@@ -67,6 +67,10 @@ pub struct Step {
     /// graph edges with tied ranks): they are sorted by canonical form.
     #[serde(default)]
     pub unordered_arrays: Vec<String>,
+    /// JSON object keys removed before comparison: documented, intentional
+    /// implementation-specific fields (e.g. the Python interpreter version).
+    #[serde(default)]
+    pub drop_keys: Vec<String>,
     /// Captures a variable from stdout for later steps.
     #[serde(default)]
     pub capture: Option<Capture>,
@@ -76,6 +80,10 @@ pub struct Step {
     /// Plan phase that must make the Rust candidate pass this step.
     #[serde(default)]
     pub rust_phase: Option<String>,
+    /// Also gate on canonical stderr (default: exit code + stdout only,
+    /// since rich/Typer decoration differs from clap's).
+    #[serde(default)]
+    pub compare_stderr: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -84,6 +92,11 @@ pub struct Capture {
     pub name: String,
     /// Regex whose first capture group becomes the variable's value.
     pub regex: String,
+}
+
+/// Numeric order of a `RUST-NN` phase id.
+pub fn phase_number(phase: &str) -> Option<u32> {
+    phase.strip_prefix("RUST-")?.parse().ok()
 }
 
 fn default_output() -> OutputKind {
@@ -161,6 +174,14 @@ impl Manifest {
                         "step {} must have either args or sqlite_inventory, not both/neither",
                         step.id
                     )));
+                }
+                if let Some(phase) = &step.rust_phase {
+                    if phase_number(phase).is_none() {
+                        return Err(ManifestError::Invalid(format!(
+                            "step {} has invalid rust_phase {phase:?}",
+                            step.id
+                        )));
+                    }
                 }
                 if let Some(capture) = &step.capture {
                     regex::Regex::new(&capture.regex).map_err(|err| {

@@ -103,14 +103,29 @@ pub fn canonical_json_with(
     volatile_keys: &[String],
     unordered: &[String],
 ) -> Value {
+    canonical_json_full(value, masks, volatile_keys, unordered, &[])
+}
+
+/// [`canonical_json_with`] that also drops object keys listed in `drop`.
+pub fn canonical_json_full(
+    value: &Value,
+    masks: &Masks,
+    volatile_keys: &[String],
+    unordered: &[String],
+    drop: &[String],
+) -> Value {
     match value {
         Value::Object(map) => {
             let mut out = Map::new();
             for (key, inner) in map {
+                if drop.iter().any(|d| d == key) {
+                    continue;
+                }
                 let canon = if is_volatile_key(key, volatile_keys) && !inner.is_null() {
                     Value::String("<VOLATILE>".into())
                 } else {
-                    let mut canon = canonical_json_with(inner, masks, volatile_keys, unordered);
+                    let mut canon =
+                        canonical_json_full(inner, masks, volatile_keys, unordered, drop);
                     if let Value::Array(items) = &mut canon {
                         if unordered.iter().any(|k| k == key) {
                             items.sort_by_cached_key(Value::to_string);
@@ -125,7 +140,7 @@ pub fn canonical_json_with(
         Value::Array(items) => Value::Array(
             items
                 .iter()
-                .map(|v| canonical_json_with(v, masks, volatile_keys, unordered))
+                .map(|v| canonical_json_full(v, masks, volatile_keys, unordered, drop))
                 .collect(),
         ),
         Value::String(s) => Value::String(masks.apply_str(s)),
@@ -188,6 +203,14 @@ mod tests {
         let ca = canonical_json_with(&a, &masks, &[], &unordered);
         assert_eq!(ca, canonical_json_with(&b, &masks, &[], &unordered));
         assert_eq!(ca["ranked"], json!([2, 1]));
+    }
+
+    #[test]
+    fn drop_keys_are_removed_everywhere() {
+        let masks = Masks::default();
+        let raw = json!({"data": {"python": "3.12", "version": "1", "nested": [{"python": 1}]}});
+        let canon = canonical_json_full(&raw, &masks, &[], &[], &["python".to_string()]);
+        assert_eq!(canon, json!({"data": {"nested": [{}], "version": "1"}}));
     }
 
     #[test]
