@@ -177,35 +177,46 @@ pub fn project_config_path(cwd: &Path) -> PathBuf {
     cwd.join(".ragmonk.yaml")
 }
 
-/// Python's non-strict `Path.resolve()`: symlinks in the existing prefix
-/// are resolved, the non-existent remainder is appended lexically, and
-/// Windows results avoid the `\\?\` verbatim prefix.
+/// Python's non-strict `Path.resolve()` (`os.path.realpath`): components
+/// are walked left to right, every existing prefix is resolved through the
+/// filesystem (symlinks, `/var` -> `/private/var`), a missing component is
+/// appended literally and `..` pops the path built so far. Windows results
+/// avoid the `\\?\` verbatim prefix.
 pub fn resolve(path: &Path) -> std::io::Result<PathBuf> {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {
         std::env::current_dir()?.join(path)
     };
-    let mut existing = absolute.clone();
-    let mut tail: Vec<std::ffi::OsString> = Vec::new();
-    loop {
-        match dunce::canonicalize(&existing) {
-            Ok(real) => {
-                let mut out = real;
-                for part in tail.iter().rev() {
-                    out.push(part);
-                }
-                return Ok(normalize_lexically(&out));
+    let mut out = PathBuf::new();
+    let mut missing = false;
+    for comp in absolute.components() {
+        match comp {
+            Component::Prefix(_) | Component::RootDir => out.push(comp),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
             }
-            Err(_) => match (existing.parent(), existing.file_name()) {
-                (Some(parent), Some(name)) => {
-                    tail.push(name.to_os_string());
-                    existing = parent.to_path_buf();
+            Component::Normal(name) => {
+                out.push(name);
+                // Once a component is missing, nothing below it can exist.
+                if !missing {
+                    match dunce::canonicalize(&out) {
+                        Ok(real) => out = real,
+                        Err(_) => missing = true,
+                    }
                 }
-                _ => return Ok(normalize_lexically(&absolute)),
-            },
+            }
+        }
+        // `..` out of a missing directory may land on an existing one again.
+        if missing && out.exists() {
+            if let Ok(real) = dunce::canonicalize(&out) {
+                out = real;
+                missing = false;
+            }
         }
     }
+    Ok(normalize_lexically(&out))
 }
 
 fn normalize_lexically(path: &Path) -> PathBuf {
@@ -286,6 +297,21 @@ mod tests {
         let p = dir.path().join("a").join("..").join("b").join("c");
         assert_eq!(resolve(&p).unwrap(), real.join("b").join("c"));
         assert_eq!(resolve(dir.path()).unwrap(), real);
+        // `..` back out of a missing directory into an existing one.
+        std::fs::create_dir(dir.path().join("x")).unwrap();
+        let p = dir.path().join("missing").join("..").join("x").join("y");
+        assert_eq!(resolve(&p).unwrap(), real.join("x").join("y"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_follows_symlinks_in_existing_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dunce::canonicalize(dir.path()).unwrap();
+        std::fs::create_dir(dir.path().join("target")).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("target"), dir.path().join("link")).unwrap();
+        let p = dir.path().join("link").join("new");
+        assert_eq!(resolve(&p).unwrap(), real.join("target").join("new"));
     }
 
     #[test]
