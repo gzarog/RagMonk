@@ -13,11 +13,30 @@ Detail behind the [README](../README.md) pitch deck.
 | **HTML / Markdown** | Wikis, docs-as-code, ADRs, runbooks |
 | **TXT / EPUB** | Plain text and e-books |
 | **PNG / JPG / TIFF** | Opt-in OCR (`documents.image_ocr: true`) |
+| **EML** | Subject, headers and body · supported attachments indexed as child documents (see below) |
 
 - A corrupt or unsupported file is isolated and recorded as failed; the run continues.
 - Legacy `.doc` / `.ppt` / `.xls` / `.rtf` are detected but not converted.
 - PDF conversions are cached by content hash; unchanged PDFs skip the layout model.
 - Chunk sizes follow the embedding model's real tokenizer (`documents.chunking.max_tokens: auto`); tables split at row boundaries.
+
+## Email attachments
+
+An `.eml` file's MIME attachments in any supported format above (PDF, DOCX, XLSX, PPTX, TXT, …) are converted with the same pipeline as standalone files and indexed as **child documents of the email**. The `.eml` stays the only indexed file: no extra file rows, queue jobs or status counts are created for attachments.
+
+- Search results for attachment text keep the real `.eml` path and add `location.attachment` (`name`, `content_type`, `format`, `index`, `parent_title`); the CLI prints `Attachment: <email.eml> -> <name>`.
+- Changing or deleting the `.eml` replaces or removes all of its attachment knowledge.
+- Unsupported (`.zip`, `.exe`, …), empty, oversized or corrupt attachments are skipped or reported without affecting the email body. Archives are not unpacked and attached emails (`message/rfc822`) are not recursed into.
+- Filenames are display metadata only; attachments are written under internal temporary names and removed after conversion.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `documents.email_attachments` | `true` | `false` restores body-only `.eml` indexing. |
+| `documents.email_attachment_max_bytes` | `26214400` (25 MiB) | Largest decoded attachment converted. |
+| `documents.email_attachment_max_count` | `50` | Attachments processed per email. |
+| `documents.email_attachment_total_max_bytes` | `104857600` (100 MiB) | Total decoded attachment bytes per email. |
+
+Toggling `email_attachments` reprocesses `.eml` files (only those) on the next index; previously indexed emails pick up their attachments without being touched.
 
 ## Search
 

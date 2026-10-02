@@ -92,6 +92,42 @@ def file_record_from_payload(payload: dict[str, Any]) -> FileRecord:
     )
 
 
+def attachment_payload_fields(document: Any, parent_title: str = "") -> dict[str, Any]:
+    """EML attachment knowledge extraction V1: the provenance fields an
+    attachment child document's server payloads (document *and* chunks)
+    carry. Empty for a top-level document, keeping its payload unchanged.
+    """
+    if getattr(document, "parent_document_id", None) is None:
+        return {}
+    return {
+        "parent_document_id": document.parent_document_id,
+        "attachment_name": document.attachment_name,
+        "attachment_content_type": document.attachment_content_type,
+        "attachment_index": document.attachment_index,
+        "attachment_content_id": document.attachment_content_id,
+        "attachment_format": getattr(document.format, "value", str(document.format)),
+        "parent_title": parent_title,
+    }
+
+
+def attachment_provenance_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Search-result provenance for a server hit on an attachment chunk or
+    document -- the same shape local mode's
+    ``documents_repo.attachment_provenance`` returns.
+    """
+    if not payload.get("parent_document_id"):
+        return None
+    index = payload.get("attachment_index")
+    return {
+        "name": payload.get("attachment_name"),
+        "content_type": payload.get("attachment_content_type"),
+        "index": int(index) if index is not None else None,
+        "format": payload.get("attachment_format"),
+        "parent_document_id": payload.get("parent_document_id"),
+        "parent_title": payload.get("parent_title") or None,
+    }
+
+
 def document_record_from_payload(payload: dict[str, Any]) -> DocumentRecord:
     meta = payload.get("doc_meta") or {}
     return DocumentRecord(
@@ -108,6 +144,15 @@ def document_record_from_payload(payload: dict[str, Any]) -> DocumentRecord:
         is_scanned=bool(meta.get("is_scanned", False)),
         created_at=str(payload.get("created_at", "")),
         updated_at=str(payload.get("updated_at", "")),
+        parent_document_id=payload.get("parent_document_id") or None,
+        attachment_name=payload.get("attachment_name"),
+        attachment_content_type=payload.get("attachment_content_type"),
+        attachment_index=(
+            int(payload["attachment_index"])
+            if payload.get("attachment_index") is not None
+            else None
+        ),
+        attachment_content_id=payload.get("attachment_content_id"),
     )
 
 

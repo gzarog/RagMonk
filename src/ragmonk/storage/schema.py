@@ -661,3 +661,59 @@ KNOWLEDGE_DB_V15: tuple[str, ...] = (
     )
     """,
 )
+
+# EML attachment knowledge extraction V1: an ``.eml`` file can now yield
+# several ``documents`` rows -- the email itself plus one child document per
+# converted attachment, all sharing the email's real ``file_id`` (no
+# synthetic ``files`` rows). ``KNOWLEDGE_DB_V3`` declared
+# ``UNIQUE(file_id)``, which SQLite cannot drop in place, so the table is
+# rebuilt (new table, copy, drop, rename -- the procedure SQLite documents
+# for schema changes ALTER TABLE cannot express) with ``foreign_keys`` OFF
+# (see ``Migration.rebuilds_tables``); ``foreign_key_check`` must pass
+# before commit. Additive in effect: every
+# existing row is kept with the new provenance columns NULL, so no reindex
+# is required.
+KNOWLEDGE_DB_V16: tuple[str, ...] = (
+    """
+    CREATE TABLE documents_v16 (
+        id TEXT PRIMARY KEY,
+        source_id TEXT NOT NULL,
+        file_id TEXT NOT NULL REFERENCES files(id),
+        format TEXT NOT NULL,
+        title TEXT,
+        author TEXT,
+        page_count INTEGER,
+        section_count INTEGER NOT NULL DEFAULT 0,
+        paragraph_count INTEGER NOT NULL DEFAULT 0,
+        table_count INTEGER NOT NULL DEFAULT 0,
+        is_scanned INTEGER NOT NULL DEFAULT 0,
+        content_hash TEXT,
+        generation INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        parent_document_id TEXT,
+        attachment_name TEXT,
+        attachment_content_type TEXT,
+        attachment_index INTEGER,
+        attachment_content_id TEXT
+    )
+    """,
+    """
+    INSERT INTO documents_v16 (
+        id, source_id, file_id, format, title, author, page_count,
+        section_count, paragraph_count, table_count, is_scanned,
+        content_hash, generation, created_at, updated_at
+    )
+    SELECT
+        id, source_id, file_id, format, title, author, page_count,
+        section_count, paragraph_count, table_count, is_scanned,
+        content_hash, generation, created_at, updated_at
+    FROM documents
+    """,
+    "DROP TABLE documents",
+    "ALTER TABLE documents_v16 RENAME TO documents",
+    "CREATE INDEX IF NOT EXISTS idx_documents_source ON documents(source_id)",
+    "CREATE INDEX IF NOT EXISTS idx_documents_title_nocase ON documents(title COLLATE NOCASE)",
+    "CREATE INDEX IF NOT EXISTS idx_documents_file_generation ON documents(file_id, generation)",
+    "CREATE INDEX IF NOT EXISTS idx_documents_parent ON documents(parent_document_id)",
+)

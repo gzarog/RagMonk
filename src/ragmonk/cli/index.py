@@ -84,6 +84,16 @@ def index(
                     f"failed={result.failed} linked={pass_result.linked} "
                     f"embedded={pass_result.embedded}"
                 )
+                if result.attachments_seen:
+                    # Email attachments are derived documents, not source
+                    # files -- reported separately from the file counters.
+                    console.print(
+                        f"{source.id}: email attachments "
+                        f"seen={result.attachments_seen} "
+                        f"indexed={result.attachments_indexed} "
+                        f"skipped={result.attachments_skipped} "
+                        f"failed={result.attachments_failed}"
+                    )
                 if result.scan_incomplete:
                     console.print(
                         f"[yellow]{source.id}[/yellow]: scan was incomplete "

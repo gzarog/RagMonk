@@ -269,6 +269,105 @@ def _make_ocr_image() -> None:
     image.save(HERE / "sample_ocr.png")
 
 
+def _docx_bytes(*paragraphs: str) -> bytes:
+    import io
+
+    import docx
+
+    doc = docx.Document()
+    for text in paragraphs:
+        doc.add_paragraph(text)
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def _xlsx_bytes(rows: list[list[object]]) -> bytes:
+    import io
+
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for row in rows:
+        ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _email(subject: str, body: str) -> object:
+    from email.message import EmailMessage
+
+    msg = EmailMessage()
+    msg["From"] = "sender@example.com"
+    msg["To"] = "recipient@example.com"
+    msg["Subject"] = subject
+    msg["Date"] = "Mon, 1 Sep 2025 12:00:00 +0000"
+    msg.set_content(body)
+    return msg
+
+
+def _write_email(msg: object, name: str) -> None:
+    msg.set_boundary("===ragmonk-fixture-boundary===")  # type: ignore[attr-defined]
+    (HERE / name).write_bytes(msg.as_bytes())  # type: ignore[attr-defined]
+
+
+def _make_eml_fixtures() -> None:
+    """EML attachment knowledge extraction V1 fixtures. Each attachment
+    carries one distinctive word (zebrafish, quokkaledger, wombatbudget,
+    narwhalmemo) so a search can prove that exact attachment was indexed.
+    """
+    msg = _email("Quarterly planning", "Please see the attached planning material.")
+    msg.add_attachment(  # type: ignore[attr-defined]
+        "Field notes about zebrafish migration.\n",
+        subtype="plain",
+        filename="notes.txt",
+        cte="quoted-printable",
+    )
+    msg.add_attachment(  # type: ignore[attr-defined]
+        _docx_bytes("Report Heading", "The quokkaledger reconciliation is complete."),
+        maintype="application",
+        subtype="vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="report.docx",
+    )
+    msg.add_attachment(  # type: ignore[attr-defined]
+        _xlsx_bytes([["Item", "Amount"], ["wombatbudget", 42]]),
+        maintype="application",
+        subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="budget.xlsx",
+    )
+    msg.add_attachment(  # type: ignore[attr-defined]
+        b"PK\x05\x06" + b"\x00" * 18,
+        maintype="application",
+        subtype="zip",
+        filename="archive.zip",
+    )
+    msg.add_attachment(  # type: ignore[attr-defined]
+        "# Memo\n\nThe narwhalmemo decision was approved.\n",
+        subtype="markdown",
+        filename="Résumé – memo.md",
+    )
+    _write_email(msg, "email_with_attachments.eml")
+
+    msg = _email("Duplicate names", "Two attachments share one filename.")
+    for text in ("First copy mentions alpacafirst.\n", "Second copy mentions llamasecond.\n"):
+        msg.add_attachment(text, subtype="plain", filename="notes.txt")  # type: ignore[attr-defined]
+    _write_email(msg, "email_with_duplicate_names.eml")
+
+    msg = _email("Corrupt attachment", "One attachment is broken.")
+    msg.add_attachment(  # type: ignore[attr-defined]
+        (HERE / "corrupt.docx").read_bytes(),
+        maintype="application",
+        subtype="vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="broken.docx",
+    )
+    msg.add_attachment(  # type: ignore[attr-defined]
+        "The valid attachment mentions ibexvalid.\n", subtype="plain", filename="ok.txt"
+    )
+    _write_email(msg, "email_with_corrupt_attachment.eml")
+
+
 if __name__ == "__main__":
     _make_docx()
     _make_pptx()
@@ -280,4 +379,5 @@ if __name__ == "__main__":
     _make_odp()
     _make_epub()
     _make_ocr_image()
+    _make_eml_fixtures()
     print("Fixtures written to", HERE)

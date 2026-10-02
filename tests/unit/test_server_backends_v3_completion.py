@@ -550,3 +550,106 @@ def test_incremental_links_use_single_batched_lookup_for_many_candidates(
     )
     assert counts.get(engine.relationships_index, 0) == 1
     assert engine.fake.exists_calls == 0
+
+
+# -- EML attachment knowledge extraction V1: server parity -------------------
+
+
+def _email_with_attachments(
+    file_id: str, document_id: str, names: list[str], *, generation: int
+) -> PreparedDocument:
+    """A parent email payload plus one child payload per ``names`` entry,
+    all sharing ``file_id``/``generation`` (as ``documents.pipeline`` builds
+    them).
+    """
+    parent = _document(file_id, document_id, [f"{document_id}-c"], generation=generation)
+    assert parent.document is not None
+    parent.document = parent.document.model_copy(update={"format": DocumentFormat.EML})
+    for index, name in enumerate(names):
+        child = _document(
+            file_id, f"{document_id}-att{index}", [f"{document_id}-att{index}-c"],
+            generation=generation,
+        )
+        assert child.document is not None
+        child.document = child.document.model_copy(
+            update={
+                "format": DocumentFormat.TXT,
+                "parent_document_id": document_id,
+                "attachment_name": name,
+                "attachment_content_type": "text/plain",
+                "attachment_index": index,
+            }
+        )
+        child.parent_title = f"Title {document_id}"
+        parent.attachments.append(child)
+    return parent
+
+
+@pytest.mark.parametrize("engine_name", ENGINES)
+def test_email_attachments_publish_with_distinct_ids_and_provenance(engine_name: str) -> None:
+    # Generation "0" is the default published generation, so the read
+    # contract (get_documents/list_documents) sees these rows.
+    engine = _Engine(engine_name)
+    backend = engine.backend
+    backend.publish_document(
+        _email_with_attachments("f1", "mail", ["a.txt", "a.txt"], generation=0)
+    )
+
+    documents = _content_by(engine, "document", "0")
+    assert sorted(d["document_id"] for d in documents) == ["mail", "mail-att0", "mail-att1"]
+    content_ids = set(engine.docs(engine.content_index))
+    assert engine.ids.document_doc_id("s1", "f1", "0") in content_ids
+    assert engine.ids.document_doc_id("s1", "f1", "0", attachment_index=0) in content_ids
+    assert engine.ids.document_doc_id("s1", "f1", "0", attachment_index=1) in content_ids
+    # Parent payload unchanged (no provenance keys at all).
+    parent = next(d for d in documents if d["document_id"] == "mail")
+    assert "parent_document_id" not in parent
+    # Attachment chunks carry provenance for search results.
+    att_chunk = next(
+        c for c in _content_by(engine, "chunk", "0") if c["document_id"] == "mail-att1"
+    )
+    assert att_chunk["attachment_name"] == "a.txt"
+    assert att_chunk["attachment_index"] == 1
+    assert att_chunk["parent_title"] == "Title mail"
+    assert att_chunk["attachment_format"] == "txt"
+
+    records = {r.document_id: r for r in backend.get_documents(["mail", "mail-att0"])}
+    assert records["mail"].parent_document_id is None
+    assert records["mail-att0"].parent_document_id == "mail"
+    assert records["mail-att0"].attachment_name == "a.txt"
+    assert records["mail-att0"].attachment_index == 0
+    listed = {r.document_id for r in backend.list_documents(source_id="s1")}
+    assert listed == {"mail", "mail-att0", "mail-att1"}
+
+
+@pytest.mark.parametrize("engine_name", ENGINES)
+def test_email_reindex_with_removed_attachment_leaves_no_stale_child(engine_name: str) -> None:
+    engine = _Engine(engine_name)
+    backend = engine.backend
+    backend.publish_document(
+        _email_with_attachments("f1", "mail", ["keep.txt", "drop.txt"], generation=1)
+    )
+    # Incremental republish into the same generation, batch path.
+    pass_ctx = ServerWritePass(source_id="s1", generation=1, generation_is_empty=False)
+    backend.publish_document_batch(
+        [_email_with_attachments("f1", "mail2", ["keep.txt"], generation=1)],
+        server_write_pass=pass_ctx,
+    )
+    engine.fake.indices.refresh(index=engine.content_index)
+    documents = _content_by(engine, "document", "1")
+    assert sorted(d["document_id"] for d in documents) == ["mail2", "mail2-att0"]
+    assert all(
+        c["document_id"] in {"mail2", "mail2-att0"} for c in _content_by(engine, "chunk", "1")
+    )
+
+
+@pytest.mark.parametrize("engine_name", ENGINES)
+def test_email_file_deletion_removes_attachment_children(engine_name: str) -> None:
+    engine = _Engine(engine_name)
+    backend = engine.backend
+    _seed_source(engine, "s1", ["f1"])
+    backend.publish_document(_email_with_attachments("f1", "mail", ["a.txt"], generation=1))
+    backend.delete_files_batch("s1", ["f1"])
+    assert [
+        src for src in _artifacts_for(engine, "s1", "f1") if src.get("doc_kind") != "file"
+    ] == []

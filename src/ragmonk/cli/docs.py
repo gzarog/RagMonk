@@ -28,6 +28,11 @@ from ._common import cli_command, console, print_json
 
 def _document_row(conn: sqlite3.Connection, source_id: str, file: FileRecord) -> dict[str, Any]:
     document = documents_repo.get_document_by_file(conn, file.id)
+    attachments = (
+        [a.attachment_name for a in documents_repo.list_attachments(conn, document.id)]
+        if document is not None
+        else []
+    )
     return {
         "source_id": source_id,
         "file_id": file.id,
@@ -40,11 +45,12 @@ def _document_row(conn: sqlite3.Connection, source_id: str, file: FileRecord) ->
         "paragraph_count": document.paragraph_count if document is not None else 0,
         "table_count": document.table_count if document is not None else 0,
         "is_scanned": document.is_scanned if document is not None else False,
+        "attachments": attachments,
     }
 
 
 def _backend_document_row(
-    source_id: str, file: Any, document: Any | None
+    source_id: str, file: Any, document: Any | None, attachments: list[str] | None = None
 ) -> dict[str, Any]:
     """Server-mode counterpart of ``_document_row``, built from the
     backend-neutral ``FileRecord``/``DocumentRecord`` projections
@@ -63,6 +69,7 @@ def _backend_document_row(
         "paragraph_count": document.paragraph_count if document is not None else 0,
         "table_count": document.table_count if document is not None else 0,
         "is_scanned": document.is_scanned if document is not None else False,
+        "attachments": attachments or [],
     }
 
 
@@ -72,11 +79,28 @@ def _run_server(ctx: AppContext, sources: list[Any]) -> list[dict[str, Any]]:
     for source in sources:
         files = backend.list_files(source.id)
         documents = backend.list_documents(source_id=source.id)
-        documents_by_file = {d.file_id: d for d in documents}
+        # An .eml's attachment child documents share its file_id -- key the
+        # top-level document by file, and list attachments alongside it.
+        documents_by_file = {d.file_id: d for d in documents if d.parent_document_id is None}
+        attachments_by_file: dict[str, list[Any]] = {}
+        for d in documents:
+            if d.parent_document_id is not None:
+                attachments_by_file.setdefault(d.file_id, []).append(d)
         for file in files:
             if str(file.metadata.get("kind", "")) != FileKind.DOCUMENT.value:
                 continue
-            rows.append(_backend_document_row(source.id, file, documents_by_file.get(file.file_id)))
+            children = sorted(
+                attachments_by_file.get(file.file_id, []),
+                key=lambda d: d.attachment_index if d.attachment_index is not None else 0,
+            )
+            rows.append(
+                _backend_document_row(
+                    source.id,
+                    file,
+                    documents_by_file.get(file.file_id),
+                    [d.attachment_name for d in children],
+                )
+            )
     return rows
 
 
@@ -139,4 +163,6 @@ def docs(
                 str(row["section_count"]),
                 row["title"] or "-",
             )
+            for name in row.get("attachments") or []:
+                table.add_row(f"  -> {name}", "attachment", "", "", "", "")
         console.print(table)

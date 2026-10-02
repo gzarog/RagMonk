@@ -88,6 +88,13 @@ def _print_document_snippet(
     location = result.location or {}
     if result.snippet:
         console.print(f"[bold]{_format_label(result.path)}:[/bold] {result.path}")
+        attachment = location.get("attachment")
+        if attachment:
+            # An email attachment hit: evidence is "parent .eml -> attachment
+            # name", never a fabricated on-disk path.
+            console.print(f"Attachment: {result.path} -> {attachment.get('name')}")
+            if attachment.get("parent_title"):
+                console.print(f"Email: {attachment['parent_title']}")
         page_start = location.get("page_start")
         page_end = location.get("page_end")
         if page_start is not None:

@@ -413,6 +413,7 @@ def _search_documents(
                 path=row.path,
                 source_id=source_id,
                 snippet=row.title,
+                location={"attachment": row.attachment} if row.attachment else None,
                 mtime=row.mtime,
             )
         )
@@ -443,6 +444,7 @@ def _search_documents(
                     "page_start": row.page_start,
                     "page_end": row.page_end,
                     "heading_path": row.heading_path,
+                    **({"attachment": row.attachment} if row.attachment else {}),
                 },
                 fts_rank=row.fts_rank,
                 query_tier=query_tier,
@@ -514,6 +516,9 @@ def _search_hit_to_result(hit: Any, paths_by_file: dict[str, str] | None = None)
     snippet = payload.get("snippet")
     if snippet is None and hit.kind == "chunk":
         snippet = str(payload.get("content") or payload.get("search_text") or "")[:300] or None
+    from ragmonk.backends.server_common import attachment_provenance_from_payload
+
+    attachment = attachment_provenance_from_payload(payload)
     return SearchResult(
         kind=kind,
         tier=RankTier.FTS,
@@ -522,7 +527,7 @@ def _search_hit_to_result(hit: Any, paths_by_file: dict[str, str] | None = None)
         path=path,
         source_id=str(payload.get("source_id", "")),
         snippet=snippet,
-        location=None,
+        location={"attachment": attachment} if attachment else None,
         fts_rank=0,
         query_tier=LexicalTier.PHRASE,
     )

@@ -49,9 +49,10 @@ EntityLookup = Callable[[str], list[Entity]]
 CODE_DERIVATION_VERSION = "1"
 
 
-def code_version_stamp() -> VersionStamp:
+def code_version_stamp(path: Path | None = None) -> VersionStamp:  # noqa: ARG001
     """The code pipeline's current derivation identity (see
-    ``CODE_DERIVATION_VERSION``'s docstring above).
+    ``CODE_DERIVATION_VERSION``'s docstring above). ``path`` is accepted
+    for the ``VersionProviderFunc`` contract; code identity is per-kind.
 
     ``chunker_version`` has no code-side equivalent -- Tree-sitter always
     reparses the *whole* file from source on any genuinely CHANGED file

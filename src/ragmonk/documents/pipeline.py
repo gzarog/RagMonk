@@ -16,16 +16,23 @@ from __future__ import annotations
 import logging
 import sqlite3
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
 from ragmonk.backends.models import PreparedDocument as BackendPreparedDocument
 from ragmonk.core.config import ChunkingConfig
 from ragmonk.core.errors import ContentChangedDuringProcessingError, RagMonkError
 from ragmonk.core.models import Document, DocumentFormat, FileStatus
-from ragmonk.documents import chunker, docling_adapter, normalizer
+from ragmonk.documents import attachment_pipeline, chunker, docling_adapter, normalizer
+from ragmonk.documents.attachment_pipeline import AttachmentSkipped, PreparedAttachment
 from ragmonk.documents.chunker import Chunk, ChunkingDiagnostics
 from ragmonk.documents.docling_adapter import UnsupportedDocumentFormatError
+from ragmonk.documents.email_attachments import (
+    EmailAttachmentSettings,
+    SkippedAttachment,
+    extract_attachments,
+)
 from ragmonk.documents.metadata import DocumentMetadata, extract_metadata
 from ragmonk.indexing.coordinator import ProcessingOutcome, ProcessorContext
 from ragmonk.indexing.incremental import VersionStamp
@@ -102,7 +109,17 @@ def _tokenizer_index_identity() -> str:
     )
 
 
-def document_version_stamp() -> VersionStamp:
+# EML attachment knowledge extraction V1: folded into an ``.eml`` file's
+# ``parser_version`` while attachment extraction is enabled, so identical
+# ``.eml`` bytes indexed before V1 (body only) are reprocessed once to pick
+# up their attachments -- without touching any other document format's
+# stamp. Bump when attachment derivation output changes.
+EMAIL_ATTACHMENTS_VERSION = "eml-attachments.1"
+
+
+def document_version_stamp(
+    path: Path | None = None, *, email_attachments: bool = False
+) -> VersionStamp:
     """The document pipeline's current composite reuse identity
     (``IndexCoordinator`` compares this against a file's stored stamp --
     ``indexing/incremental.decide_reprocessing`` -- to decide whether an
@@ -117,9 +134,17 @@ def document_version_stamp() -> VersionStamp:
     exact tokenizer's identity (see ``_tokenizer_index_identity``) so the
     index's derivation is provably tied to the tokenizer that produced it,
     and a tokenizer change reprocesses affected files gracefully.
+
+    ``path``/``email_attachments``: an ``.eml`` file's parser identity also
+    records whether attachment extraction produced its derived rows (see
+    ``EMAIL_ATTACHMENTS_VERSION``). Pure resource limits are deliberately
+    not part of the identity.
     """
+    parser_version = docling_adapter.parser_version()
+    if email_attachments and path is not None and path.suffix.lower() == ".eml":
+        parser_version = f"{parser_version}+{EMAIL_ATTACHMENTS_VERSION}"
     return VersionStamp(
-        parser_version=docling_adapter.parser_version(),
+        parser_version=parser_version,
         chunker_version=f"{chunker.CHUNKER_VERSION}+{_tokenizer_index_identity()}",
         embedding_model_id=embedder.EMBEDDING_MODEL_ID,
         embedding_text_version=chunker.EMBEDDING_TEXT_VERSION,
@@ -152,6 +177,126 @@ class PreparedDocument:
     content_hash: str | None = None
     meta: DocumentMetadata | None = None
     chunks: list[Chunk] | None = None
+    # EML attachment knowledge extraction V1: zero or more converted
+    # attachments of an ``.eml``, published as child documents of the
+    # primary (email) document above.
+    attachments: tuple[PreparedAttachment, ...] = ()
+    attachment_stats: AttachmentStats | None = None
+
+
+@dataclass(slots=True)
+class AttachmentStats:
+    """Per-email attachment counters (structured log + index-run totals)."""
+
+    seen: int = 0
+    indexed: int = 0
+    skipped: int = 0
+    failed: int = 0
+    bytes_processed: int = 0
+    diagnostics: list[SkippedAttachment] = field(default_factory=list)
+
+
+def _prepare_email_attachments(
+    ctx: ProcessorContext,
+    settings: EmailAttachmentSettings,
+    *,
+    cache_conn: sqlite3.Connection | None,
+) -> tuple[tuple[PreparedAttachment, ...], AttachmentStats]:
+    """Enumerate and convert ``ctx.path``'s attachments. Never raises for a
+    single attachment's problem: unsupported/limit-exceeding parts are
+    recorded as skipped, conversion failures as failed, and the parent
+    email is indexed regardless (plan AD-5).
+    """
+    stats = AttachmentStats()
+    try:
+        extraction = extract_attachments(ctx.path, settings)
+    except Exception as exc:
+        stats.failed += 1
+        log_event(
+            _logger,
+            "email_attachments_unreadable",
+            level=logging.WARNING,
+            path=str(ctx.path),
+            error=type(exc).__name__,
+        )
+        return (), stats
+
+    stats.seen = extraction.seen
+    for skipped in extraction.skipped:
+        _record_skip(ctx, stats, skipped)
+
+    prepared: list[PreparedAttachment] = []
+    for part in extraction.attachments:
+        try:
+            result = attachment_pipeline.prepare_attachment(
+                part,
+                cache_conn=cache_conn,
+                ocr_mode=ctx.ocr or "off",
+                image_ocr=bool(ctx.image_ocr),
+                chunking=ctx.chunking,
+                max_document_pages=ctx.max_document_pages,
+            )
+        except AttachmentSkipped as skip:
+            _record_skip(
+                ctx,
+                stats,
+                SkippedAttachment(
+                    part.ordinal,
+                    part.filename,
+                    part.content_type,
+                    part.decoded_size,
+                    skip.reason,
+                    skip.detail,
+                ),
+            )
+            continue
+        except Exception as exc:
+            stats.failed += 1
+            log_event(
+                _logger,
+                "email_attachment_failed",
+                level=logging.WARNING,
+                path=str(ctx.path),
+                attachment_index=part.ordinal,
+                attachment_name=part.display_name,
+                content_type=part.content_type,
+                size=part.decoded_size,
+                error=f"{type(exc).__name__}: {exc}"[:500],
+            )
+            continue
+        stats.indexed += 1
+        stats.bytes_processed += part.decoded_size
+        prepared.append(result)
+
+    if stats.seen:
+        log_event(
+            _logger,
+            "email_attachments_processed",
+            path=str(ctx.path),
+            attachments_seen=stats.seen,
+            attachments_indexed=stats.indexed,
+            attachments_skipped=stats.skipped,
+            attachments_failed=stats.failed,
+            attachment_bytes_processed=stats.bytes_processed,
+        )
+    return tuple(prepared), stats
+
+
+def _record_skip(ctx: ProcessorContext, stats: AttachmentStats, skipped: SkippedAttachment) -> None:
+    stats.skipped += 1
+    stats.diagnostics.append(skipped)
+    log_event(
+        _logger,
+        "email_attachment_skipped",
+        level=logging.INFO,
+        path=str(ctx.path),
+        attachment_index=skipped.ordinal,
+        attachment_name=skipped.filename,
+        content_type=skipped.content_type,
+        size=skipped.size,
+        reason=skipped.reason,
+        detail=skipped.detail,
+    )
 
 
 def prepare_document(
@@ -246,8 +391,25 @@ def prepare_document(
     )
     _log_chunking_diagnostics(ctx, chunking_config, chunk_diagnostics)
 
+    attachments: tuple[PreparedAttachment, ...] = ()
+    attachment_stats: AttachmentStats | None = None
+    settings = ctx.email_attachments
+    if doc_format is DocumentFormat.EML and settings is not None and settings.enabled:
+        # The email body above went through the unchanged ``.eml`` Docling
+        # path; attachments are converted afterwards on this same worker
+        # (and the same ``cache_conn``), so they count against the
+        # existing document-extraction concurrency -- no new pool.
+        attachments, attachment_stats = _prepare_email_attachments(
+            ctx, settings, cache_conn=cache_conn
+        )
+
     return PreparedDocument(
-        doc_format=doc_format, content_hash=content_hash, meta=meta, chunks=chunks
+        doc_format=doc_format,
+        content_hash=content_hash,
+        meta=meta,
+        chunks=chunks,
+        attachments=attachments,
+        attachment_stats=attachment_stats,
     )
 
 
@@ -264,6 +426,7 @@ class FinalizedDocument:
     file_id: str
     status: FileStatus
     backend_prepared: BackendPreparedDocument | None = None
+    attachment_stats: AttachmentStats | None = None
 
 
 def finalize_document_for_publish(
@@ -333,6 +496,10 @@ def finalize_document_for_publish(
         created_at=now,
         updated_at=now,
     )
+    children = [
+        _attachment_payload(ctx, document, attachment, now)
+        for attachment in prepared.attachments
+    ]
     return FinalizedDocument(
         file_id=ctx.file_id,
         status=FileStatus.INDEXED,
@@ -344,7 +511,52 @@ def finalize_document_for_publish(
             chunk_ids=chunk_ids,
             chunks=chunks,
             doc_title=meta.title or "",
+            attachments=children,
         ),
+        attachment_stats=prepared.attachment_stats,
+    )
+
+
+def _attachment_payload(
+    ctx: ProcessorContext, parent: Document, attachment: PreparedAttachment, now: str
+) -> BackendPreparedDocument:
+    """An attachment child document: same ``source_id``/``file_id``/
+    ``generation`` as the parent email, provenance pointing back at it.
+    """
+    assert ctx.file_id is not None and ctx.source_id is not None
+    chunks = attachment.chunks
+    meta = attachment.meta
+    document = Document(
+        id=uuid.uuid4().hex,
+        source_id=ctx.source_id,
+        file_id=ctx.file_id,
+        format=attachment.doc_format,
+        title=meta.title,
+        author=meta.author,
+        page_count=meta.page_count,
+        section_count=sum(1 for chunk in chunks if chunk.kind == "heading"),
+        paragraph_count=sum(1 for chunk in chunks if chunk.kind == "paragraph"),
+        table_count=sum(1 for chunk in chunks if chunk.kind == "table"),
+        is_scanned=meta.is_scanned,
+        content_hash=attachment.content_hash,
+        generation=ctx.next_generation,
+        created_at=now,
+        updated_at=now,
+        parent_document_id=parent.id,
+        attachment_name=attachment.name,
+        attachment_content_type=attachment.content_type,
+        attachment_index=attachment.part_ordinal,
+        attachment_content_id=attachment.content_id,
+    )
+    return BackendPreparedDocument(
+        file_id=ctx.file_id,
+        source_id=ctx.source_id,
+        generation=ctx.next_generation,
+        document=document,
+        chunk_ids=[uuid.uuid4().hex for _ in chunks],
+        chunks=chunks,
+        doc_title=meta.title or "",
+        parent_title=parent.title or "",
     )
 
 
@@ -361,9 +573,26 @@ def publish_document(ctx: ProcessorContext, prepared: PreparedDocument) -> Proce
 
     finalized = finalize_document_for_publish(ctx, prepared)
     if finalized.backend_prepared is not None:
+        # One caller-held transaction covers the email *and* every
+        # attachment child document -- a local ``.eml`` generation is
+        # published atomically.
         with transaction(ctx.conn):
             backend.publish_document(finalized.backend_prepared)
-    return ProcessingOutcome(status=finalized.status)
+    return outcome_for(finalized)
+
+
+def outcome_for(finalized: FinalizedDocument) -> ProcessingOutcome:
+    stats = finalized.attachment_stats
+    if stats is None:
+        return ProcessingOutcome(status=finalized.status)
+    return ProcessingOutcome(
+        status=finalized.status,
+        attachments_seen=stats.seen,
+        attachments_indexed=stats.indexed,
+        attachments_skipped=stats.skipped,
+        attachments_failed=stats.failed,
+        attachment_bytes_processed=stats.bytes_processed,
+    )
 
 
 def document_processor(ctx: ProcessorContext) -> ProcessingOutcome:

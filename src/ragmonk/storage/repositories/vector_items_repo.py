@@ -18,6 +18,8 @@ import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ragmonk.storage.repositories import documents_repo
+
 
 def delete_by_file(conn: sqlite3.Connection, file_id: str) -> None:
     conn.execute("DELETE FROM vector_items WHERE file_id = ?", (file_id,))
@@ -195,11 +197,14 @@ def batch_metadata_lookup(
     document_rows = conn.execute(
         f"""
         SELECT vi.vector_id, ds.id, ds.text, ds.heading_path, ds.kind AS section_kind,
-               ds.table_rows, d.title AS document_title, f.path
+               ds.table_rows, d.title AS document_title, f.path,
+               d.parent_document_id, d.attachment_name, d.attachment_content_type,
+               d.attachment_index, d.format AS attachment_format, p.title AS parent_title
         FROM vector_items vi
         JOIN document_sections ds ON ds.id = vi.subject_id
         JOIN documents d ON d.id = ds.document_id
         JOIN files f ON f.id = ds.file_id
+        LEFT JOIN documents p ON p.id = d.parent_document_id
         WHERE vi.vector_id IN ({placeholders}) AND vi.subject_type = 'document_section'
         """,
         tuple(vector_ids),
@@ -211,6 +216,12 @@ def batch_metadata_lookup(
             text = " ".join(cell for r in cells for cell in r if cell)
         heading_path = json.loads(row["heading_path"]) if row["heading_path"] else []
         title = row["document_title"] or row["path"]
+        location: dict[str, object] = {
+            "section": " > ".join(heading_path) if heading_path else None
+        }
+        attachment = documents_repo.attachment_provenance(row)
+        if attachment is not None:
+            location["attachment"] = attachment
         results[row["vector_id"]] = VectorMetadataRow(
             vector_id=row["vector_id"],
             kind="document",
@@ -218,7 +229,7 @@ def batch_metadata_lookup(
             title=title,
             path=row["path"],
             snippet=text[:280],
-            location={"section": " > ".join(heading_path) if heading_path else None},
+            location=location,
         )
 
     return results

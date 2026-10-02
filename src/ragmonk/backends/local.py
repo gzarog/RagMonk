@@ -242,29 +242,14 @@ class LocalKnowledgeBackend(KnowledgeBackend):
         if prepared_document.delete_only or prepared_document.document is None:
             return
 
-        document = prepared_document.document
-        documents_repo.insert_document(conn, document)
-        doc_title = prepared_document.doc_title
-        for index, (chunk_id, chunk) in enumerate(
-            zip(prepared_document.chunk_ids, prepared_document.chunks, strict=True)
-        ):
-            parent_id = (
-                prepared_document.chunk_ids[chunk.parent_index]
-                if chunk.parent_index is not None
-                else None
-            )
-            _insert_chunk(
-                conn,
-                chunk_id=chunk_id,
-                document_id=document.id,
-                file_id=prepared_document.file_id,
-                parent_id=parent_id,
-                order_index=index,
-                chunk=chunk,
-                generation=prepared_document.generation,
-                created_at=document.created_at,
-                doc_title=doc_title,
-            )
+        _insert_document_payload(conn, prepared_document)
+        # EML attachment child documents share the parent's file_id, so the
+        # delete above already cleared any previous generation's children;
+        # inserting them here keeps the whole .eml generation inside the
+        # caller's single transaction.
+        for attachment in prepared_document.attachments:
+            if attachment.document is not None:
+                _insert_document_payload(conn, attachment)
 
     def publish_embeddings(self, prepared_embeddings: PreparedEmbeddings) -> None:
         """The write half of ``indexing.embedding_indexer.
@@ -558,7 +543,7 @@ class LocalKnowledgeBackend(KnowledgeBackend):
             document = documents_repo.get_document(conn, document_id)
             if document is None:
                 return []
-            units = documents_repo.list_units_by_file(conn, document.file_id)
+            units = documents_repo.list_units_by_document(conn, document.id)
             return [_unit_record(u, document.source_id) for u in units]
         out: list[DocumentUnitRecord] = []
         for unit_id in dict.fromkeys(unit_ids or []):
@@ -609,6 +594,33 @@ def _file_record(record: Any) -> FileRecord:
     )
 
 
+def _insert_document_payload(conn: Any, prepared_document: PreparedDocument) -> None:
+    document = prepared_document.document
+    assert document is not None
+    documents_repo.insert_document(conn, document)
+    doc_title = prepared_document.doc_title
+    for index, (chunk_id, chunk) in enumerate(
+        zip(prepared_document.chunk_ids, prepared_document.chunks, strict=True)
+    ):
+        parent_id = (
+            prepared_document.chunk_ids[chunk.parent_index]
+            if chunk.parent_index is not None
+            else None
+        )
+        _insert_chunk(
+            conn,
+            chunk_id=chunk_id,
+            document_id=document.id,
+            file_id=prepared_document.file_id,
+            parent_id=parent_id,
+            order_index=index,
+            chunk=chunk,
+            generation=prepared_document.generation,
+            created_at=document.created_at,
+            doc_title=doc_title,
+        )
+
+
 def _document_record(document: Any) -> DocumentRecord:
     return DocumentRecord(
         document_id=document.id,
@@ -624,6 +636,11 @@ def _document_record(document: Any) -> DocumentRecord:
         is_scanned=document.is_scanned,
         created_at=document.created_at,
         updated_at=document.updated_at,
+        parent_document_id=document.parent_document_id,
+        attachment_name=document.attachment_name,
+        attachment_content_type=document.attachment_content_type,
+        attachment_index=document.attachment_index,
+        attachment_content_id=document.attachment_content_id,
     )
 
 

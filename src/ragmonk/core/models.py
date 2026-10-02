@@ -345,6 +345,16 @@ class Document(BaseModel):
     generation: int
     created_at: str
     updated_at: str
+    # EML attachment knowledge extraction V1: set only on an attachment
+    # child document (``parent_document_id`` is the parent email's
+    # ``Document.id``); all ``None`` for a normal top-level document. A
+    # child shares its parent's ``source_id``/``file_id``/``generation`` --
+    # the ``.eml`` stays the single filesystem/queue unit.
+    parent_document_id: str | None = None
+    attachment_name: str | None = None
+    attachment_content_type: str | None = None
+    attachment_index: int | None = None
+    attachment_content_id: str | None = None
 
 
 class Section(BaseModel):

@@ -48,7 +48,9 @@ ragmonk ui --no-browser
   failed files, and watch live progress over Server-Sent Events.
 - **Documents** — browse indexed documents with source/format/filename filters
   and pagination, and drill into a document to inspect its extracted chunks
-  (heading path, page, embedding state).
+  (heading path, page, embedding state). Email attachments are listed as
+  their own documents, tagged "attachment" and named
+  `email.eml -> attachment-name`, with a link back to the parent email.
 - **Search** — run lexical, semantic or hybrid queries and see ranked results,
   scores and snippets. Semantic search degrades gracefully with a reason when
   it is disabled or unavailable.

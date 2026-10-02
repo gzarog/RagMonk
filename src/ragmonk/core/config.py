@@ -264,6 +264,27 @@ class DocumentsConfig(BaseModel):
     pdf_mode: str = "accurate"
     pdf_table_structure: bool = True
     pdf_process_workers: int = 1
+    # EML attachment knowledge extraction V1: supported MIME attachments of
+    # an ``.eml`` are converted through this same document pipeline and
+    # indexed as child documents of the email (see
+    # documents/email_attachments.py). Limits apply to *decoded* bytes,
+    # before any conversion. ``email_attachments: false`` reproduces the
+    # previous body-only ``.eml`` behavior exactly.
+    email_attachments: bool = True
+    email_attachment_max_bytes: int = 25 * 1024 * 1024
+    email_attachment_max_count: int = 50
+    email_attachment_total_max_bytes: int = 100 * 1024 * 1024
+
+    @field_validator(
+        "email_attachment_max_bytes",
+        "email_attachment_max_count",
+        "email_attachment_total_max_bytes",
+    )
+    @classmethod
+    def _validate_positive_attachment_limit(cls, value: int, info: Any) -> int:
+        if value <= 0:
+            raise ValueError(f"documents.{info.field_name} must be > 0")
+        return value
 
     @field_validator("pdf_mode")
     @classmethod

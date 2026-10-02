@@ -39,6 +39,7 @@ from ragmonk.backends.server_common import PassEntityResolver
 from ragmonk.core.config import ChunkingConfig, RagMonkConfig
 from ragmonk.core.errors import SecurityViolationError
 from ragmonk.core.models import FileKind, FileRecord, FileStatus, IndexJob, ScannedFile
+from ragmonk.documents.email_attachments import EmailAttachmentSettings
 from ragmonk.indexing import retry
 from ragmonk.indexing.incremental import (
     ChangeType,
@@ -121,6 +122,12 @@ class ProcessorContext:
     # ``ProcessorContext``, e.g. a test) means "disabled", matching
     # ``image_ocr``'s own config default.
     image_ocr: bool | None = None
+    # ``config.documents.email_attachment*`` (EML attachment knowledge
+    # extraction V1) -- whether/within which limits an ``.eml``'s MIME
+    # attachments are converted and indexed as child documents. ``None``
+    # (a coordinator-external ``ProcessorContext``, e.g. a test) means
+    # disabled: body-only ``.eml`` indexing, the pre-V1 behavior.
+    email_attachments: EmailAttachmentSettings | None = None
     # The generation this run's derived rows should be tagged with --
     # always files.generation + 1, matching the bump files_repo.mark_indexed
     # applies right after a processor returns successfully. Writing this
@@ -158,6 +165,15 @@ class ProcessorContext:
 @dataclass(frozen=True)
 class ProcessingOutcome:
     status: FileStatus
+    # EML attachment knowledge extraction V1: per-email attachment
+    # counters, summed into ``IndexRunResult``. Attachments are never
+    # counted as source files, and a failed attachment never fails its
+    # parent ``.eml``.
+    attachments_seen: int = 0
+    attachments_indexed: int = 0
+    attachments_skipped: int = 0
+    attachments_failed: int = 0
+    attachment_bytes_processed: int = 0
 
 
 ProcessorFunc = Callable[[ProcessorContext], ProcessingOutcome]
@@ -166,7 +182,9 @@ ProcessorFunc = Callable[[ProcessorContext], ProcessingOutcome]
 # live version-constant change (a real code change, or a test's
 # monkeypatch) is always seen -- see ``VersionStamp``'s and
 # ``decide_reprocessing``'s docstrings in ``indexing/incremental.py``.
-VersionProviderFunc = Callable[[], VersionStamp]
+# Called with the file's path, so a kind can scope part of its identity to
+# specific files (the document pipeline's ``.eml`` attachment suffix).
+VersionProviderFunc = Callable[[Path], VersionStamp]
 # Indexing optimization plan, Phase P4 (CODE) / V2 Phase P2 (DOCUMENT): the
 # optional split a kind can register instead of (or alongside) a plain
 # ``ProcessorFunc`` -- a "prepare" half, safe to run concurrently across
@@ -402,6 +420,14 @@ class IndexRunResult:
     # Indexing optimization plan V2, Phase P5: per-stage wall-clock
     # durations for this pass -- see ``StageTimings``'s own docstring.
     timings: StageTimings = field(default_factory=StageTimings)
+    # EML attachment knowledge extraction V1: totals over every ``.eml``
+    # this run indexed (see ``ProcessingOutcome``). Separate from the file
+    # counters above -- an attachment is a derived document, not a file.
+    attachments_seen: int = 0
+    attachments_indexed: int = 0
+    attachments_skipped: int = 0
+    attachments_failed: int = 0
+    attachment_bytes_processed: int = 0
 
 
 # Indexing optimization plan, Phase P2: the unit of work a caller hands
@@ -647,7 +673,7 @@ class IndexCoordinator:
         provider = self._processors.get_version_provider(kind)
         if provider is None:
             return ReprocessDecision.NONE
-        current = provider()
+        current = provider(Path(prev.path))
         existing_versions = VersionStamp(
             parser_version=prev.parser_version,
             chunker_version=prev.chunker_version,
@@ -1098,6 +1124,7 @@ class IndexCoordinator:
             chunking=self._config.documents.chunking,
             ocr=self._config.documents.ocr,
             image_ocr=self._config.documents.image_ocr,
+            email_attachments=EmailAttachmentSettings.from_config(self._config.documents),
             file_identity=identity,
             server_write_pass=self._server_write_pass,
             pass_entity_resolver=self._pass_entity_resolver,
@@ -1208,7 +1235,7 @@ class IndexCoordinator:
         # a rebuild that never happened).
         provider = self._processors.get_version_provider(file.kind)
         versions = (
-            provider()
+            provider(Path(file.path))
             if provider is not None and outcome.status is not FileStatus.SKIPPED_LIMIT
             else None
         )
@@ -1230,6 +1257,11 @@ class IndexCoordinator:
             progress.current().file_done("skipped")
         else:
             result.indexed += 1
+            result.attachments_seen += outcome.attachments_seen
+            result.attachments_indexed += outcome.attachments_indexed
+            result.attachments_skipped += outcome.attachments_skipped
+            result.attachments_failed += outcome.attachments_failed
+            result.attachment_bytes_processed += outcome.attachment_bytes_processed
             progress.current().file_done("indexed")
             if file.kind is FileKind.CODE:
                 result.touched_code_file_ids.append(file.id)
@@ -1321,11 +1353,12 @@ class IndexCoordinator:
             item = finalized.backend_prepared
             if item is None:
                 continue
-            estimated_actions += 1 + len(item.chunks)
-            estimated_bytes += sum(
-                len(chunk.text) + len(chunk.search_text) + len(chunk.contextual_text)
-                for chunk in item.chunks
-            )
+            for doc in (item, *item.attachments):
+                estimated_actions += 1 + len(doc.chunks)
+                estimated_bytes += sum(
+                    len(chunk.text) + len(chunk.search_text) + len(chunk.contextual_text)
+                    for chunk in doc.chunks
+                )
         return estimated_actions >= action_threshold or estimated_bytes >= byte_threshold
 
     def _flush_document_batch(self, result: IndexRunResult) -> None:
@@ -1357,10 +1390,10 @@ class IndexCoordinator:
                 self._finish_failure(result, job, file, started, exc)
             return
 
+        from ragmonk.documents.pipeline import outcome_for
+
         for job, file, started, finalized in batch:
-            self._finish_success(
-                result, job, file, started, ProcessingOutcome(status=finalized.status)
-            )
+            self._finish_success(result, job, file, started, outcome_for(finalized))
 
     def _server_batching_enabled(self, kind: FileKind) -> bool:
         """V3 completion: whether a ``kind`` job is buffered into a server

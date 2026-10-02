@@ -26,6 +26,27 @@ def _project_conn(ctx: AppContext, source_path: str) -> Any:
     return ctx.project_conn(project_id)
 
 
+def _attachment_info(document: Any) -> dict[str, Any] | None:
+    """EML attachment knowledge extraction V1: identifies an attachment
+    child document (works on both ``core.models.Document`` and the
+    backend-neutral ``DocumentRecord``); ``None`` for a top-level one.
+    """
+    if getattr(document, "parent_document_id", None) is None:
+        return None
+    return {
+        "name": document.attachment_name,
+        "content_type": document.attachment_content_type,
+        "index": document.attachment_index,
+        "parent_document_id": document.parent_document_id,
+    }
+
+
+def _display_name(path: str, document: Any) -> str:
+    attachment = _attachment_info(document)
+    name = Path(path).name
+    return f"{name} -> {attachment['name']}" if attachment else name
+
+
 def _server_rows(ctx: AppContext, sources: list[Any]) -> list[dict[str, Any]]:
     """Completion plan F3: server-mode document listing, read entirely
     from ``ctx.backend()`` (documents + their file records, published
@@ -46,7 +67,8 @@ def _server_rows(ctx: AppContext, sources: list[Any]) -> list[dict[str, Any]]:
                     "source_id": source.id,
                     "file_id": document.file_id,
                     "path": path,
-                    "name": Path(path).name,
+                    "name": _display_name(path, document),
+                    "attachment": _attachment_info(document),
                     "format": document.format,
                     "title": document.title or None,
                     "size": file_record.size_bytes if file_record else None,
@@ -99,7 +121,8 @@ def list_documents(
                     "source_id": source.id,
                     "file_id": document.file_id,
                     "path": path,
-                    "name": Path(path).name,
+                    "name": _display_name(path, document),
+                    "attachment": _attachment_info(document),
                     "format": document.format.value,
                     "title": document.title,
                     "size": file_record.size if file_record else None,
@@ -142,6 +165,7 @@ def _server_document_detail(
         "id": document.document_id,
         "source_id": source_id,
         "path": file_record.path if file_record else document.file_id,
+        "attachment": _attachment_info(document),
         "format": document.format,
         "title": document.title or None,
         "author": document.author,
@@ -175,11 +199,12 @@ def document_detail(ctx: AppContext, source_id: str, document_id: str) -> dict[s
     if document is None:
         raise LookupError(f"no such document: {document_id}")
     file_record = files_repo.get(conn, document.file_id)
-    units = documents_repo.list_units_by_file(conn, document.file_id)
+    units = documents_repo.list_units_by_document(conn, document.id)
     return {
         "id": document.id,
         "source_id": source_id,
         "path": file_record.path if file_record else document.file_id,
+        "attachment": _attachment_info(document),
         "format": document.format.value,
         "title": document.title,
         "author": document.author,
