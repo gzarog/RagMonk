@@ -20,3 +20,83 @@ fn unknown_command_exits_with_invalid_arguments_code() {
     let out = ragmonk().arg("definitely-not-a-command").output().unwrap();
     assert_eq!(out.status.code(), Some(2));
 }
+
+fn with_home(home: &std::path::Path) -> Command {
+    let mut cmd = ragmonk();
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("RAGMONK_") {
+            cmd.env_remove(key);
+        }
+    }
+    cmd.env("RAGMONK_HOME", home);
+    cmd
+}
+
+#[test]
+fn config_show_get_set_round_trip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let out = with_home(&home)
+        .current_dir(tmp.path())
+        .args(["config", "show"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.starts_with("version: 1\nruntime:\n  log_level: info\n"));
+    assert!(
+        home.join("logs").is_dir(),
+        "config show ensures the runtime layout"
+    );
+
+    let out = with_home(&home)
+        .current_dir(tmp.path())
+        .args(["config", "set", "runtime.max_workers", "3"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = with_home(&home)
+        .current_dir(tmp.path())
+        .args(["config", "get", "runtime.max_workers"])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), "3\n");
+    let written = std::fs::read_to_string(home.join("config.yaml")).unwrap();
+    assert!(written.contains("  max_workers: 3\n"));
+}
+
+#[test]
+fn config_errors_use_python_exit_codes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let out = with_home(&home)
+        .current_dir(tmp.path())
+        .args(["config", "get", "no.such.key"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8(out.stderr).unwrap(),
+        "Error: unknown config key: no.such.key\n"
+    );
+
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join("config.yaml"),
+        "storage:\n  server:\n    url: https://user:hunter2@es:9200\n",
+    )
+    .unwrap();
+    let out = with_home(&home)
+        .current_dir(tmp.path())
+        .args(["config", "show"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3));
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.starts_with("Error: invalid configuration: storage.server.url: Value error"));
+    assert!(!stderr.contains("hunter2"), "credential leaked: {stderr}");
+}

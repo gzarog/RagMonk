@@ -6,7 +6,10 @@ is still the product**; nothing here changes its behavior yet.
 
 | Crate | Status |
 |-------|--------|
-| `ragmonk-cli` | `ragmonk` binary; only `version` so far (RUST-00 skeleton) |
+| `ragmonk-cli` | `ragmonk` binary: `version`, `config show/get/set` |
+| `ragmonk-core` | errors/exit codes, domain models, home layout, stable IDs, secret filter, path guard, version (RUST-01) |
+| `ragmonk-config` | `config.yaml` + env layering with PyYAML/pydantic-exact semantics (RUST-01) |
+| `ragmonk-telemetry` | JSON-lines logging, URL/credential redaction (RUST-01) |
 | `ragmonk-compat` | Python-vs-Rust differential harness; removed at RUST-16 |
 
 ## Quality gates
@@ -30,6 +33,16 @@ rust/target/debug/ragmonk-compat stability --impl python --program .venv/bin/rag
 rust/target/debug/ragmonk-compat capture --impl rust --program rust/target/debug/ragmonk --out rust.json
 rust/target/debug/ragmonk-compat compare rust/compat/baseline/python-1e92ed4.json rust.json
 ```
+
+Phase gate (every step owned by the phase or earlier must match):
+
+```sh
+rust/target/debug/ragmonk-compat gate python.json rust.json --phase RUST-01
+```
+
+Golden fixtures for pure functions (config parsing, IDs, redaction) live in
+`compat/golden/` and are regenerated with
+`python rust/compat/tools/gen_core_golden.py` (Python reference installed).
 
 `--strict-ids` keeps path-derived source/project IDs for same-machine runs;
 the default *portable* mode masks them. The harness only resets work dirs

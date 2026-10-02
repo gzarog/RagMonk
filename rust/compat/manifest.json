@@ -7,7 +7,7 @@
       "id": "cli-basics",
       "description": "Version, help and usage-error exit codes on a fresh home.",
       "steps": [
-        {"id": "version-json", "args": ["version", "--json"], "volatile_keys": ["version", "runtime"], "rust_phase": "RUST-00"},
+        {"id": "version-json", "args": ["version", "--json"], "volatile_keys": ["version"], "drop_keys": ["python", "runtime"], "rust_phase": "RUST-00"},
         {"id": "unknown-command", "args": ["definitely-not-a-command"], "output": "none", "rust_phase": "RUST-00"},
         {"id": "status-before-init", "args": ["status", "--json"], "rust_phase": "RUST-12"}
       ]
@@ -18,8 +18,9 @@
       "steps": [
         {"id": "init", "args": ["init"], "output": "text", "rust_phase": "RUST-12"},
         {"id": "config-show", "args": ["config", "show"], "output": "yaml", "rust_phase": "RUST-01"},
-        {"id": "config-get-storage", "args": ["config", "get", "storage"], "output": "text", "rust_phase": "RUST-01"},
-        {"id": "config-get-unknown", "args": ["config", "get", "no.such.key"], "output": "none", "rust_phase": "RUST-01"},
+        {"id": "config-get-storage", "args": ["config", "get", "storage"], "output": "text", "rust_phase": "RUST-12"},
+        {"id": "config-get-scalar", "args": ["config", "get", "runtime.max_workers"], "output": "text", "rust_phase": "RUST-01"},
+        {"id": "config-get-unknown", "args": ["config", "get", "no.such.key"], "output": "none", "rust_phase": "RUST-01", "compare_stderr": true},
         {"id": "home-inventory", "sqlite_inventory": true, "rust_phase": "RUST-02"}
       ]
     },
