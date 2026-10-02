@@ -6,7 +6,8 @@ is still the product**; nothing here changes its behavior yet.
 
 | Crate | Status |
 |-------|--------|
-| `ragmonk-cli` | `ragmonk` binary: `version`, `config show/get/set`, `migrate-to-rust-v2 --check/--import-sources` |
+| `ragmonk-cli` | `ragmonk` binary: `version`, `config show/get/set`, `migrate-to-rust-v2 --check/--import-sources`, `server-v2 schema/init/legacy` |
+| `ragmonk-backends` | V2 OpenSearch/Elasticsearch schema, bounded bulk, atomic build publication, legacy cleanup (RUST-03) |
 | `ragmonk-core` | errors/exit codes, domain models, home layout, stable IDs, secret filter, path guard, version (RUST-01) |
 | `ragmonk-config` | `config.yaml` + env layering with PyYAML/pydantic-exact semantics (RUST-01) |
 | `ragmonk-storage` | V2 SQLite control plane + per-source knowledge store, versioned migrations with backup, read-only V1 preflight/import (RUST-02) |
@@ -49,5 +50,5 @@ Golden fixtures for pure functions (config parsing, IDs, redaction) live in
 the default *portable* mode masks them. The harness only resets work dirs
 that carry its own marker file and opens SQLite read-only.
 
-Policies: [`docs/adr/`](docs/adr) (storage: ADR 0006, V3 clean-slate plan). Baselines: `compat/baseline/`,
+Policies: [`docs/adr/`](docs/adr) (storage: ADR 0006, server: ADR 0007, V3 clean-slate plan). Baselines: `compat/baseline/`,
 benchmarks: `compat/benchmarks/`.

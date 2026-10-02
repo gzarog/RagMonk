@@ -38,9 +38,40 @@ enum Command {
     /// Inspect and edit configuration.
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Rust V2 OpenSearch/Elasticsearch schema and legacy-index cleanup.
+    #[command(name = "server-v2", subcommand)]
+    ServerV2(ServerV2Command),
     /// Prepare the Rust V2 control plane from a Python-era home.
     #[command(name = "migrate-to-rust-v2")]
     MigrateToRustV2(MigrateArgs),
+}
+
+#[derive(Subcommand)]
+enum ServerV2Command {
+    /// Print the V2 index schema manifest for the configured engine.
+    Schema {
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Create any missing V2 indexes and verify existing ones (never modifies them).
+    Init {
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Find (and, with --delete --confirm, remove) Python-era RagMonk indexes.
+    Legacy(LegacyArgs),
+}
+
+#[derive(clap::Args)]
+struct LegacyArgs {
+    /// Delete the legacy indexes reported by the check. Requires --confirm.
+    #[arg(long, requires = "confirm")]
+    delete: bool,
+    /// Fingerprint printed by the check; deletion is refused if the set changed.
+    #[arg(long)]
+    confirm: Option<String>,
+    #[arg(long = "json")]
+    json: bool,
 }
 
 #[derive(clap::Args)]
@@ -167,6 +198,98 @@ fn print_preflight(r: &ragmonk_storage::preflight::PreflightReport) {
     println!("Nothing is deleted; Python V1 files are left untouched.");
 }
 
+fn server_config() -> Result<ragmonk_config::model::ServerStorageConfig, RagMonkError> {
+    let home = prepared_home()?;
+    let cfg = load(&home)?;
+    if cfg.storage.mode != "server" {
+        return Err(RagMonkError::config(
+            "storage.mode is not 'server'; configure storage.server first",
+        ));
+    }
+    Ok(cfg.storage.server)
+}
+
+fn run_server_v2(cmd: ServerV2Command) -> Result<(), RagMonkError> {
+    use ragmonk_backends::engine::{default_vector_spec, Engine};
+    use ragmonk_backends::{legacy, schema, ServerBackend};
+    match cmd {
+        ServerV2Command::Schema { json } => {
+            let home = prepared_home()?;
+            let server = load(&home)?.storage.server;
+            let engine = if server.engine.as_str() == "elasticsearch" {
+                Engine::Elasticsearch
+            } else {
+                Engine::OpenSearch
+            };
+            let manifest = schema::manifest(
+                &schema::v2_prefix(&server.index_prefix),
+                engine,
+                Some(&default_vector_spec()),
+            );
+            if json {
+                print_json(&manifest)?;
+            } else {
+                for idx in manifest["indexes"].as_array().into_iter().flatten() {
+                    println!("{}", idx["name"].as_str().unwrap_or_default());
+                }
+            }
+        }
+        ServerV2Command::Init { json } => {
+            let backend = ServerBackend::connect(&server_config()?, Some(default_vector_spec()))?;
+            let report = backend.init()?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!(
+                    "{} V2 index(es) created, {} already present and verified (prefix {}).",
+                    report.created.len(),
+                    report.existing.len(),
+                    backend.prefix()
+                );
+            }
+        }
+        ServerV2Command::Legacy(args) => {
+            let server = server_config()?;
+            let backend = ServerBackend::connect(&server, None)?;
+            if args.delete {
+                let confirm = args.confirm.unwrap_or_default();
+                let deleted =
+                    legacy::delete_legacy(backend.client(), &server.index_prefix, &confirm)?;
+                if args.json {
+                    print_json(&serde_json::json!({ "deleted": deleted }))?;
+                } else {
+                    println!("Deleted {} legacy index(es).", deleted.len());
+                    for d in &deleted {
+                        println!("  - {d}");
+                    }
+                }
+            } else {
+                let report = legacy::discover(backend.client(), &server.index_prefix)?;
+                if args.json {
+                    print_json(&report)?;
+                } else if report.indexes.is_empty() {
+                    println!("No legacy RagMonk indexes found.");
+                } else {
+                    println!("Legacy (Python V1) RagMonk indexes that would be DELETED:");
+                    for i in &report.indexes {
+                        println!(
+                            "  - {} ({} docs, {})",
+                            i.name,
+                            i.docs.map_or("?".into(), |d| d.to_string()),
+                            i.store_size.as_deref().unwrap_or("?")
+                        );
+                    }
+                    println!(
+                        "Rust V2 never reads them. After review, delete with:\n  ragmonk server-v2 legacy --delete --confirm {}",
+                        report.fingerprint
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn run(cli: Cli) -> Result<(), RagMonkError> {
     match cli.command {
         Command::Version { json } => {
@@ -195,6 +318,7 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
                 .map_err(|e| RagMonkError::new(ragmonk_core::ErrorKind::Generic, e.to_string()))?;
             println!("Set {key} = {} in {}", py_repr(&stored), path.display());
         }
+        Command::ServerV2(cmd) => run_server_v2(cmd)?,
         Command::MigrateToRustV2(args) => {
             let home = Home::discover();
             if args.check {

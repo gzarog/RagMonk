@@ -66,6 +66,56 @@ jobs:
       - name: cargo build --release
         run: cargo build --workspace --release
 
+  # RUST-03: V2 schema lifecycle against real clusters (legacy cleanup,
+  # init, invisible-until-publish, crash/abort/GC, bounded bulk, build mode).
+  server-v2-integration:
+    name: Rust V2 server integration (OpenSearch + Elasticsearch)
+    runs-on: ubuntu-latest
+    services:
+      opensearch:
+        image: opensearchproject/opensearch:2.15.0
+        env:
+          discovery.type: single-node
+          DISABLE_SECURITY_PLUGIN: "true"
+          DISABLE_INSTALL_DEMO_CONFIG: "true"
+          OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+        ports:
+          - 9201:9200
+        options: >-
+          --health-cmd "curl -fs http://localhost:9200/_cluster/health || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 30
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+        ports:
+          - 9202:9200
+        options: >-
+          --health-cmd "curl -fs http://localhost:9200/_cluster/health || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 30
+    env:
+      RAGMONK_TEST_OPENSEARCH_URL: http://localhost:9201
+      RAGMONK_TEST_ELASTICSEARCH_URL: http://localhost:9202
+      RAGMONK_REQUIRE_LIVE_SERVER: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Wait for clusters
+        working-directory: .
+        run: |
+          for url in "$RAGMONK_TEST_OPENSEARCH_URL" "$RAGMONK_TEST_ELASTICSEARCH_URL"; do
+            for i in $(seq 1 60); do
+              curl -fs "$url/_cluster/health?wait_for_status=yellow&timeout=5s" && break
+              sleep 5
+            done
+          done
+      - name: Live V2 lifecycle tests
+        run: cargo test -p ragmonk-backends --test live -- --nocapture
+
   # RUST-00 verification gate: capture the Python reference twice through
   # the compat harness and prove the canonical output is identical.
   compat-baseline:
@@ -115,7 +165,7 @@ jobs:
         env:
           # Highest merged rewrite phase; every manifest step it (or an
           # earlier phase) owns must match the Python reference.
-          RUST_PHASE: RUST-02
+          RUST_PHASE: RUST-03
       # Informational: the RUST-01 golden fixtures must still reflect the
       # Python reference (pydantic/PyYAML are not locked, so drift is
       # reported rather than failing the job).
