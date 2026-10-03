@@ -1,7 +1,7 @@
 //! Document indexing benchmark.
 //!
 //! ```text
-//! ragmonk-doc-bench FIXTURE_DIR [--copies N] [--out report.json] [--emit-only DIR]
+//! ragmonk-doc-bench FIXTURE_DIR [--copies N] [--kinds a.pdf,b.md] [--out report.json] [--emit-only DIR]
 //! ```
 //!
 //! Builds a corpus of N copies of each Markdown/HTML/TXT/DOCX/PPTX/XLSX
@@ -27,11 +27,11 @@ const KINDS: &[&str] = &[
     "spreadsheet.xlsx",
 ];
 
-fn emit(fixtures: &Path, root: &Path, copies: usize) {
+fn emit(fixtures: &Path, root: &Path, copies: usize, kinds: &[String]) {
     for i in 0..copies {
         let dir = root.join(format!("d{:02}", i % 20));
         std::fs::create_dir_all(&dir).expect("mkdir");
-        for k in KINDS {
+        for k in kinds {
             let (stem, ext) = k.rsplit_once('.').expect("ext");
             std::fs::copy(fixtures.join(k), dir.join(format!("{stem}_{i}.{ext}"))).expect("copy");
         }
@@ -48,13 +48,16 @@ fn main() {
     };
     let fixtures = PathBuf::from(args.get(1).expect("FIXTURE_DIR"));
     let copies: usize = arg("--copies").and_then(|v| v.parse().ok()).unwrap_or(100);
+    let kinds: Vec<String> = arg("--kinds")
+        .map(|k| k.split(',').map(str::to_owned).collect())
+        .unwrap_or_else(|| KINDS.iter().map(|s| (*s).to_owned()).collect());
     if let Some(dir) = arg("--emit-only") {
-        emit(&fixtures, Path::new(&dir), copies);
+        emit(&fixtures, Path::new(&dir), copies, &kinds);
         return;
     }
     let tmp = std::env::temp_dir().join(format!("ragmonk-doc-bench-{}", std::process::id()));
     let root = tmp.join("source");
-    emit(&fixtures, &root, copies);
+    emit(&fixtures, &root, copies, &kinds);
     let home = Home::new(tmp.join("home"));
     let layout = V2Layout::new(&home);
     let (mut cp, _) = ControlPlane::open(&layout, 64).expect("control plane");
@@ -74,7 +77,11 @@ fn main() {
         })
         .expect("source");
     let cfg = ragmonk_config::RagMonkConfig::default();
-    let reg = ragmonk_convert::registry(&cfg);
+    let opts_reg = ragmonk_convert::RegistryOptions {
+        ocr_models_dir: std::env::var_os("RAGMONK_OCR_MODELS_DIR").map(PathBuf::from),
+        cache_dir: None,
+    };
+    let reg = ragmonk_convert::registry_with(&cfg, &opts_reg);
     let opts = Options::from_config(&cfg);
     let mut results = Vec::new();
     let mut run = |name: &str, cp: &mut ControlPlane| {
@@ -89,14 +96,15 @@ fn main() {
     };
     run("cold_index", &mut cp);
     run("warm_unchanged", &mut cp);
-    std::fs::write(
-        root.join("d00/handbook_0.md"),
-        "# Edited\n\nChanged body text.\n",
-    )
-    .expect("edit");
+    let first = &kinds[0];
+    let (stem, ext) = first.rsplit_once('.').expect("ext");
+    let src_edit = fixtures.join(first);
+    let mut bytes = std::fs::read(&src_edit).expect("read");
+    bytes.extend_from_slice(b"\n");
+    std::fs::write(root.join(format!("d00/{stem}_0.{ext}")), bytes).expect("edit");
     run("single_edit", &mut cp);
     let report = json!({
-        "phase": "RUST-07", "implementation": "rust", "files": copies * KINDS.len(),
+        "phase": "RUST-07", "implementation": "rust", "files": copies * kinds.len(), "kinds": kinds,
         "workers": opts.workers, "scenarios": results,
     });
     let text = serde_json::to_string_pretty(&report).expect("json");

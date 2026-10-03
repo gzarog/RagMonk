@@ -16,9 +16,14 @@ use crate::converter::{ConversionError, DocumentConverter};
 use crate::format::detect_format;
 use crate::normalize::normalize;
 
+/// Error code a processor uses to record a file as `skipped_limit`.
+pub use ragmonk_indexing::coordinator::SKIPPED_LIMIT;
+
 pub struct DocumentProcessor {
     pub converter: Arc<dyn DocumentConverter>,
     pub chunking: ChunkingConfig,
+    /// `documents.max_pages`: larger PDFs are recorded `skipped_limit`.
+    pub max_pages: Option<usize>,
 }
 
 impl DocumentProcessor {
@@ -32,6 +37,20 @@ impl DocumentProcessor {
         let Some(format) = detect_format(path) else {
             return Ok(FileKnowledge::default());
         };
+        if let (crate::format::DocumentFormat::Pdf, Some(max)) = (format, self.max_pages) {
+            if let Ok(n) = crate::pdf::page_count(path) {
+                if n > max {
+                    return Err(ProcessError {
+                        code: SKIPPED_LIMIT.into(),
+                        message: format!(
+                            "{}: {n} pages exceeds documents.max_pages ({max})",
+                            path.display()
+                        ),
+                        transient: false,
+                    });
+                }
+            }
+        }
         let json = match self.converter.convert(path, format) {
             Ok(j) => j,
             // Recognized but not convertible by this build: indexed with no

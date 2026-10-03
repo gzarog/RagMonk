@@ -41,7 +41,7 @@ fn every_fixture_converts_and_preserves_content() {
         let path = root.join("fixtures/documents").join(name);
         let fmt = detect_format(&path).unwrap();
         assert_eq!(fmt.as_str(), e["format"].as_str().unwrap(), "{name}");
-        let json = DoclingConverter
+        let json = DoclingConverter::default()
             .convert(&path, fmt)
             .unwrap_or_else(|err| panic!("{name}: {err}"));
         let ours = normalize(&json, false);
@@ -85,7 +85,7 @@ fn every_fixture_converts_and_preserves_content() {
 fn corrupt_input_fails_cleanly() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compat/fixtures/documents");
     let p = root.join("corrupt.docx");
-    assert!(DoclingConverter
+    assert!(DoclingConverter::default()
         .convert(&p, detect_format(&p).unwrap())
         .is_err());
 }

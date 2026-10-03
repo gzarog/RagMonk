@@ -48,6 +48,10 @@ pub struct PrepareInput {
     pub content_hash: Option<String>,
 }
 
+/// A processor error with this code records the file as `skipped_limit`
+/// (a configured resource limit, not a failure).
+pub const SKIPPED_LIMIT: &str = "skipped_limit";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessError {
     pub code: String,
@@ -605,6 +609,13 @@ fn build(
                 Ok(k) => {
                     result.indexed += 1;
                     (file_row(&d.work, versions, "indexed", 0, None, None), k)
+                }
+                Err(e) if e.code == SKIPPED_LIMIT => {
+                    result.skipped_limit += 1;
+                    (
+                        file_row(&d.work, versions, "skipped_limit", 0, None, Some(e.message)),
+                        FileKnowledge::default(),
+                    )
                 }
                 Err(e) => {
                     let attempts = d.work.prev_attempts + 1;
