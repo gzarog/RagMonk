@@ -64,8 +64,12 @@ reference:
 - A code entity without a signature is indexed under its name. Before, it
   was indexed under an empty string, which skewed BM25 for modules.
 
-`CHUNKER_VERSION` (now 3) and `CODE_DERIVATION_VERSION` (now `rust-code-2`)
-are bumped, so existing V2 indexes rebuild.
+- `CODE_DERIVATION_VERSION` is bumped to `rust-code-2`, so code is
+  re-derived.
+- `CHUNKER_VERSION` stays at 2. It is part of the version stamp checked
+  against the reference, so it cannot change on its own. V2 is unreleased,
+  and the cutover (RUST-15/16) rebuilds every index from scratch, so no
+  deployed V2 chunk index carries the old heading rows.
 
 ## Evidence
 

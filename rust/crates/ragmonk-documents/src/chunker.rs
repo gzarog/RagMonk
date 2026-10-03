@@ -18,9 +18,8 @@ use crate::table::{self, Row};
 use crate::tokenization::{count_tokens, split_by_token_budget};
 use crate::tokenizer::{model_tokenizer, preprocessing_fingerprint, ModelTokenizer};
 
-/// Gates chunk boundaries, `search_text` and the chunk FTS row (3: heading
-/// chunks are indexed under their own text, RUST-10).
-pub const CHUNKER_VERSION: &str = "3";
+/// Gates chunk boundaries and `search_text`.
+pub const CHUNKER_VERSION: &str = "2";
 /// Gates `contextual_text` assembly.
 pub const EMBEDDING_TEXT_VERSION: &str = "2";
 
