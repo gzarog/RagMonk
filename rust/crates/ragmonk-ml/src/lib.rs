@@ -193,6 +193,16 @@ impl BuildFinalizer for EmbeddingFinalizer {
         build_id: &str,
         _touched: &[String],
     ) -> Result<(), ProcessError> {
+        self.run(store, build_id)
+    }
+
+    fn on_warm_pass(&self, store: &mut ProjectStore, build_id: &str) -> Result<(), ProcessError> {
+        self.run(store, build_id)
+    }
+}
+
+impl EmbeddingFinalizer {
+    fn run(&self, store: &mut ProjectStore, build_id: &str) -> Result<(), ProcessError> {
         let Ok(embedder) = self.embedder.get() else {
             return Ok(());
         };
