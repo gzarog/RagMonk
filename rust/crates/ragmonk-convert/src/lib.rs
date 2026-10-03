@@ -30,6 +30,9 @@ pub struct RegistryOptions {
     pub ocr_models_dir: Option<std::path::PathBuf>,
     /// Default: no cache.
     pub cache_dir: Option<std::path::PathBuf>,
+    /// Embedding models root. Default `<home>/models` (overridden by
+    /// `RAGMONK_MODELS_DIR`).
+    pub models_root: Option<std::path::PathBuf>,
 }
 
 impl RegistryOptions {
@@ -37,6 +40,7 @@ impl RegistryOptions {
     pub fn for_home(home: &ragmonk_core::paths::Home) -> Self {
         Self {
             ocr_models_dir: Some(home.root().join("models").join("ocrs")),
+            models_root: Some(home.root().join("models")),
             cache_dir: Some(
                 ragmonk_storage::V2Layout::new(home)
                     .root()
@@ -80,6 +84,19 @@ pub fn registry_with(config: &RagMonkConfig, opts: &RegistryOptions) -> Registry
     // this build wrote; manual links are re-applied to every build.
     r.finalizers
         .push(Arc::new(ragmonk_knowledge::KnowledgeLinker));
+    // Semantic vectors: every entity/chunk without a vector under the
+    // current model is embedded after linking. A missing model leaves them
+    // pending (logged) instead of failing the build.
+    if config.search.semantic {
+        r.finalizers
+            .push(Arc::new(ragmonk_ml::EmbeddingFinalizer::new(
+                ragmonk_ml::LazyEmbedder::new(
+                    ragmonk_ml::embedder::models_root(opts.models_root.as_deref()),
+                    ragmonk_ml::manifest::DEFAULT_EMBEDDING_MODEL,
+                    config.indexing.embedding_batch_size,
+                ),
+            )));
+    }
     r.document = Arc::new(process::DocumentProcessor {
         converter,
         chunking: config.documents.chunking.clone(),

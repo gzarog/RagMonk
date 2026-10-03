@@ -327,7 +327,7 @@ fn migration_from_v1_schema_backs_up_and_adds_retry_columns() {
         .unwrap();
     }
     let (store, applied) = ProjectStore::open(&layout, "p", "s", 8).unwrap();
-    assert_eq!((applied.from, applied.to), (1, 4));
+    assert_eq!((applied.from, applied.to), (1, 5));
     assert!(
         applied.backup.is_some(),
         "existing data is backed up before migrating"
@@ -421,7 +421,7 @@ fn migration_to_v3_rekeys_lexical_rows_and_keeps_search_working() {
         .unwrap();
     }
     let (mut store, applied) = ProjectStore::open(&layout, "p", "s", 8).unwrap();
-    assert_eq!((applied.from, applied.to), (2, 4));
+    assert_eq!((applied.from, applied.to), (2, 5));
     assert!(applied.backup.is_some());
     assert_eq!(
         store.search_paths("b", "alpha_module", 5).unwrap()[0].id,
@@ -444,4 +444,14 @@ fn migration_to_v3_rekeys_lexical_rows_and_keeps_search_working() {
         .unwrap()
         .is_empty());
     assert!(store.search_code("b", "alpha_fn", 5).unwrap().is_empty());
+}
+
+#[test]
+fn vector_blobs_round_trip_little_endian() {
+    use ragmonk_storage::vectors::{decode_vector, encode_vector};
+    let v = vec![0.0f32, -1.5, 3.25e-7, f32::MAX];
+    let blob = encode_vector(&v);
+    assert_eq!(blob.len(), 16);
+    assert_eq!(&blob[4..8], &(-1.5f32).to_le_bytes());
+    assert_eq!(decode_vector(&blob), v);
 }

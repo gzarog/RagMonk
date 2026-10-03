@@ -80,6 +80,7 @@ fn main() {
     let opts_reg = ragmonk_convert::RegistryOptions {
         ocr_models_dir: std::env::var_os("RAGMONK_OCR_MODELS_DIR").map(PathBuf::from),
         cache_dir: None,
+        models_root: None,
     };
     let reg = ragmonk_convert::registry_with(&cfg, &opts_reg);
     let opts = Options::from_config(&cfg);
