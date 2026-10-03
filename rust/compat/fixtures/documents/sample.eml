@@ -1,0 +1,9 @@
+From: sender@example.com
+To: recipient@example.com
+Subject: Sample Email Subject
+Date: Mon, 1 Sep 2025 12:00:00 +0000
+Content-Type: text/plain; charset="utf-8"
+
+This is the body of the sample email.
+
+It has two paragraphs of content.

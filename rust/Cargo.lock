@@ -2293,6 +2293,7 @@ dependencies = [
  "docling",
  "image",
  "lopdf",
+ "mail-parser",
  "ocrs",
  "ragmonk-code",
  "ragmonk-config",

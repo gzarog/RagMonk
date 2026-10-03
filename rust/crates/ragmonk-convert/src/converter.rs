@@ -167,7 +167,7 @@ impl DocumentConverter for DoclingConverter {
             DocumentFormat::Ods => F::Ods,
             DocumentFormat::Odp => F::Odp,
             DocumentFormat::Epub => F::Epub,
-            DocumentFormat::Eml => return Err(ConversionError::Unsupported("eml")),
+            DocumentFormat::Eml => F::Email,
             DocumentFormat::Pdf | DocumentFormat::Image => unreachable!("handled above"),
         };
         let bytes = std::fs::read(path).map_err(|e| ConversionError::Failed(e.to_string()))?;
