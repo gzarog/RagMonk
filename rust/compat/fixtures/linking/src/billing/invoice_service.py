@@ -13,6 +13,6 @@ def calculate_tax(amount):
     return amount * 0.2
 
 
-@app.post("/api/invoices/{id}/void")
+@app.post("/api/invoices/{id}/void")  # noqa: F821
 def void_endpoint(id):
     return id
