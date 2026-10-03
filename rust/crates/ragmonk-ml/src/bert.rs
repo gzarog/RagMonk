@@ -127,7 +127,8 @@ fn contiguous_f32<'a>(storage: &'a CpuStorage, layout: &Layout) -> Result<&'a [f
 }
 
 fn gelu_erf(v: f32) -> f32 {
-    (candle_core::cpu::erf::erf_f32(v * std::f32::consts::FRAC_1_SQRT_2) + 1.0) * 0.5 * v
+    let x = f64::from(v);
+    ((candle_core::cpu::erf::erf(x * std::f64::consts::FRAC_1_SQRT_2) + 1.0) * 0.5 * x) as f32
 }
 
 /// Adds a per-column bias to every row (optionally followed by exact-erf

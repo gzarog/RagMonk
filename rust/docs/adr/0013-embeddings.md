@@ -4,9 +4,11 @@ Status: accepted
 
 ## Decisions (user)
 
-1. **Runtime.** Embeddings run on Candle (`candle-core`/`candle-nn`/
-   `candle-transformers` `=0.11.0`). It is pure Rust, with no native ONNX
-   Runtime library, and it uses one build path on Windows, Linux and macOS.
+1. **Runtime.** Embeddings run on Candle (`candle-core`/`candle-nn`
+   `=0.9.1`). It is pure Rust, with no native ONNX Runtime library, and it
+   uses one build path on Windows, Linux and macOS. Version 0.11 needs NEON
+   f16 intrinsics that are unstable on the pinned Rust 1.90 for aarch64
+   (macOS CI); 0.9.1 builds there.
 2. **Model selection.** The candidates are a small set: all-MiniLM-L6-v2 (the
    baseline), bge-small-en-v1.5 and one code-aware model. The selection is
    measured on RagMonk golden queries in slice 3.
