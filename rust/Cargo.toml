@@ -94,8 +94,6 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.candle-nn]
 opt-level = 3
-[profile.dev.package.candle-transformers]
-opt-level = 3
 [profile.dev.package.gemm]
 opt-level = 3
 [profile.dev.package.gemm-common]

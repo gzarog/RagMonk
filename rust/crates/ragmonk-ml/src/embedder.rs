@@ -11,10 +11,10 @@ use std::sync::Mutex;
 
 use candle_core::{DType, Device, IndexOp, Tensor};
 use candle_nn::VarBuilder;
-use candle_transformers::models::bert::{BertModel, Config};
 use sha2::{Digest, Sha256};
 use tokenizers::{PaddingParams, PaddingStrategy, Tokenizer, TruncationParams};
 
+use crate::bert::{Bert, BertConfig};
 use crate::manifest::{EmbeddingModelSpec, Pooling};
 
 #[derive(Debug, thiserror::Error)]
@@ -74,7 +74,7 @@ pub struct Embedder {
     spec: EmbeddingModelSpec,
     fingerprint: String,
     tokenizer: Tokenizer,
-    model: BertModel,
+    model: Bert,
     device: Device,
     batch_size: usize,
     gate: Mutex<()>,
@@ -101,7 +101,7 @@ impl Embedder {
                 .ok_or_else(|| MlError::Load(format!("manifest has no {name}")))?;
             read_verified(dir, f.name, f.sha256)
         };
-        let config: Config = serde_json::from_slice(&file("config.json")?).map_err(load_err)?;
+        let config: BertConfig = serde_json::from_slice(&file("config.json")?).map_err(load_err)?;
         let mut tokenizer = Tokenizer::from_bytes(file("tokenizer.json")?).map_err(load_err)?;
         tokenizer
             .with_truncation(Some(TruncationParams {
@@ -120,7 +120,7 @@ impl Embedder {
         let vb =
             VarBuilder::from_buffered_safetensors(file("model.safetensors")?, DType::F32, &device)
                 .map_err(load_err)?;
-        let model = BertModel::load(vb, &config).map_err(load_err)?;
+        let model = Bert::load(vb, &config).map_err(load_err)?;
         Ok(Self {
             fingerprint: spec.fingerprint(),
             spec,
@@ -154,10 +154,19 @@ impl Embedder {
     }
 
     /// One L2-normalized vector per text, in order.
+    ///
+    /// Texts are batched in order of length so each batch pads to a similar
+    /// length (padding is masked out, so a vector does not depend on its
+    /// batch), then returned in input order.
     pub fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, MlError> {
-        let mut out = Vec::with_capacity(texts.len());
-        for batch in texts.chunks(self.batch_size) {
-            out.extend(self.embed_batch(batch)?);
+        let mut order: Vec<usize> = (0..texts.len()).collect();
+        order.sort_by_key(|&i| texts[i].len());
+        let mut out: Vec<Vec<f32>> = vec![Vec::new(); texts.len()];
+        for idx in order.chunks(self.batch_size) {
+            let batch: Vec<&str> = idx.iter().map(|&i| texts[i]).collect();
+            for (&i, v) in idx.iter().zip(self.embed_batch(&batch)?) {
+                out[i] = v;
+            }
         }
         Ok(out)
     }
@@ -182,11 +191,7 @@ impl Embedder {
         }
         let ids = Tensor::from_vec(ids, (rows, seq), &self.device).map_err(inference)?;
         let mask = Tensor::from_vec(mask, (rows, seq), &self.device).map_err(inference)?;
-        let types = ids.zeros_like().map_err(inference)?;
-        let hidden = self
-            .model
-            .forward(&ids, &types, Some(&mask))
-            .map_err(inference)?;
+        let hidden = self.model.forward(&ids, &mask).map_err(inference)?;
         let pooled = match self.spec.pooling {
             Pooling::Cls => hidden.i((.., 0)).map_err(inference)?,
             Pooling::Mean => {

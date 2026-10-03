@@ -10,10 +10,11 @@ publish.workspace = true
 [dependencies]
 candle-core = "=0.11.0"
 candle-nn = "=0.11.0"
-candle-transformers = "=0.11.0"
 ragmonk-documents.workspace = true
 ragmonk-indexing.workspace = true
 ragmonk-storage.workspace = true
+rayon = "1"
+serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

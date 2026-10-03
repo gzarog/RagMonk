@@ -2,6 +2,7 @@
 //! (Candle) embeddings and the build finalizer that keeps every build's
 //! vectors complete under the current model.
 
+pub mod bert;
 pub mod embedder;
 pub mod manifest;
 
