@@ -189,6 +189,15 @@ impl ProjectStore {
         ))
     }
 
+    /// Directory holding this project's database (derived caches such as
+    /// the ANN index live next to it).
+    pub fn project_dir(&self) -> Option<std::path::PathBuf> {
+        self.conn
+            .path()
+            .filter(|p| !p.is_empty())
+            .and_then(|p| std::path::Path::new(p).parent().map(|d| d.to_path_buf()))
+    }
+
     pub fn connection(&self) -> &Connection {
         &self.conn
     }
