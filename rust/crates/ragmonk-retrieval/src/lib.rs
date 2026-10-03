@@ -11,6 +11,7 @@
 //! Search runs over one or more [`Corpus`] values (a project store plus the
 //! build to read), so multi-source search is the caller's list.
 
+pub mod graph;
 pub mod hybrid;
 pub mod lexical;
 

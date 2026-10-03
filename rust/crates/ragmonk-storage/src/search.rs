@@ -6,7 +6,10 @@
 use rusqlite::params;
 
 use crate::error::{Result, StorageError};
-use crate::knowledge::ProjectStore;
+use crate::knowledge::{
+    entity_from_row, relationship_from_row, EntityRow, ProjectStore, RelationshipRow,
+    ENTITY_COLUMNS, RELATIONSHIP_COLUMNS,
+};
 
 /// Document-FTS column weights (`bm25(chunk_fts, ...)`): chunk id and build
 /// id are unindexed placeholders, then heading 5, body 1, title 8 (the
@@ -362,6 +365,92 @@ pub fn word_tokens(text: &str) -> Vec<String> {
 /// Combining marks count as word characters in Python's `\w`.
 fn is_mark(c: char) -> bool {
     matches!(c as u32, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F)
+}
+
+// ---- graph reads (RUST-10 slice 2) ------------------------------------
+
+impl ProjectStore {
+    /// Entities whose name or qualified name equals `q`, as full rows
+    /// (the reference's `entities_repo.search`).
+    pub fn symbol_entities(&self, build_id: &str, q: &str) -> Result<Vec<EntityRow>> {
+        self.query_rows(
+            "symbol entities",
+            &format!(
+                "SELECT {ENTITY_COLUMNS} FROM entities
+                 WHERE build_id = ?1 AND (name = ?2 OR qualified_name = ?2)
+                 ORDER BY qualified_name, file_id, start_line, id"
+            ),
+            &[&build_id, &q],
+            entity_from_row,
+        )
+    }
+
+    /// Edges of `relationship_type` leaving (`outgoing`) or entering
+    /// (`!outgoing`) `entity_id`, ordered by id, at most `limit`.
+    pub fn entity_edges(
+        &self,
+        build_id: &str,
+        entity_id: &str,
+        relationship_type: Option<&str>,
+        outgoing: bool,
+        limit: i64,
+    ) -> Result<Vec<RelationshipRow>> {
+        let column = if outgoing {
+            "source_entity_id"
+        } else {
+            "target_entity_id"
+        };
+        let (filter, order) = match relationship_type {
+            Some(_) => ("AND relationship_type = ?3", "id"),
+            None => ("AND (?3 IS NULL)", "relationship_type, id"),
+        };
+        self.query_rows(
+            "entity edges",
+            &format!(
+                "SELECT {RELATIONSHIP_COLUMNS} FROM relationships
+                 WHERE build_id = ?1 AND {column} = ?2 {filter}
+                 ORDER BY {order} LIMIT ?4"
+            ),
+            &[&build_id, &entity_id, &relationship_type, &limit],
+            relationship_from_row,
+        )
+    }
+
+    /// Unresolved edges recorded only under `symbol` (no target entity).
+    pub fn unresolved_edges(
+        &self,
+        build_id: &str,
+        symbol: &str,
+        relationship_type: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<RelationshipRow>> {
+        let (filter, order) = match relationship_type {
+            Some(_) => ("AND relationship_type = ?3", "id"),
+            None => ("AND (?3 IS NULL)", "relationship_type, id"),
+        };
+        self.query_rows(
+            "unresolved edges",
+            &format!(
+                "SELECT {RELATIONSHIP_COLUMNS} FROM relationships
+                 WHERE build_id = ?1 AND target_entity_id IS NULL AND target_symbol = ?2 {filter}
+                 ORDER BY {order} LIMIT ?4"
+            ),
+            &[&build_id, &symbol, &relationship_type, &limit],
+            relationship_from_row,
+        )
+    }
+
+    /// Source-relative path of one file of `build_id`.
+    pub fn file_rel_path(&self, build_id: &str, file_id: &str) -> Result<Option<String>> {
+        Ok(self
+            .query_rows(
+                "file path",
+                "SELECT rel_path FROM files WHERE build_id = ?1 AND id = ?2",
+                &[&build_id, &file_id],
+                |r| r.get(0),
+            )?
+            .pop())
+    }
 }
 
 #[cfg(test)]

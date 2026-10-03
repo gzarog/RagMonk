@@ -1147,9 +1147,10 @@ fn insert_knowledge(tx: &Connection, build_id: &str, k: &FileKnowledge) -> Resul
 
 // ---- code graph (RUST-05) ----------------------------------------------
 
-const ENTITY_COLUMNS: &str = "id, file_id, kind, name, qualified_name, language, parent_id,
+pub(crate) const ENTITY_COLUMNS: &str =
+    "id, file_id, kind, name, qualified_name, language, parent_id,
     signature, start_line, end_line, start_col, end_col";
-const RELATIONSHIP_COLUMNS: &str = "id, file_id, relationship_type, source_entity_id,
+pub(crate) const RELATIONSHIP_COLUMNS: &str = "id, file_id, relationship_type, source_entity_id,
     target_entity_id, target_symbol, resolver, confidence, source_location, evidence,
     reference_text";
 
@@ -1163,7 +1164,7 @@ pub const CROSS_FILE_RESOLVERS: &[&str] = &[
     "unresolved",
 ];
 
-fn entity_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<EntityRow> {
+pub(crate) fn entity_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<EntityRow> {
     Ok(EntityRow {
         id: r.get(0)?,
         file_id: r.get(1)?,
@@ -1180,7 +1181,7 @@ fn entity_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<EntityRow> {
     })
 }
 
-fn relationship_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RelationshipRow> {
+pub(crate) fn relationship_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RelationshipRow> {
     Ok(RelationshipRow {
         id: r.get(0)?,
         file_id: r.get(1)?,
