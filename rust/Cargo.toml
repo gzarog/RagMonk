@@ -10,6 +10,7 @@ members = [
     "crates/ragmonk-core",
     "crates/ragmonk-documents",
     "crates/ragmonk-indexing",
+    "crates/ragmonk-knowledge",
     "crates/ragmonk-storage",
     "crates/ragmonk-telemetry",
 ]
@@ -38,6 +39,7 @@ ragmonk-convert = { path = "crates/ragmonk-convert" }
 ragmonk-config = { path = "crates/ragmonk-config" }
 ragmonk-documents = { path = "crates/ragmonk-documents" }
 ragmonk-core = { path = "crates/ragmonk-core" }
+ragmonk-knowledge = { path = "crates/ragmonk-knowledge" }
 ragmonk-indexing = { path = "crates/ragmonk-indexing" }
 ragmonk-storage = { path = "crates/ragmonk-storage" }
 ragmonk-telemetry = { path = "crates/ragmonk-telemetry" }

@@ -327,7 +327,7 @@ fn migration_from_v1_schema_backs_up_and_adds_retry_columns() {
         .unwrap();
     }
     let (store, applied) = ProjectStore::open(&layout, "p", "s", 8).unwrap();
-    assert_eq!((applied.from, applied.to), (1, 3));
+    assert_eq!((applied.from, applied.to), (1, 4));
     assert!(
         applied.backup.is_some(),
         "existing data is backed up before migrating"
@@ -421,7 +421,7 @@ fn migration_to_v3_rekeys_lexical_rows_and_keeps_search_working() {
         .unwrap();
     }
     let (mut store, applied) = ProjectStore::open(&layout, "p", "s", 8).unwrap();
-    assert_eq!((applied.from, applied.to), (2, 3));
+    assert_eq!((applied.from, applied.to), (2, 4));
     assert!(applied.backup.is_some());
     assert_eq!(
         store.search_paths("b", "alpha_module", 5).unwrap()[0].id,

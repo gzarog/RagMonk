@@ -1,0 +1,11 @@
+{
+  "phase": "RUST-08",
+  "implementation": "rust",
+  "code_files": 2000,
+  "documents": 100,
+  "entities": 14000,
+  "units": 4100,
+  "links": 12000,
+  "cold_index_wall_s": 6.604850262,
+  "full_relink_wall_s": 2.656574794
+}

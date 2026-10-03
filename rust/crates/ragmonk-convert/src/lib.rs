@@ -76,6 +76,10 @@ pub fn registry_with(config: &RagMonkConfig, opts: &RegistryOptions) -> Registry
     r.versions.chunker_version = ragmonk_documents::chunker::chunker_version_stamp();
     r.versions.embedding_text_version =
         Some(ragmonk_documents::chunker::EMBEDDING_TEXT_VERSION.into());
+    // Cross-domain links run after cross-file resolution, over the files
+    // this build wrote; manual links are re-applied to every build.
+    r.finalizers
+        .push(Arc::new(ragmonk_knowledge::KnowledgeLinker));
     r.document = Arc::new(process::DocumentProcessor {
         converter,
         chunking: config.documents.chunking.clone(),

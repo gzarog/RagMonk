@@ -416,7 +416,12 @@ pub fn resolve_build(
 }
 
 impl BuildFinalizer for CrossFileResolver {
-    fn finalize(&self, store: &mut ProjectStore, build_id: &str) -> Result<(), ProcessError> {
+    fn finalize(
+        &self,
+        store: &mut ProjectStore,
+        build_id: &str,
+        _touched: &[String],
+    ) -> Result<(), ProcessError> {
         resolve_build(store, build_id)
             .map(|_| ())
             .map_err(|e| ProcessError {
