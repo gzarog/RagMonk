@@ -257,22 +257,42 @@ impl Bert {
         })
     }
 
-    /// `ids`/`mask`: `(batch, seq)` u32. Returns `(batch, seq, hidden)`.
+    /// `ids`/`mask`: `(batch, seq)` u32, all token types 0. Returns
+    /// `(batch, seq, hidden)`.
     pub fn forward(&self, ids: &Tensor, mask: &Tensor) -> Result<Tensor> {
+        self.forward_typed(ids, None, mask)
+    }
+
+    /// Like [`Bert::forward`] with explicit `(batch, seq)` u32 token types
+    /// (segment ids of a sentence pair); `None` means all zeros.
+    pub fn forward_typed(
+        &self,
+        ids: &Tensor,
+        types: Option<&Tensor>,
+        mask: &Tensor,
+    ) -> Result<Tensor> {
         let (b, s) = ids.dims2()?;
         let n = b * s;
         let device = ids.device();
         let flat = ids.flatten_all()?;
         let positions = Tensor::arange(0u32, s as u32, device)?;
         let pos = self.position.index_select(&positions, 0)?; // (s, h)
-        let tok = self.token_type.get(0)?; // all-zero token types
         let x = self
             .word
             .index_select(&flat, 0)?
             .reshape((b, s, self.hidden))?
-            .broadcast_add(&pos)?
-            .broadcast_add(&tok)?
-            .reshape((n, self.hidden))?;
+            .broadcast_add(&pos)?;
+        let x = match types {
+            Some(t) => {
+                let tok = self
+                    .token_type
+                    .index_select(&t.flatten_all()?, 0)?
+                    .reshape((b, s, self.hidden))?;
+                (x + tok)?
+            }
+            None => x.broadcast_add(&self.token_type.get(0)?)?,
+        }
+        .reshape((n, self.hidden))?;
         let mut x = self.emb_norm.forward(&x)?;
         // (b, s) additive bias: 0 for tokens, f32::MIN for padding.
         let bias: Vec<f32> = mask

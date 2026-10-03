@@ -106,9 +106,14 @@ pub struct Fx {
 }
 
 pub fn fixture() -> Fx {
+    fixture_of("fixtures/linking")
+}
+
+/// A fresh source over a copy of `compat/<rel>`.
+pub fn fixture_of(rel: &str) -> Fx {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("corpus");
-    copy_tree(&compat().join("fixtures/linking"), &root);
+    copy_tree(&compat().join(rel), &root);
     let home = home(tmp.path());
     let layout = V2Layout::new(&home);
     let mut cp = control(&home);

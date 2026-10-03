@@ -1,0 +1,22 @@
+{
+  "phase": "RUST-09",
+  "implementation": "python",
+  "queries": 72,
+  "rerank_top_n": 20,
+  "semantic": {
+    "recall@1": 0.706,
+    "recall@3": 0.8218,
+    "recall@5": 0.8634,
+    "recall@10": 0.9167,
+    "mrr": 0.8576,
+    "ndcg@10": 0.8382
+  },
+  "semantic_rerank": {
+    "recall@1": 0.6782,
+    "recall@3": 0.8912,
+    "recall@5": 0.919,
+    "recall@10": 0.9236,
+    "mrr": 0.8553,
+    "ndcg@10": 0.8585
+  }
+}
