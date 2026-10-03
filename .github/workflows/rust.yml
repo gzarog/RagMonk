@@ -84,11 +84,38 @@ jobs:
           }
           fetch text-detection.rten f15cfb56bd02c4bf478a20343986504a1f01e1665c2b3a0ad66340f054b1b5ca
           fetch text-recognition.rten e484866d4cce403175bd8d00b128feb08ab42e208de30e42cd9889d8f1735a6e
+      # RUST-09: the pinned embedding model (revision + sha256 match
+      # ragmonk-ml's manifest) so vector parity and finalizer tests run.
+      - name: Cache embedding models
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: embed-all-minilm-l6-v2-1110a243
+      - name: Fetch embedding models
+        shell: bash
+        env:
+          DIR: ${{ runner.temp }}/models/all-minilm-l6-v2
+          BASE: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+        run: |
+          mkdir -p "$DIR"
+          fetch() {
+            [ -f "$DIR/$1" ] || curl -sSfL --retry 4 -o "$DIR/$1" "$BASE/$1"
+            if command -v sha256sum >/dev/null; then
+              echo "$2  $DIR/$1" | sha256sum -c -
+            else
+              echo "$2  $DIR/$1" | shasum -a 256 -c -
+            fi
+          }
+          fetch config.json 953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41
+          fetch model.safetensors 53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db
+          fetch tokenizer.json be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037
       - name: cargo test
         run: cargo test --workspace --no-fail-fast
         env:
           RAGMONK_OCR_MODELS_DIR: ${{ runner.temp }}/ocr-models
           RAGMONK_REQUIRE_OCR: "1"
+          RAGMONK_MODELS_DIR: ${{ runner.temp }}/models
+          RAGMONK_REQUIRE_MODELS: "1"
       - name: cargo build --release
         run: cargo build --workspace --release
 
@@ -191,7 +218,7 @@ jobs:
         env:
           # Highest merged rewrite phase; every manifest step it (or an
           # earlier phase) owns must match the Python reference.
-          RUST_PHASE: RUST-08
+          RUST_PHASE: RUST-09
       # Informational: the RUST-01 golden fixtures must still reflect the
       # Python reference (pydantic/PyYAML are not locked, so drift is
       # reported rather than failing the job).

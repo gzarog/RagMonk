@@ -162,7 +162,7 @@ pub fn fts_query(input: &str) -> Option<String> {
 }
 
 pub struct ProjectStore {
-    conn: Connection,
+    pub(crate) conn: Connection,
     source_id: String,
 }
 
@@ -489,6 +489,11 @@ impl ProjectStore {
                     page_end, table_rows, caption
                   FROM chunks WHERE build_id = ?2 AND file_id = ?3")?;
             exec(
+                "INSERT INTO embeddings SELECT ?1, subject_type, subject_id, file_id,
+                    model_fingerprint, text_hash, dims, vector
+                  FROM embeddings WHERE build_id = ?2 AND file_id = ?3",
+            )?;
+            exec(
                 "INSERT INTO chunk_fts (rowid, chunk_id, build_id, heading, body, title)
                   SELECT n.rowid, n.id, ?1, f.heading, f.body, f.title
                   FROM chunks o JOIN chunk_fts f ON f.rowid = o.rowid
@@ -569,6 +574,11 @@ impl ProjectStore {
                     heading_level, text, search_text, embedding_text, token_count, page_start,
                     page_end, table_rows, caption
                   FROM chunks WHERE build_id = ?2 AND file_id NOT IN (SELECT id FROM carry_skip)")?;
+            exec(
+                "INSERT INTO embeddings SELECT ?1, subject_type, subject_id, file_id,
+                    model_fingerprint, text_hash, dims, vector
+                  FROM embeddings WHERE build_id = ?2 AND file_id NOT IN (SELECT id FROM carry_skip)",
+            )?;
             exec(
                 "INSERT INTO chunk_fts (rowid, chunk_id, build_id, heading, body, title)
                   SELECT n.rowid, n.id, ?1, f.heading, f.body, f.title
@@ -932,6 +942,7 @@ fn delete_build_rows(tx: &Connection, build_id: &str) -> Result<()> {
         "DELETE FROM chunk_fts WHERE rowid IN (SELECT rowid FROM chunks WHERE build_id = ?1)",
         "DELETE FROM path_fts WHERE rowid IN (SELECT rowid FROM files WHERE build_id = ?1)",
         "DELETE FROM cross_links WHERE build_id = ?1",
+        "DELETE FROM embeddings WHERE build_id = ?1",
         "DELETE FROM chunks WHERE build_id = ?1",
         "DELETE FROM documents WHERE build_id = ?1",
         "DELETE FROM relationships WHERE build_id = ?1",
@@ -956,6 +967,7 @@ fn delete_file_rows(tx: &Connection, build_id: &str, file_id: &str) -> Result<()
             (SELECT id FROM documents WHERE build_id = ?1 AND file_id = ?2)",
         "DELETE FROM cross_links WHERE build_id = ?1 AND entity_id IN
             (SELECT id FROM entities WHERE build_id = ?1 AND file_id = ?2)",
+        "DELETE FROM embeddings WHERE build_id = ?1 AND file_id = ?2",
         "DELETE FROM chunks WHERE build_id = ?1 AND file_id = ?2",
         "DELETE FROM documents WHERE build_id = ?1 AND file_id = ?2",
         "DELETE FROM relationships WHERE build_id = ?1 AND file_id = ?2",
@@ -1181,7 +1193,7 @@ pub enum Endpoint {
 }
 
 impl ProjectStore {
-    fn query_rows<T>(
+    pub(crate) fn query_rows<T>(
         &self,
         what: &'static str,
         sql: &str,
@@ -1354,7 +1366,11 @@ impl ProjectStore {
 
 /// Executes through the connection's prepared-statement cache (the writer
 /// runs the same few statements for every file).
-fn cached(tx: &Connection, sql: &str, params: impl rusqlite::Params) -> rusqlite::Result<usize> {
+pub(crate) fn cached(
+    tx: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> rusqlite::Result<usize> {
     tx.prepare_cached(sql)?.execute(params)
 }
 

@@ -338,4 +338,36 @@ ALTER TABLE manual_links_v4 RENAME TO manual_links;
 CREATE INDEX idx_links_resolver ON cross_links(build_id, resolver);
 "#,
     },
+    Migration {
+        version: 5,
+        name: "embeddings",
+        sql: r#"
+-- Embeddings (RUST-09). Vectors are build-scoped like every other derived
+-- row and stamped with the model fingerprint (model id, revision, asset
+-- checksums, preprocessing version) so a model change is detected and
+-- re-embedded explicitly. V1 vectors are never imported.
+CREATE TABLE embeddings (
+    build_id TEXT NOT NULL,
+    subject_type TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    model_fingerprint TEXT NOT NULL,
+    text_hash TEXT NOT NULL,
+    dims INTEGER NOT NULL,
+    vector BLOB NOT NULL,
+    PRIMARY KEY (build_id, subject_type, subject_id)
+);
+CREATE INDEX idx_embeddings_file ON embeddings(build_id, file_id);
+-- Cross-build cache: exact text hash + model fingerprint + text version.
+CREATE TABLE embedding_cache (
+    text_hash TEXT NOT NULL,
+    model_fingerprint TEXT NOT NULL,
+    embedding_text_version TEXT NOT NULL,
+    dims INTEGER NOT NULL,
+    vector BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (text_hash, model_fingerprint, embedding_text_version)
+);
+"#,
+    },
 ];

@@ -93,6 +93,14 @@ pub trait BuildFinalizer: Send + Sync {
         build_id: &str,
         touched: &[String],
     ) -> Result<(), ProcessError>;
+
+    /// Runs on a warm pass (nothing to rebuild) against the active build,
+    /// so derived state that is missing without a file change (for
+    /// example vectors lost in a crash, or a model installed later) can
+    /// be repaired. Default: nothing.
+    fn on_warm_pass(&self, _store: &mut ProjectStore, _build_id: &str) -> Result<(), ProcessError> {
+        Ok(())
+    }
 }
 
 /// Processors per file kind plus the versions they produce.
@@ -437,6 +445,16 @@ pub fn run_source(
                         .set_file_stat(active_build_id, &prev.id, sf.size, sf.mtime)
                         .map_err(db_err)?;
                 }
+            }
+            for finalizer in &registry.finalizers {
+                finalizer
+                    .on_warm_pass(&mut store, active_build_id)
+                    .map_err(|e| {
+                        RagMonkError::new(
+                            ErrorKind::Generic,
+                            format!("warm pass repair failed ({}): {}", e.code, e.message),
+                        )
+                    })?;
             }
             result.build_id = Some(active_build_id.clone());
             return Ok(result);

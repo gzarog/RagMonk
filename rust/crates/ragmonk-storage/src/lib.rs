@@ -23,6 +23,7 @@ pub mod migrate;
 pub mod preflight;
 pub mod schema;
 pub mod v1;
+pub mod vectors;
 
 pub use error::StorageError;
 
