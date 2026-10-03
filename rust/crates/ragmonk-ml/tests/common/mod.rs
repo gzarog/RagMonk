@@ -1,10 +1,14 @@
 #![allow(dead_code)]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ragmonk_core::models::SourceType;
+use ragmonk_core::paths::project_id_for_canonical;
 use ragmonk_core::paths::Home;
+use ragmonk_indexing::coordinator::{run_source, NoProgress, Options};
+use ragmonk_ml::manifest::DEFAULT_EMBEDDING_MODEL;
 use ragmonk_storage::control::{ControlPlane, NewSource, SourceOrigin, SourceRecord};
+use ragmonk_storage::knowledge::ProjectStore;
 use ragmonk_storage::V2Layout;
 
 pub fn home(dir: &Path) -> Home {
@@ -53,4 +57,105 @@ pub fn bump_mtime(path: &Path, secs: u64) {
         .unwrap()
         .set_modified(t)
         .unwrap();
+}
+
+pub fn compat() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compat")
+}
+
+pub fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap() {
+        let p = e.unwrap().path();
+        let dest = to.join(p.file_name().unwrap());
+        if p.is_dir() {
+            copy_tree(&p, &dest);
+        } else {
+            std::fs::copy(&p, dest).unwrap();
+        }
+    }
+}
+
+/// `RAGMONK_MODELS_DIR` when it holds the default model (see parity.rs).
+pub fn models_root() -> Option<PathBuf> {
+    let root = std::env::var_os("RAGMONK_MODELS_DIR").map(PathBuf::from);
+    match root {
+        Some(r)
+            if r.join(DEFAULT_EMBEDDING_MODEL.slug)
+                .join("model.safetensors")
+                .exists() =>
+        {
+            Some(r)
+        }
+        _ if std::env::var("RAGMONK_REQUIRE_MODELS").as_deref() == Ok("1") => {
+            panic!("RAGMONK_REQUIRE_MODELS=1 but the embedding model is not installed")
+        }
+        _ => {
+            eprintln!("skipping: embedding model not installed (set RAGMONK_MODELS_DIR)");
+            None
+        }
+    }
+}
+
+pub struct Fx {
+    pub _tmp: tempfile::TempDir,
+    pub root: PathBuf,
+    pub layout: V2Layout,
+    pub cp: ControlPlane,
+    pub src: SourceRecord,
+}
+
+pub fn fixture() -> Fx {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("corpus");
+    copy_tree(&compat().join("fixtures/linking"), &root);
+    let home = home(tmp.path());
+    let layout = V2Layout::new(&home);
+    let mut cp = control(&home);
+    let src = add_source(&mut cp, &root, &[], &[]);
+    Fx {
+        _tmp: tmp,
+        root,
+        layout,
+        cp,
+        src,
+    }
+}
+
+impl Fx {
+    pub fn index(&mut self, models_root: &Path) {
+        let mut cfg = ragmonk_config::RagMonkConfig::default();
+        cfg.search.semantic = true;
+        let opts = ragmonk_convert::RegistryOptions {
+            models_root: Some(models_root.to_path_buf()),
+            ..Default::default()
+        };
+        let r = run_source(
+            &self.layout,
+            &mut self.cp,
+            &self.src,
+            &ragmonk_convert::registry_with(&cfg, &opts),
+            &Options::from_config(&cfg),
+            &mut NoProgress,
+        )
+        .unwrap();
+        assert!(r.published || r.build_id.is_some(), "{r:?}");
+    }
+
+    pub fn store(&self) -> (ProjectStore, String) {
+        let active = self
+            .cp
+            .state(&self.src.id)
+            .unwrap()
+            .active_build_id
+            .unwrap();
+        let (s, _) = ProjectStore::open(
+            &self.layout,
+            &project_id_for_canonical(&self.src.path),
+            &self.src.id,
+            8,
+        )
+        .unwrap();
+        (s, active)
+    }
 }

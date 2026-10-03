@@ -50,6 +50,23 @@ pub struct StoredEmbedding {
     pub vector: Vec<f32>,
 }
 
+/// Display metadata of one semantic hit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubjectMeta {
+    pub subject_type: String,
+    pub subject_id: String,
+    /// `entity` or `document` (the reference's hit kinds).
+    pub kind: String,
+    pub rel_path: String,
+    /// Qualified name (entity) or document title / heading path (chunk).
+    pub title: String,
+    pub snippet: String,
+    /// Entity start line, or chunk ordinal.
+    pub position: i64,
+    /// Attachment index for chunks of an email attachment.
+    pub attachment_index: Option<i64>,
+}
+
 /// Little-endian f32 encoding used for every vector blob.
 pub fn encode_vector(v: &[f32]) -> Vec<u8> {
     v.iter().flat_map(|x| x.to_le_bytes()).collect()
@@ -238,5 +255,180 @@ impl ProjectStore {
         self.conn
             .query_row("SELECT COUNT(*) FROM embedding_cache", [], |r| r.get(0))
             .map_err(StorageError::sqlite("embedding cache size"))
+    }
+
+    /// `(subject_type, subject_id)` of every vector of `build_id` under
+    /// `fingerprint`.
+    pub fn embedding_keys(
+        &self,
+        build_id: &str,
+        fingerprint: &str,
+    ) -> Result<Vec<(String, String)>> {
+        self.query_rows(
+            "embedding keys",
+            "SELECT subject_type, subject_id FROM embeddings
+             WHERE build_id = ?1 AND model_fingerprint = ?2 ORDER BY subject_type, subject_id",
+            &[&build_id, &fingerprint],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+    }
+
+    /// Vectors for the given keys (missing keys are skipped).
+    pub fn embedding_vectors(
+        &self,
+        build_id: &str,
+        fingerprint: &str,
+        keys: &[(String, String)],
+    ) -> Result<Vec<(String, String, Vec<f32>)>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached(
+                "SELECT vector FROM embeddings WHERE build_id = ?1 AND model_fingerprint = ?2
+                 AND subject_type = ?3 AND subject_id = ?4",
+            )
+            .map_err(StorageError::sqlite("embedding vectors"))?;
+        let mut out = Vec::with_capacity(keys.len());
+        for (t, id) in keys {
+            let blob: Option<Vec<u8>> = stmt
+                .query_row(params![build_id, fingerprint, t, id], |r| r.get(0))
+                .map(Some)
+                .or_else(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                    e => Err(e),
+                })
+                .map_err(StorageError::sqlite("embedding vectors"))?;
+            if let Some(blob) = blob {
+                out.push((t.clone(), id.clone(), decode_vector(&blob)));
+            }
+        }
+        Ok(out)
+    }
+
+    /// sha256 over the ordered `(subject_type, subject_id, text_hash)` set
+    /// of `build_id` under `fingerprint` (hex). Identifies exactly which
+    /// vectors a derived index must contain.
+    pub fn embedding_digest(&self, build_id: &str, fingerprint: &str) -> Result<String> {
+        use sha2::{Digest, Sha256};
+        let mut stmt = self
+            .conn
+            .prepare_cached(
+                "SELECT subject_type, subject_id, text_hash FROM embeddings
+                 WHERE build_id = ?1 AND model_fingerprint = ?2
+                 ORDER BY subject_type, subject_id",
+            )
+            .map_err(StorageError::sqlite("embedding digest"))?;
+        let mut rows = stmt
+            .query(params![build_id, fingerprint])
+            .map_err(StorageError::sqlite("embedding digest"))?;
+        let mut h = Sha256::new();
+        while let Some(r) = rows
+            .next()
+            .map_err(StorageError::sqlite("embedding digest"))?
+        {
+            for i in 0..3 {
+                let v: String = r.get(i).map_err(StorageError::sqlite("embedding digest"))?;
+                h.update(v.as_bytes());
+                h.update([0]);
+            }
+        }
+        Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    }
+
+    /// Display metadata for `(subject_type, subject_id)` keys of `build_id`
+    /// (unknown keys are skipped; order follows `keys`).
+    pub fn subject_meta(
+        &self,
+        build_id: &str,
+        keys: &[(String, String)],
+    ) -> Result<Vec<SubjectMeta>> {
+        let mut entity = self
+            .conn
+            .prepare_cached(
+                "SELECT f.rel_path, e.qualified_name, COALESCE(e.signature, e.qualified_name),
+                    e.start_line
+                 FROM entities e JOIN files f ON f.build_id = e.build_id AND f.id = e.file_id
+                 WHERE e.build_id = ?1 AND e.id = ?2",
+            )
+            .map_err(StorageError::sqlite("subject meta"))?;
+        let mut out = Vec::with_capacity(keys.len());
+        for (t, id) in keys {
+            if t == SUBJECT_ENTITY {
+                let row = entity
+                    .query_row(params![build_id, id], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                            r.get::<_, Option<i64>>(3)?,
+                        ))
+                    })
+                    .map(Some)
+                    .or_else(|e| match e {
+                        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                        e => Err(e),
+                    })
+                    .map_err(StorageError::sqlite("subject meta"))?;
+                if let Some((path, qn, sig, line)) = row {
+                    out.push(SubjectMeta {
+                        subject_type: t.clone(),
+                        subject_id: id.clone(),
+                        kind: "entity".into(),
+                        rel_path: path,
+                        title: qn,
+                        snippet: sig,
+                        position: line.unwrap_or(0),
+                        attachment_index: None,
+                    });
+                }
+                continue;
+            }
+            let row = self
+                .conn
+                .prepare_cached(
+                    "SELECT f.rel_path, COALESCE(d.title, ''), c.heading_path, c.text, c.ordinal,
+                        d.attachment_index
+                     FROM chunks c
+                     JOIN documents d ON d.build_id = c.build_id AND d.id = c.document_id
+                     JOIN files f ON f.build_id = c.build_id AND f.id = c.file_id
+                     WHERE c.build_id = ?1 AND c.id = ?2",
+                )
+                .and_then(|mut st| {
+                    st.query_row(params![build_id, id], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                            r.get::<_, String>(3)?,
+                            r.get::<_, i64>(4)?,
+                            r.get::<_, Option<i64>>(5)?,
+                        ))
+                    })
+                })
+                .map(Some)
+                .or_else(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                    e => Err(e),
+                })
+                .map_err(StorageError::sqlite("subject meta"))?;
+            if let Some((path, title, headings, text, ordinal, attachment_index)) = row {
+                let headings: Vec<String> = serde_json::from_str(&headings).unwrap_or_default();
+                let title = match headings.last() {
+                    Some(h) if !title.is_empty() => format!("{title} > {h}"),
+                    Some(h) => h.clone(),
+                    None => title,
+                };
+                out.push(SubjectMeta {
+                    subject_type: t.clone(),
+                    subject_id: id.clone(),
+                    kind: "document".into(),
+                    rel_path: path,
+                    title,
+                    snippet: text.chars().take(240).collect(),
+                    position: ordinal,
+                    attachment_index,
+                });
+            }
+        }
+        Ok(out)
     }
 }

@@ -2,9 +2,13 @@
 //! (Candle) embeddings and the build finalizer that keeps every build's
 //! vectors complete under the current model.
 
+pub mod ann;
 pub mod bert;
 pub mod embedder;
+pub mod fusion;
+pub mod hnsw;
 pub mod manifest;
+pub mod semantic;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -209,6 +213,29 @@ impl EmbeddingFinalizer {
         };
         let started = std::time::Instant::now();
         let stats = embed_build(store, build_id, embedder, &self.document_text_version)?;
+        if let Some(dir) = store.project_dir() {
+            match ann::sync(
+                store,
+                &dir,
+                build_id,
+                embedder.fingerprint(),
+                embedder.spec().dims,
+            ) {
+                Ok(s) => tracing::info!(
+                    component = "ann",
+                    event = "index_synced",
+                    rebuilt = s.rebuilt,
+                    added = s.added,
+                    removed = s.removed,
+                    compacted = s.compacted,
+                    live = s.live
+                ),
+                // The index is a cache: queries fall back to exact search.
+                Err(e) => {
+                    tracing::warn!(component = "ann", event = "index_sync_failed", error = %e)
+                }
+            }
+        }
         tracing::info!(
             component = "embedder",
             event = "embeddings_published",
