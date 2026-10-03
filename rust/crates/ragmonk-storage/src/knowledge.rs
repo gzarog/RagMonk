@@ -620,7 +620,9 @@ impl ProjectStore {
         write_tx(&mut self.conn, |tx| {
             let mut stmt = tx
                 .prepare(
-                    "INSERT OR REPLACE INTO cross_links (id, build_id, link_type, entity_id,
+                    // First wins on the natural key (link ids hash it), like
+                    // the reference's INSERT OR IGNORE.
+                    "INSERT OR IGNORE INTO cross_links (id, build_id, link_type, entity_id,
                         document_id, chunk_id, resolver, confidence, evidence)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 )
@@ -1384,6 +1386,169 @@ impl ProjectStore {
                     page_end: r.get(12)?,
                     table_rows: table_rows.and_then(|t| serde_json::from_str(&t).ok()),
                     caption: r.get(14)?,
+                })
+            },
+        )
+    }
+}
+
+// ---- knowledge linker (RUST-08) ----------------------------------------
+
+/// A chunk as the linker sees it (`text` is raw; tables carry rows).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinkUnitRow {
+    pub id: String,
+    pub document_id: String,
+    pub file_id: String,
+    pub kind: String,
+    pub ordinal: i64,
+    pub text: String,
+    pub table_rows: Option<Vec<Vec<String>>>,
+    pub caption: Option<String>,
+}
+
+/// A persistent, user-defined link (survives every rebuild).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ManualLink {
+    pub id: String,
+    pub link_type: String,
+    pub entity_qualified_name: String,
+    pub document_rel_path: String,
+    pub attachment_index: Option<i64>,
+    pub chunk_ordinal: Option<i64>,
+    pub note: Option<String>,
+    pub created_at: String,
+}
+
+fn opt_sentinel(v: Option<i64>) -> i64 {
+    v.unwrap_or(-1)
+}
+
+fn from_sentinel(v: i64) -> Option<i64> {
+    (v >= 0).then_some(v)
+}
+
+impl ProjectStore {
+    /// Every chunk of the build in document/ordinal order.
+    pub fn link_units(&self, build_id: &str) -> Result<Vec<LinkUnitRow>> {
+        self.query_rows(
+            "link units",
+            "SELECT id, document_id, file_id, kind, ordinal, text, table_rows, caption
+             FROM chunks WHERE build_id = ?1 ORDER BY document_id, ordinal",
+            &[&build_id],
+            |r| {
+                let rows: Option<String> = r.get(6)?;
+                Ok(LinkUnitRow {
+                    id: r.get(0)?,
+                    document_id: r.get(1)?,
+                    file_id: r.get(2)?,
+                    kind: r.get(3)?,
+                    ordinal: r.get(4)?,
+                    text: r.get(5)?,
+                    table_rows: rows.and_then(|t| serde_json::from_str(&t).ok()),
+                    caption: r.get(7)?,
+                })
+            },
+        )
+    }
+
+    /// Relationships whose unresolved target starts with `prefix`.
+    pub fn relationships_with_symbol_prefix(
+        &self,
+        build_id: &str,
+        prefix: &str,
+    ) -> Result<Vec<RelationshipRow>> {
+        let pattern = format!("{}%", prefix.replace('%', "\\%").replace('_', "\\_"));
+        self.query_rows(
+            "relationships by prefix",
+            &format!(
+                "SELECT {RELATIONSHIP_COLUMNS} FROM relationships
+                 WHERE build_id = ?1 AND target_symbol LIKE ?2 ESCAPE '\\' ORDER BY id"
+            ),
+            &[&build_id, &pattern],
+            relationship_from_row,
+        )
+    }
+
+    pub fn links(&self, build_id: &str) -> Result<Vec<LinkRow>> {
+        self.query_rows(
+            "links",
+            "SELECT id, link_type, entity_id, document_id, chunk_id, resolver, confidence, evidence
+             FROM cross_links WHERE build_id = ?1 ORDER BY id",
+            &[&build_id],
+            |r| {
+                Ok(LinkRow {
+                    id: r.get(0)?,
+                    link_type: r.get(1)?,
+                    entity_id: r.get(2)?,
+                    document_id: r.get(3)?,
+                    chunk_id: r.get(4)?,
+                    resolver: r.get(5)?,
+                    confidence: r.get(6)?,
+                    evidence: r.get(7)?,
+                })
+            },
+        )
+    }
+
+    pub fn delete_links_by_resolver(&mut self, build_id: &str, resolver: &str) -> Result<usize> {
+        write_tx(&mut self.conn, |tx| {
+            cached(
+                tx,
+                "DELETE FROM cross_links WHERE build_id = ?1 AND resolver = ?2",
+                params![build_id, resolver],
+            )
+            .map_err(StorageError::sqlite("delete links"))
+        })
+    }
+
+    /// Adds a manual link; `Ok(false)` when it already exists.
+    pub fn add_manual_link(&mut self, link: &ManualLink) -> Result<bool> {
+        let n = self
+            .conn
+            .execute(
+                "INSERT OR IGNORE INTO manual_links (id, link_type, entity_qualified_name,
+                    document_rel_path, attachment_index, chunk_ordinal, note, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    link.id,
+                    link.link_type,
+                    link.entity_qualified_name,
+                    link.document_rel_path,
+                    opt_sentinel(link.attachment_index),
+                    opt_sentinel(link.chunk_ordinal),
+                    link.note,
+                    link.created_at
+                ],
+            )
+            .map_err(StorageError::sqlite("add manual link"))?;
+        Ok(n > 0)
+    }
+
+    pub fn remove_manual_link(&mut self, id: &str) -> Result<bool> {
+        let n = self
+            .conn
+            .execute("DELETE FROM manual_links WHERE id = ?1", [id])
+            .map_err(StorageError::sqlite("remove manual link"))?;
+        Ok(n > 0)
+    }
+
+    pub fn manual_links(&self) -> Result<Vec<ManualLink>> {
+        self.query_rows(
+            "manual links",
+            "SELECT id, link_type, entity_qualified_name, document_rel_path, attachment_index,
+                chunk_ordinal, note, created_at FROM manual_links ORDER BY created_at, id",
+            &[],
+            |r| {
+                Ok(ManualLink {
+                    id: r.get(0)?,
+                    link_type: r.get(1)?,
+                    entity_qualified_name: r.get(2)?,
+                    document_rel_path: r.get(3)?,
+                    attachment_index: from_sentinel(r.get(4)?),
+                    chunk_ordinal: from_sentinel(r.get(5)?),
+                    note: r.get(6)?,
+                    created_at: r.get(7)?,
                 })
             },
         )

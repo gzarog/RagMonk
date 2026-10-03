@@ -310,4 +310,32 @@ DROP TABLE path_fts;
 ALTER TABLE path_fts_v3 RENAME TO path_fts;
 "#,
     },
+    Migration {
+        version: 4,
+        name: "manual_link_sections",
+        sql: r#"
+-- Knowledge linker (RUST-08): manual links may pin a specific chunk
+-- (ordinal within the document). Optional parts use the -1 sentinel so the
+-- natural key is enforced (SQLite treats NULLs in UNIQUE as distinct).
+CREATE TABLE manual_links_v4 (
+    id TEXT PRIMARY KEY,
+    link_type TEXT NOT NULL,
+    entity_qualified_name TEXT NOT NULL,
+    document_rel_path TEXT NOT NULL,
+    attachment_index INTEGER NOT NULL DEFAULT -1,
+    chunk_ordinal INTEGER NOT NULL DEFAULT -1,
+    note TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (link_type, entity_qualified_name, document_rel_path, attachment_index, chunk_ordinal)
+);
+INSERT INTO manual_links_v4 (id, link_type, entity_qualified_name, document_rel_path,
+        attachment_index, chunk_ordinal, note, created_at)
+    SELECT id, link_type, entity_qualified_name, document_rel_path,
+        COALESCE(attachment_index, -1), -1, note, created_at
+    FROM manual_links;
+DROP TABLE manual_links;
+ALTER TABLE manual_links_v4 RENAME TO manual_links;
+CREATE INDEX idx_links_resolver ON cross_links(build_id, resolver);
+"#,
+    },
 ];

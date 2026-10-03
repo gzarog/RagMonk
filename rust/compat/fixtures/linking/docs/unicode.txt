@@ -1,0 +1,5 @@
+Το σύνολο υπολογίζεται με café_total και Λογαριασμός.
+
+Edge: InvoiceService.create_invoice. Also (Ledger) and [post_entry] and "helper".
+
+Pathological: a.b.c.d..e, ..., __init__, $$$, ((())), Ledger.post_entry.extra

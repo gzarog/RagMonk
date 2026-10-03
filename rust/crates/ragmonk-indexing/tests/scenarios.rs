@@ -328,7 +328,12 @@ fn many_sources_make_progress_with_bounded_work() {
 struct FailingFinalizer;
 
 impl ragmonk_indexing::coordinator::BuildFinalizer for FailingFinalizer {
-    fn finalize(&self, _store: &mut ProjectStore, _build_id: &str) -> Result<(), ProcessError> {
+    fn finalize(
+        &self,
+        _store: &mut ProjectStore,
+        _build_id: &str,
+        _touched: &[String],
+    ) -> Result<(), ProcessError> {
         Err(ProcessError {
             code: "boom".into(),
             message: "finalizer failed".into(),

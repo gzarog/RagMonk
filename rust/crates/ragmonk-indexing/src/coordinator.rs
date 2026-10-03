@@ -85,7 +85,14 @@ impl Processor for RawProcessor {
 /// written and before it is published (e.g. cross-file reference
 /// resolution). An error aborts the build; the previous build stays visible.
 pub trait BuildFinalizer: Send + Sync {
-    fn finalize(&self, store: &mut ProjectStore, build_id: &str) -> Result<(), ProcessError>;
+    /// `touched` lists every file id written in this build (all files for
+    /// a full rebuild; changed/new/moved files for an incremental pass).
+    fn finalize(
+        &self,
+        store: &mut ProjectStore,
+        build_id: &str,
+        touched: &[String],
+    ) -> Result<(), ProcessError>;
 }
 
 /// Processors per file kind plus the versions they produce.
@@ -594,6 +601,7 @@ fn build(
         })
         .collect();
     let mut done = 0usize;
+    let mut touched: Vec<String> = Vec::new();
     run_workers(items, opts.workers, registry, |batch| {
         let mut rows = Vec::with_capacity(batch.len());
         for d in batch {
@@ -647,6 +655,7 @@ fn build(
             };
             rows.push((row, knowledge));
         }
+        touched.extend(rows.iter().map(|(r, _)| r.id.clone()));
         let refs: Vec<(&FileRow, &FileKnowledge)> = rows.iter().map(|(r, k)| (r, k)).collect();
         store.put_files(build_id, &refs).map_err(db_err)?;
         for _ in &rows {
@@ -660,7 +669,7 @@ fn build(
         Ok(())
     })?;
     for finalizer in &registry.finalizers {
-        finalizer.finalize(store, build_id).map_err(|e| {
+        finalizer.finalize(store, build_id, &touched).map_err(|e| {
             RagMonkError::new(
                 ErrorKind::Generic,
                 format!("build finalization failed ({}): {}", e.code, e.message),
