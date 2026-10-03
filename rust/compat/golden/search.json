@@ -31804,12 +31804,6 @@
    ],
    "hybrid_neural": [
     [
-     "path",
-     "hybrid",
-     "services/settlement_service.py",
-     "services/settlement_service.py"
-    ],
-    [
      "document",
      "hybrid",
      "docs/settlement_guide.md",
@@ -31844,6 +31838,12 @@
      "hybrid",
      "docs/health_notes.md",
      "Health Notes"
+    ],
+    [
+     "path",
+     "hybrid",
+     "services/settlement_service.py",
+     "services/settlement_service.py"
     ],
     [
      "entity",
@@ -40375,7 +40375,7 @@
      "entity",
      "fts",
      "web/orders.ts",
-     "web.orders.OrderController.placeOrder",
+     "web.orders.OrderController.cancelOrder",
      [
       4,
       0,
@@ -40387,7 +40387,7 @@
      "entity",
      "fts",
      "web/orders.ts",
-     "web.orders.OrderController.cancelOrder",
+     "web.orders.OrderController.placeOrder",
      [
       4,
       0,
@@ -40498,9 +40498,9 @@
      "web.orders.OrderController.placeOrder",
      [
       "hybrid",
-      0.030076888,
+      0.029857398,
       0,
-      3,
+      4,
       6,
       0.31631
      ]
@@ -40512,9 +40512,9 @@
      "web.orders.OrderController.cancelOrder",
      [
       "hybrid",
-      0.029631255,
+      0.029850746,
       0,
-      4,
+      3,
       6,
       0.26544
      ]
@@ -45645,16 +45645,16 @@
      "src.billing.my-helpers.v2"
     ],
     [
-     "path",
-     "hybrid",
-     "src/billing/my-helpers.v2.py",
-     "src/billing/my-helpers.v2.py"
-    ],
-    [
      "document",
      "hybrid",
      "docs/unicode.txt",
      "unicode"
+    ],
+    [
+     "path",
+     "hybrid",
+     "src/billing/my-helpers.v2.py",
+     "src/billing/my-helpers.v2.py"
     ],
     [
      "document",

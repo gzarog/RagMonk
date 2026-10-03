@@ -152,6 +152,8 @@ impl ProjectStore {
     }
 
     /// BM25-ranked entities for an FTS5 `expression` (already sanitized).
+    /// Equal scores are ordered by path, qualified name and line, never by
+    /// insertion order (which depends on worker scheduling).
     pub fn search_entities_fts(
         &self,
         build_id: &str,
@@ -166,7 +168,8 @@ impl ProjectStore {
              JOIN entities e ON e.rowid = code_fts.rowid
              JOIN files f ON f.build_id = e.build_id AND f.id = e.file_id
              WHERE code_fts MATCH ?1 AND code_fts.build_id = ?2
-             ORDER BY bm25(code_fts) LIMIT ?3",
+             ORDER BY bm25(code_fts), f.rel_path, e.qualified_name, e.start_line, e.id
+             LIMIT ?3",
             &[&expression, &build_id, &limit],
             |r| {
                 let mut row = entity_row(r)?;
@@ -219,7 +222,8 @@ impl ProjectStore {
     }
 
     /// BM25-ranked chunks (heading 5, body 1, title 8) for an FTS5
-    /// `expression`. Each carries a match-centred snippet of at most
+    /// `expression` (equal scores by path and chunk order). Each carries a
+    /// match-centred snippet of at most
     /// `snippet_tokens` tokens (clamped to 1..=64).
     pub fn search_chunks_fts(
         &self,
@@ -241,7 +245,7 @@ impl ProjectStore {
                  JOIN files f ON f.build_id = c.build_id AND f.id = c.file_id
                  LEFT JOIN documents p ON p.build_id = d.build_id AND p.id = d.parent_document_id
                  WHERE chunk_fts MATCH ?2 AND fts.build_id = ?3
-                 ORDER BY {CHUNK_BM25} LIMIT ?4"
+                 ORDER BY {CHUNK_BM25}, f.rel_path, c.ordinal, c.id LIMIT ?4"
             ))
             .map_err(StorageError::sqlite("chunk fts search"))?;
         let rows = stmt

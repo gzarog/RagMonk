@@ -88,6 +88,12 @@ reference:
 - **Tie keys.** Each expected hit carries its tie key: the reference's
   sort key without ids. Only hits with equal tie keys may appear in
   either order.
+- **Deterministic FTS ties.** Rows with equal BM25 come back in insertion
+  order. In the reference that follows its unsorted directory walk, and in
+  V2 it follows worker scheduling, so it differs between machines. V2 breaks
+  such ties by path, then qualified name and line (code) or chunk order
+  (documents). The generator applies the same order to the reference
+  queries.
 - **Exact vector search.** The generator searches the reference's usearch
   index exactly. Its default approximate search dropped a vector in one
   build, and its brute-force fallback, unlike usearch, discards negative

@@ -18,7 +18,8 @@ For every query it records three ranked views, top 20, in an id-free form:
 * ``hybrid_neural``: the hybrid list with its top 20 rescored by the
   cross-encoder (``neural_reranker.rerank_hits``).
 
-Paths are relative to the corpus root. The corpus is copied with every
+Paths are relative to the corpus root. FTS rows with equal BM25 are ordered
+by path and position on both sides (see ``_pin_fts_tie_order``). The corpus is copied with every
 mtime pinned to ``MTIME`` so recency tie-breaks are reproducible. Each hit
 also carries its tie key: the reference's sort key without entity ids, with
 semantic scores rounded to 5 decimals. Hits with equal tie keys
@@ -64,6 +65,30 @@ def _exact_usearch(self: ann.USearchAnnIndex, vector, k: int) -> list[tuple[int,
 
 
 ann.USearchAnnIndex.search = _exact_usearch
+
+
+def _pin_fts_tie_order() -> None:
+    """Rows with equal BM25 come back in insertion (rowid) order, which
+    follows the reference's unsorted directory walk, so it is filesystem
+    dependent. V2 breaks those ties by file path, then qualified name and
+    line (entities) or section order (chunks). The generator applies the
+    same order to the reference queries, so the golden order is defined by
+    the ranking rules alone.
+    """
+    import inspect
+
+    from ragmonk.storage.repositories import documents_repo, entities_repo
+
+    for module, order in (
+        (entities_repo, "ORDER BY rank, f.path, e.qualified_name, e.start_line"),
+        (documents_repo, "ORDER BY rank, f.path, ds.order_index"),
+    ):
+        src = inspect.getsource(module.search_fts_projection)
+        assert src.count("ORDER BY rank\n") == 1, module.__name__
+        exec(src.replace("ORDER BY rank\n", order + "\n"), module.__dict__)  # noqa: S102
+
+
+_pin_fts_tie_order()
 CORPORA = {
     "search_quality": (
         ROOT / "fixtures" / "search_quality" / "project",
