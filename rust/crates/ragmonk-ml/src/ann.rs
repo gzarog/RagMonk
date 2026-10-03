@@ -311,6 +311,9 @@ pub fn sync(
     Ok(stats)
 }
 
+/// `(subject_type, subject_id, similarity)`.
+pub type AnnHit = (String, String, f32);
+
 /// How a query was answered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Engine {
@@ -328,7 +331,7 @@ pub fn search(
     fingerprint: &str,
     query: &[f32],
     k: usize,
-) -> Result<(Engine, Vec<(String, String, f32)>), String> {
+) -> Result<(Engine, Vec<AnnHit>), String> {
     let split = |hits: Vec<(String, f32)>| {
         hits.into_iter()
             .filter_map(|(l, s)| split_label(&l).map(|(t, id)| (t.to_owned(), id.to_owned(), s)))
