@@ -2894,6 +2894,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ragmonk-retrieval"
+version = "0.0.0"
+dependencies = [
+ "ragmonk-config",
+ "ragmonk-convert",
+ "ragmonk-core",
+ "ragmonk-indexing",
+ "ragmonk-ml",
+ "ragmonk-storage",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "ragmonk-storage"
 version = "0.0.0"
 dependencies = [
