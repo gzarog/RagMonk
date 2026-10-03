@@ -8,6 +8,7 @@ pub mod embedder;
 pub mod fusion;
 pub mod hnsw;
 pub mod manifest;
+pub mod reranker;
 pub mod semantic;
 
 use std::collections::HashMap;

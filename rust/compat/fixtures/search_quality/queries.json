@@ -1,0 +1,792 @@
+{
+ "queries": [
+  {
+   "query": "SettlementService",
+   "category": "exact_symbol_lookup",
+   "expected": [
+    {
+     "kind": "entity",
+     "path": "services/settlement_service.py"
+    }
+   ]
+  },
+  {
+   "query": "services.settlement_service.SettlementService.process",
+   "category": "exact_symbol_lookup",
+   "expected": [
+    {
+     "kind": "entity",
+     "path": "services/settlement_service.py"
+    }
+   ]
+  },
+  {
+   "query": "SettlementService.process",
+   "category": "exact_symbol_lookup",
+   "expected": [
+    {
+     "kind": "entity",
+     "path": "services/settlement_service.py"
+    }
+   ]
+  },
+  {
+   "query": "PaymentConsumer",
+   "category": "exact_symbol_lookup",
+   "expected": [
+    {
+     "kind": "entity",
+     "path": "consumers/payment_consumer.py"
+    }
+   ]
+  },
+  {
+   "query": "RetryWorker",
+   "category": "exact_symbol_lookup",
+   "expected": [
+    {
+     "kind": "entity",
+     "path": "workers/retry_worker.py"
+    }
+   ]
+  },
+  {
+   "query": "consumers.payment_consumer.PaymentConsumer.handle",
+   "category": "exact_symbol_lookup",
+   "expected": [
+    {
+     "kind": "entity",
+     "path": "consumers/payment_consumer.py"
+    }
+   ]
+  },
+  {
+   "query": "workers.retry_worker.RetryWorker.run",
+   "category": "exact_symbol_lookup",
+   "expected": [
+    {
+     "kind": "entity",
+     "path": "workers/retry_worker.py"
+    }
+   ]
+  },
+  {
+   "query": "PaymentConsumer.handle",
+   "category": "exact_symbol_lookup",
+   "expected": [
+    {
+     "kind": "entity",
+     "path": "consumers/payment_consumer.py"
+    }
+   ]
+  },
+  {
+   "query": "RetryWorker.run",
+   "category": "exact_symbol_lookup",
+   "expected": [
+    {
+     "kind": "entity",
+     "path": "workers/retry_worker.py"
+    }
+   ]
+  },
+  {
+   "query": "retry_settlement",
+   "category": "exact_symbol_lookup",
+   "expected": [
+    {
+     "kind": "entity",
+     "path": "services/settlement_service.py"
+    }
+   ]
+  },
+  {
+   "query": "SettlementService.retry_settlement",
+   "category": "exact_symbol_lookup",
+   "expected": [
+    {
+     "kind": "entity",
+     "path": "services/settlement_service.py"
+    }
+   ]
+  },
+  {
+   "query": "settlement_service.py",
+   "category": "file_path_lookup",
+   "expected": [
+    {
+     "kind": "path",
+     "path": "services/settlement_service.py"
+    },
+    {
+     "kind": "entity",
+     "path": "services/settlement_service.py"
+    }
+   ]
+  },
+  {
+   "query": "payment_consumer.py",
+   "category": "file_path_lookup",
+   "expected": [
+    {
+     "kind": "path",
+     "path": "consumers/payment_consumer.py"
+    }
+   ]
+  },
+  {
+   "query": "retry_worker.py",
+   "category": "file_path_lookup",
+   "expected": [
+    {
+     "kind": "path",
+     "path": "workers/retry_worker.py"
+    },
+    {
+     "kind": "entity",
+     "path": "workers/retry_worker.py"
+    }
+   ]
+  },
+  {
+   "query": "health_notes.md",
+   "category": "file_path_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    },
+    {
+     "kind": "path",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "cholesterol",
+   "category": "keyword_search",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "blood pressure",
+   "category": "keyword_search",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "timeout seconds",
+   "category": "keyword_search",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "retry attempts",
+   "category": "keyword_search",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "LDL cholesterol levels",
+   "category": "keyword_search",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "payments engineer",
+   "category": "keyword_search",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "settlement request",
+   "category": "keyword_search",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "provider payment",
+   "category": "keyword_search",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "how are provider settlements retried",
+   "category": "semantic_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "cardiovascular risk",
+   "category": "semantic_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "what happens when a payment attempt times out",
+   "category": "semantic_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "how many times will Stripe retry a failed settlement",
+   "category": "semantic_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "who should be notified about repeated provider timeouts",
+   "category": "semantic_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "what is considered normal blood pressure",
+   "category": "semantic_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "how is cardiovascular risk determined from cholesterol levels",
+   "category": "semantic_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "what does the retry worker do when a provider times out",
+   "category": "semantic_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "Settlement Guide",
+   "category": "exact_title_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "settlement guide",
+   "category": "exact_title_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "Health Notes",
+   "category": "exact_title_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "HEALTH NOTES",
+   "category": "exact_title_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "Payment Provider Notes",
+   "category": "exact_title_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "payment provider notes",
+   "category": "exact_title_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "Retry Policy",
+   "category": "exact_heading_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "Retry Limits by Provider",
+   "category": "exact_heading_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "Cholesterol",
+   "category": "exact_heading_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "Blood Pressure Ranges",
+   "category": "exact_heading_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "Provider Timeout Behavior",
+   "category": "exact_heading_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "Escalation",
+   "category": "exact_heading_lookup",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "how many retries does Stripe get",
+   "category": "table_question",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "Adyen timeout seconds",
+   "category": "table_question",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "PayPal max retries",
+   "category": "table_question",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "Stripe retry limit",
+   "category": "table_question",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "what is normal blood pressure",
+   "category": "table_question",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "Elevated blood pressure systolic value",
+   "category": "table_question",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "High blood pressure diastolic",
+   "category": "table_question",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "blood pressure category ranges",
+   "category": "table_question",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "settlement retry",
+   "category": "cross_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    },
+    {
+     "kind": "entity",
+     "path": "services/settlement_service.py"
+    },
+    {
+     "kind": "entity",
+     "path": "workers/retry_worker.py"
+    }
+   ]
+  },
+  {
+   "query": "provider timeout",
+   "category": "cross_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "settlement retries provider",
+   "category": "cross_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "retry worker",
+   "category": "cross_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "payment attempt",
+   "category": "cross_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "Stripe Adyen",
+   "category": "cross_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "settlement failed",
+   "category": "cross_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "maximum retry attempts",
+   "category": "cross_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "SettlementService",
+   "category": "code_to_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "PaymentConsumer",
+   "category": "code_to_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "RetryWorker",
+   "category": "code_to_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "SettlementService.retry_settlement",
+   "category": "code_to_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    },
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "retry_settlement",
+   "category": "code_to_document",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "ttlement_serv",
+   "category": "typo_partial_term",
+   "expected": [
+    {
+     "kind": "path",
+     "path": "services/settlement_service.py"
+    }
+   ]
+  },
+  {
+   "query": "yment_consum",
+   "category": "typo_partial_term",
+   "expected": [
+    {
+     "kind": "path",
+     "path": "consumers/payment_consumer.py"
+    }
+   ]
+  },
+  {
+   "query": "etry_work",
+   "category": "typo_partial_term",
+   "expected": [
+    {
+     "kind": "path",
+     "path": "workers/retry_worker.py"
+    }
+   ]
+  },
+  {
+   "query": "settlment retry policy",
+   "category": "typo_partial_term",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  },
+  {
+   "query": "choresterol measurements taken",
+   "category": "typo_partial_term",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/health_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "provdier timeout window",
+   "category": "typo_partial_term",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "setlement escalation payments",
+   "category": "typo_partial_term",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/payment_provider_notes.md"
+    }
+   ]
+  },
+  {
+   "query": "mximum retries provider",
+   "category": "typo_partial_term",
+   "expected": [
+    {
+     "kind": "document",
+     "path": "docs/settlement_guide.md"
+    }
+   ]
+  }
+ ]
+}

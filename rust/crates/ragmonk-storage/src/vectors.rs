@@ -50,6 +50,9 @@ pub struct StoredEmbedding {
     pub vector: Vec<f32>,
 }
 
+/// Characters of chunk text shown as a hit snippet (the reference's 280).
+pub const SNIPPET_CHARS: usize = 280;
+
 /// Display metadata of one semantic hit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubjectMeta {
@@ -61,6 +64,8 @@ pub struct SubjectMeta {
     /// Qualified name (entity) or document title / heading path (chunk).
     pub title: String,
     pub snippet: String,
+    /// Heading path of a chunk (`A > B`), if any.
+    pub section: Option<String>,
     /// Entity start line, or chunk ordinal.
     pub position: i64,
     /// Attachment index for chunks of an email attachment.
@@ -376,6 +381,7 @@ impl ProjectStore {
                         rel_path: path,
                         title: qn,
                         snippet: sig,
+                        section: None,
                         position: line.unwrap_or(0),
                         attachment_index: None,
                     });
@@ -386,7 +392,7 @@ impl ProjectStore {
                 .conn
                 .prepare_cached(
                     "SELECT f.rel_path, COALESCE(d.title, ''), c.heading_path, c.text, c.ordinal,
-                        d.attachment_index
+                        d.attachment_index, c.kind, c.table_rows
                      FROM chunks c
                      JOIN documents d ON d.build_id = c.build_id AND d.id = c.document_id
                      JOIN files f ON f.build_id = c.build_id AND f.id = c.file_id
@@ -401,6 +407,8 @@ impl ProjectStore {
                             r.get::<_, String>(3)?,
                             r.get::<_, i64>(4)?,
                             r.get::<_, Option<i64>>(5)?,
+                            r.get::<_, String>(6)?,
+                            r.get::<_, Option<String>>(7)?,
                         ))
                     })
                 })
@@ -410,20 +418,37 @@ impl ProjectStore {
                     e => Err(e),
                 })
                 .map_err(StorageError::sqlite("subject meta"))?;
-            if let Some((path, title, headings, text, ordinal, attachment_index)) = row {
+            if let Some((path, title, headings, text, ordinal, attachment_index, kind, rows)) = row
+            {
+                // Same display contract as the reference's vector metadata:
+                // title = document title (else path), snippet = the first 280
+                // characters of the text (a table's cells joined by spaces).
                 let headings: Vec<String> = serde_json::from_str(&headings).unwrap_or_default();
-                let title = match headings.last() {
-                    Some(h) if !title.is_empty() => format!("{title} > {h}"),
-                    Some(h) => h.clone(),
-                    None => title,
+                let text = match (kind.as_str(), rows) {
+                    ("table", Some(rows)) => serde_json::from_str::<Vec<Vec<String>>>(&rows)
+                        .map(|rows| {
+                            rows.iter()
+                                .flatten()
+                                .filter(|c| !c.is_empty())
+                                .map(String::as_str)
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        })
+                        .unwrap_or(text),
+                    _ => text,
                 };
                 out.push(SubjectMeta {
                     subject_type: t.clone(),
                     subject_id: id.clone(),
                     kind: "document".into(),
+                    title: if title.is_empty() {
+                        path.clone()
+                    } else {
+                        title
+                    },
                     rel_path: path,
-                    title,
-                    snippet: text.chars().take(240).collect(),
+                    snippet: text.chars().take(SNIPPET_CHARS).collect(),
+                    section: (!headings.is_empty()).then(|| headings.join(" > ")),
                     position: ordinal,
                     attachment_index,
                 });

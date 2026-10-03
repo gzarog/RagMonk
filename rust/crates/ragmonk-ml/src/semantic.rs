@@ -21,6 +21,8 @@ pub struct SemanticHit {
     pub path: String,
     pub score: f32,
     pub snippet: String,
+    /// Heading path of a chunk (`A > B`), if any.
+    pub section: Option<String>,
     /// Entity start line, or chunk ordinal.
     pub position: i64,
     pub attachment_index: Option<i64>,
@@ -106,6 +108,7 @@ pub fn search(
                 path: m.rel_path,
                 score,
                 snippet: m.snippet,
+                section: m.section,
                 position: m.position,
                 attachment_index: m.attachment_index,
             })

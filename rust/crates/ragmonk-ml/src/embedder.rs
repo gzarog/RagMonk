@@ -38,11 +38,11 @@ pub enum MlError {
     Inference(String),
 }
 
-fn inference(e: impl std::fmt::Display) -> MlError {
+pub(crate) fn inference(e: impl std::fmt::Display) -> MlError {
     MlError::Inference(e.to_string())
 }
 
-fn load_err(e: impl std::fmt::Display) -> MlError {
+pub(crate) fn load_err(e: impl std::fmt::Display) -> MlError {
     MlError::Load(e.to_string())
 }
 

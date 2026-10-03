@@ -108,6 +108,55 @@ pub const ALL_MINILM_L6_V2: EmbeddingModelSpec = EmbeddingModelSpec {
 /// The model V2 embeds with.
 pub const DEFAULT_EMBEDDING_MODEL: EmbeddingModelSpec = ALL_MINILM_L6_V2;
 
+/// A pinned cross-encoder (`BertForSequenceClassification` with one
+/// relevance logit).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RerankerModelSpec {
+    pub slug: &'static str,
+    pub hf_id: &'static str,
+    pub revision: &'static str,
+    /// Pair length cap (query + passage), longest-first truncation.
+    pub max_tokens: usize,
+    /// Defensive pre-tokenizer cap on the passage, in characters.
+    pub max_chars: usize,
+    pub files: &'static [ModelFile],
+}
+
+impl RerankerModelSpec {
+    pub fn url(&self, file: &ModelFile) -> String {
+        format!(
+            "https://huggingface.co/{}/resolve/{}/{}",
+            self.hf_id, self.revision, file.name
+        )
+    }
+}
+
+/// `cross-encoder/ms-marco-MiniLM-L-6-v2`, the reference reranker.
+pub const MS_MARCO_MINILM_L6_V2: RerankerModelSpec = RerankerModelSpec {
+    slug: "ms-marco-minilm-l6-v2",
+    hf_id: "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    revision: "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+    max_tokens: 256,
+    max_chars: 4000,
+    files: &[
+        ModelFile {
+            name: "config.json",
+            sha256: "380e02c93f431831be65d99a4e7e5f67c133985bf2e77d9d4eba46847190bacc",
+        },
+        ModelFile {
+            name: "model.safetensors",
+            sha256: "821d1aa69520101d6e0737f78a042ae25b19e5cb9160701909d10434f4aeb0ae",
+        },
+        ModelFile {
+            name: "tokenizer.json",
+            sha256: "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+        },
+    ],
+};
+
+/// The reranker V2 uses.
+pub const DEFAULT_RERANKER_MODEL: RerankerModelSpec = MS_MARCO_MINILM_L6_V2;
+
 #[cfg(test)]
 mod tests {
     use super::*;
