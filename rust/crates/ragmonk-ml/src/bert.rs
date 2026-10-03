@@ -7,7 +7,7 @@
 //! Q/K/V are fused into a single projection, layer norm and softmax use
 //! Candle's fused kernels, and GELU runs in parallel.
 
-use candle_core::{CpuStorage, CustomOp1, DType, Layout, Result, Shape, Tensor};
+use candle_core::{CpuStorage, CustomOp1, Layout, Result, Shape, Tensor};
 use candle_nn::VarBuilder;
 use rayon::prelude::*;
 
@@ -41,26 +41,41 @@ fn default_act() -> String {
 struct Dense {
     w: Tensor,
     b: Tensor,
+    bias: Vec<f32>,
 }
 
 impl Dense {
     fn load(vb: VarBuilder, input: usize, output: usize) -> Result<Self> {
         let w = vb.get((output, input), "weight")?.t()?.contiguous()?;
         let b = vb.get(output, "bias")?;
-        Ok(Self { w, b })
+        let bias = b.to_vec1::<f32>()?;
+        Ok(Self { w, b, bias })
     }
 
     fn fused(parts: &[Dense]) -> Result<Self> {
         let ws: Vec<&Tensor> = parts.iter().map(|d| &d.w).collect();
         let bs: Vec<&Tensor> = parts.iter().map(|d| &d.b).collect();
+        let b = Tensor::cat(&bs, 0)?;
         Ok(Self {
             w: Tensor::cat(&ws, 1)?.contiguous()?,
-            b: Tensor::cat(&bs, 0)?,
+            bias: b.to_vec1::<f32>()?,
+            b,
         })
     }
 
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        x.matmul(&self.w)?.broadcast_add(&self.b)
+        x.matmul(&self.w)?.apply_op1_no_bwd(&RowBias {
+            bias: &self.bias,
+            gelu: false,
+        })
+    }
+
+    /// `gelu(x · W + b)` with the bias add and activation fused.
+    fn forward_gelu(&self, x: &Tensor) -> Result<Tensor> {
+        x.matmul(&self.w)?.apply_op1_no_bwd(&RowBias {
+            bias: &self.bias,
+            gelu: true,
+        })
     }
 }
 
@@ -104,28 +119,88 @@ pub struct Bert {
     hidden: usize,
 }
 
-/// Exact-erf GELU, parallel over contiguous f32 input.
-struct GeluErf;
+fn contiguous_f32<'a>(storage: &'a CpuStorage, layout: &Layout) -> Result<&'a [f32]> {
+    let (start, end) = layout
+        .contiguous_offsets()
+        .ok_or_else(|| candle_core::Error::Msg("input must be contiguous".into()))?;
+    Ok(&storage.as_slice::<f32>()?[start..end])
+}
 
-impl CustomOp1 for GeluErf {
+fn gelu_erf(v: f32) -> f32 {
+    (candle_core::cpu::erf::erf_f32(v * std::f32::consts::FRAC_1_SQRT_2) + 1.0) * 0.5 * v
+}
+
+/// Adds a per-column bias to every row (optionally followed by exact-erf
+/// GELU), in parallel over rows.
+struct RowBias<'a> {
+    bias: &'a [f32],
+    gelu: bool,
+}
+
+impl CustomOp1 for RowBias<'_> {
     fn name(&self) -> &'static str {
-        "ragmonk-gelu-erf"
+        "ragmonk-row-bias"
     }
 
     fn cpu_fwd(&self, storage: &CpuStorage, layout: &Layout) -> Result<(CpuStorage, Shape)> {
-        let (start, end) = layout
-            .contiguous_offsets()
-            .ok_or_else(|| candle_core::Error::Msg("gelu input must be contiguous".into()))?;
-        let src = &storage.as_slice::<f32>()?[start..end];
+        let src = contiguous_f32(storage, layout)?;
+        let cols = self.bias.len();
+        if cols == 0 || src.len() % cols != 0 {
+            candle_core::bail!("bias width {cols} does not divide {}", src.len());
+        }
         let mut dst = vec![0f32; src.len()];
-        dst.par_chunks_mut(4096)
-            .zip(src.par_chunks(4096))
+        dst.par_chunks_mut(cols)
+            .zip(src.par_chunks(cols))
             .for_each(|(d, s)| {
-                for (o, &v) in d.iter_mut().zip(s) {
-                    *o = (candle_core::cpu::erf::erf_f32(v * std::f32::consts::FRAC_1_SQRT_2)
-                        + 1.0)
-                        * 0.5
-                        * v;
+                for ((o, &v), &b) in d.iter_mut().zip(s).zip(self.bias) {
+                    let x = v + b;
+                    *o = if self.gelu { gelu_erf(x) } else { x };
+                }
+            });
+        Ok((CpuStorage::F32(dst), layout.shape().clone()))
+    }
+}
+
+/// Softmax over the last dim of `(batch, heads, seq, seq)` scores with the
+/// reference's additive padding bias (`f32::MIN` on masked keys), in
+/// parallel over rows.
+struct MaskedSoftmax<'a> {
+    /// `(batch, seq)` additive bias.
+    bias: &'a [f32],
+    heads: usize,
+    seq: usize,
+}
+
+impl CustomOp1 for MaskedSoftmax<'_> {
+    fn name(&self) -> &'static str {
+        "ragmonk-masked-softmax"
+    }
+
+    fn cpu_fwd(&self, storage: &CpuStorage, layout: &Layout) -> Result<(CpuStorage, Shape)> {
+        let src = contiguous_f32(storage, layout)?;
+        let s = self.seq;
+        let per_batch = self.heads * s * s;
+        if s == 0 || src.len() != per_batch * (self.bias.len() / s) {
+            candle_core::bail!("masked softmax shape mismatch");
+        }
+        let mut dst = vec![0f32; src.len()];
+        dst.par_chunks_mut(s)
+            .zip(src.par_chunks(s))
+            .enumerate()
+            .for_each(|(row, (d, x))| {
+                let bias = &self.bias[(row * s / per_batch) * s..][..s];
+                let mut max = f32::NEG_INFINITY;
+                for ((o, &v), &m) in d.iter_mut().zip(x).zip(bias) {
+                    *o = v + m;
+                    max = max.max(*o);
+                }
+                let mut sum = 0f32;
+                for o in d.iter_mut() {
+                    *o = (*o - max).exp();
+                    sum += *o;
+                }
+                for o in d.iter_mut() {
+                    *o /= sum;
                 }
             });
         Ok((CpuStorage::F32(dst), layout.shape().clone()))
@@ -198,10 +273,13 @@ impl Bert {
             .broadcast_add(&tok)?
             .reshape((n, self.hidden))?;
         let mut x = self.emb_norm.forward(&x)?;
-        // (b, 1, 1, s) additive bias: 0 for tokens, f32::MIN for padding.
-        let bias = ((mask.to_dtype(DType::F32)?.ones_like()? - mask.to_dtype(DType::F32)?)?
-            * f64::from(f32::MIN))?
-        .reshape((b, 1, 1, s))?;
+        // (b, s) additive bias: 0 for tokens, f32::MIN for padding.
+        let bias: Vec<f32> = mask
+            .flatten_all()?
+            .to_vec1::<u32>()?
+            .into_iter()
+            .map(|m| if m == 0 { f32::MIN } else { 0.0 })
+            .collect();
         let scale = 1.0 / (self.head_dim as f64).sqrt();
         for layer in &self.layers {
             let qkv = layer.qkv.forward(&x)?; // (n, 3h)
@@ -212,8 +290,12 @@ impl Bert {
                     .contiguous()
             };
             let (q, k, v) = (split(0)?, split(1)?, split(2)?);
-            let scores = (q.matmul(&k.t()?)? * scale)?.broadcast_add(&bias)?;
-            let probs = candle_nn::ops::softmax_last_dim(&scores)?;
+            let scores = (q * scale)?.matmul(&k.t()?)?;
+            let probs = scores.apply_op1_no_bwd(&MaskedSoftmax {
+                bias: &bias,
+                heads: self.heads,
+                seq: s,
+            })?;
             let ctx = probs
                 .matmul(&v)? // (b, heads, s, d)
                 .transpose(1, 2)?
@@ -222,7 +304,7 @@ impl Bert {
             let attn = layer
                 .attn_norm
                 .forward(&(layer.attn_out.forward(&ctx)? + &x)?)?;
-            let inter = layer.inter.forward(&attn)?.apply_op1_no_bwd(&GeluErf)?;
+            let inter = layer.inter.forward_gelu(&attn)?;
             x = layer
                 .out_norm
                 .forward(&(layer.out.forward(&inter)? + &attn)?)?;

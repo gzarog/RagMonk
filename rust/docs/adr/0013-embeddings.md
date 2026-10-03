@@ -37,6 +37,22 @@ Status: accepted
   - mean-pool over the attention mask (CLS pooling for BGE-style specs);
   - L2-normalize.
 
+## Encoder
+
+- `candle-transformers`' generic BERT ran at 5.2 texts/s here; its batched
+  3-D linear layers reached only about a third of plain GEMM throughput.
+- `ragmonk_ml::bert` is a lean encoder that keeps the reference math:
+  post-norm layers, exact-erf GELU and an `f32::MIN` padding bias.
+- Restructured for the CPU:
+  - activations stay 2-D, so each projection is one contiguous GEMM against
+    a pre-transposed weight;
+  - Q, K and V are fused into one projection;
+  - the bias add with GELU and the masked softmax are parallel custom ops,
+    in safe Rust (`CustomOp1`);
+  - layer norm uses Candle's fused kernel.
+- Texts are batched in length order and returned in input order. Padding is
+  masked, so a vector does not depend on its batch; a test asserts this.
+
 ## Bounded inference
 
 - Inference runs in fixed batches (`indexing.embedding_batch_size`, default
@@ -87,6 +103,25 @@ logged.
   - the model-unavailable path.
 - CI fetches the pinned model, verifies its sha256 and caches it, and sets
   `RAGMONK_REQUIRE_MODELS=1` so these tests cannot be skipped.
+
+## Benchmark
+
+1,000 mixed code and document texts, batch 16, 4 threads, on an Intel Xeon
+at 2.8 GHz with AVX-512:
+
+| | Python (PyTorch + MKL) | Rust (Candle) |
+|---|---|---|
+| Model load | 8.15 s | 0.73 s |
+| Throughput | 45.2 texts/s | 28.3 texts/s |
+
+- Rust is about 0.6× the reference on this host. PyTorch uses MKL with
+  AVX-512, while the pure-Rust `gemm` crate uses AVX2 on stable Rust. The
+  encoder's GEMMs already run at the crate's measured peak (about
+  130 GFLOPS).
+- The gap is expected to narrow on AVX2-only and ARM hosts.
+- Indexing embeds only pending subjects, with cache reuse, so steady-state
+  cost is proportional to change.
+- Slice 3 revisits throughput together with the model choice.
 
 ## Limitations
 

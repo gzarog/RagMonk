@@ -1,11 +1,11 @@
 {
   "batch_size": 16,
-  "embed_wall_s": 191.900349088,
+  "embed_wall_s": 35.320665604,
   "implementation": "rust",
   "model": "sentence-transformers/all-MiniLM-L6-v2",
-  "model_load_s": 0.701935276,
+  "model_load_s": 0.727979077,
   "phase": "RUST-09",
   "texts": 1000,
-  "texts_per_s": 5.211037941058818,
+  "texts_per_s": 28.312037242207346,
   "threads": 4
 }
