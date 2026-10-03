@@ -120,6 +120,28 @@ fn documents_are_converted_chunked_and_searchable() {
         .search_chunks(&active, "Sample PDF Title", 5)
         .unwrap()
         .is_empty());
+    // Email attachments are child documents with provenance; the email
+    // with a corrupt attachment is still indexed.
+    let email = &files["email_with_attachments.eml"];
+    let children: Vec<_> = docs
+        .iter()
+        .filter(|d| d.file_id == email.id && d.attachment.is_some())
+        .collect();
+    let mut names: Vec<_> = children
+        .iter()
+        .map(|d| d.attachment.as_ref().unwrap().name.clone().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "Résumé – memo.md",
+            "budget.xlsx",
+            "notes.txt",
+            "report.docx"
+        ]
+    );
+    assert_eq!(files["email_with_corrupt_attachment.eml"].status, "indexed");
     let hits = store.search_chunks(&active, "api-07", 5).unwrap();
     assert!(!hits.is_empty(), "table rows are searchable");
 

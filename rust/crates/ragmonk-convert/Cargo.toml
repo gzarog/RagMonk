@@ -11,6 +11,7 @@ publish.workspace = true
 docling = { version = "=1.89.0", default-features = false, features = ["pdf-text"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "gif", "bmp"] }
 lopdf = "0.44"
+mail-parser = "0.11"
 ocrs = "=0.12.0"
 rten = { version = "0.24", default-features = false, features = ["rten_format"] }
 sha2.workspace = true
@@ -22,6 +23,7 @@ ragmonk-indexing.workspace = true
 ragmonk-storage.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

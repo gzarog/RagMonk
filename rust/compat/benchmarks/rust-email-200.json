@@ -1,0 +1,51 @@
+{
+  "phase": "RUST-07",
+  "implementation": "rust",
+  "files": 200,
+  "kinds": [
+    "email_with_attachments.eml",
+    "sample.eml"
+  ],
+  "workers": 1,
+  "scenarios": [
+    {
+      "scenario": "cold_index",
+      "wall_time_s": 1.3702651829999999,
+      "indexed": 200,
+      "failed": 0,
+      "timings": {
+        "scan_seconds": 0.004611746,
+        "classify_seconds": 0.041552499,
+        "hash_calls": 200,
+        "process_seconds": 1.283981978,
+        "publish_seconds": 0.002982384
+      }
+    },
+    {
+      "scenario": "warm_unchanged",
+      "wall_time_s": 0.007638495,
+      "indexed": 0,
+      "failed": 0,
+      "timings": {
+        "scan_seconds": 0.005091897,
+        "classify_seconds": 0.00096744,
+        "hash_calls": 0,
+        "process_seconds": 0.0,
+        "publish_seconds": 0.0
+      }
+    },
+    {
+      "scenario": "single_edit",
+      "wall_time_s": 0.024694293,
+      "indexed": 1,
+      "failed": 0,
+      "timings": {
+        "scan_seconds": 0.004602839,
+        "classify_seconds": 0.001279528,
+        "hash_calls": 1,
+        "process_seconds": 0.012595973,
+        "publish_seconds": 0.001181925
+      }
+    }
+  ]
+}

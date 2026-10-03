@@ -1,0 +1,579 @@
+{
+ "email_with_attachments.eml": {
+  "default": {
+   "attachments": [
+    {
+     "content_id": null,
+     "content_type": "text/plain",
+     "filename": "notes.txt",
+     "ordinal": 0,
+     "result": {
+      "chunks": [
+       "Field notes about zebrafish migration."
+      ],
+      "format": "txt",
+      "title": "notes.txt"
+     },
+     "size": 39
+    },
+    {
+     "content_id": null,
+     "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+     "filename": "report.docx",
+     "ordinal": 1,
+     "result": {
+      "chunks": [
+       "Report Heading\n\nThe quokkaledger reconciliation is complete."
+      ],
+      "format": "docx",
+      "title": "report.docx"
+     },
+     "size": 36622
+    },
+    {
+     "content_id": null,
+     "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+     "filename": "budget.xlsx",
+     "ordinal": 2,
+     "result": {
+      "chunks": [
+       ""
+      ],
+      "format": "xlsx",
+      "title": "budget.xlsx"
+     },
+     "size": 4863
+    },
+    {
+     "content_id": null,
+     "content_type": "application/zip",
+     "filename": "archive.zip",
+     "ordinal": 3,
+     "result": {
+      "skipped": "unsupported_format"
+     },
+     "size": 22
+    },
+    {
+     "content_id": null,
+     "content_type": "text/markdown",
+     "filename": "Résumé – memo.md",
+     "ordinal": 4,
+     "result": {
+      "chunks": [
+       "Memo",
+       "The narwhalmemo decision was approved."
+      ],
+      "format": "markdown",
+      "title": "Memo"
+     },
+     "size": 47
+    }
+   ],
+   "skipped": []
+  },
+  "normalized": {
+   "is_scanned": false,
+   "page_count": null,
+   "title": "Quarterly planning",
+   "units": [
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": 0,
+     "heading_path": [],
+     "kind": "heading",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": null,
+     "table_rows": null,
+     "text": "Quarterly planning"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Quarterly planning"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "From: sender@example.com"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Quarterly planning"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "To: recipient@example.com"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Quarterly planning"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "Date: 2025-09-01T12:00:00+00:00"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Quarterly planning"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "Please see the attached planning material."
+    }
+   ]
+  },
+  "tight": {
+   "attachments": [
+    {
+     "content_id": null,
+     "content_type": "text/plain",
+     "filename": "notes.txt",
+     "ordinal": 0,
+     "result": {
+      "chunks": [
+       "Field notes about zebrafish migration."
+      ],
+      "format": "txt",
+      "title": "notes.txt"
+     },
+     "size": 39
+    },
+    {
+     "content_id": null,
+     "content_type": "application/zip",
+     "filename": "archive.zip",
+     "ordinal": 3,
+     "result": {
+      "skipped": "unsupported_format"
+     },
+     "size": 22
+    }
+   ],
+   "skipped": [
+    {
+     "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+     "filename": "report.docx",
+     "ordinal": 1,
+     "reason": "too_large",
+     "size": 36622
+    },
+    {
+     "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+     "filename": "budget.xlsx",
+     "ordinal": 2,
+     "reason": "too_large",
+     "size": 4863
+    },
+    {
+     "content_type": "text/markdown",
+     "filename": "Résumé – memo.md",
+     "ordinal": 4,
+     "reason": "count_limit",
+     "size": null
+    }
+   ]
+  }
+ },
+ "email_with_corrupt_attachment.eml": {
+  "default": {
+   "attachments": [
+    {
+     "content_id": null,
+     "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+     "filename": "broken.docx",
+     "ordinal": 0,
+     "result": {
+      "failed": "DocumentConversionError"
+     },
+     "size": 78
+    },
+    {
+     "content_id": null,
+     "content_type": "text/plain",
+     "filename": "ok.txt",
+     "ordinal": 1,
+     "result": {
+      "chunks": [
+       "The valid attachment mentions ibexvalid."
+      ],
+      "format": "txt",
+      "title": "ok.txt"
+     },
+     "size": 41
+    }
+   ],
+   "skipped": []
+  },
+  "normalized": {
+   "is_scanned": false,
+   "page_count": null,
+   "title": "Corrupt attachment",
+   "units": [
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": 0,
+     "heading_path": [],
+     "kind": "heading",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": null,
+     "table_rows": null,
+     "text": "Corrupt attachment"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Corrupt attachment"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "From: sender@example.com"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Corrupt attachment"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "To: recipient@example.com"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Corrupt attachment"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "Date: 2025-09-01T12:00:00+00:00"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Corrupt attachment"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "One attachment is broken."
+    }
+   ]
+  },
+  "tight": {
+   "attachments": [
+    {
+     "content_id": null,
+     "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+     "filename": "broken.docx",
+     "ordinal": 0,
+     "result": {
+      "failed": "DocumentConversionError"
+     },
+     "size": 78
+    },
+    {
+     "content_id": null,
+     "content_type": "text/plain",
+     "filename": "ok.txt",
+     "ordinal": 1,
+     "result": {
+      "chunks": [
+       "The valid attachment mentions ibexvalid."
+      ],
+      "format": "txt",
+      "title": "ok.txt"
+     },
+     "size": 41
+    }
+   ],
+   "skipped": []
+  }
+ },
+ "email_with_duplicate_names.eml": {
+  "default": {
+   "attachments": [
+    {
+     "content_id": null,
+     "content_type": "text/plain",
+     "filename": "notes.txt",
+     "ordinal": 0,
+     "result": {
+      "chunks": [
+       "First copy mentions alpacafirst."
+      ],
+      "format": "txt",
+      "title": "notes.txt"
+     },
+     "size": 33
+    },
+    {
+     "content_id": null,
+     "content_type": "text/plain",
+     "filename": "notes.txt",
+     "ordinal": 1,
+     "result": {
+      "chunks": [
+       "Second copy mentions llamasecond."
+      ],
+      "format": "txt",
+      "title": "notes.txt"
+     },
+     "size": 34
+    }
+   ],
+   "skipped": []
+  },
+  "normalized": {
+   "is_scanned": false,
+   "page_count": null,
+   "title": "Duplicate names",
+   "units": [
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": 0,
+     "heading_path": [],
+     "kind": "heading",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": null,
+     "table_rows": null,
+     "text": "Duplicate names"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Duplicate names"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "From: sender@example.com"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Duplicate names"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "To: recipient@example.com"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Duplicate names"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "Date: 2025-09-01T12:00:00+00:00"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Duplicate names"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "Two attachments share one filename."
+    }
+   ]
+  },
+  "tight": {
+   "attachments": [
+    {
+     "content_id": null,
+     "content_type": "text/plain",
+     "filename": "notes.txt",
+     "ordinal": 0,
+     "result": {
+      "chunks": [
+       "First copy mentions alpacafirst."
+      ],
+      "format": "txt",
+      "title": "notes.txt"
+     },
+     "size": 33
+    },
+    {
+     "content_id": null,
+     "content_type": "text/plain",
+     "filename": "notes.txt",
+     "ordinal": 1,
+     "result": {
+      "chunks": [
+       "Second copy mentions llamasecond."
+      ],
+      "format": "txt",
+      "title": "notes.txt"
+     },
+     "size": 34
+    }
+   ],
+   "skipped": []
+  }
+ },
+ "sample.eml": {
+  "default": {
+   "attachments": [],
+   "skipped": []
+  },
+  "normalized": {
+   "is_scanned": false,
+   "page_count": null,
+   "title": "Sample Email Subject",
+   "units": [
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": 0,
+     "heading_path": [],
+     "kind": "heading",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": null,
+     "table_rows": null,
+     "text": "Sample Email Subject"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Sample Email Subject"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "From: sender@example.com"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Sample Email Subject"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "To: recipient@example.com"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Sample Email Subject"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "Date: 2025-09-01T12:00:00+00:00"
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Sample Email Subject"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "This is the body of the sample email."
+    },
+    {
+     "caption": null,
+     "header_row_count": 0,
+     "heading_level": null,
+     "heading_path": [
+      "Sample Email Subject"
+     ],
+     "kind": "paragraph",
+     "page_end": null,
+     "page_start": null,
+     "parent_index": 0,
+     "table_rows": null,
+     "text": "It has two paragraphs of content."
+    }
+   ]
+  },
+  "tight": {
+   "attachments": [],
+   "skipped": []
+  }
+ }
+}

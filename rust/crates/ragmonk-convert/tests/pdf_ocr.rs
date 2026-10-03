@@ -143,6 +143,8 @@ fn oversized_pdf_is_skipped_by_limit() {
         converter: Arc::new(converter("off", false, None, None)),
         chunking: Default::default(),
         max_pages: Some(3),
+        attachments: None,
+        image_ocr: false,
     };
     let err = p
         .knowledge(&fixture("five_pages.pdf"), "f", None)

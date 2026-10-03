@@ -203,4 +203,5 @@ jobs:
           python rust/compat/tools/gen_code_golden.py
           python rust/compat/tools/gen_document_golden.py
           python rust/compat/tools/gen_docling_golden.py
+          python rust/compat/tools/gen_email_golden.py
           git diff --exit-code -- rust/compat/golden
