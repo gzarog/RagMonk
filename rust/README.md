@@ -13,6 +13,7 @@ is still the product**; nothing here changes its behavior yet.
 | `ragmonk-convert` | Rust-native document conversion (docling.rs, no ML/network), Docling-JSON normalizer, V2 document processor and full registry (RUST-07) |
 | `ragmonk-knowledge` | Cross-domain linker (code entities <-> document chunks, five matchers, Python-parity boundaries) and persistent manual links (RUST-08) |
 | `ragmonk-ml` | Pinned model assets, pure-Rust (Candle) embeddings, embedding cache, persistent HNSW index, semantic search, RRF and the cross-encoder reranker (RUST-09) |
+| `ragmonk-retrieval` | Lexical search, hybrid RRF fusion with exact-match pinning, and the optional cross-encoder pass (RUST-10) |
 | `ragmonk-core` | errors/exit codes, domain models, home layout, stable IDs, secret filter, path guard, version (RUST-01) |
 | `ragmonk-config` | `config.yaml` + env layering with PyYAML/pydantic-exact semantics (RUST-01) |
 | `ragmonk-indexing` | scanner, ignore rules, incremental diff, retries, run lock, bounded transactional V2 coordinator (RUST-04) |

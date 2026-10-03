@@ -198,6 +198,11 @@ impl ProjectStore {
             .and_then(|p| std::path::Path::new(p).parent().map(|d| d.to_path_buf()))
     }
 
+    /// The source this project store belongs to.
+    pub fn source_id(&self) -> &str {
+        &self.source_id
+    }
+
     pub fn connection(&self) -> &Connection {
         &self.conn
     }
@@ -480,7 +485,7 @@ impl ProjectStore {
             )?;
             exec(
                 "INSERT INTO code_fts (rowid, entity_id, build_id, name, qualified_name, signature)
-                  SELECT rowid, id, ?1, name, qualified_name, COALESCE(signature, '')
+                  SELECT rowid, id, ?1, name, qualified_name, COALESCE(signature, name)
                   FROM entities WHERE build_id = ?1 AND file_id = ?3",
             )?;
             exec("INSERT INTO relationships SELECT id, ?1, file_id, relationship_type, source_entity_id,
@@ -567,7 +572,7 @@ impl ProjectStore {
             )?;
             exec(
                 "INSERT INTO code_fts (rowid, entity_id, build_id, name, qualified_name, signature)
-                  SELECT n.rowid, n.id, ?1, n.name, n.qualified_name, COALESCE(n.signature, '')
+                  SELECT n.rowid, n.id, ?1, n.name, n.qualified_name, COALESCE(n.signature, n.name)
                   FROM entities o JOIN entities n ON n.build_id = ?1 AND n.id = o.id
                   WHERE o.build_id = ?2 AND o.file_id NOT IN (SELECT id FROM carry_skip)",
             )?;
@@ -1023,7 +1028,7 @@ fn insert_knowledge(tx: &Connection, build_id: &str, k: &FileKnowledge) -> Resul
                 build_id,
                 e.name,
                 e.qualified_name,
-                e.signature.clone().unwrap_or_default()
+                e.signature.clone().unwrap_or_else(|| e.name.clone())
             ],
         )
         .map_err(err("index entity"))?;
@@ -1123,7 +1128,14 @@ fn insert_knowledge(tx: &Connection, build_id: &str, k: &FileKnowledge) -> Resul
             params![
                 c.id,
                 build_id,
-                c.heading_path.join(" > "),
+                // A heading chunk is indexed under its own text, every other
+                // chunk under its heading path (the reference's
+                // `fts_heading`).
+                if c.kind.as_str() == "heading" {
+                    c.text.clone()
+                } else {
+                    c.heading_path.join(" > ")
+                },
                 c.search_text,
                 title.unwrap_or_default()
             ],

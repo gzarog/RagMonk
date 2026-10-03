@@ -22,6 +22,7 @@ pub mod knowledge;
 pub mod migrate;
 pub mod preflight;
 pub mod schema;
+pub mod search;
 pub mod v1;
 pub mod vectors;
 

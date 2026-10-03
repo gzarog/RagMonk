@@ -24,8 +24,9 @@ use crate::lang;
 use crate::resolve::{self, Candidate, ResolvedTarget};
 
 /// Derivation identity of code extraction; part of `parser_version`, so a
-/// change forces a full rebuild of every source.
-pub const CODE_DERIVATION_VERSION: &str = "rust-code-1";
+/// change forces a full rebuild of every source. (2: an entity without a
+/// signature is indexed in code FTS under its name, RUST-10.)
+pub const CODE_DERIVATION_VERSION: &str = "rust-code-2";
 
 /// Resolver label of a reference awaiting whole-build resolution.
 pub const PENDING: &str = "pending";
