@@ -6,6 +6,7 @@ members = [
     "crates/ragmonk-code",
     "crates/ragmonk-compat",
     "crates/ragmonk-config",
+    "crates/ragmonk-convert",
     "crates/ragmonk-core",
     "crates/ragmonk-documents",
     "crates/ragmonk-indexing",
@@ -33,6 +34,7 @@ ragmonk-backends = { path = "crates/ragmonk-backends" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 dunce = "1"
 ragmonk-code = { path = "crates/ragmonk-code" }
+ragmonk-convert = { path = "crates/ragmonk-convert" }
 ragmonk-config = { path = "crates/ragmonk-config" }
 ragmonk-documents = { path = "crates/ragmonk-documents" }
 ragmonk-core = { path = "crates/ragmonk-core" }
