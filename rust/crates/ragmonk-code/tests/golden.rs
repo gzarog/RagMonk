@@ -37,8 +37,25 @@ fn files(root: &Path) -> Vec<String> {
     out
 }
 
+/// Order-independent sort key: objects serialized with sorted keys (the
+/// workspace may enable serde_json's `preserve_order`).
+fn sort_key(v: &Value) -> String {
+    fn sorted(v: &Value) -> Value {
+        match v {
+            Value::Object(m) => {
+                let b: std::collections::BTreeMap<_, _> =
+                    m.iter().map(|(k, x)| (k.clone(), sorted(x))).collect();
+                Value::Object(b.into_iter().collect())
+            }
+            Value::Array(a) => Value::Array(a.iter().map(sorted).collect()),
+            x => x.clone(),
+        }
+    }
+    serde_json::to_string(&sorted(v)).unwrap()
+}
+
 fn canon(mut v: Vec<Value>) -> Vec<Value> {
-    v.sort_by_key(|x| serde_json::to_string(x).unwrap());
+    v.sort_by_key(sort_key);
     v
 }
 

@@ -1355,3 +1355,37 @@ impl ProjectStore {
 fn cached(tx: &Connection, sql: &str, params: impl rusqlite::Params) -> rusqlite::Result<usize> {
     tx.prepare_cached(sql)?.execute(params)
 }
+
+impl ProjectStore {
+    /// A file's chunks in ordinal order.
+    pub fn file_chunks(&self, build_id: &str, file_id: &str) -> Result<Vec<ChunkRow>> {
+        self.query_rows(
+            "file chunks",
+            "SELECT id, document_id, file_id, kind, ordinal, heading_path, heading_level, text,
+                search_text, embedding_text, token_count, page_start, page_end, table_rows, caption
+             FROM chunks WHERE build_id = ?1 AND file_id = ?2 ORDER BY ordinal",
+            &[&build_id, &file_id],
+            |r| {
+                let heading_path: String = r.get(5)?;
+                let table_rows: Option<String> = r.get(13)?;
+                Ok(ChunkRow {
+                    id: r.get(0)?,
+                    document_id: r.get(1)?,
+                    file_id: r.get(2)?,
+                    kind: r.get(3)?,
+                    ordinal: r.get(4)?,
+                    heading_path: serde_json::from_str(&heading_path).unwrap_or_default(),
+                    heading_level: r.get(6)?,
+                    text: r.get(7)?,
+                    search_text: r.get(8)?,
+                    embedding_text: r.get(9)?,
+                    token_count: r.get(10)?,
+                    page_start: r.get(11)?,
+                    page_end: r.get(12)?,
+                    table_rows: table_rows.and_then(|t| serde_json::from_str(&t).ok()),
+                    caption: r.get(14)?,
+                })
+            },
+        )
+    }
+}

@@ -107,6 +107,23 @@ impl Fixture {
     }
 }
 
+/// Order-independent sort key: objects serialized with sorted keys (the
+/// workspace may enable serde_json's `preserve_order`).
+fn sort_key(v: &Value) -> String {
+    fn sorted(v: &Value) -> Value {
+        match v {
+            Value::Object(m) => {
+                let b: std::collections::BTreeMap<_, _> =
+                    m.iter().map(|(k, x)| (k.clone(), sorted(x))).collect();
+                Value::Object(b.into_iter().collect())
+            }
+            Value::Array(a) => Value::Array(a.iter().map(sorted).collect()),
+            x => x.clone(),
+        }
+    }
+    serde_json::to_string(&sorted(v)).unwrap()
+}
+
 #[test]
 fn cold_build_matches_reference_semantics_and_isolates_parse_failures() {
     let mut f = fixture();
@@ -160,7 +177,7 @@ fn cold_build_matches_reference_semantics_and_isolates_parse_failures() {
                 })
             })
             .collect();
-        let key = |v: &Value| serde_json::to_string(v).unwrap();
+        let key = |v: &Value| sort_key(v);
         got.sort_by_key(key);
         want.sort_by_key(key);
         if got != want {

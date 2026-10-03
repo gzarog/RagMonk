@@ -165,7 +165,7 @@ jobs:
         env:
           # Highest merged rewrite phase; every manifest step it (or an
           # earlier phase) owns must match the Python reference.
-          RUST_PHASE: RUST-06
+          RUST_PHASE: RUST-07
       # Informational: the RUST-01 golden fixtures must still reflect the
       # Python reference (pydantic/PyYAML are not locked, so drift is
       # reported rather than failing the job).
@@ -176,4 +176,5 @@ jobs:
           python rust/compat/tools/gen_core_golden.py
           python rust/compat/tools/gen_code_golden.py
           python rust/compat/tools/gen_document_golden.py
+          python rust/compat/tools/gen_docling_golden.py
           git diff --exit-code -- rust/compat/golden

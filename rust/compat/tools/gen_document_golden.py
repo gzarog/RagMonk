@@ -203,16 +203,22 @@ def chunk_json(c: chunker.Chunk) -> dict:
 
 def main() -> None:
     docs: dict[str, NormalizedDocument] = {}
+    # The pipeline chunks with the metadata title (normalized title, else the
+    # file stem); synthetic documents use their own title.
+    titles: dict[str, str] = {}
     for path in sorted(p for p in FIXTURES.iterdir() if p.is_file()):
+        if path.suffix.lower() not in {".md", ".html", ".txt"}:
+            continue
         fmt = docling_adapter.detect_format(path)
         conversion = docling_adapter.convert(path)
         docs[path.name] = normalizer.normalize(conversion.document, fmt)
+        titles[path.name] = docs[path.name].title or path.stem
     docs.update(synthetic())
 
     tok = get_model_tokenizer()
     documents = {}
     for name, doc in docs.items():
-        title = doc.title or ""
+        title = titles.get(name, doc.title or "")
         chunked = {}
         for cfg_name, cfg in CONFIGS.items():
             diag = chunker.ChunkingDiagnostics()

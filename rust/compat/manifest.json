@@ -46,7 +46,7 @@
         {"id": "symbol-dog", "args": ["symbol", "Dog", "--json"], "rust_phase": "RUST-10"},
         {"id": "callers-speak", "args": ["callers", "speak", "--json"], "unordered_arrays": ["edges"], "rust_phase": "RUST-10"},
         {"id": "callees-bark", "args": ["callees", "bark", "--json"], "unordered_arrays": ["edges"], "rust_phase": "RUST-10"},
-        {"id": "docs", "args": ["docs", "--json"], "rust_phase": "RUST-07"},
+        {"id": "docs", "args": ["docs", "--json"], "rust_phase": "RUST-12"},
         {"id": "knowledge-inventory", "sqlite_inventory": true}
       ]
     }
