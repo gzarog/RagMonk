@@ -250,7 +250,11 @@ src = ["src", "tests"]
 # Hand-written parser golden fixtures, not application code: they
 # deliberately contain things like an undefined `app` decorator target to
 # exercise framework_rules detection, and shouldn't be linted as ours.
-extend-exclude = ["tests/fixtures/languages", "rust/compat/fixtures/code"]
+extend-exclude = [
+    "tests/fixtures/languages",
+    "rust/compat/fixtures/code",
+    "rust/compat/fixtures/graph",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
