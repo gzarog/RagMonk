@@ -61,8 +61,34 @@ jobs:
         run: cargo fmt --all --check
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # RUST-07: the pinned ocrs models (not bundled) so OCR tests always
+      # run in CI; digests match ragmonk-convert's OCR_MODEL_MANIFEST.
+      - name: Cache OCR models
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ocr-models
+          key: ocrs-models-f15cfb56-e484866d
+      - name: Fetch OCR models
+        shell: bash
+        env:
+          DIR: ${{ runner.temp }}/ocr-models
+        run: |
+          mkdir -p "$DIR"
+          fetch() {
+            [ -f "$DIR/$1" ] || curl -sSfL --retry 4 -o "$DIR/$1" "https://ocrs-models.s3-accelerate.amazonaws.com/$1"
+            if command -v sha256sum >/dev/null; then
+              echo "$2  $DIR/$1" | sha256sum -c -
+            else
+              echo "$2  $DIR/$1" | shasum -a 256 -c -
+            fi
+          }
+          fetch text-detection.rten f15cfb56bd02c4bf478a20343986504a1f01e1665c2b3a0ad66340f054b1b5ca
+          fetch text-recognition.rten e484866d4cce403175bd8d00b128feb08ab42e208de30e42cd9889d8f1735a6e
       - name: cargo test
         run: cargo test --workspace --no-fail-fast
+        env:
+          RAGMONK_OCR_MODELS_DIR: ${{ runner.temp }}/ocr-models
+          RAGMONK_REQUIRE_OCR: "1"
       - name: cargo build --release
         run: cargo build --workspace --release
 

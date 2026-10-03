@@ -33,7 +33,6 @@ fn documents_are_converted_chunked_and_searchable() {
         };
         std::fs::write(root.join(p.file_name().unwrap()), bytes).unwrap();
     }
-    std::fs::write(root.join("report.pdf"), b"%PDF-1.4 not yet converted").unwrap();
 
     let home = common::home(tmp.path());
     let layout = V2Layout::new(&home);
@@ -57,7 +56,11 @@ fn documents_are_converted_chunked_and_searchable() {
         .map(|f| (f.rel_path.clone(), f))
         .collect();
     assert_eq!(files["corrupt.docx"].status, "failed");
-    assert_eq!(files["report.pdf"].status, "indexed");
+    assert_eq!(files["sample.pdf"].status, "indexed");
+    assert_eq!(
+        files["sample_ocr.png"].status, "indexed",
+        "image_ocr off: no content, not failed"
+    );
 
     // Stored chunks equal the Python reference's chunks (default config).
     let golden: Value = serde_json::from_str(
@@ -99,10 +102,24 @@ fn documents_are_converted_chunked_and_searchable() {
     assert!(docs
         .iter()
         .any(|d| d.format == "docx" && d.title.as_deref() == Some("Doc Title")));
-    assert!(
-        !docs.iter().any(|d| d.format == "pdf"),
-        "PDF has no derived content yet"
+    let pdf = docs
+        .iter()
+        .find(|d| d.file_id == files["sample.pdf"].id)
+        .expect("text-layer PDF converted");
+    assert_eq!(
+        (pdf.format.as_str(), pdf.page_count, pdf.is_scanned),
+        ("pdf", Some(1), false)
     );
+    let scan = docs
+        .iter()
+        .find(|d| d.file_id == files["scanned.pdf"].id)
+        .unwrap();
+    assert!(scan.is_scanned);
+    assert!(!docs.iter().any(|d| d.file_id == files["sample_ocr.png"].id));
+    assert!(!store
+        .search_chunks(&active, "Sample PDF Title", 5)
+        .unwrap()
+        .is_empty());
     let hits = store.search_chunks(&active, "api-07", 5).unwrap();
     assert!(!hits.is_empty(), "table rows are searchable");
 
