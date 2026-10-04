@@ -1,0 +1,7999 @@
+{
+ "linking": {
+  "impact": [
+   {
+    "query": "Charge",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway.Charge",
+      "path": "web/Payments.cs",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "Shop.Payments.PaymentGateway.Charge",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:route_heuristic",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Shop.Payments.PaymentGateway.Charge",
+      "relationship": "related_to",
+      "confidence": "heuristic"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "Charge",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway.Charge",
+      "path": "web/Payments.cs",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "Shop.Payments.PaymentGateway.Charge",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:route_heuristic",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Shop.Payments.PaymentGateway.Charge",
+      "relationship": "related_to",
+      "confidence": "heuristic"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "InvoiceService",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 4,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "InvoiceService",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 4,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "Ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Ledger",
+      "path": "src/billing/ledger.py",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "src.billing.ledger.Ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "Ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Ledger",
+      "path": "src/billing/ledger.py",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "src.billing.ledger.Ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "OrderController",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 4
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.OrderController",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "OrderController",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 4
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.OrderController",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "PaymentGateway",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway",
+      "path": "web/Payments.cs",
+      "start_line": 3,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Shop.Payments.PaymentGateway",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:qualified_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "Shop.Payments.PaymentGateway",
+      "relationship": "documented_by",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "PaymentGateway",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway",
+      "path": "web/Payments.cs",
+      "start_line": 3,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Shop.Payments.PaymentGateway",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:qualified_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "Shop.Payments.PaymentGateway",
+      "relationship": "documented_by",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "Refund",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway.Refund",
+      "path": "web/Payments.cs",
+      "start_line": 8,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "Refund",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway.Refund",
+      "path": "web/Payments.cs",
+      "start_line": 8,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "Shop.Payments",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments",
+      "path": "web/Payments.cs",
+      "start_line": 1,
+      "end_line": 10
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:filename",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Shop.Payments",
+      "relationship": "mentioned_in",
+      "confidence": "medium"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "medium"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "Shop.Payments",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments",
+      "path": "web/Payments.cs",
+      "start_line": 1,
+      "end_line": 10
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:filename",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Shop.Payments",
+      "relationship": "mentioned_in",
+      "confidence": "medium"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "medium"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "Shop.Payments.PaymentGateway",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway",
+      "path": "web/Payments.cs",
+      "start_line": 3,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Shop.Payments.PaymentGateway",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:qualified_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "Shop.Payments.PaymentGateway",
+      "relationship": "documented_by",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "Shop.Payments.PaymentGateway",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway",
+      "path": "web/Payments.cs",
+      "start_line": 3,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Shop.Payments.PaymentGateway",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:qualified_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "Shop.Payments.PaymentGateway",
+      "relationship": "documented_by",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "Shop.Payments.PaymentGateway.Charge",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway.Charge",
+      "path": "web/Payments.cs",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "Shop.Payments.PaymentGateway.Charge",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:route_heuristic",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Shop.Payments.PaymentGateway.Charge",
+      "relationship": "related_to",
+      "confidence": "heuristic"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "Shop.Payments.PaymentGateway.Charge",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway.Charge",
+      "path": "web/Payments.cs",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "Shop.Payments.PaymentGateway.Charge",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:route_heuristic",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Shop.Payments.PaymentGateway.Charge",
+      "relationship": "related_to",
+      "confidence": "heuristic"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "Shop.Payments.PaymentGateway.Refund",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway.Refund",
+      "path": "web/Payments.cs",
+      "start_line": 8,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "Shop.Payments.PaymentGateway.Refund",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "Shop.Payments.PaymentGateway.Refund",
+      "path": "web/Payments.cs",
+      "start_line": 8,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "café_total",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.café_total",
+      "path": "src/billing/ledger.py",
+      "start_line": 6,
+      "end_line": 7
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.café_total",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "café_total",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.café_total",
+      "path": "src/billing/ledger.py",
+      "start_line": 6,
+      "end_line": 7
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.café_total",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "calculate_tax",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.calculate_tax",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 12,
+      "end_line": 13
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.invoice_service.calculate_tax",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "calculate_tax",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.calculate_tax",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 12,
+      "end_line": 13
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.invoice_service.calculate_tax",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "cancelOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.cancelOrder",
+      "path": "web/orders.ts",
+      "start_line": 3,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "cancelOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.cancelOrder",
+      "path": "web/orders.ts",
+      "start_line": 3,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "create_invoice",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService.create_invoice",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.create_invoice",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "create_invoice",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService.create_invoice",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.create_invoice",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "formatCurrency",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.formatCurrency",
+      "path": "web/orders.ts",
+      "start_line": 6,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.formatCurrency",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "formatCurrency",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.formatCurrency",
+      "path": "web/orders.ts",
+      "start_line": 6,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.formatCurrency",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "helper",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.my-helpers.v2.helper",
+      "path": "src/billing/my-helpers.v2.py",
+      "start_line": 1,
+      "end_line": 2
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.my-helpers.v2.helper",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.my-helpers.v2.helper",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "helper",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.my-helpers.v2.helper",
+      "path": "src/billing/my-helpers.v2.py",
+      "start_line": 1,
+      "end_line": 2
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.my-helpers.v2.helper",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.my-helpers.v2.helper",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "invoice_service",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 1,
+      "end_line": 19
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:filename",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.invoice_service",
+      "relationship": "mentioned_in",
+      "confidence": "medium"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "medium"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "invoice_service",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 1,
+      "end_line": 19
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:filename",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.invoice_service",
+      "relationship": "mentioned_in",
+      "confidence": "medium"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "medium"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger",
+      "path": "src/billing/ledger.py",
+      "start_line": 1,
+      "end_line": 12
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger",
+      "path": "src/billing/ledger.py",
+      "start_line": 1,
+      "end_line": 12
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "my-helpers.v2",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.my-helpers.v2",
+      "path": "src/billing/my-helpers.v2.py",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "my-helpers.v2",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.my-helpers.v2",
+      "path": "src/billing/my-helpers.v2.py",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "orders",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "orders",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "placeOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.placeOrder",
+      "path": "web/orders.ts",
+      "start_line": 2,
+      "end_line": 2
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.OrderController.placeOrder",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "placeOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.placeOrder",
+      "path": "web/orders.ts",
+      "start_line": 2,
+      "end_line": 2
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.OrderController.placeOrder",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "post_entry",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Ledger.post_entry",
+      "path": "src/billing/ledger.py",
+      "start_line": 2,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Ledger.post_entry",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "post_entry",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Ledger.post_entry",
+      "path": "src/billing/ledger.py",
+      "start_line": 2,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Ledger.post_entry",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.invoice_service",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 1,
+      "end_line": 19
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:filename",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.invoice_service",
+      "relationship": "mentioned_in",
+      "confidence": "medium"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "medium"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.invoice_service",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 1,
+      "end_line": 19
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:filename",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.invoice_service",
+      "relationship": "mentioned_in",
+      "confidence": "medium"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "medium"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.invoice_service.InvoiceService",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 4,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.invoice_service.InvoiceService",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 4,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.invoice_service.InvoiceService.create_invoice",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService.create_invoice",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.create_invoice",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.invoice_service.InvoiceService.create_invoice",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService.create_invoice",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.create_invoice",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.invoice_service.InvoiceService.void_invoice",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 8,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:alias",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "relationship": "mentioned_in",
+      "confidence": "medium"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "medium"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.invoice_service.InvoiceService.void_invoice",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 8,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:alias",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "relationship": "mentioned_in",
+      "confidence": "medium"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "medium"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.invoice_service.calculate_tax",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.calculate_tax",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 12,
+      "end_line": 13
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.invoice_service.calculate_tax",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.invoice_service.calculate_tax",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.calculate_tax",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 12,
+      "end_line": 13
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.invoice_service.calculate_tax",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.invoice_service.void_endpoint",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.void_endpoint",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 17,
+      "end_line": 18
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:route_heuristic",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "src.billing.invoice_service.void_endpoint",
+      "relationship": "related_to",
+      "confidence": "heuristic"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "heuristic"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.invoice_service.void_endpoint",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.void_endpoint",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 17,
+      "end_line": 18
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:route_heuristic",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "src.billing.invoice_service.void_endpoint",
+      "relationship": "related_to",
+      "confidence": "heuristic"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "heuristic"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger",
+      "path": "src/billing/ledger.py",
+      "start_line": 1,
+      "end_line": 12
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger",
+      "path": "src/billing/ledger.py",
+      "start_line": 1,
+      "end_line": 12
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.ledger.Ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Ledger",
+      "path": "src/billing/ledger.py",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "src.billing.ledger.Ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.ledger.Ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Ledger",
+      "path": "src/billing/ledger.py",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "src.billing.ledger.Ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.ledger.Ledger.post_entry",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Ledger.post_entry",
+      "path": "src/billing/ledger.py",
+      "start_line": 2,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Ledger.post_entry",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.ledger.Ledger.post_entry",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Ledger.post_entry",
+      "path": "src/billing/ledger.py",
+      "start_line": 2,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Ledger.post_entry",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.ledger.café_total",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.café_total",
+      "path": "src/billing/ledger.py",
+      "start_line": 6,
+      "end_line": 7
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.café_total",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.ledger.café_total",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.café_total",
+      "path": "src/billing/ledger.py",
+      "start_line": 6,
+      "end_line": 7
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.café_total",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.ledger.Λογαριασμός",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Λογαριασμός",
+      "path": "src/billing/ledger.py",
+      "start_line": 10,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.ledger.Λογαριασμός",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Λογαριασμός",
+      "path": "src/billing/ledger.py",
+      "start_line": 10,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.my-helpers.v2",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.my-helpers.v2",
+      "path": "src/billing/my-helpers.v2.py",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.my-helpers.v2",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.my-helpers.v2",
+      "path": "src/billing/my-helpers.v2.py",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "src.billing.my-helpers.v2.helper",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.my-helpers.v2.helper",
+      "path": "src/billing/my-helpers.v2.py",
+      "start_line": 1,
+      "end_line": 2
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.my-helpers.v2.helper",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.my-helpers.v2.helper",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "src.billing.my-helpers.v2.helper",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.my-helpers.v2.helper",
+      "path": "src/billing/my-helpers.v2.py",
+      "start_line": 1,
+      "end_line": 2
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "src.billing.my-helpers.v2.helper",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     },
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.my-helpers.v2.helper",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "void_endpoint",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.void_endpoint",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 17,
+      "end_line": 18
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:route_heuristic",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "src.billing.invoice_service.void_endpoint",
+      "relationship": "related_to",
+      "confidence": "heuristic"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "heuristic"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "void_endpoint",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.void_endpoint",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 17,
+      "end_line": 18
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:route_heuristic",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "src.billing.invoice_service.void_endpoint",
+      "relationship": "related_to",
+      "confidence": "heuristic"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "heuristic"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "void_invoice",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 8,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:alias",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "relationship": "mentioned_in",
+      "confidence": "medium"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "medium"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "void_invoice",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "path": "src/billing/invoice_service.py",
+      "start_line": 8,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:alias",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "relationship": "mentioned_in",
+      "confidence": "medium"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "medium"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "web.orders",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "web.orders",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 9
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "web.orders.OrderController",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 4
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.OrderController",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "web.orders.OrderController",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 4
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.OrderController",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "web.orders.OrderController.cancelOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.cancelOrder",
+      "path": "web/orders.ts",
+      "start_line": 3,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "web.orders.OrderController.cancelOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.cancelOrder",
+      "path": "web/orders.ts",
+      "start_line": 3,
+      "end_line": 3
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "web.orders.OrderController.placeOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.placeOrder",
+      "path": "web/orders.ts",
+      "start_line": 2,
+      "end_line": 2
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.OrderController.placeOrder",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "web.orders.OrderController.placeOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.placeOrder",
+      "path": "web/orders.ts",
+      "start_line": 2,
+      "end_line": 2
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.OrderController.placeOrder",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": null,
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "web.orders.formatCurrency",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.formatCurrency",
+      "path": "web/orders.ts",
+      "start_line": 6,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.formatCurrency",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "web.orders.formatCurrency",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.formatCurrency",
+      "path": "web/orders.ts",
+      "start_line": 6,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.formatCurrency",
+      "relationship": "mentioned_in",
+      "confidence": "high"
+     }
+    ],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": "high"
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "Λογαριασμός",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Λογαριασμός",
+      "path": "src/billing/ledger.py",
+      "start_line": 10,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "Λογαριασμός",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "src.billing.ledger.Λογαριασμός",
+      "path": "src/billing/ledger.py",
+      "start_line": 10,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "no_such_symbol_anywhere",
+    "found": false,
+    "max_depth": 1
+   },
+   {
+    "query": "no_such_symbol_anywhere",
+    "found": false,
+    "max_depth": 3
+   }
+  ],
+  "explore": [
+   {
+    "query": "InvoiceService",
+    "intent": "identifier",
+    "strategies": [
+     "identifier",
+     "fts"
+    ],
+    "summary": "Found 1 symbol(s) and 2 document(s) matching 'InvoiceService'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService",
+      "kind": "class"
+     }
+    ],
+    "paths": [
+     "docs/billing.md",
+     "docs/unicode.txt",
+     "src/billing/invoice_service.py"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nThe\n\nInvoiceService\n\ncreates invoices through\n\ncreate_invoice\n\n. Fully qualified, that is\n\nsrc.billing.invoice_service.InvoiceService.create_invoice\n\n, and in short form\n\nInvoiceService.void_invoice\n\n.",
+      "location": {
+       "section": "Billing guide",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "unicode",
+      "path": "docs/unicode.txt",
+      "snippet": "unicode\nΤο σύνολο υπολογίζεται με café_total και Λογαριασμός.\n\nEdge: InvoiceService.create_invoice. Also (Ledger) and [post_entry] and \"helper\".\n\nPathological: a.b.c.d..e, ...,\n\ninit\n\n, $$$, ((())), Ledger.post_entry.extra",
+      "location": {
+       "section": null,
+       "page_start": null,
+       "page_end": null,
+       "heading_path": []
+      }
+     }
+    ],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "void_invoice",
+    "intent": "identifier",
+    "strategies": [
+     "identifier",
+     "fts"
+    ],
+    "summary": "Found 1 symbol(s) and 1 document(s) matching 'void_invoice'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "kind": "method"
+     }
+    ],
+    "paths": [
+     "docs/billing.md",
+     "src/billing/invoice_service.py"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nThe\n\nInvoiceService\n\ncreates invoices through\n\ncreate_invoice\n\n. Fully qualified, that is\n\nsrc.billing.invoice_service.InvoiceService.create_invoice\n\n, and in short form\n\nInvoiceService.void_invoice\n\n.",
+      "location": {
+       "section": "Billing guide",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide"
+       ]
+      }
+     }
+    ],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "src.billing.invoice_service.InvoiceService.void_invoice",
+    "intent": "identifier",
+    "strategies": [
+     "identifier",
+     "fts"
+    ],
+    "summary": "Found 1 symbol(s) and 8 document(s) matching 'src.billing.invoice_service.InvoiceService.void_invoice'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "kind": "method"
+     }
+    ],
+    "paths": [
+     "docs/billing.md",
+     "docs/unicode.txt",
+     "src/billing/invoice_service.py",
+     "src/billing/ledger.py",
+     "src/billing/my-helpers.v2.py"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nThe\n\nInvoiceService\n\ncreates invoices through\n\ncreate_invoice\n\n. Fully qualified, that is\n\nsrc.billing.invoice_service.InvoiceService.create_invoice\n\n, and in short form\n\nInvoiceService.void_invoice\n\n.",
+      "location": {
+       "section": "Billing guide",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nTax\nUse calculate_tax for VAT. See invoice_service.py and the ledger module, and the helper in my-helpers.v2.py.",
+      "location": {
+       "section": "Billing guide > Tax",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide",
+        "Tax"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "unicode",
+      "path": "docs/unicode.txt",
+      "snippet": "unicode\nΤο σύνολο υπολογίζεται με café_total και Λογαριασμός.\n\nEdge: InvoiceService.create_invoice. Also (Ledger) and [post_entry] and \"helper\".\n\nPathological: a.b.c.d..e, ...,\n\ninit\n\n, $$$, ((())), Ledger.post_entry.extra",
+      "location": {
+       "section": null,
+       "page_start": null,
+       "page_end": null,
+       "heading_path": []
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide",
+      "location": {
+       "section": "Billing guide",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": []
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nTax",
+      "location": {
+       "section": "Tax",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nEndpoints",
+      "location": {
+       "section": "Endpoints",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nEndpoints\nComponent | Owner\nLedger | finance\nPaymentGateway | platform",
+      "location": {
+       "section": "Billing guide > Endpoints",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide",
+        "Endpoints"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nEndpoints\nPOST /api/invoices/{id}/void voids an invoice. Payments use api/payments/charge.",
+      "location": {
+       "section": "Billing guide > Endpoints",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide",
+        "Endpoints"
+       ]
+      }
+     }
+    ],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "who calls void_invoice?",
+    "intent": "callers",
+    "strategies": [
+     "identifier",
+     "graph_callers"
+    ],
+    "summary": "Found 1 symbol(s) and 1 document(s) matching 'who calls void_invoice?'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "kind": "method"
+     }
+    ],
+    "paths": [
+     "docs/billing.md",
+     "src/billing/invoice_service.py"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nThe\n\nInvoiceService\n\ncreates invoices through\n\ncreate_invoice\n\n. Fully qualified, that is\n\nsrc.billing.invoice_service.InvoiceService.create_invoice\n\n, and in short form\n\nInvoiceService.void_invoice\n\n.",
+      "location": {
+       "section": "Billing guide",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide"
+       ]
+      }
+     }
+    ],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "what does InvoiceService.void_invoice call",
+    "intent": "callees",
+    "strategies": [
+     "identifier",
+     "graph_callees"
+    ],
+    "summary": "Found 0 symbol(s) and 2 document(s) matching 'what does InvoiceService.void_invoice call'; see below for details.",
+    "symbols": [],
+    "paths": [
+     "docs/billing.md",
+     "docs/unicode.txt",
+     "src/billing/invoice_service.py"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nThe\n\nInvoiceService\n\ncreates invoices through\n\ncreate_invoice\n\n. Fully qualified, that is\n\nsrc.billing.invoice_service.InvoiceService.create_invoice\n\n, and in short form\n\nInvoiceService.void_invoice\n\n.",
+      "location": {
+       "section": "Billing guide",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "unicode",
+      "path": "docs/unicode.txt",
+      "snippet": "unicode\nΤο σύνολο υπολογίζεται με café_total και Λογαριασμός.\n\nEdge: InvoiceService.create_invoice. Also (Ledger) and [post_entry] and \"helper\".\n\nPathological: a.b.c.d..e, ...,\n\ninit\n\n, $$$, ((())), Ledger.post_entry.extra",
+      "location": {
+       "section": null,
+       "page_start": null,
+       "page_end": null,
+       "heading_path": []
+      }
+     }
+    ],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "lexical:document",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "Billing guide",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "Billing guide\nBilling guide\nThe\n\nInvoiceService\n\ncreates invoices through\n\ncreate_invoice\n\n. Fully qualified, that is\n\nsrc.billing.invoice_service.InvoiceService.create_invoice\n\n, and in short form\n\nInvoiceService.void_invoice\n\n."
+     },
+     {
+      "source": "lexical:document",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "unicode",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "unicode\nΤο σύνολο υπολογίζεται με café_total και Λογαριασμός.\n\nEdge: InvoiceService.create_invoice. Also (Ledger) and [post_entry] and \"helper\".\n\nPathological: a.b.c.d..e, ...,\n\ninit\n\n, $$$, ((())), Ledger.post_entry.extra"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/invoice_service.py",
+      "location": {
+       "line_start": 4,
+       "line_end": 9,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.invoice_service.InvoiceService",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "class InvoiceService:"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/invoice_service.py",
+      "location": {
+       "line_start": 5,
+       "line_end": 6,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.create_invoice",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def create_invoice(self, order):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/invoice_service.py",
+      "location": {
+       "line_start": 8,
+       "line_end": 9,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def void_invoice(self, invoice_id):"
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "what breaks if Ledger changes?",
+    "intent": "impact",
+    "strategies": [
+     "identifier",
+     "graph_callers",
+     "graph_callees",
+     "tests",
+     "documents"
+    ],
+    "summary": "Found 1 symbol(s) and 4 document(s) matching 'what breaks if Ledger changes?'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "src.billing.ledger.Ledger",
+      "kind": "class"
+     }
+    ],
+    "paths": [
+     "docs/billing.md",
+     "docs/orders.html",
+     "docs/unicode.txt",
+     "src/billing/ledger.py"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "unicode",
+      "path": "docs/unicode.txt",
+      "snippet": "unicode\nΤο σύνολο υπολογίζεται με café_total και Λογαριασμός.\n\nEdge: InvoiceService.create_invoice. Also (Ledger) and [post_entry] and \"helper\".\n\nPathological: a.b.c.d..e, ...,\n\ninit\n\n, $$$, ((())), Ledger.post_entry.extra",
+      "location": {
+       "section": null,
+       "page_start": null,
+       "page_end": null,
+       "heading_path": []
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nEndpoints\nComponent | Owner\nLedger | finance\nPaymentGateway | platform",
+      "location": {
+       "section": "Billing guide > Endpoints",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide",
+        "Endpoints"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Orders",
+      "path": "docs/orders.html",
+      "snippet": "Orders\nOrders\nThe OrderController exposes placeOrder and cancelOrder.\n\nFormatting uses formatCurrency; the Shop.Payments.PaymentGateway handles Charge and Refund.\n\nNot matches: placeOrders, xformatCurrency, OrderController.placeOrderX, Ledger.post_entry2.",
+      "location": {
+       "section": "Orders",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Orders"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nTax\nUse calculate_tax for VAT. See invoice_service.py and the ledger module, and the helper in my-helpers.v2.py.",
+      "location": {
+       "section": "Billing guide > Tax",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide",
+        "Tax"
+       ]
+      }
+     }
+    ],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "src.billing.ledger.Ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high",
+      "snippet": "src.billing.ledger.Ledger"
+     },
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/unicode.txt",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Ledger",
+      "relationship": "mentioned_in",
+      "confidence": "high",
+      "snippet": "src.billing.ledger.Ledger"
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "impact of OrderController",
+    "intent": "impact",
+    "strategies": [
+     "identifier",
+     "graph_callers",
+     "graph_callees",
+     "tests",
+     "documents"
+    ],
+    "summary": "Found 1 symbol(s) and 1 document(s) matching 'impact of OrderController'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "web.orders.OrderController",
+      "kind": "class"
+     }
+    ],
+    "paths": [
+     "docs/orders.html",
+     "web/orders.ts"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Orders",
+      "path": "docs/orders.html",
+      "snippet": "Orders\nOrders\nThe OrderController exposes placeOrder and cancelOrder.\n\nFormatting uses formatCurrency; the Shop.Payments.PaymentGateway handles Charge and Refund.\n\nNot matches: placeOrders, xformatCurrency, OrderController.placeOrderX, Ledger.post_entry2.",
+      "location": {
+       "section": "Orders",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Orders"
+       ]
+      }
+     }
+    ],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "linker:exact_identifier",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "web.orders.OrderController",
+      "relationship": "mentioned_in",
+      "confidence": "high",
+      "snippet": "web.orders.OrderController"
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "documents about refunds",
+    "intent": "document",
+    "strategies": [
+     "fts",
+     "documents"
+    ],
+    "summary": "Found 0 symbol(s) and 0 document(s) matching 'documents about refunds'; see below for details.",
+    "symbols": [],
+    "paths": [],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "billing documentation",
+    "intent": "document",
+    "strategies": [
+     "fts",
+     "documents"
+    ],
+    "summary": "Found 0 symbol(s) and 7 document(s) matching 'billing documentation'; see below for details.",
+    "symbols": [],
+    "paths": [
+     "docs/billing.md",
+     "src/billing/invoice_service.py",
+     "src/billing/ledger.py",
+     "src/billing/my-helpers.v2.py"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide",
+      "location": {
+       "section": "Billing guide",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": []
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nTax",
+      "location": {
+       "section": "Tax",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nEndpoints",
+      "location": {
+       "section": "Endpoints",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nEndpoints\nComponent | Owner\nLedger | finance\nPaymentGateway | platform",
+      "location": {
+       "section": "Billing guide > Endpoints",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide",
+        "Endpoints"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nEndpoints\nPOST /api/invoices/{id}/void voids an invoice. Payments use api/payments/charge.",
+      "location": {
+       "section": "Billing guide > Endpoints",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide",
+        "Endpoints"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nThe\n\nInvoiceService\n\ncreates invoices through\n\ncreate_invoice\n\n. Fully qualified, that is\n\nsrc.billing.invoice_service.InvoiceService.create_invoice\n\n, and in short form\n\nInvoiceService.void_invoice\n\n.",
+      "location": {
+       "section": "Billing guide",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nTax\nUse calculate_tax for VAT. See invoice_service.py and the ledger module, and the helper in my-helpers.v2.py.",
+      "location": {
+       "section": "Billing guide > Tax",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide",
+        "Tax"
+       ]
+      }
+     }
+    ],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "lexical:document",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "Billing guide",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "Billing guide\nBilling guide"
+     },
+     {
+      "source": "lexical:document",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Tax"
+      },
+      "entity": "Billing guide",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "Billing guide\nBilling guide\nTax"
+     },
+     {
+      "source": "lexical:document",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Endpoints"
+      },
+      "entity": "Billing guide",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "Billing guide\nBilling guide\nEndpoints"
+     },
+     {
+      "source": "lexical:document",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Billing guide",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "Billing guide\nBilling guide\nEndpoints\nComponent | Owner\nLedger | finance\nPaymentGateway | platform"
+     },
+     {
+      "source": "lexical:document",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Tax"
+      },
+      "entity": "Billing guide",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "Billing guide\nBilling guide\nTax\nUse calculate_tax for VAT. See invoice_service.py and the ledger module, and the helper in my-helpers.v2.py."
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/invoice_service.py",
+      "location": {
+       "line_start": 4,
+       "line_end": 9,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.invoice_service.InvoiceService",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "class InvoiceService:"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/invoice_service.py",
+      "location": {
+       "line_start": 5,
+       "line_end": 6,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.create_invoice",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def create_invoice(self, order):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/invoice_service.py",
+      "location": {
+       "line_start": 8,
+       "line_end": 9,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.void_invoice",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def void_invoice(self, invoice_id):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/invoice_service.py",
+      "location": {
+       "line_start": 12,
+       "line_end": 13,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.invoice_service.calculate_tax",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def calculate_tax(amount):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/invoice_service.py",
+      "location": {
+       "line_start": 17,
+       "line_end": 18,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.invoice_service.void_endpoint",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def void_endpoint(id):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/ledger.py",
+      "location": {
+       "line_start": 1,
+       "line_end": 3,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Ledger",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "class Ledger:"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/ledger.py",
+      "location": {
+       "line_start": 2,
+       "line_end": 3,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Ledger.post_entry",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def post_entry(self, entry):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/ledger.py",
+      "location": {
+       "line_start": 6,
+       "line_end": 7,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.café_total",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def café_total(values):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/ledger.py",
+      "location": {
+       "line_start": 10,
+       "line_end": 11,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.ledger.Λογαριασμός",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def Λογαριασμός():"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/my-helpers.v2.py",
+      "location": {
+       "line_start": 1,
+       "line_end": 2,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.my-helpers.v2.helper",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def helper():"
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "how are invoices voided",
+    "intent": "general",
+    "strategies": [
+     "identifier",
+     "fts",
+     "graph_references"
+    ],
+    "summary": "Found 0 symbol(s) and 2 document(s) matching 'how are invoices voided'; see below for details.",
+    "symbols": [],
+    "paths": [
+     "docs/billing.md"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nEndpoints\nPOST /api/invoices/{id}/void voids an invoice. Payments use api/payments/charge.",
+      "location": {
+       "section": "Billing guide > Endpoints",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide",
+        "Endpoints"
+       ]
+      }
+     },
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Billing guide",
+      "path": "docs/billing.md",
+      "snippet": "Billing guide\nBilling guide\nThe\n\nInvoiceService\n\ncreates invoices through\n\ncreate_invoice\n\n. Fully qualified, that is\n\nsrc.billing.invoice_service.InvoiceService.create_invoice\n\n, and in short form\n\nInvoiceService.void_invoice\n\n.",
+      "location": {
+       "section": "Billing guide",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Billing guide"
+       ]
+      }
+     }
+    ],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "lexical:document",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide > Endpoints"
+      },
+      "entity": "Billing guide",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "Billing guide\nBilling guide\nEndpoints\nPOST /api/invoices/{id}/void voids an invoice. Payments use api/payments/charge."
+     },
+     {
+      "source": "lexical:document",
+      "path": "docs/billing.md",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Billing guide"
+      },
+      "entity": "Billing guide",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "Billing guide\nBilling guide\nThe\n\nInvoiceService\n\ncreates invoices through\n\ncreate_invoice\n\n. Fully qualified, that is\n\nsrc.billing.invoice_service.InvoiceService.create_invoice\n\n, and in short form\n\nInvoiceService.void_invoice\n\n."
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "cancel order",
+    "intent": "general",
+    "strategies": [
+     "identifier",
+     "fts",
+     "graph_references"
+    ],
+    "summary": "Found 0 symbol(s) and 1 document(s) matching 'cancel order'; see below for details.",
+    "symbols": [],
+    "paths": [
+     "docs/orders.html",
+     "src/billing/invoice_service.py",
+     "web/orders.ts"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "Orders",
+      "path": "docs/orders.html",
+      "snippet": "Orders\nOrders\nThe OrderController exposes placeOrder and cancelOrder.\n\nFormatting uses formatCurrency; the Shop.Payments.PaymentGateway handles Charge and Refund.\n\nNot matches: placeOrders, xformatCurrency, OrderController.placeOrderX, Ledger.post_entry2.",
+      "location": {
+       "section": "Orders",
+       "page_start": null,
+       "page_end": null,
+       "heading_path": [
+        "Orders"
+       ]
+      }
+     }
+    ],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "lexical:document",
+      "path": "docs/orders.html",
+      "location": {
+       "line_start": null,
+       "line_end": null,
+       "page": null,
+       "section": "Orders"
+      },
+      "entity": "Orders",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "Orders\nOrders\nThe OrderController exposes placeOrder and cancelOrder.\n\nFormatting uses formatCurrency; the Shop.Payments.PaymentGateway handles Charge and Refund.\n\nNot matches: placeOrders, xformatCurrency, OrderController.placeOrderX, Ledger.post_entry2."
+     },
+     {
+      "source": "lexical:entity",
+      "path": "src/billing/invoice_service.py",
+      "location": {
+       "line_start": 5,
+       "line_end": 6,
+       "page": null,
+       "section": null
+      },
+      "entity": "src.billing.invoice_service.InvoiceService.create_invoice",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def create_invoice(self, order):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "web/orders.ts",
+      "location": {
+       "line_start": 3,
+       "line_end": 3,
+       "page": null,
+       "section": null
+      },
+      "entity": "web.orders.OrderController.cancelOrder",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "cancelOrder(id: string): string { return id; }"
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "Λογαριασμός",
+    "intent": "general",
+    "strategies": [
+     "identifier",
+     "fts",
+     "graph_references"
+    ],
+    "summary": "Found 1 symbol(s) and 1 document(s) matching 'Λογαριασμός'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "src.billing.ledger.Λογαριασμός",
+      "kind": "function"
+     }
+    ],
+    "paths": [
+     "docs/unicode.txt",
+     "src/billing/ledger.py"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [
+     {
+      "kind": "document",
+      "tier": "fts",
+      "title": "unicode",
+      "path": "docs/unicode.txt",
+      "snippet": "unicode\nΤο σύνολο υπολογίζεται με café_total και Λογαριασμός.\n\nEdge: InvoiceService.create_invoice. Also (Ledger) and [post_entry] and \"helper\".\n\nPathological: a.b.c.d..e, ...,\n\ninit\n\n, $$$, ((())), Ledger.post_entry.extra",
+      "location": {
+       "section": null,
+       "page_start": null,
+       "page_end": null,
+       "heading_path": []
+      }
+     }
+    ],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "no_such_thing_anywhere",
+    "intent": "identifier",
+    "strategies": [
+     "identifier",
+     "fts"
+    ],
+    "summary": "Found 0 symbol(s) and 0 document(s) matching 'no_such_thing_anywhere'; see below for details.",
+    "symbols": [],
+    "paths": [],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   }
+  ]
+ },
+ "graph": {
+  "impact": [
+   {
+    "query": "Ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger",
+      "path": "app/core.py",
+      "start_line": 6,
+      "end_line": 17
+     }
+    ],
+    "callers": [
+     "app.core.run",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [],
+    "tests": [
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 3,
+    "max_depth": 1
+   },
+   {
+    "query": "Ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger",
+      "path": "app/core.py",
+      "start_line": 6,
+      "end_line": 17
+     }
+    ],
+    "callers": [
+     "app.core.run",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [],
+    "tests": [
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 3,
+    "max_depth": 3
+   },
+   {
+    "query": "Normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.Normalize",
+      "path": "svc/svc.go",
+      "start_line": 3,
+      "end_line": 3
+     }
+    ],
+    "callers": [
+     "svc.Settle"
+    ],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "Normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.Normalize",
+      "path": "svc/svc.go",
+      "start_line": 3,
+      "end_line": 3
+     }
+    ],
+    "callers": [
+     "svc.Settle",
+     "svc.TestSettle"
+    ],
+    "callees": [],
+    "tests": [
+     "svc.TestSettle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "OrderController",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController",
+      "path": "web/orders.ts",
+      "start_line": 3,
+      "end_line": 12
+     }
+    ],
+    "callers": [
+     "web.orders.test"
+    ],
+    "callees": [],
+    "tests": [
+     "web.orders.test"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "OrderController",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController",
+      "path": "web/orders.ts",
+      "start_line": 3,
+      "end_line": 12
+     }
+    ],
+    "callers": [
+     "web.orders.test"
+    ],
+    "callees": [],
+    "tests": [
+     "web.orders.test"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "Settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.Settle",
+      "path": "svc/svc.go",
+      "start_line": 5,
+      "end_line": 5
+     }
+    ],
+    "callers": [
+     "svc.TestSettle"
+    ],
+    "callees": [
+     "svc.Normalize"
+    ],
+    "tests": [
+     "svc.TestSettle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "Settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.Settle",
+      "path": "svc/svc.go",
+      "start_line": 5,
+      "end_line": 5
+     }
+    ],
+    "callers": [
+     "svc.TestSettle"
+    ],
+    "callees": [
+     "svc.Normalize"
+    ],
+    "tests": [
+     "svc.TestSettle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "TestSettle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.TestSettle",
+      "path": "svc/svc_test.go",
+      "start_line": 5,
+      "end_line": 5
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "svc.Settle"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "TestSettle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.TestSettle",
+      "path": "svc/svc_test.go",
+      "start_line": 5,
+      "end_line": 5
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "svc.Normalize",
+     "svc.Settle"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "app.core",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core",
+      "path": "app/core.py",
+      "start_line": 1,
+      "end_line": 29
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [
+     "tests.test_core"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "app.core",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core",
+      "path": "app/core.py",
+      "start_line": 1,
+      "end_line": 29
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [
+     "tests.test_core"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "app.core.Ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger",
+      "path": "app/core.py",
+      "start_line": 6,
+      "end_line": 17
+     }
+    ],
+    "callers": [
+     "app.core.run",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [],
+    "tests": [
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 3,
+    "max_depth": 1
+   },
+   {
+    "query": "app.core.Ledger",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger",
+      "path": "app/core.py",
+      "start_line": 6,
+      "end_line": 17
+     }
+    ],
+    "callers": [
+     "app.core.run",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [],
+    "tests": [
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 3,
+    "max_depth": 3
+   },
+   {
+    "query": "app.core.Ledger.ping",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.ping",
+      "path": "app/core.py",
+      "start_line": 13,
+      "end_line": 14
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.pong"
+    ],
+    "callees": [
+     "app.core.Ledger.pong"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "app.core.Ledger.ping",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.ping",
+      "path": "app/core.py",
+      "start_line": 13,
+      "end_line": 14
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.ping",
+     "app.core.Ledger.pong"
+    ],
+    "callees": [
+     "app.core.Ledger.ping",
+     "app.core.Ledger.pong"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "app.core.Ledger.pong",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.pong",
+      "path": "app/core.py",
+      "start_line": 16,
+      "end_line": 17
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.ping"
+    ],
+    "callees": [
+     "app.core.Ledger.ping"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "app.core.Ledger.pong",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.pong",
+      "path": "app/core.py",
+      "start_line": 16,
+      "end_line": 17
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.ping",
+     "app.core.Ledger.pong"
+    ],
+    "callees": [
+     "app.core.Ledger.ping",
+     "app.core.Ledger.pong"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "app.core.Ledger.post",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.post",
+      "path": "app/core.py",
+      "start_line": 7,
+      "end_line": 8
+     }
+    ],
+    "callers": [
+     "app.core.settle",
+     "tests.test_core.test_post"
+    ],
+    "callees": [
+     "app.core.Ledger.validate"
+    ],
+    "tests": [
+     "tests.test_core.test_post"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "app.core.Ledger.post",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.post",
+      "path": "app/core.py",
+      "start_line": 7,
+      "end_line": 8
+     }
+    ],
+    "callers": [
+     "app.core.run",
+     "app.core.settle",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [
+     "app.core.Ledger.validate",
+     "app.util.normalize"
+    ],
+    "tests": [
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 4,
+    "max_depth": 3
+   },
+   {
+    "query": "app.core.Ledger.validate",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.validate",
+      "path": "app/core.py",
+      "start_line": 10,
+      "end_line": 11
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.post"
+    ],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "app.core.Ledger.validate",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.validate",
+      "path": "app/core.py",
+      "start_line": 10,
+      "end_line": 11
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.post",
+     "app.core.run",
+     "app.core.settle",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 5,
+    "max_depth": 3
+   },
+   {
+    "query": "app.core.run",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.run",
+      "path": "app/core.py",
+      "start_line": 26,
+      "end_line": 28
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.settle"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "app.core.run",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.run",
+      "path": "app/core.py",
+      "start_line": 26,
+      "end_line": 28
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.Ledger.post",
+     "app.core.Ledger.validate",
+     "app.core.settle",
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "app.core.settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.settle",
+      "path": "app/core.py",
+      "start_line": 20,
+      "end_line": 23
+     }
+    ],
+    "callers": [
+     "app.core.run",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [
+     "app.core.Ledger.post",
+     "app.util.normalize"
+    ],
+    "tests": [
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "app.core.settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.settle",
+      "path": "app/core.py",
+      "start_line": 20,
+      "end_line": 23
+     }
+    ],
+    "callers": [
+     "app.core.run",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [
+     "app.core.Ledger.post",
+     "app.core.Ledger.validate",
+     "app.util.normalize"
+    ],
+    "tests": [
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "app.core_test",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core_test",
+      "path": "app/core_test.py",
+      "start_line": 1,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "app.core_test",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core_test",
+      "path": "app/core_test.py",
+      "start_line": 1,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "app.core_test.test_normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core_test.test_normalize",
+      "path": "app/core_test.py",
+      "start_line": 4,
+      "end_line": 5
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "app.core_test.test_normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core_test.test_normalize",
+      "path": "app/core_test.py",
+      "start_line": 4,
+      "end_line": 5
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "app.util",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util",
+      "path": "app/util.py",
+      "start_line": 1,
+      "end_line": 7
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [
+     "app.core_test",
+     "tests.test_core"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "app.util",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util",
+      "path": "app/util.py",
+      "start_line": 1,
+      "end_line": 7
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [
+     "app.core_test",
+     "tests.test_core"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "app.util.normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util.normalize",
+      "path": "app/util.py",
+      "start_line": 1,
+      "end_line": 2
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.validate",
+     "app.core.settle",
+     "app.core_test.test_normalize",
+     "app.util.unused",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [],
+    "tests": [
+     "app.core_test.test_normalize",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 5,
+    "max_depth": 1
+   },
+   {
+    "query": "app.util.normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util.normalize",
+      "path": "app/util.py",
+      "start_line": 1,
+      "end_line": 2
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.post",
+     "app.core.Ledger.validate",
+     "app.core.run",
+     "app.core.settle",
+     "app.core_test.test_normalize",
+     "app.util.unused",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [],
+    "tests": [
+     "app.core_test.test_normalize",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "HIGH",
+    "blast_radius_score": 8,
+    "max_depth": 3
+   },
+   {
+    "query": "app.util.unused",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util.unused",
+      "path": "app/util.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "app.util.unused",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util.unused",
+      "path": "app/util.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "cancelOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.cancelOrder",
+      "path": "web/orders.ts",
+      "start_line": 8,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "web.orders.OrderController.placeOrder"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "cancelOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.cancelOrder",
+      "path": "web/orders.ts",
+      "start_line": 8,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "web.money.normalizeTotal",
+     "web.orders.OrderController.placeOrder"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "core",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core",
+      "path": "app/core.py",
+      "start_line": 1,
+      "end_line": 29
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [
+     "tests.test_core"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "core",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core",
+      "path": "app/core.py",
+      "start_line": 1,
+      "end_line": 29
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [
+     "tests.test_core"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "core_test",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core_test",
+      "path": "app/core_test.py",
+      "start_line": 1,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "core_test",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core_test",
+      "path": "app/core_test.py",
+      "start_line": 1,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "money",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.money",
+      "path": "web/money.ts",
+      "start_line": 1,
+      "end_line": 4
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "money",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.money",
+      "path": "web/money.ts",
+      "start_line": 1,
+      "end_line": 4
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util.normalize",
+      "path": "app/util.py",
+      "start_line": 1,
+      "end_line": 2
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.validate",
+     "app.core.settle",
+     "app.core_test.test_normalize",
+     "app.util.unused",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [],
+    "tests": [
+     "app.core_test.test_normalize",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 5,
+    "max_depth": 1
+   },
+   {
+    "query": "normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util.normalize",
+      "path": "app/util.py",
+      "start_line": 1,
+      "end_line": 2
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.post",
+     "app.core.Ledger.validate",
+     "app.core.run",
+     "app.core.settle",
+     "app.core_test.test_normalize",
+     "app.util.unused",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [],
+    "tests": [
+     "app.core_test.test_normalize",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "HIGH",
+    "blast_radius_score": 8,
+    "max_depth": 3
+   },
+   {
+    "query": "normalizeTotal",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.money.normalizeTotal",
+      "path": "web/money.ts",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [
+     "web.orders.OrderController.placeOrder"
+    ],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "normalizeTotal",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.money.normalizeTotal",
+      "path": "web/money.ts",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [
+     "web.orders.OrderController.cancelOrder",
+     "web.orders.OrderController.placeOrder",
+     "web.orders.test"
+    ],
+    "callees": [],
+    "tests": [
+     "web.orders.test"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 3,
+    "max_depth": 3
+   },
+   {
+    "query": "orders",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 13
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "orders",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 13
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "orders.test",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.test",
+      "path": "web/orders.test.ts",
+      "start_line": 1,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "web.orders.OrderController",
+     "web.orders.OrderController.placeOrder"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "orders.test",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.test",
+      "path": "web/orders.test.ts",
+      "start_line": 1,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "web.money.normalizeTotal",
+     "web.orders.OrderController",
+     "web.orders.OrderController.placeOrder"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "ping",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.ping",
+      "path": "app/core.py",
+      "start_line": 13,
+      "end_line": 14
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.pong"
+    ],
+    "callees": [
+     "app.core.Ledger.pong"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "ping",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.ping",
+      "path": "app/core.py",
+      "start_line": 13,
+      "end_line": 14
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.ping",
+     "app.core.Ledger.pong"
+    ],
+    "callees": [
+     "app.core.Ledger.ping",
+     "app.core.Ledger.pong"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "placeOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.placeOrder",
+      "path": "web/orders.ts",
+      "start_line": 4,
+      "end_line": 6
+     }
+    ],
+    "callers": [
+     "web.orders.OrderController.cancelOrder",
+     "web.orders.test"
+    ],
+    "callees": [
+     "web.money.normalizeTotal"
+    ],
+    "tests": [
+     "web.orders.test"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "placeOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.placeOrder",
+      "path": "web/orders.ts",
+      "start_line": 4,
+      "end_line": 6
+     }
+    ],
+    "callers": [
+     "web.orders.OrderController.cancelOrder",
+     "web.orders.test"
+    ],
+    "callees": [
+     "web.money.normalizeTotal"
+    ],
+    "tests": [
+     "web.orders.test"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "pong",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.pong",
+      "path": "app/core.py",
+      "start_line": 16,
+      "end_line": 17
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.ping"
+    ],
+    "callees": [
+     "app.core.Ledger.ping"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "pong",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.pong",
+      "path": "app/core.py",
+      "start_line": 16,
+      "end_line": 17
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.ping",
+     "app.core.Ledger.pong"
+    ],
+    "callees": [
+     "app.core.Ledger.ping",
+     "app.core.Ledger.pong"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "post",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.post",
+      "path": "app/core.py",
+      "start_line": 7,
+      "end_line": 8
+     }
+    ],
+    "callers": [
+     "app.core.settle",
+     "tests.test_core.test_post"
+    ],
+    "callees": [
+     "app.core.Ledger.validate"
+    ],
+    "tests": [
+     "tests.test_core.test_post"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "post",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.post",
+      "path": "app/core.py",
+      "start_line": 7,
+      "end_line": 8
+     }
+    ],
+    "callers": [
+     "app.core.run",
+     "app.core.settle",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [
+     "app.core.Ledger.validate",
+     "app.util.normalize"
+    ],
+    "tests": [
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 4,
+    "max_depth": 3
+   },
+   {
+    "query": "run",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.run",
+      "path": "app/core.py",
+      "start_line": 26,
+      "end_line": 28
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.settle"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "run",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.run",
+      "path": "app/core.py",
+      "start_line": 26,
+      "end_line": 28
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.Ledger.post",
+     "app.core.Ledger.validate",
+     "app.core.settle",
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.settle",
+      "path": "app/core.py",
+      "start_line": 20,
+      "end_line": 23
+     }
+    ],
+    "callers": [
+     "app.core.run",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [
+     "app.core.Ledger.post",
+     "app.util.normalize"
+    ],
+    "tests": [
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.settle",
+      "path": "app/core.py",
+      "start_line": 20,
+      "end_line": 23
+     }
+    ],
+    "callers": [
+     "app.core.run",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [
+     "app.core.Ledger.post",
+     "app.core.Ledger.validate",
+     "app.util.normalize"
+    ],
+    "tests": [
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "svc",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc",
+      "path": "svc/svc.go",
+      "start_line": 1,
+      "end_line": 1
+     },
+     {
+      "qualified_name": "svc",
+      "path": "svc/svc_test.go",
+      "start_line": 1,
+      "end_line": 1
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "svc",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc",
+      "path": "svc/svc.go",
+      "start_line": 1,
+      "end_line": 1
+     },
+     {
+      "qualified_name": "svc",
+      "path": "svc/svc_test.go",
+      "start_line": 1,
+      "end_line": 1
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "svc.Normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.Normalize",
+      "path": "svc/svc.go",
+      "start_line": 3,
+      "end_line": 3
+     }
+    ],
+    "callers": [
+     "svc.Settle"
+    ],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "svc.Normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.Normalize",
+      "path": "svc/svc.go",
+      "start_line": 3,
+      "end_line": 3
+     }
+    ],
+    "callers": [
+     "svc.Settle",
+     "svc.TestSettle"
+    ],
+    "callees": [],
+    "tests": [
+     "svc.TestSettle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "svc.Settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.Settle",
+      "path": "svc/svc.go",
+      "start_line": 5,
+      "end_line": 5
+     }
+    ],
+    "callers": [
+     "svc.TestSettle"
+    ],
+    "callees": [
+     "svc.Normalize"
+    ],
+    "tests": [
+     "svc.TestSettle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "svc.Settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.Settle",
+      "path": "svc/svc.go",
+      "start_line": 5,
+      "end_line": 5
+     }
+    ],
+    "callers": [
+     "svc.TestSettle"
+    ],
+    "callees": [
+     "svc.Normalize"
+    ],
+    "tests": [
+     "svc.TestSettle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "svc.TestSettle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.TestSettle",
+      "path": "svc/svc_test.go",
+      "start_line": 5,
+      "end_line": 5
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "svc.Settle"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "svc.TestSettle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "svc.TestSettle",
+      "path": "svc/svc_test.go",
+      "start_line": 5,
+      "end_line": 5
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "svc.Normalize",
+     "svc.Settle"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "test_core",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core",
+      "path": "tests/test_core.py",
+      "start_line": 1,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "test_core",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core",
+      "path": "tests/test_core.py",
+      "start_line": 1,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "test_normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core_test.test_normalize",
+      "path": "app/core_test.py",
+      "start_line": 4,
+      "end_line": 5
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "test_normalize",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core_test.test_normalize",
+      "path": "app/core_test.py",
+      "start_line": 4,
+      "end_line": 5
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "test_post",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core.test_post",
+      "path": "tests/test_core.py",
+      "start_line": 9,
+      "end_line": 10
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.Ledger.post"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "test_post",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core.test_post",
+      "path": "tests/test_core.py",
+      "start_line": 9,
+      "end_line": 10
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.Ledger.post",
+     "app.core.Ledger.validate",
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "test_settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core.test_settle",
+      "path": "tests/test_core.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.settle",
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "test_settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core.test_settle",
+      "path": "tests/test_core.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.Ledger.post",
+     "app.core.Ledger.validate",
+     "app.core.settle",
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "tests.test_core",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core",
+      "path": "tests/test_core.py",
+      "start_line": 1,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "tests.test_core",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core",
+      "path": "tests/test_core.py",
+      "start_line": 1,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "tests.test_core.test_post",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core.test_post",
+      "path": "tests/test_core.py",
+      "start_line": 9,
+      "end_line": 10
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.Ledger.post"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "tests.test_core.test_post",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core.test_post",
+      "path": "tests/test_core.py",
+      "start_line": 9,
+      "end_line": 10
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.Ledger.post",
+     "app.core.Ledger.validate",
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "tests.test_core.test_settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core.test_settle",
+      "path": "tests/test_core.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.settle",
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "tests.test_core.test_settle",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "tests.test_core.test_settle",
+      "path": "tests/test_core.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.core.Ledger",
+     "app.core.Ledger.post",
+     "app.core.Ledger.validate",
+     "app.core.settle",
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "unused",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util.unused",
+      "path": "app/util.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "unused",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util.unused",
+      "path": "app/util.py",
+      "start_line": 5,
+      "end_line": 6
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "util",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util",
+      "path": "app/util.py",
+      "start_line": 1,
+      "end_line": 7
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [
+     "app.core_test",
+     "tests.test_core"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "util",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.util",
+      "path": "app/util.py",
+      "start_line": 1,
+      "end_line": 7
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [
+     "app.core_test",
+     "tests.test_core"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "validate",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.validate",
+      "path": "app/core.py",
+      "start_line": 10,
+      "end_line": 11
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.post"
+    ],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "validate",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "app.core.Ledger.validate",
+      "path": "app/core.py",
+      "start_line": 10,
+      "end_line": 11
+     }
+    ],
+    "callers": [
+     "app.core.Ledger.post",
+     "app.core.run",
+     "app.core.settle",
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "callees": [
+     "app.util.normalize"
+    ],
+    "tests": [
+     "tests.test_core.test_post",
+     "tests.test_core.test_settle"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 5,
+    "max_depth": 3
+   },
+   {
+    "query": "web.money",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.money",
+      "path": "web/money.ts",
+      "start_line": 1,
+      "end_line": 4
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "web.money",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.money",
+      "path": "web/money.ts",
+      "start_line": 1,
+      "end_line": 4
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "web.money.normalizeTotal",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.money.normalizeTotal",
+      "path": "web/money.ts",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [
+     "web.orders.OrderController.placeOrder"
+    ],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "web.money.normalizeTotal",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.money.normalizeTotal",
+      "path": "web/money.ts",
+      "start_line": 1,
+      "end_line": 3
+     }
+    ],
+    "callers": [
+     "web.orders.OrderController.cancelOrder",
+     "web.orders.OrderController.placeOrder",
+     "web.orders.test"
+    ],
+    "callees": [],
+    "tests": [
+     "web.orders.test"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "MEDIUM",
+    "blast_radius_score": 3,
+    "max_depth": 3
+   },
+   {
+    "query": "web.orders",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 13
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "web.orders",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders",
+      "path": "web/orders.ts",
+      "start_line": 1,
+      "end_line": 13
+     }
+    ],
+    "callers": [],
+    "callees": [],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": null,
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "web.orders.OrderController",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController",
+      "path": "web/orders.ts",
+      "start_line": 3,
+      "end_line": 12
+     }
+    ],
+    "callers": [
+     "web.orders.test"
+    ],
+    "callees": [],
+    "tests": [
+     "web.orders.test"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 1
+   },
+   {
+    "query": "web.orders.OrderController",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController",
+      "path": "web/orders.ts",
+      "start_line": 3,
+      "end_line": 12
+     }
+    ],
+    "callers": [
+     "web.orders.test"
+    ],
+    "callees": [],
+    "tests": [
+     "web.orders.test"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 1,
+    "max_depth": 3
+   },
+   {
+    "query": "web.orders.OrderController.cancelOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.cancelOrder",
+      "path": "web/orders.ts",
+      "start_line": 8,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "web.orders.OrderController.placeOrder"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "web.orders.OrderController.cancelOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.cancelOrder",
+      "path": "web/orders.ts",
+      "start_line": 8,
+      "end_line": 11
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "web.money.normalizeTotal",
+     "web.orders.OrderController.placeOrder"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "web.orders.OrderController.placeOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.placeOrder",
+      "path": "web/orders.ts",
+      "start_line": 4,
+      "end_line": 6
+     }
+    ],
+    "callers": [
+     "web.orders.OrderController.cancelOrder",
+     "web.orders.test"
+    ],
+    "callees": [
+     "web.money.normalizeTotal"
+    ],
+    "tests": [
+     "web.orders.test"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 1
+   },
+   {
+    "query": "web.orders.OrderController.placeOrder",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.OrderController.placeOrder",
+      "path": "web/orders.ts",
+      "start_line": 4,
+      "end_line": 6
+     }
+    ],
+    "callers": [
+     "web.orders.OrderController.cancelOrder",
+     "web.orders.test"
+    ],
+    "callees": [
+     "web.money.normalizeTotal"
+    ],
+    "tests": [
+     "web.orders.test"
+    ],
+    "documentation": [],
+    "confidence": {
+     "code_references": "exact",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 2,
+    "max_depth": 3
+   },
+   {
+    "query": "web.orders.test",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.test",
+      "path": "web/orders.test.ts",
+      "start_line": 1,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "web.orders.OrderController",
+     "web.orders.OrderController.placeOrder"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 1
+   },
+   {
+    "query": "web.orders.test",
+    "found": true,
+    "defined": [
+     {
+      "qualified_name": "web.orders.test",
+      "path": "web/orders.test.ts",
+      "start_line": 1,
+      "end_line": 8
+     }
+    ],
+    "callers": [],
+    "callees": [
+     "web.money.normalizeTotal",
+     "web.orders.OrderController",
+     "web.orders.OrderController.placeOrder"
+    ],
+    "tests": [],
+    "documentation": [],
+    "confidence": {
+     "code_references": "medium",
+     "document_links": null
+    },
+    "blast_radius": "LOW",
+    "blast_radius_score": 0,
+    "max_depth": 3
+   },
+   {
+    "query": "no_such_symbol_anywhere",
+    "found": false,
+    "max_depth": 1
+   },
+   {
+    "query": "no_such_symbol_anywhere",
+    "found": false,
+    "max_depth": 3
+   }
+  ],
+  "explore": [
+   {
+    "query": "who calls normalize",
+    "intent": "callers",
+    "strategies": [
+     "identifier",
+     "graph_callers"
+    ],
+    "summary": "Found 1 symbol(s) and 0 document(s) matching 'who calls normalize'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "app.util.normalize",
+      "kind": "function"
+     }
+    ],
+    "paths": [
+     "app/core_test.py",
+     "app/util.py",
+     "svc/svc.go"
+    ],
+    "call_flows": [
+     {
+      "source": "app.util.unused",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "exact"
+     },
+     {
+      "source": "tests.test_core.test_settle",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "medium"
+     },
+     {
+      "source": "app.core.settle",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "medium"
+     },
+     {
+      "source": "app.core.Ledger.validate",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "medium"
+     },
+     {
+      "source": "app.core_test.test_normalize",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "medium"
+     }
+    ],
+    "dependencies": [],
+    "documents": [],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "same_file_name",
+      "path": "app/util.py",
+      "location": {
+       "line_start": 5,
+       "line_end": 6,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.util.unused",
+      "relationship": "calls",
+      "confidence": "exact",
+      "snippet": "def unused():"
+     },
+     {
+      "source": "name_only",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 10,
+       "line_end": 11,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger.validate",
+      "relationship": "calls",
+      "confidence": "medium",
+      "snippet": "def validate(self, amount):"
+     },
+     {
+      "source": "name_only",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 20,
+       "line_end": 23,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.settle",
+      "relationship": "calls",
+      "confidence": "medium",
+      "snippet": "def settle(ledger, amount):"
+     },
+     {
+      "source": "name_only",
+      "path": "app/core_test.py",
+      "location": {
+       "line_start": 4,
+       "line_end": 5,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core_test.test_normalize",
+      "relationship": "calls",
+      "confidence": "medium",
+      "snippet": "def test_normalize():"
+     },
+     {
+      "source": "name_only",
+      "path": "tests/test_core.py",
+      "location": {
+       "line_start": 5,
+       "line_end": 6,
+       "page": null,
+       "section": null
+      },
+      "entity": "tests.test_core.test_settle",
+      "relationship": "calls",
+      "confidence": "medium",
+      "snippet": "def test_settle():"
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "callers of settle",
+    "intent": "callers",
+    "strategies": [
+     "identifier",
+     "graph_callers"
+    ],
+    "summary": "Found 1 symbol(s) and 0 document(s) matching 'callers of settle'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "app.core.settle",
+      "kind": "function"
+     }
+    ],
+    "paths": [
+     "app/core.py",
+     "svc/svc.go",
+     "svc/svc_test.go",
+     "tests/test_core.py"
+    ],
+    "call_flows": [
+     {
+      "source": "app.core.run",
+      "relationship": "calls",
+      "target": "app.core.settle",
+      "confidence": "exact"
+     },
+     {
+      "source": "tests.test_core.test_settle",
+      "relationship": "calls",
+      "target": "app.core.settle",
+      "confidence": "medium"
+     }
+    ],
+    "dependencies": [],
+    "documents": [],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "same_file_name",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 26,
+       "line_end": 28,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.run",
+      "relationship": "calls",
+      "confidence": "exact",
+      "snippet": "def run():"
+     },
+     {
+      "source": "name_only",
+      "path": "tests/test_core.py",
+      "location": {
+       "line_start": 5,
+       "line_end": 6,
+       "page": null,
+       "section": null
+      },
+      "entity": "tests.test_core.test_settle",
+      "relationship": "calls",
+      "confidence": "medium",
+      "snippet": "def test_settle():"
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "what does settle call",
+    "intent": "callees",
+    "strategies": [
+     "identifier",
+     "graph_callees"
+    ],
+    "summary": "Found 1 symbol(s) and 0 document(s) matching 'what does settle call'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "app.core.settle",
+      "kind": "function"
+     }
+    ],
+    "paths": [
+     "app/core.py",
+     "svc/svc.go",
+     "svc/svc_test.go",
+     "tests/test_core.py"
+    ],
+    "call_flows": [
+     {
+      "source": "app.core.settle",
+      "relationship": "calls",
+      "target": "audit_log",
+      "confidence": "medium"
+     },
+     {
+      "source": "app.core.settle",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "medium"
+     },
+     {
+      "source": "app.core.settle",
+      "relationship": "calls",
+      "target": "app.core.Ledger.post",
+      "confidence": "exact"
+     }
+    ],
+    "dependencies": [
+     {
+      "qualified_name": "app.util.normalize",
+      "relationship": "calls"
+     },
+     {
+      "qualified_name": "app.core.Ledger.post",
+      "relationship": "calls"
+     }
+    ],
+    "documents": [],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "same_file_name",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 7,
+       "line_end": 8,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger.post",
+      "relationship": "calls",
+      "confidence": "exact",
+      "snippet": "def post(self, amount):"
+     },
+     {
+      "source": "name_only",
+      "path": "app/util.py",
+      "location": {
+       "line_start": 1,
+       "line_end": 2,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.util.normalize",
+      "relationship": "calls",
+      "confidence": "medium",
+      "snippet": "def normalize(value):"
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "what breaks if normalize changes?",
+    "intent": "impact",
+    "strategies": [
+     "identifier",
+     "graph_callers",
+     "graph_callees",
+     "tests",
+     "documents"
+    ],
+    "summary": "Found 1 symbol(s) and 0 document(s) matching 'what breaks if normalize changes?'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "app.util.normalize",
+      "kind": "function"
+     }
+    ],
+    "paths": [
+     "app/core_test.py",
+     "app/util.py",
+     "svc/svc.go"
+    ],
+    "call_flows": [
+     {
+      "source": "app.util.unused",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "exact"
+     },
+     {
+      "source": "tests.test_core.test_settle",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "medium"
+     },
+     {
+      "source": "app.core.settle",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "medium"
+     },
+     {
+      "source": "app.core.Ledger.validate",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "medium"
+     },
+     {
+      "source": "app.core_test.test_normalize",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "medium"
+     },
+     {
+      "source": "app.util.normalize",
+      "relationship": "calls",
+      "target": "round",
+      "confidence": "medium"
+     }
+    ],
+    "dependencies": [],
+    "documents": [],
+    "tests": [
+     "app.core_test.test_normalize",
+     "tests.test_core.test_settle"
+    ],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "same_file_name",
+      "path": "app/util.py",
+      "location": {
+       "line_start": 5,
+       "line_end": 6,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.util.unused",
+      "relationship": "calls",
+      "confidence": "exact",
+      "snippet": "def unused():"
+     },
+     {
+      "source": "name_only",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 10,
+       "line_end": 11,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger.validate",
+      "relationship": "calls",
+      "confidence": "medium",
+      "snippet": "def validate(self, amount):"
+     },
+     {
+      "source": "name_only",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 20,
+       "line_end": 23,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.settle",
+      "relationship": "calls",
+      "confidence": "medium",
+      "snippet": "def settle(ledger, amount):"
+     },
+     {
+      "source": "name_only",
+      "path": "app/core_test.py",
+      "location": {
+       "line_start": 4,
+       "line_end": 5,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core_test.test_normalize",
+      "relationship": "calls",
+      "confidence": "medium",
+      "snippet": "def test_normalize():"
+     },
+     {
+      "source": "name_only",
+      "path": "tests/test_core.py",
+      "location": {
+       "line_start": 5,
+       "line_end": 6,
+       "page": null,
+       "section": null
+      },
+      "entity": "tests.test_core.test_settle",
+      "relationship": "calls",
+      "confidence": "medium",
+      "snippet": "def test_settle():"
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "what depends on Ledger.post",
+    "intent": "impact",
+    "strategies": [
+     "identifier",
+     "graph_callers",
+     "graph_callees",
+     "tests",
+     "documents"
+    ],
+    "summary": "Found 0 symbol(s) and 0 document(s) matching 'what depends on Ledger.post'; see below for details.",
+    "symbols": [],
+    "paths": [
+     "app/core.py",
+     "tests/test_core.py"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 6,
+       "line_end": 17,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "class Ledger:"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 7,
+       "line_end": 8,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger.post",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def post(self, amount):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 10,
+       "line_end": 11,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger.validate",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def validate(self, amount):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 13,
+       "line_end": 14,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger.ping",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def ping(self):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 16,
+       "line_end": 17,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger.pong",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def pong(self):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 20,
+       "line_end": 23,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.settle",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def settle(ledger, amount):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "tests/test_core.py",
+      "location": {
+       "line_start": 9,
+       "line_end": 10,
+       "page": null,
+       "section": null
+      },
+      "entity": "tests.test_core.test_post",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def test_post():"
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "Settle",
+    "intent": "identifier",
+    "strategies": [
+     "identifier",
+     "fts"
+    ],
+    "summary": "Found 1 symbol(s) and 0 document(s) matching 'Settle'; see below for details.",
+    "symbols": [
+     {
+      "qualified_name": "svc.Settle",
+      "kind": "function"
+     }
+    ],
+    "paths": [
+     "app/core.py",
+     "svc/svc.go",
+     "svc/svc_test.go",
+     "tests/test_core.py"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   },
+   {
+    "query": "ledger post amount",
+    "intent": "general",
+    "strategies": [
+     "identifier",
+     "fts",
+     "graph_references"
+    ],
+    "summary": "Found 0 symbol(s) and 0 document(s) matching 'ledger post amount'; see below for details.",
+    "symbols": [],
+    "paths": [
+     "app/core.py",
+     "tests/test_core.py"
+    ],
+    "call_flows": [],
+    "dependencies": [],
+    "documents": [],
+    "tests": [],
+    "requirements": [],
+    "incidents": [],
+    "evidence": [
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 6,
+       "line_end": 17,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "class Ledger:"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 7,
+       "line_end": 8,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger.post",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def post(self, amount):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 10,
+       "line_end": 11,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger.validate",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def validate(self, amount):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 13,
+       "line_end": 14,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger.ping",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def ping(self):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 16,
+       "line_end": 17,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.Ledger.pong",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def pong(self):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "app/core.py",
+      "location": {
+       "line_start": 20,
+       "line_end": 23,
+       "page": null,
+       "section": null
+      },
+      "entity": "app.core.settle",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def settle(ledger, amount):"
+     },
+     {
+      "source": "lexical:entity",
+      "path": "tests/test_core.py",
+      "location": {
+       "line_start": 9,
+       "line_end": 10,
+       "page": null,
+       "section": null
+      },
+      "entity": "tests.test_core.test_post",
+      "relationship": "match",
+      "confidence": "medium",
+      "snippet": "def test_post():"
+     }
+    ],
+    "evidence_truncated": false,
+    "evidence_truncation_reasons": [],
+    "semantic_results": [],
+    "semantic_available": null,
+    "semantic_reason": null
+   }
+  ]
+ }
+}
