@@ -142,11 +142,17 @@ def run_corpus(name: str) -> dict:
         ctx = AppContext.bootstrap(home=Path(home), cwd=corpus.parent)
         root = str(corpus.resolve())
         try:
-            impact = [
-                strip(impact_cli._run(ctx, q, max_depth=d, limit=100), root) | {"max_depth": d}
-                for q in [*names, "no_such_symbol_anywhere"]
-                for d in (1, 3)
-            ]
+            impact = []
+            for q in [*names, "no_such_symbol_anywhere"]:
+                for d in (1, 3):
+                    item = strip(impact_cli._run(ctx, q, max_depth=d, limit=100), root)
+                    # Same-named matches are ordered by random entity ids in
+                    # the reference; V2 orders them by path and line.
+                    if "defined" in item:
+                        item["defined"].sort(
+                            key=lambda e: (e["qualified_name"], e["path"], e["start_line"])
+                        )
+                    impact.append(item | {"max_depth": d})
             explore = [
                 strip(explore_cli._run(ctx, planner.plan(q, semantic_enabled=False)), root)
                 for q in EXPLORE[name]

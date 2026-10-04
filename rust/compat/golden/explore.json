@@ -1174,12 +1174,12 @@
     "documentation": [
      {
       "source": "linker:exact_identifier",
-      "path": "docs/billing.md",
+      "path": "docs/unicode.txt",
       "location": {
        "line_start": null,
        "line_end": null,
        "page": null,
-       "section": "Billing guide > Tax"
+       "section": null
       },
       "entity": "src.billing.my-helpers.v2.helper",
       "relationship": "mentioned_in",
@@ -1187,12 +1187,12 @@
      },
      {
       "source": "linker:exact_identifier",
-      "path": "docs/unicode.txt",
+      "path": "docs/billing.md",
       "location": {
        "line_start": null,
        "line_end": null,
        "page": null,
-       "section": null
+       "section": "Billing guide > Tax"
       },
       "entity": "src.billing.my-helpers.v2.helper",
       "relationship": "mentioned_in",
@@ -1224,12 +1224,12 @@
     "documentation": [
      {
       "source": "linker:exact_identifier",
-      "path": "docs/billing.md",
+      "path": "docs/unicode.txt",
       "location": {
        "line_start": null,
        "line_end": null,
        "page": null,
-       "section": "Billing guide > Tax"
+       "section": null
       },
       "entity": "src.billing.my-helpers.v2.helper",
       "relationship": "mentioned_in",
@@ -1237,12 +1237,12 @@
      },
      {
       "source": "linker:exact_identifier",
-      "path": "docs/unicode.txt",
+      "path": "docs/billing.md",
       "location": {
        "line_start": null,
        "line_end": null,
        "page": null,
-       "section": null
+       "section": "Billing guide > Tax"
       },
       "entity": "src.billing.my-helpers.v2.helper",
       "relationship": "mentioned_in",
@@ -2520,12 +2520,12 @@
     "documentation": [
      {
       "source": "linker:exact_identifier",
-      "path": "docs/billing.md",
+      "path": "docs/unicode.txt",
       "location": {
        "line_start": null,
        "line_end": null,
        "page": null,
-       "section": "Billing guide > Tax"
+       "section": null
       },
       "entity": "src.billing.my-helpers.v2.helper",
       "relationship": "mentioned_in",
@@ -2533,12 +2533,12 @@
      },
      {
       "source": "linker:exact_identifier",
-      "path": "docs/unicode.txt",
+      "path": "docs/billing.md",
       "location": {
        "line_start": null,
        "line_end": null,
        "page": null,
-       "section": null
+       "section": "Billing guide > Tax"
       },
       "entity": "src.billing.my-helpers.v2.helper",
       "relationship": "mentioned_in",
@@ -2570,12 +2570,12 @@
     "documentation": [
      {
       "source": "linker:exact_identifier",
-      "path": "docs/billing.md",
+      "path": "docs/unicode.txt",
       "location": {
        "line_start": null,
        "line_end": null,
        "page": null,
-       "section": "Billing guide > Tax"
+       "section": null
       },
       "entity": "src.billing.my-helpers.v2.helper",
       "relationship": "mentioned_in",
@@ -2583,12 +2583,12 @@
      },
      {
       "source": "linker:exact_identifier",
-      "path": "docs/unicode.txt",
+      "path": "docs/billing.md",
       "location": {
        "line_start": null,
        "line_end": null,
        "page": null,
-       "section": null
+       "section": "Billing guide > Tax"
       },
       "entity": "src.billing.my-helpers.v2.helper",
       "relationship": "mentioned_in",
@@ -7283,6 +7283,12 @@
     ],
     "call_flows": [
      {
+      "source": "app.core.settle",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "medium"
+     },
+     {
       "source": "app.util.unused",
       "relationship": "calls",
       "target": "app.util.normalize",
@@ -7290,12 +7296,6 @@
      },
      {
       "source": "tests.test_core.test_settle",
-      "relationship": "calls",
-      "target": "app.util.normalize",
-      "confidence": "medium"
-     },
-     {
-      "source": "app.core.settle",
       "relationship": "calls",
       "target": "app.util.normalize",
       "confidence": "medium"
@@ -7495,13 +7495,13 @@
      {
       "source": "app.core.settle",
       "relationship": "calls",
-      "target": "audit_log",
+      "target": "app.util.normalize",
       "confidence": "medium"
      },
      {
       "source": "app.core.settle",
       "relationship": "calls",
-      "target": "app.util.normalize",
+      "target": "audit_log",
       "confidence": "medium"
      },
      {
@@ -7585,6 +7585,12 @@
     ],
     "call_flows": [
      {
+      "source": "app.core.settle",
+      "relationship": "calls",
+      "target": "app.util.normalize",
+      "confidence": "medium"
+     },
+     {
       "source": "app.util.unused",
       "relationship": "calls",
       "target": "app.util.normalize",
@@ -7592,12 +7598,6 @@
      },
      {
       "source": "tests.test_core.test_settle",
-      "relationship": "calls",
-      "target": "app.util.normalize",
-      "confidence": "medium"
-     },
-     {
-      "source": "app.core.settle",
       "relationship": "calls",
       "target": "app.util.normalize",
       "confidence": "medium"
