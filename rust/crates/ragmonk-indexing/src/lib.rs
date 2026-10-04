@@ -13,6 +13,7 @@
 
 pub mod classify;
 pub mod coordinator;
+pub mod daemon;
 pub mod diff;
 pub mod fingerprint;
 pub mod ignore;

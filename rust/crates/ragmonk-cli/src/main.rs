@@ -1,11 +1,13 @@
 //! `ragmonk` binary for the Rust rewrite.
 //!
 //! Implemented so far: `version` (RUST-00) and `config show|get|set`
-//! (RUST-01). The JSON envelope matches the Python CLI's
+//! (RUST-01), `daemon start|stop|restart|status|run` (RUST-11). The JSON envelope matches the Python CLI's
 //! `{"schema_version": "1", "data": {...}}`; `version --json` reports
 //! `runtime: "rust"` instead of the Python interpreter version. Errors print
 //! `Error: <redacted message>` to stderr and exit with the reference's
 //! stable exit codes.
+
+mod daemon_cmd;
 
 use std::process::ExitCode;
 
@@ -44,6 +46,9 @@ enum Command {
     /// Prepare the Rust V2 control plane from a Python-era home.
     #[command(name = "migrate-to-rust-v2")]
     MigrateToRustV2(MigrateArgs),
+    /// Manage the background indexing daemon.
+    #[command(subcommand)]
+    Daemon(daemon_cmd::DaemonCommand),
 }
 
 #[derive(Subcommand)]
@@ -319,6 +324,7 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
             println!("Set {key} = {} in {}", py_repr(&stored), path.display());
         }
         Command::ServerV2(cmd) => run_server_v2(cmd)?,
+        Command::Daemon(cmd) => daemon_cmd::run(cmd)?,
         Command::MigrateToRustV2(args) => {
             let home = Home::discover();
             if args.check {

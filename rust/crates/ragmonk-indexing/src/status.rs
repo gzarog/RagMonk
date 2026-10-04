@@ -193,7 +193,9 @@ pub fn is_process_alive(pid: i64) -> bool {
     let pid = sysinfo::Pid::from_u32(pid);
     let mut sys = sysinfo::System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
-    sys.process(pid).is_some()
+    // An exited-but-unreaped child is a zombie: not running.
+    sys.process(pid)
+        .is_some_and(|p| p.status() != sysinfo::ProcessStatus::Zombie)
 }
 
 /// [`indexer_state_from`] over the real lock file and progress snapshot.

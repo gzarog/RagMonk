@@ -16,10 +16,15 @@ clap.workspace = true
 ragmonk-config.workspace = true
 ragmonk-core.workspace = true
 ragmonk-backends.workspace = true
+ragmonk-convert.workspace = true
+ragmonk-indexing.workspace = true
 ragmonk-storage.workspace = true
 ragmonk-telemetry.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
 
 [dev-dependencies]
 tempfile.workspace = true

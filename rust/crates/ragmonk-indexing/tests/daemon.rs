@@ -1,0 +1,321 @@
+//! Daemon worker semantics against a scripted runner: coalescing,
+//! follow-ups, fairness across sources, lock contention, reconciliation
+//! and the health snapshot.
+
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use ragmonk_core::errors::RagMonkError;
+use ragmonk_core::models::SourceType;
+use ragmonk_core::paths::Home;
+use ragmonk_indexing::coordinator::{Progress, SourceResult};
+use ragmonk_indexing::daemon::{
+    format_uptime, health, Catalog, Daemon, DaemonOptions, PassRunner, ScanRequest,
+};
+use ragmonk_indexing::lock::RunLock;
+use ragmonk_storage::control::{SourceOrigin, SourceRecord};
+
+fn source(id: &str, path: &str) -> SourceRecord {
+    SourceRecord {
+        id: id.into(),
+        path: path.into(),
+        source_type: SourceType::Local,
+        enabled: true,
+        include_patterns: vec![],
+        exclude_patterns: vec![],
+        origin: SourceOrigin::V2,
+        created_at: String::new(),
+        updated_at: String::new(),
+    }
+}
+
+#[derive(Clone)]
+struct Fake(Arc<Mutex<Vec<SourceRecord>>>);
+impl Catalog for Fake {
+    fn list_sources(&mut self, enabled_only: bool) -> Result<Vec<SourceRecord>, RagMonkError> {
+        let v = self.0.lock().unwrap().clone();
+        Ok(v.into_iter()
+            .filter(|s| !enabled_only || s.enabled)
+            .collect())
+    }
+    fn get_source(&mut self, id: &str) -> Result<Option<SourceRecord>, RagMonkError> {
+        Ok(self.0.lock().unwrap().iter().find(|s| s.id == id).cloned())
+    }
+}
+
+type Log = Arc<Mutex<Vec<ScanRequest>>>;
+
+/// Records each request. While `gate` holds a value, passes block until
+/// it is taken, so the test controls what happens mid-pass.
+struct Scripted {
+    log: Log,
+    gate: Arc<(Mutex<bool>, std::sync::Condvar)>,
+    offline: bool,
+}
+impl PassRunner for Scripted {
+    fn run_pass(
+        &mut self,
+        source: &SourceRecord,
+        request: &ScanRequest,
+        _p: &mut dyn Progress,
+    ) -> Result<SourceResult, RagMonkError> {
+        self.log.lock().unwrap().push(request.clone());
+        let (m, cv) = &*self.gate;
+        let _g = cv.wait_while(m.lock().unwrap(), |closed| *closed).unwrap();
+        Ok(SourceResult {
+            source_id: source.id.clone(),
+            offline: self.offline.then(|| "gone".into()),
+            ..SourceResult::default()
+        })
+    }
+}
+
+struct Harness {
+    _dir: tempfile::TempDir,
+    home: Home,
+    log: Log,
+    gate: Arc<(Mutex<bool>, std::sync::Condvar)>,
+    daemon: Option<Daemon>,
+}
+
+impl Harness {
+    fn new(ids: &[&str], closed: bool, opts: DaemonOptions, offline: bool) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let home = Home::new(dir.path());
+        std::fs::create_dir_all(home.locks_dir()).unwrap();
+        let cat = Fake(Arc::new(Mutex::new(
+            ids.iter()
+                .map(|i| source(i, &dir.path().display().to_string()))
+                .collect(),
+        )));
+        let log: Log = Arc::default();
+        let gate = Arc::new((Mutex::new(closed), std::sync::Condvar::new()));
+        let runner = Scripted {
+            log: log.clone(),
+            gate: gate.clone(),
+            offline,
+        };
+        let daemon = Daemon::start(home.clone(), opts, Box::new(cat), Box::new(runner)).unwrap();
+        Self {
+            _dir: dir,
+            home,
+            log,
+            gate,
+            daemon: Some(daemon),
+        }
+    }
+    fn d(&self) -> &Daemon {
+        self.daemon.as_ref().unwrap()
+    }
+    fn open(&self) {
+        *self.gate.0.lock().unwrap() = false;
+        self.gate.1.notify_all();
+    }
+    fn wait_log(&self, n: usize) {
+        for _ in 0..500 {
+            if self.log.lock().unwrap().len() >= n {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("expected {n} passes, got {:?}", self.log.lock().unwrap());
+    }
+    fn order(&self) -> Vec<(String, String, bool)> {
+        self.log
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| (r.source_id.clone(), r.reason.clone(), r.full))
+            .collect()
+    }
+}
+
+fn opts() -> DaemonOptions {
+    DaemonOptions {
+        reconciliation_interval: Duration::from_secs(3600),
+        lock_timeout: Duration::from_millis(100),
+        contention_backoff: Duration::from_millis(50),
+    }
+}
+
+fn t(id: &str, reason: &str, full: bool) -> (String, String, bool) {
+    (id.into(), reason.into(), full)
+}
+
+#[test]
+fn startup_runs_one_full_pass_per_source_and_bursts_coalesce() {
+    let h = Harness::new(&["a", "b"], true, opts(), false);
+    h.wait_log(1); // "a" is running and blocked
+                   // Burst while "a" runs: one follow-up for "a"; "b" is already queued.
+    for _ in 0..5 {
+        h.d()
+            .enqueue_source("a", "local_watcher", &[PathBuf::from("x.py")]);
+        h.d()
+            .enqueue_source("b", "local_watcher", &[PathBuf::from("y.py")]);
+    }
+    h.open();
+    assert!(h.d().wait_idle(Duration::from_secs(5)));
+    // Fair: the follow-up for "a" goes behind "b" in the queue.
+    assert_eq!(
+        h.order(),
+        vec![
+            t("a", "startup", true),
+            t("b", "startup", true),
+            t("a", "local_watcher", false),
+        ]
+    );
+    let last = h.log.lock().unwrap()[2].clone();
+    assert_eq!(last.changed_paths.len(), 1);
+    assert_eq!(h.d().passes_completed(), 3);
+}
+
+#[test]
+fn too_many_touched_paths_or_forced_reason_means_full() {
+    let h = Harness::new(&["a"], false, opts(), false);
+    assert!(h.d().wait_idle(Duration::from_secs(5)));
+    let many: Vec<PathBuf> = (0..201).map(|i| PathBuf::from(format!("f{i}"))).collect();
+    h.d().enqueue_source("a", "local_watcher", &many);
+    assert!(h.d().wait_idle(Duration::from_secs(5)));
+    h.d()
+        .enqueue_source("a", "network_poll", &[PathBuf::from("one")]);
+    assert!(h.d().wait_idle(Duration::from_secs(5)));
+    h.d().reconcile_now();
+    assert!(h.d().wait_idle(Duration::from_secs(5)));
+    assert_eq!(
+        h.order(),
+        vec![
+            t("a", "startup", true),
+            t("a", "local_watcher", true),
+            t("a", "network_poll", false),
+            t("a", "reconciliation", true),
+        ]
+    );
+}
+
+#[test]
+fn lock_contention_backs_off_and_retries() {
+    let h = Harness::new(&["a"], true, opts(), false);
+    h.wait_log(1);
+    let held = RunLock::acquire(
+        &h.home.locks_dir().join("index.lock"),
+        "index",
+        None,
+        Duration::from_millis(200),
+    );
+    // The daemon's pass holds the lock, so we cannot get it yet.
+    assert!(held.is_err());
+    h.open();
+    assert!(h.d().wait_idle(Duration::from_secs(5)));
+    let held = RunLock::acquire(
+        &h.home.locks_dir().join("index.lock"),
+        "index",
+        None,
+        Duration::from_secs(5),
+    )
+    .unwrap();
+    h.d()
+        .enqueue_source("a", "local_watcher", &[PathBuf::from("x")]);
+    std::thread::sleep(Duration::from_millis(400));
+    assert_eq!(h.log.lock().unwrap().len(), 1, "no pass while locked");
+    drop(held);
+    h.wait_log(2);
+    assert!(h.d().wait_idle(Duration::from_secs(5)));
+    // The touched path survived the contention: nothing was consumed.
+    assert_eq!(h.order()[1], t("a", "local_watcher", false));
+}
+
+#[test]
+fn reconciliation_timer_and_health_snapshot() {
+    let mut o = opts();
+    o.reconciliation_interval = Duration::from_millis(150);
+    let mut h = Harness::new(&["a"], false, o, true);
+    h.wait_log(3);
+    let snap = health::read_health(&h.home).unwrap();
+    assert!(snap.last_reconciliation_at.is_some());
+    assert_eq!(snap.sources.len(), 1);
+    assert_eq!(snap.sources[0].source_id, "a");
+    assert_eq!(snap.sources[0].source_type, "local");
+    assert!(!snap.sources[0].online, "offline pass result");
+    assert!(snap.sources[0].last_pass_at.is_some());
+    assert!(h.order().iter().skip(1).all(|r| r.1 == "reconciliation"));
+    h.daemon.take().unwrap().stop();
+    let n = h.log.lock().unwrap().len();
+    std::thread::sleep(Duration::from_millis(400));
+    assert_eq!(h.log.lock().unwrap().len(), n, "no passes after stop");
+}
+
+#[test]
+fn stop_lets_the_running_pass_finish_and_drops_queued_ones() {
+    let mut h = Harness::new(&["a", "b"], true, opts(), false);
+    h.wait_log(1);
+    let gate = h.gate.clone();
+    let opener = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        *gate.0.lock().unwrap() = false;
+        gate.1.notify_all();
+    });
+    h.daemon.take().unwrap().stop();
+    opener.join().unwrap();
+    assert_eq!(h.order(), vec![t("a", "startup", true)]);
+    assert!(health::read_health(&h.home).unwrap().sources[0]
+        .last_pass_at
+        .is_some());
+}
+
+#[test]
+fn uptime_format_matches_reference_cases() {
+    for (s, want) in [
+        (0.0, "0s"),
+        (59.9, "59s"),
+        (60.0, "1m 0s"),
+        (3599.0, "59m 59s"),
+        (3600.0, "1h 0m"),
+        (86399.0, "23h 59m"),
+        (86400.0, "1d 0h"),
+        (90061.0, "1d 1h"),
+    ] {
+        assert_eq!(format_uptime(s), want);
+    }
+}
+
+mod common;
+
+#[test]
+fn coordinator_runner_indexes_and_publishes_progress() {
+    use ragmonk_indexing::coordinator::{Options, Registry};
+    use ragmonk_indexing::daemon::CoordinatorRunner;
+    use ragmonk_storage::V2Layout;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = common::home(dir.path());
+    home.ensure_layout().unwrap();
+    let root = dir.path().join("src");
+    common::write(&root, "a.py", "def f():\n    return 1\n");
+    common::write(&root, "notes.md", "# Notes\n\nhello\n");
+    let mut cp = common::control(&home);
+    let src = common::add_source(&mut cp, &root, &[], &[]);
+    let runner = CoordinatorRunner {
+        layout: V2Layout::new(&home),
+        control: common::control(&home),
+        registry: Registry::raw(),
+        opts: Options::from_config(&ragmonk_config::RagMonkConfig::default()),
+    };
+    let d = Daemon::start(home.clone(), opts(), Box::new(cp), Box::new(runner)).unwrap();
+    for _ in 0..500 {
+        if d.passes_completed() >= 1 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(d.wait_idle(Duration::from_secs(10)));
+    d.stop();
+    let p = ragmonk_indexing::progress::read_progress(&home.index_progress()).unwrap();
+    assert!(!p.running);
+    assert_eq!(p.operation.as_deref(), Some("daemon"));
+    assert_eq!(p.indexed, 2);
+    let snap = health::read_health(&home).unwrap();
+    assert_eq!(snap.sources[0].source_id, src.id);
+    assert!(snap.sources[0].online);
+    assert!(snap.sources[0].last_pass_at.is_some());
+}
