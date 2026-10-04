@@ -161,11 +161,24 @@ pub enum ProgressEvent {
         source_id: String,
         done: usize,
         total: usize,
+        outcome: FileOutcome,
     },
+    /// Liveness from a long stage without per-file completions.
+    Heartbeat,
     SourceFinished {
         source_id: String,
         ok: bool,
     },
+}
+
+/// What happened to one processed file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileOutcome {
+    Indexed,
+    Failed,
+    Retry,
+    Skipped,
 }
 
 pub trait Progress {
@@ -622,38 +635,46 @@ fn build(
     let mut touched: Vec<String> = Vec::new();
     run_workers(items, opts.workers, registry, |batch| {
         let mut rows = Vec::with_capacity(batch.len());
+        let mut outcomes = Vec::with_capacity(batch.len());
         for d in batch {
             let versions = &registry.versions;
-            let (row, knowledge) = match d.outcome {
+            let (row, knowledge, outcome) = match d.outcome {
                 Ok(_) if d.work.skip_limit => {
                     result.skipped_limit += 1;
                     (
                         file_row(&d.work, versions, "skipped_limit", 0, None, None),
                         FileKnowledge::default(),
+                        FileOutcome::Skipped,
                     )
                 }
                 Ok(k) => {
                     result.indexed += 1;
-                    (file_row(&d.work, versions, "indexed", 0, None, None), k)
+                    (
+                        file_row(&d.work, versions, "indexed", 0, None, None),
+                        k,
+                        FileOutcome::Indexed,
+                    )
                 }
                 Err(e) if e.code == SKIPPED_LIMIT => {
                     result.skipped_limit += 1;
                     (
                         file_row(&d.work, versions, "skipped_limit", 0, None, Some(e.message)),
                         FileKnowledge::default(),
+                        FileOutcome::Skipped,
                     )
                 }
                 Err(e) => {
                     let attempts = d.work.prev_attempts + 1;
                     let permanent = !e.transient || retry::is_permanent(attempts);
-                    let (status, next) = if permanent {
+                    let (status, next, outcome) = if permanent {
                         result.failed += 1;
-                        ("failed", None)
+                        ("failed", None, FileOutcome::Failed)
                     } else {
                         result.retrying += 1;
                         (
                             "retry",
                             Some(retry::next_attempt_at(attempts, chrono::Utc::now())),
+                            FileOutcome::Retry,
                         )
                     };
                     store
@@ -668,20 +689,23 @@ fn build(
                     (
                         file_row(&d.work, versions, status, attempts, next, Some(e.message)),
                         FileKnowledge::default(),
+                        outcome,
                     )
                 }
             };
             rows.push((row, knowledge));
+            outcomes.push(outcome);
         }
         touched.extend(rows.iter().map(|(r, _)| r.id.clone()));
         let refs: Vec<(&FileRow, &FileKnowledge)> = rows.iter().map(|(r, k)| (r, k)).collect();
         store.put_files(build_id, &refs).map_err(db_err)?;
-        for _ in &rows {
+        for outcome in outcomes {
             done += 1;
             progress.event(&ProgressEvent::FileDone {
                 source_id: source_id.into(),
                 done,
                 total,
+                outcome,
             });
         }
         Ok(())
