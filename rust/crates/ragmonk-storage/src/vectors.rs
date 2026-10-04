@@ -68,8 +68,12 @@ pub struct SubjectMeta {
     pub section: Option<String>,
     /// Entity start line, or chunk ordinal.
     pub position: i64,
+    /// Entity end line (`None` for chunks).
+    pub end_line: Option<i64>,
     /// Attachment index for chunks of an email attachment.
     pub attachment_index: Option<i64>,
+    /// Owning document of a chunk.
+    pub document_id: Option<String>,
 }
 
 /// Little-endian f32 encoding used for every vector blob.
@@ -350,7 +354,7 @@ impl ProjectStore {
             .conn
             .prepare_cached(
                 "SELECT f.rel_path, e.qualified_name, COALESCE(e.signature, e.qualified_name),
-                    e.start_line
+                    e.start_line, e.end_line
                  FROM entities e JOIN files f ON f.build_id = e.build_id AND f.id = e.file_id
                  WHERE e.build_id = ?1 AND e.id = ?2",
             )
@@ -365,6 +369,7 @@ impl ProjectStore {
                             r.get::<_, String>(1)?,
                             r.get::<_, String>(2)?,
                             r.get::<_, Option<i64>>(3)?,
+                            r.get::<_, Option<i64>>(4)?,
                         ))
                     })
                     .map(Some)
@@ -373,7 +378,7 @@ impl ProjectStore {
                         e => Err(e),
                     })
                     .map_err(StorageError::sqlite("subject meta"))?;
-                if let Some((path, qn, sig, line)) = row {
+                if let Some((path, qn, sig, line, end_line)) = row {
                     out.push(SubjectMeta {
                         subject_type: t.clone(),
                         subject_id: id.clone(),
@@ -383,7 +388,9 @@ impl ProjectStore {
                         snippet: sig,
                         section: None,
                         position: line.unwrap_or(0),
+                        end_line,
                         attachment_index: None,
+                        document_id: None,
                     });
                 }
                 continue;
@@ -392,7 +399,7 @@ impl ProjectStore {
                 .conn
                 .prepare_cached(
                     "SELECT f.rel_path, COALESCE(d.title, ''), c.heading_path, c.text, c.ordinal,
-                        d.attachment_index, c.kind, c.table_rows
+                        d.attachment_index, c.kind, c.table_rows, d.id
                      FROM chunks c
                      JOIN documents d ON d.build_id = c.build_id AND d.id = c.document_id
                      JOIN files f ON f.build_id = c.build_id AND f.id = c.file_id
@@ -409,6 +416,7 @@ impl ProjectStore {
                             r.get::<_, Option<i64>>(5)?,
                             r.get::<_, String>(6)?,
                             r.get::<_, Option<String>>(7)?,
+                            r.get::<_, String>(8)?,
                         ))
                     })
                 })
@@ -418,7 +426,8 @@ impl ProjectStore {
                     e => Err(e),
                 })
                 .map_err(StorageError::sqlite("subject meta"))?;
-            if let Some((path, title, headings, text, ordinal, attachment_index, kind, rows)) = row
+            if let Some((path, title, headings, text, ordinal, attachment_index, kind, rows, doc)) =
+                row
             {
                 // Same display contract as the reference's vector metadata:
                 // title = document title (else path), snippet = the first 280
@@ -450,7 +459,9 @@ impl ProjectStore {
                     snippet: text.chars().take(SNIPPET_CHARS).collect(),
                     section: (!headings.is_empty()).then(|| headings.join(" > ")),
                     position: ordinal,
+                    end_line: None,
                     attachment_index,
+                    document_id: Some(doc),
                 });
             }
         }

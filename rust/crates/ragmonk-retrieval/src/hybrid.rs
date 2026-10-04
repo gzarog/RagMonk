@@ -32,6 +32,8 @@ use crate::{Corpus, SearchError};
 pub struct SourcedHit {
     pub source_id: String,
     pub hit: SemanticHit,
+    /// Provenance when the hit is a chunk of an email attachment.
+    pub attachment: Option<ragmonk_storage::search::AttachmentProvenance>,
 }
 
 /// Outcome of semantic search across corpora (never an error when the
@@ -76,10 +78,17 @@ pub fn semantic_search(
                 hits: Vec::new(),
             });
         }
-        hits.extend(r.hits.into_iter().map(|hit| SourcedHit {
-            source_id: c.store.source_id().to_owned(),
-            hit,
-        }));
+        for hit in r.hits {
+            let attachment = match (&hit.document_id, hit.attachment_index) {
+                (Some(doc), Some(_)) => c.store.document_attachment(c.build_id, doc)?,
+                _ => None,
+            };
+            hits.push(SourcedHit {
+                source_id: c.store.source_id().to_owned(),
+                hit,
+                attachment,
+            });
+        }
     }
     hits.sort_by(|a, b| semantic_order(&a.hit, &b.hit));
     hits.truncate(limit);
@@ -176,11 +185,13 @@ pub fn merge(lexical: &[SearchResult], semantic_hits: &[SourcedHit]) -> Vec<Cand
         let location = if h.kind == "entity" {
             Location {
                 line_start: Some(h.position),
+                line_end: h.end_line,
                 ..Default::default()
             }
         } else {
             Location {
                 section: h.section.clone(),
+                attachment: s.attachment.clone(),
                 ..Default::default()
             }
         };

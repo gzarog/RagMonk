@@ -2,7 +2,7 @@
 //! reference `code/graph.py` and `retrieval/graph.py`.
 //!
 //! * [`find_symbol_matches`]: every entity named `name` (bare or qualified)
-//!   across corpora, ordered by qualified name, source, id.
+//!   across corpora, ordered by qualified name, source, path, line.
 //! * [`traverse`]: a depth- and result-capped BFS over one corpus's
 //!   relationships. Each frontier entity's edges are sorted by
 //!   `(type, target, id)`, and visited entities are never expanded twice.
@@ -90,12 +90,24 @@ pub fn find_symbol_matches(
             });
         }
     }
+    // The reference's order is (qualified name, source, id). Its ids are
+    // random and V2 ids depend on the source path, so same-named entities
+    // are ordered by path and line before the id.
     out.sort_by(|a, b| {
-        (&a.entity.qualified_name, &a.source_id, &a.entity.id).cmp(&(
-            &b.entity.qualified_name,
-            &b.source_id,
-            &b.entity.id,
-        ))
+        (
+            &a.entity.qualified_name,
+            &a.source_id,
+            &a.rel_path,
+            a.entity.start_line,
+            &a.entity.id,
+        )
+            .cmp(&(
+                &b.entity.qualified_name,
+                &b.source_id,
+                &b.rel_path,
+                b.entity.start_line,
+                &b.entity.id,
+            ))
     });
     Ok(out)
 }

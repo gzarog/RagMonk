@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 ragmonk-ml.workspace = true
+regex.workspace = true
 ragmonk-storage.workspace = true
 serde.workspace = true
 serde_json.workspace = true

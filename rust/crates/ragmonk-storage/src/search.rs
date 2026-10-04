@@ -453,6 +453,82 @@ impl ProjectStore {
     }
 }
 
+/// A cross-domain link of one entity, with its document's path and the
+/// pinned chunk's location (when it names one).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EntityLinkRow {
+    pub link_type: String,
+    pub document_id: String,
+    pub chunk_id: Option<String>,
+    pub resolver: String,
+    pub confidence: String,
+    /// Source-relative path of the document's file (document id if missing).
+    pub document_path: String,
+    pub chunk_page_start: Option<i64>,
+    pub chunk_heading_path: Vec<String>,
+}
+
+impl ProjectStore {
+    /// Links of `entity_id` in `build_id`, strongest first: confidence,
+    /// then the linker's resolver order (exact, qualified, alias, filename,
+    /// route), then link type. (The reference orders by creation time and
+    /// then random id, so its pick among same-time links is arbitrary.)
+    pub fn entity_links(&self, build_id: &str, entity_id: &str) -> Result<Vec<EntityLinkRow>> {
+        self.query_rows(
+            "entity links",
+            "SELECT l.link_type, l.document_id, l.chunk_id, l.resolver, l.confidence,
+                    COALESCE(f.rel_path, l.document_id), c.page_start, c.heading_path
+             FROM cross_links l
+             LEFT JOIN documents d ON d.build_id = l.build_id AND d.id = l.document_id
+             LEFT JOIN files f ON f.build_id = d.build_id AND f.id = d.file_id
+             LEFT JOIN chunks c ON c.build_id = l.build_id AND c.id = l.chunk_id
+             WHERE l.build_id = ?1 AND l.entity_id = ?2 AND d.id IS NOT NULL
+             ORDER BY CASE l.confidence WHEN 'exact' THEN 0 WHEN 'high' THEN 1
+                          WHEN 'medium' THEN 2 ELSE 3 END,
+                      CASE l.resolver WHEN 'linker:exact_identifier' THEN 0
+                          WHEN 'linker:qualified_identifier' THEN 1 WHEN 'linker:alias' THEN 2
+                          WHEN 'linker:filename' THEN 3 WHEN 'linker:route_heuristic' THEN 4
+                          ELSE 5 END,
+                      l.link_type, l.id",
+            &[&build_id, &entity_id],
+            |r| {
+                let hp: Option<String> = r.get(7)?;
+                Ok(EntityLinkRow {
+                    link_type: r.get(0)?,
+                    document_id: r.get(1)?,
+                    chunk_id: r.get(2)?,
+                    resolver: r.get(3)?,
+                    confidence: r.get(4)?,
+                    document_path: r.get(5)?,
+                    chunk_page_start: r.get(6)?,
+                    chunk_heading_path: hp
+                        .and_then(|h| serde_json::from_str(&h).ok())
+                        .unwrap_or_default(),
+                })
+            },
+        )
+    }
+
+    /// Attachment provenance of a document (`None` for a top-level one).
+    pub fn document_attachment(
+        &self,
+        build_id: &str,
+        document_id: &str,
+    ) -> Result<Option<AttachmentProvenance>> {
+        let rows = self.query_rows(
+            "document attachment",
+            &format!(
+                "SELECT {ATTACHMENT_COLUMNS} FROM documents d
+                 LEFT JOIN documents p ON p.build_id = d.build_id AND p.id = d.parent_document_id
+                 WHERE d.build_id = ?1 AND d.id = ?2"
+            ),
+            &[&build_id, &document_id],
+            |r| attachment(r, 0),
+        )?;
+        Ok(rows.into_iter().next().flatten())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

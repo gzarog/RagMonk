@@ -2903,6 +2903,7 @@ dependencies = [
  "ragmonk-indexing",
  "ragmonk-ml",
  "ragmonk-storage",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

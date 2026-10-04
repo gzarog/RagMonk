@@ -25,7 +25,11 @@ pub struct SemanticHit {
     pub section: Option<String>,
     /// Entity start line, or chunk ordinal.
     pub position: i64,
+    /// Entity end line (`None` for chunks).
+    pub end_line: Option<i64>,
     pub attachment_index: Option<i64>,
+    /// Owning document of a chunk hit.
+    pub document_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -110,7 +114,9 @@ pub fn search(
                 snippet: m.snippet,
                 section: m.section,
                 position: m.position,
+                end_line: m.end_line,
                 attachment_index: m.attachment_index,
+                document_id: m.document_id,
             })
         })
         .collect();

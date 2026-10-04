@@ -1,0 +1,317 @@
+{
+ "queries": [
+  {
+   "query": "zebrafish",
+   "lexical": [
+    [
+     "document",
+     "fts",
+     {
+      "name": "notes.txt",
+      "content_type": "text/plain",
+      "index": 0,
+      "format": "txt",
+      "parent_title": "Quarterly planning"
+     }
+    ]
+   ],
+   "semantic": [
+    [
+     "document",
+     {
+      "name": "notes.txt",
+      "content_type": "text/plain",
+      "index": 0,
+      "format": "txt",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "budget.xlsx",
+      "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "index": 2,
+      "format": "xlsx",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     null
+    ]
+   ]
+  },
+  {
+   "query": "narwhalmemo",
+   "lexical": [
+    [
+     "document",
+     "fts",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ]
+   ],
+   "semantic": [
+    [
+     "document",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "notes.txt",
+      "content_type": "text/plain",
+      "index": 0,
+      "format": "txt",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "report.docx",
+      "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "index": 1,
+      "format": "docx",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     null
+    ]
+   ]
+  },
+  {
+   "query": "Quarterly planning",
+   "lexical": [
+    [
+     "document",
+     "title_or_heading",
+     null
+    ],
+    [
+     "document",
+     "title_or_heading",
+     null
+    ],
+    [
+     "document",
+     "title_or_heading",
+     null
+    ]
+   ],
+   "semantic": [
+    [
+     "document",
+     null
+    ],
+    [
+     "document",
+     null
+    ],
+    [
+     "document",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "budget.xlsx",
+      "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "index": 2,
+      "format": "xlsx",
+      "parent_title": "Quarterly planning"
+     }
+    ]
+   ]
+  },
+  {
+   "query": "migration notes",
+   "lexical": [
+    [
+     "document",
+     "fts",
+     {
+      "name": "notes.txt",
+      "content_type": "text/plain",
+      "index": 0,
+      "format": "txt",
+      "parent_title": "Quarterly planning"
+     }
+    ]
+   ],
+   "semantic": [
+    [
+     "document",
+     {
+      "name": "notes.txt",
+      "content_type": "text/plain",
+      "index": 0,
+      "format": "txt",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "report.docx",
+      "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "index": 1,
+      "format": "docx",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     null
+    ]
+   ]
+  },
+  {
+   "query": "memo decision",
+   "lexical": [
+    [
+     "document",
+     "fts",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     "fts",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ]
+   ],
+   "semantic": [
+    [
+     "document",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     {
+      "name": "Résumé – memo.md",
+      "content_type": "text/markdown",
+      "index": 4,
+      "format": "markdown",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     null
+    ],
+    [
+     "document",
+     {
+      "name": "report.docx",
+      "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "index": 1,
+      "format": "docx",
+      "parent_title": "Quarterly planning"
+     }
+    ],
+    [
+     "document",
+     null
+    ]
+   ]
+  }
+ ]
+}
