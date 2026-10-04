@@ -3,12 +3,25 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
+/// Output goes to files, not pipes: on Windows the detached daemon
+/// inherits the CLI's inheritable handles, so a pipe would never reach EOF
+/// while the daemon runs.
 fn ragmonk(home: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ragmonk"))
+    let dir = tempfile::tempdir().unwrap();
+    let (out, err) = (dir.path().join("out"), dir.path().join("err"));
+    let status = Command::new(env!("CARGO_BIN_EXE_ragmonk"))
         .args(args)
         .env("RAGMONK_HOME", home)
-        .output()
-        .unwrap()
+        .stdin(std::process::Stdio::null())
+        .stdout(std::fs::File::create(&out).unwrap())
+        .stderr(std::fs::File::create(&err).unwrap())
+        .status()
+        .unwrap();
+    Output {
+        status,
+        stdout: std::fs::read(&out).unwrap(),
+        stderr: std::fs::read(&err).unwrap(),
+    }
 }
 
 fn status(home: &Path) -> serde_json::Value {

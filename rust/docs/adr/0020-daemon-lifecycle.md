@@ -98,6 +98,11 @@ which are slice 3.
   - The text output is the reference's without Rich markup.
   - The web-dashboard hint is left out, because the UI is not ported.
 - **`restart`.** Runs `stop`, then `start`.
+- **Windows caveat.** The spawned daemon inherits the CLI's inheritable
+  handles. If the caller pipes `daemon start`'s output, the pipe stays
+  open while the daemon runs. Python's `close_fds=True` avoids this; Rust's
+  std has no stable equivalent. The process test redirects output to
+  files for this reason.
 - **Not ported.** The `--ui` option waits for the UI port.
 
 ## Parity and tests
