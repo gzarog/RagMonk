@@ -9,14 +9,26 @@ use std::process::{Command, Output};
 fn ragmonk(home: &Path, args: &[&str]) -> Output {
     let dir = tempfile::tempdir().unwrap();
     let (out, err) = (dir.path().join("out"), dir.path().join("err"));
-    let status = Command::new(env!("CARGO_BIN_EXE_ragmonk"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ragmonk"))
         .args(args)
         .env("RAGMONK_HOME", home)
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&out).unwrap())
         .stderr(std::fs::File::create(&err).unwrap())
-        .status()
+        .spawn()
         .unwrap();
+    // Fail fast instead of hanging the CI job.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let status = loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            break s;
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("`ragmonk {}` did not finish within 60s", args.join(" "));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
     Output {
         status,
         stdout: std::fs::read(&out).unwrap(),
@@ -30,10 +42,29 @@ fn status(home: &Path) -> serde_json::Value {
     serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()["data"].clone()
 }
 
+/// Kills a daemon the test left running (on failure).
+struct Reaper(std::path::PathBuf);
+impl Drop for Reaper {
+    fn drop(&mut self) {
+        if let Ok(text) = std::fs::read_to_string(self.0.join("daemon.pid")) {
+            let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+            if let Some(pid) = v["pid"].as_u64() {
+                let pid = sysinfo::Pid::from_u32(pid as u32);
+                let mut sys = sysinfo::System::new();
+                sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+                if let Some(p) = sys.process(pid) {
+                    p.kill();
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn start_status_stop() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
+    let _reaper = Reaper(home.clone());
 
     let s = status(&home);
     assert_eq!(s["running"], false);
