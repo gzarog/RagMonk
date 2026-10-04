@@ -17,5 +17,7 @@ pub mod diff;
 pub mod fingerprint;
 pub mod ignore;
 pub mod lock;
+pub mod progress;
 pub mod retry;
 pub mod scan;
+pub mod status;

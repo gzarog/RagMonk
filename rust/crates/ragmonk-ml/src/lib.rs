@@ -134,6 +134,7 @@ pub fn embed_build(
         .map_err(storage)?;
     stats.subjects = subjects.len();
     for window in subjects.chunks(EMBED_WINDOW) {
+        ragmonk_indexing::progress::heartbeat();
         let keyed: Vec<(String, String)> = window
             .iter()
             .map(|s| {

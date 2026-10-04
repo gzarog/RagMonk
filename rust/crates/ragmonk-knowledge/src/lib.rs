@@ -27,6 +27,7 @@ impl BuildFinalizer for KnowledgeLinker {
         let candidates = linker::link_touched_files(store, build_id, touched).map_err(err)?;
         let rows: Vec<_> = candidates.iter().map(linker::Candidate::row).collect();
         for batch in rows.chunks(linker::LINK_BATCH_SIZE) {
+            ragmonk_indexing::progress::heartbeat();
             store.put_links(build_id, batch).map_err(err)?;
         }
         let manual = manual::apply(store, build_id).map_err(err)?;
