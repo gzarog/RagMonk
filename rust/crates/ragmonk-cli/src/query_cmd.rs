@@ -282,20 +282,50 @@ pub struct GraphArgs {
     json: bool,
 }
 
+/// `symbol --json` data.
+pub fn symbol_value(opened: &[Opened], name: &str) -> Result<Value, RagMonkError> {
+    let matches = graph::find_symbol_matches(&corpora(opened), name).map_err(search_err)?;
+    let m: Vec<Value> = matches.iter().map(|m| match_json(m, opened)).collect();
+    Ok(json!({"query": name, "matches": m}))
+}
+
 pub fn symbol(name: &str, json_output: bool) -> Result<(), RagMonkError> {
     let home = prepared_home()?;
     let opened = open_sources(&home, None)?;
-    let matches = graph::find_symbol_matches(&corpora(&opened), name).map_err(search_err)?;
     if json_output {
-        let m: Vec<Value> = matches.iter().map(|m| match_json(m, &opened)).collect();
-        return print_json(&json!({"query": name, "matches": m}));
+        return print_json(&symbol_value(&opened, name)?);
     }
+    let matches = graph::find_symbol_matches(&corpora(&opened), name).map_err(search_err)?;
     if matches.is_empty() {
         no_matches(name);
         return Ok(());
     }
     print_matches(&matches);
     Ok(())
+}
+
+/// `callers`/`callees --json` data.
+pub fn calls_value(
+    opened: &[Opened],
+    name: &str,
+    direction: Direction,
+    max_depth: usize,
+    limit: usize,
+) -> Result<Value, RagMonkError> {
+    let (matches, edges) = graph::traverse_symbol(
+        &corpora(opened),
+        name,
+        direction,
+        &graph::CALL_TYPES,
+        max_depth,
+        limit,
+    )
+    .map_err(search_err)?;
+    Ok(json!({
+        "query": name,
+        "matches": matches.iter().map(|m| match_json(m, opened)).collect::<Vec<_>>(),
+        "edges": edges.iter().map(|e| edge_json(e, opened)).collect::<Vec<_>>(),
+    }))
 }
 
 /// `callers` (incoming CALLS) and `callees` (outgoing CALLS).
@@ -362,12 +392,23 @@ fn format_location(d: &Value) -> String {
     path.to_owned()
 }
 
+/// `impact --json` data.
+pub fn impact_value(
+    opened: &[Opened],
+    name: &str,
+    max_depth: usize,
+    limit: usize,
+) -> Result<Value, RagMonkError> {
+    let mut payload =
+        explore::impact(&corpora(opened), name, max_depth, limit).map_err(search_err)?;
+    absolutize_json(&mut payload, opened, None);
+    Ok(payload)
+}
+
 pub fn impact(a: &GraphArgs) -> Result<(), RagMonkError> {
     let home = prepared_home()?;
     let opened = open_sources(&home, None)?;
-    let mut payload =
-        explore::impact(&corpora(&opened), &a.name, a.max_depth, a.limit).map_err(search_err)?;
-    absolutize_json(&mut payload, &opened, None);
+    let payload = impact_value(&opened, &a.name, a.max_depth, a.limit)?;
     if a.json {
         return print_json(&payload);
     }
@@ -446,14 +487,39 @@ fn semantic_json(s: &hybrid::SemanticOutcome) -> Value {
 
 // ---------------------------------------------------------- explore ---
 
+/// The configured `context.*` budget.
+pub fn config_budget(cfg: &ragmonk_config::RagMonkConfig) -> explore::Budget {
+    explore::Budget {
+        max_chars: cfg.context.max_chars.max(0) as usize,
+        max_files: cfg.context.max_files.max(0) as usize,
+        max_graph_nodes: cfg.context.max_graph_nodes.max(0) as usize,
+    }
+}
+
 pub fn explore(query: &str, json_output: bool) -> Result<(), RagMonkError> {
     let home = prepared_home()?;
     let cfg = load(&home)?;
     let opened = open_sources(&home, None)?;
-    let corp = corpora(&opened);
+    let r = explore_value(&home, &cfg, &opened, query, config_budget(&cfg))?;
+    if json_output {
+        return print_json(&r);
+    }
+    print_explore(&r);
+    Ok(())
+}
+
+/// `explore --json` data under `budget`.
+pub fn explore_value(
+    home: &Home,
+    cfg: &ragmonk_config::RagMonkConfig,
+    opened: &[Opened],
+    query: &str,
+    budget: explore::Budget,
+) -> Result<Value, RagMonkError> {
+    let corp = corpora(opened);
     let plan = explore::plan(query, cfg.search.semantic);
     let semantic = if plan.strategies.contains(&explore::Strategy::Semantic) {
-        let lazy = lazy_embedder(&home, &cfg);
+        let lazy = lazy_embedder(home, cfg);
         let embedder = lazy.get().ok().map(|a| a.as_ref());
         Some(
             hybrid::semantic_search(
@@ -469,18 +535,15 @@ pub fn explore(query: &str, json_output: bool) -> Result<(), RagMonkError> {
         None
     };
     let opts = explore::ExploreOptions {
-        budget: explore::Budget {
-            max_chars: cfg.context.max_chars.max(0) as usize,
-            max_files: cfg.context.max_files.max(0) as usize,
-            max_graph_nodes: cfg.context.max_graph_nodes.max(0) as usize,
-        },
+        budget,
         snippet_tokens: cfg.search.output.snippet_max_tokens,
     };
     let mut r = explore::explore(&corp, &plan, semantic.as_ref(), opts).map_err(search_err)?;
-    absolutize_json(&mut r, &opened, None);
-    if json_output {
-        return print_json(&r);
-    }
+    absolutize_json(&mut r, opened, None);
+    Ok(r)
+}
+
+fn print_explore(r: &Value) {
     let strs = |v: &Value| -> Vec<String> {
         v.as_array()
             .into_iter()
@@ -586,7 +649,28 @@ pub fn explore(query: &str, json_output: bool) -> Result<(), RagMonkError> {
             ""
         }
     );
-    Ok(())
+}
+
+/// The plain lexical ranking `search --json` reports as `results`, at
+/// most `limit` hits, with absolute paths.
+pub fn lexical_value(
+    cfg: &ragmonk_config::RagMonkConfig,
+    opened: &[Opened],
+    query: &str,
+    limit: usize,
+) -> Result<Value, RagMonkError> {
+    let mut results = lexical::search(
+        &corpora(opened),
+        query,
+        limit,
+        cfg.search.output.snippet_max_tokens,
+    )
+    .map_err(search_err)?;
+    absolutize_results(&mut results, opened);
+    Ok(json!({
+        "query": query,
+        "results": results.iter().map(explore::search_result_json).collect::<Vec<_>>(),
+    }))
 }
 
 // ----------------------------------------------------------- search ---
