@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 chrono.workspace = true
+notify.workspace = true
 ragmonk-config.workspace = true
 ragmonk-core.workspace = true
 ragmonk-storage.workspace = true

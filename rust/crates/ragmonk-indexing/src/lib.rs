@@ -22,3 +22,4 @@ pub mod progress;
 pub mod retry;
 pub mod scan;
 pub mod status;
+pub mod watcher;

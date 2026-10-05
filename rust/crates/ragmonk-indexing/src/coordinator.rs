@@ -35,7 +35,7 @@ use crate::fingerprint::hash_file;
 use crate::ignore::IgnoreMatcher;
 use crate::lock::RunLock;
 use crate::retry;
-use crate::scan::{check_root_accessible, scan, ScanOptions};
+use crate::scan::{check_root_accessible, scan, scan_targets, ScanOptions};
 
 /// What a processor sees for one file.
 #[derive(Debug, Clone)]
@@ -213,6 +213,8 @@ pub struct SourceResult {
     pub build_id: Option<String>,
     pub published: bool,
     pub scan_errors: Vec<String>,
+    /// Only the named paths were examined (a watcher-triggered pass).
+    pub targeted: bool,
     pub timings: StageTimings,
 }
 
@@ -378,6 +380,25 @@ pub fn run_source(
     opts: &Options,
     progress: &mut dyn Progress,
 ) -> Result<SourceResult, RagMonkError> {
+    run_source_with(layout, control, source, registry, opts, None, progress)
+}
+
+/// [`run_source`], optionally limited to `targets` (absolute paths a
+/// watcher reported). A targeted pass examines only those paths and
+/// diffs them against their own baseline rows. Rows for other files are
+/// left untouched. Deletions are therefore never inferred from absence,
+/// and a rename is kept as a move only when both halves are named.
+/// Targets are ignored when the plan is a full rebuild, which must see
+/// the whole tree.
+pub fn run_source_with(
+    layout: &V2Layout,
+    control: &mut ControlPlane,
+    source: &SourceRecord,
+    registry: &Registry,
+    opts: &Options,
+    targets: Option<&std::collections::BTreeSet<PathBuf>>,
+    progress: &mut dyn Progress,
+) -> Result<SourceResult, RagMonkError> {
     let mut result = SourceResult {
         source_id: source.id.clone(),
         ..SourceResult::default()
@@ -411,15 +432,30 @@ pub fn run_source(
         &source.exclude_patterns,
         &source.include_patterns,
     );
-    let scanned = scan(
-        root,
-        &ignore,
-        &ScanOptions {
-            follow_symlinks: opts.follow_symlinks,
-            inject_unreadable: opts.inject_unreadable.clone(),
-        },
-    )
-    .map_err(|e| RagMonkError::new(ErrorKind::SourceUnavailable, format!("scan failed: {e}")))?;
+    let targets = targets.filter(|_| matches!(plan, RebuildPlan::Incremental { .. }));
+    let (scanned, missing) = match targets {
+        Some(t) => {
+            let ts = scan_targets(root, &ignore, t, opts.follow_symlinks).map_err(|e| {
+                RagMonkError::new(ErrorKind::SourceUnavailable, format!("scan failed: {e}"))
+            })?;
+            result.targeted = true;
+            (ts.present, Some(ts.missing))
+        }
+        None => (
+            scan(
+                root,
+                &ignore,
+                &ScanOptions {
+                    follow_symlinks: opts.follow_symlinks,
+                    inject_unreadable: opts.inject_unreadable.clone(),
+                },
+            )
+            .map_err(|e| {
+                RagMonkError::new(ErrorKind::SourceUnavailable, format!("scan failed: {e}"))
+            })?,
+            None,
+        ),
+    };
     result.timings.scan_seconds = started.elapsed().as_secs_f64();
     result.scan_errors = scanned
         .errors
@@ -431,9 +467,23 @@ pub fn run_source(
     }
 
     let started = Instant::now();
-    let baseline = store.reusable_files(&plan).map_err(db_err)?;
+    let mut baseline = store.reusable_files(&plan).map_err(db_err)?;
+    if let Some(missing) = &missing {
+        // Only the named paths take part: rows for every other file are
+        // neither diffed nor touched.
+        let named: std::collections::HashSet<&str> = scanned
+            .files
+            .iter()
+            .map(|f| f.rel_path.as_str())
+            .chain(missing.iter().map(String::as_str))
+            .collect();
+        baseline.retain(|r| named.contains(r.rel_path.as_str()));
+    }
     let now = now_iso();
-    let d = diff(&scanned, &baseline, &now, &mut |p| hash_file(p));
+    let mut d = diff(&scanned, &baseline, &now, &mut |p| hash_file(p));
+    if let Some(missing) = &missing {
+        d.counts.scanned += missing.len();
+    }
     result.timings.classify_seconds = started.elapsed().as_secs_f64();
     result.timings.hash_calls = d.counts.hash_calls;
     result.counts = d.counts.clone();

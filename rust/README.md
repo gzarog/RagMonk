@@ -16,7 +16,7 @@ is still the product**; nothing here changes its behavior yet.
 | `ragmonk-retrieval` | Lexical search, hybrid RRF fusion with exact-match pinning, the optional cross-encoder pass, symbol search, graph queries, explore and impact (RUST-10) |
 | `ragmonk-core` | errors/exit codes, domain models, home layout, stable IDs, secret filter, path guard, version (RUST-01) |
 | `ragmonk-config` | `config.yaml` + env layering with PyYAML/pydantic-exact semantics (RUST-01) |
-| `ragmonk-indexing` | scanner, ignore rules, incremental diff, retries, run lock, bounded transactional V2 coordinator (RUST-04); progress snapshot and status verdicts, daemon worker, reconciliation, PID and health files (RUST-11) |
+| `ragmonk-indexing` | scanner, ignore rules, incremental diff, retries, run lock, bounded transactional V2 coordinator (RUST-04); progress snapshot and status verdicts, daemon worker, reconciliation, PID and health files, filesystem watcher, network polling, targeted passes (RUST-11) |
 | `ragmonk-storage` | V2 SQLite control plane + per-source knowledge store, versioned migrations with backup, read-only V1 preflight/import (RUST-02) |
 | `ragmonk-telemetry` | JSON-lines logging, URL/credential redaction (RUST-01) |
 | `ragmonk-compat` | Python-vs-Rust differential harness; removed at RUST-16 |
