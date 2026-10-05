@@ -10,6 +10,7 @@
 
 mod daemon_cmd;
 mod doctor_cmd;
+mod mcp;
 mod ops_cmd;
 mod query_cmd;
 mod status_cmd;
@@ -78,6 +79,12 @@ enum Command {
     },
     /// Run the indexing daemon in the foreground.
     Watch,
+    /// Serve the indexed knowledge to agents (MCP over stdio).
+    Serve {
+        /// Run the MCP server over stdio.
+        #[arg(long = "mcp")]
+        mcp: bool,
+    },
     /// Lexical search across code and documents.
     Search(query_cmd::SearchArgs),
     /// Look up a code symbol by name.
@@ -509,6 +516,7 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
         Command::Status(a) => status_cmd::status(&a)?,
         Command::Docs { source, json } => workflow::docs(source, json)?,
         Command::Watch => daemon_cmd::run(daemon_cmd::DaemonCommand::Run)?,
+        Command::Serve { mcp } => mcp::serve(mcp)?,
         Command::Search(a) => query_cmd::search(&a)?,
         Command::Symbol { name, json } => query_cmd::symbol(&name, json)?,
         Command::Callers(a) => query_cmd::calls(&a, ragmonk_retrieval::graph::Direction::Incoming)?,
