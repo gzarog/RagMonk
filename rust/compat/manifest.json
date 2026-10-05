@@ -46,7 +46,7 @@
         {"id": "symbol-dog", "args": ["symbol", "Dog", "--json"], "rust_phase": "RUST-10"},
         {"id": "callers-speak", "args": ["callers", "speak", "--json"], "unordered_arrays": ["edges"], "rust_phase": "RUST-10"},
         {"id": "callees-bark", "args": ["callees", "bark", "--json"], "unordered_arrays": ["edges"], "rust_phase": "RUST-10"},
-        {"id": "docs", "args": ["docs", "--json"], "rust_phase": "RUST-12"},
+        {"id": "docs", "args": ["docs", "--json"], "rust_phase": "RUST-12"}, {"id": "references-speak", "args": ["references", "speak", "--json"], "unordered_arrays": ["edges"], "rust_phase": "RUST-12"}, {"id": "impact-speak", "args": ["impact", "speak", "--json"], "rust_phase": "RUST-12"}, {"id": "explore-dog", "args": ["explore", "Dog", "--json"], "rust_phase": "RUST-12"}, {"id": "search-heading-context", "args": ["search", "Main Heading", "--json"], "unordered_arrays": ["results"], "rust_phase": "RUST-12"}, {"id": "link-list", "args": ["link", "list", "--json"], "unordered_arrays": ["links"], "rust_phase": "RUST-12"},
         {"id": "knowledge-inventory", "sqlite_inventory": true}
       ]
     }

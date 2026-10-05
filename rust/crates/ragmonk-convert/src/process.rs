@@ -113,6 +113,7 @@ impl DocumentProcessor {
                 page_end: ch.page_end,
                 table_rows: ch.table_rows,
                 caption: ch.caption,
+                parent_ordinal: ch.parent_index.map(|p| p as i64),
             })
             .collect();
         let doc = DocumentRow {

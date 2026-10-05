@@ -9,6 +9,7 @@
 //! stable exit codes.
 
 mod daemon_cmd;
+mod query_cmd;
 mod status_cmd;
 mod workflow;
 
@@ -75,6 +76,33 @@ enum Command {
     },
     /// Run the indexing daemon in the foreground.
     Watch,
+    /// Lexical search across code and documents.
+    Search(query_cmd::SearchArgs),
+    /// Look up a code symbol by name.
+    Symbol {
+        /// Symbol name or fully qualified name.
+        name: String,
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Show entities that call the given symbol.
+    Callers(query_cmd::GraphArgs),
+    /// Show entities the given symbol calls.
+    Callees(query_cmd::GraphArgs),
+    /// Show all edges touching the given symbol.
+    References(query_cmd::GraphArgs),
+    /// Show blast-radius impact analysis for a symbol.
+    Impact(query_cmd::GraphArgs),
+    /// Explore code and documents for a question or identifier.
+    Explore {
+        /// Natural-language or identifier query.
+        query: String,
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Inspect and manually correct the link graph.
+    #[command(subcommand)]
+    Link(query_cmd::LinkCommand),
 }
 
 #[derive(Subcommand)]
@@ -422,6 +450,14 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
         Command::Status(a) => status_cmd::status(&a)?,
         Command::Docs { source, json } => workflow::docs(source, json)?,
         Command::Watch => daemon_cmd::run(daemon_cmd::DaemonCommand::Run)?,
+        Command::Search(a) => query_cmd::search(&a)?,
+        Command::Symbol { name, json } => query_cmd::symbol(&name, json)?,
+        Command::Callers(a) => query_cmd::calls(&a, ragmonk_retrieval::graph::Direction::Incoming)?,
+        Command::Callees(a) => query_cmd::calls(&a, ragmonk_retrieval::graph::Direction::Outgoing)?,
+        Command::References(a) => query_cmd::references(&a)?,
+        Command::Impact(a) => query_cmd::impact(&a)?,
+        Command::Explore { query, json } => query_cmd::explore(&query, json)?,
+        Command::Link(cmd) => query_cmd::link(cmd)?,
         Command::MigrateToRustV2(args) => {
             let home = Home::discover();
             if args.check {
