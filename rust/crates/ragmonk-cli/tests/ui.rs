@@ -290,6 +290,18 @@ fn admin_ui_matches_reference() {
     // The control database's schema version is V1's on one side and
     // V2's on the other (ADR 0027).
     let schema = Regex::new(r"schema v\d+").unwrap();
+    // Windows checkouts convert the fixtures to CRLF, so file sizes in the
+    // Documents table differ from the reference's (POSIX) ones there.
+    let doc_size = Regex::new(r"</td><td>\d+</td><td>(indexed|failed|queued|—)").unwrap();
+    let doc_size = |t: &str| -> String {
+        if cfg!(windows) {
+            doc_size
+                .replace_all(t, "</td><td><SIZE></td><td>$1")
+                .into_owned()
+        } else {
+            t.to_owned()
+        }
+    };
 
     let mut failures = Vec::new();
     for rec in &golden {
@@ -364,7 +376,8 @@ fn admin_ui_matches_reference() {
                 let expected = golden_size.replace_all(expected, "<N> B");
                 let expected = schema.replace_all(&expected, "schema v<N>");
                 let got = normalize(&r.body);
-                let got = schema.replace_all(&got, "schema v<N>").into_owned();
+                let got = doc_size(&schema.replace_all(&got, "schema v<N>"));
+                let expected = doc_size(&expected);
                 if got != expected {
                     let at = got
                         .chars()
