@@ -314,7 +314,7 @@ $env:RAGMONK_VERSION = "0.9.0"; $env:RAGMONK_DOWNLOAD_BASE = "$env:TEMP\dist"; .
 
 CI runs this (install, re-install, `ragmonk update rollback`, a tampered
 archive) as blocking jobs on all three OSes -- see
-`.github/workflows/ci.yml`.
+`.github/workflows/rust.yml`.
 
 ## Test isolation
 

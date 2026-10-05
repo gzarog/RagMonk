@@ -1,0 +1,257 @@
+name: Rust release
+
+# Publishes a native RagMonk release (RUST-15, ADR 0030): archives for the
+# four release targets with their bundled models, SHA256SUMS (signed with
+# minisign when the MINISIGN_SECRET_KEY secret exists), the installers,
+# and a multi-arch image on GHCR.
+#
+# Manual only, and separate from the Python release.yml until the cutover
+# (RUST-16). Releases default to pre-releases: GitHub's "latest release",
+# which `ragmonk update` and the Python updater both follow, ignores them.
+#
+# Repository settings it reads:
+#   vars.MINISIGN_PUBLIC_KEY      compiled into the binary and installers
+#   secrets.MINISIGN_SECRET_KEY   the matching minisign secret key file
+#   secrets.MINISIGN_PASSWORD     its password (empty for an unencrypted key)
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, MAJOR.MINOR.PATCH (tagged v<version>)"
+        required: true
+        type: string
+      prerelease:
+        description: "Publish as a pre-release (not picked up by `ragmonk update`)"
+        type: boolean
+        default: true
+      image:
+        description: "Also publish the container image to GHCR"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version }}
+  TAG: v${{ inputs.version }}
+  IMAGE: ghcr.io/${{ github.repository_owner }}/ragmonk
+
+jobs:
+  validate:
+    name: Validate version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Strict MAJOR.MINOR.PATCH, tag not taken
+        run: |
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::version must be MAJOR.MINOR.PATCH, got '$VERSION'"; exit 1; }
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::tag $TAG already exists"; exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: validate
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Toolchain
+        working-directory: rust
+        run: rustup show active-toolchain || rustup toolchain install; rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: release-${{ matrix.target }}
+      - name: Fetch the bundled models
+        run: sh rust/scripts/fetch_models.sh "$RUNNER_TEMP/models"
+      - name: Build
+        working-directory: rust
+        env:
+          RAGMONK_BUILD_VERSION: ${{ inputs.version }}
+          RAGMONK_BUILD_COMMIT: ${{ github.sha }}
+          RAGMONK_MINISIGN_PUBKEY: ${{ vars.MINISIGN_PUBLIC_KEY }}
+        run: cargo build --release --locked -p ragmonk-cli --target ${{ matrix.target }}
+      - name: Smoke test
+        run: |
+          EXE=rust/target/${{ matrix.target }}/release/ragmonk
+          [ -f "$EXE.exe" ] && EXE="$EXE.exe"
+          "$EXE" version --json | tee /dev/stderr | grep -q "\"$VERSION\""
+          echo "EXE=$EXE" >> "$GITHUB_ENV"
+      - name: Package
+        run: |
+          python rust/scripts/package_release.py --binary "$EXE" --version "$VERSION" \
+            --target ${{ matrix.target }} --models "$RUNNER_TEMP/models" --out dist
+          mv dist/SHA256SUMS "dist/SHA256SUMS.${{ matrix.target }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: Publish the GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS and installers
+        env:
+          PUBKEY: ${{ vars.MINISIGN_PUBLIC_KEY }}
+        run: |
+          cat dist/SHA256SUMS.* | sort -k2 > dist/SHA256SUMS
+          rm dist/SHA256SUMS.*
+          cat dist/SHA256SUMS
+          # The installers carry the release key when one is configured.
+          sed "s|^MINISIGN_PUBKEY=\"\"|MINISIGN_PUBKEY=\"$PUBKEY\"|" install.sh > dist/install.sh
+          sed "s|^\$MinisignPubkey = \"\"|\$MinisignPubkey = \"$PUBKEY\"|" install.ps1 > dist/install.ps1
+      - name: Sign SHA256SUMS (minisign)
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+          PUBKEY: ${{ vars.MINISIGN_PUBLIC_KEY }}
+        run: |
+          if [ -z "$MINISIGN_SECRET_KEY" ]; then
+            echo "::notice::MINISIGN_SECRET_KEY is not set; publishing checksums only"
+            exit 0
+          fi
+          sudo apt-get update -qq && sudo apt-get install -y -qq minisign
+          umask 077
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
+          printf '%s\n' "$MINISIGN_PASSWORD" | minisign -S -s "$RUNNER_TEMP/minisign.key" \
+            -m dist/SHA256SUMS -t "RagMonk $TAG SHA256SUMS"
+          rm -f "$RUNNER_TEMP/minisign.key"
+          if [ -n "$PUBKEY" ]; then
+            minisign -Vm dist/SHA256SUMS -P "$PUBKEY"
+          fi
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          flags=""
+          [ "$PRERELEASE" = "true" ] && flags="--prerelease"
+          cat > notes.md <<NOTES
+          Native RagMonk $VERSION (no Python required).
+
+          Install: \`curl -fsSL https://github.com/${{ github.repository }}/releases/download/$TAG/install.sh | sh\`
+          (Windows: \`irm https://github.com/${{ github.repository }}/releases/download/$TAG/install.ps1 | iex\`).
+          Existing native installs: \`ragmonk update install\`.
+
+          Container: \`docker pull $IMAGE:$VERSION\`
+
+          Every archive is listed in SHA256SUMS; SHA256SUMS.minisig, when present, is its minisign signature.
+          NOTES
+          gh release create "$TAG" dist/* --target "${{ github.sha }}" \
+            --title "RagMonk $VERSION" --notes-file notes.md $flags
+
+  image:
+    name: Image (${{ matrix.platform }})
+    needs: validate
+    if: ${{ inputs.image }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            os: ubuntu-latest
+          - platform: linux/arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            RAGMONK_VERSION=${{ inputs.version }}
+            RAGMONK_COMMIT=${{ github.sha }}
+            RAGMONK_MINISIGN_PUBKEY=${{ vars.MINISIGN_PUBLIC_KEY }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ inputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+      - name: Smoke test
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} "$IMAGE@${{ steps.build.outputs.digest }}" version --json \
+            | grep -q "\"$VERSION\""
+      - name: Record the digest
+        run: |
+          mkdir -p digests
+          d="${{ steps.build.outputs.digest }}"
+          touch "digests/${d#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ strategy.job-index }}
+          path: digests/*
+          if-no-files-found: error
+
+  image-manifest:
+    name: Publish the multi-arch image
+    needs: [image, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Tag the manifest list
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          tags="-t $IMAGE:$VERSION"
+          [ "$PRERELEASE" = "true" ] || tags="$tags -t $IMAGE:latest"
+          docker buildx imagetools create $tags $(for d in digests/*; do echo "$IMAGE@sha256:$(basename "$d")"; done)
+          docker buildx imagetools inspect "$IMAGE:$VERSION"

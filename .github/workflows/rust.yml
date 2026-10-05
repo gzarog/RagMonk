@@ -241,3 +241,144 @@ jobs:
           python rust/compat/tools/gen_email_golden.py
           python rust/compat/tools/gen_link_golden.py
           git diff --exit-code -- rust/compat/golden
+
+  # The native installers (RUST-15) end to end, against release archives
+  # packaged from this commit's build and served from a local directory
+  # (RAGMONK_DOWNLOAD_BASE): install, re-install a second version, then
+  # `ragmonk update rollback` back to the first.
+  install-script-tests:
+    name: Install script (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: .
+    env:
+      DIST: ${{ runner.temp }}/dist
+      RAGMONK_DOWNLOAD_BASE: ${{ runner.temp }}/dist
+      RAGMONK_INSTALL_DIR: ${{ runner.temp }}/ragmonk-install
+      RAGMONK_BIN_DIR: ${{ runner.temp }}/ragmonk-bin
+      RAGMONK_HOME: ${{ runner.temp }}/ragmonk-home
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build and package two versions
+        run: |
+          cargo build --manifest-path rust/Cargo.toml -p ragmonk-cli
+          for v in 0.9.0 0.9.1; do
+            python3 rust/scripts/package_release.py --binary rust/target/debug/ragmonk \
+              --version "$v" --target "${{ matrix.target }}" --out "$DIST"
+          done
+          cat "$DIST/SHA256SUMS"
+      - name: Install 0.9.0
+        run: RAGMONK_VERSION=0.9.0 sh ./install.sh
+      - name: Verify the installed CLI works
+        run: |
+          "$RAGMONK_BIN_DIR/ragmonk" version
+          "$RAGMONK_BIN_DIR/ragmonk" doctor
+          grep -q '"install_method": "native"' "$RAGMONK_HOME/install_info.json"
+      - name: A tampered archive is refused
+        run: |
+          cp -R "$DIST" "$RUNNER_TEMP/bad" && echo x >> "$RUNNER_TEMP/bad/ragmonk-0.9.1-${{ matrix.target }}.tar.gz"
+          if RAGMONK_VERSION=0.9.1 RAGMONK_DOWNLOAD_BASE="$RUNNER_TEMP/bad" sh ./install.sh; then exit 1; fi
+          test "$(readlink "$RAGMONK_INSTALL_DIR/current")" = "versions/0.9.0"
+      - name: Install 0.9.1, then roll back
+        run: |
+          RAGMONK_VERSION=0.9.1 sh ./install.sh
+          test "$(readlink "$RAGMONK_INSTALL_DIR/current")" = "versions/0.9.1"
+          "$RAGMONK_BIN_DIR/ragmonk" update rollback
+          test "$(readlink "$RAGMONK_INSTALL_DIR/current")" = "versions/0.9.0"
+          "$RAGMONK_BIN_DIR/ragmonk" version
+
+  install-script-tests-windows:
+    name: Install script (windows-latest)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: .
+    env:
+      DIST: ${{ runner.temp }}\dist
+      RAGMONK_DOWNLOAD_BASE: ${{ runner.temp }}\dist
+      RAGMONK_INSTALL_DIR: ${{ runner.temp }}\ragmonk-install
+      RAGMONK_BIN_DIR: ${{ runner.temp }}\ragmonk-bin
+      RAGMONK_HOME: ${{ runner.temp }}\ragmonk-home
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build and package two versions
+        run: |
+          cargo build --manifest-path rust/Cargo.toml -p ragmonk-cli
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          foreach ($v in "0.9.0", "0.9.1") {
+            python rust/scripts/package_release.py --binary rust/target/debug/ragmonk.exe `
+              --version $v --target x86_64-pc-windows-msvc --out $env:DIST
+            if ($LASTEXITCODE -ne 0) { throw "packaging failed" }
+          }
+      - name: Install 0.9.0
+        run: |
+          $env:RAGMONK_VERSION = "0.9.0"
+          ./install.ps1
+      - name: Verify the installed CLI works
+        run: |
+          & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" version
+          if ($LASTEXITCODE -ne 0) { throw "version failed" }
+          & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" doctor
+          if ($LASTEXITCODE -ne 0) { throw "doctor failed" }
+          $info = Get-Content "$env:RAGMONK_HOME\install_info.json" -Raw | ConvertFrom-Json
+          if ($info.install_method -ne "native") { throw "unexpected install_method: $($info.install_method)" }
+      # Windows cannot overwrite a running exe: re-installing while the
+      # daemon runs from bin\ragmonk.exe proves the rename-based swap.
+      - name: Install 0.9.1 while the daemon holds the current exe, then roll back
+        run: |
+          & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" daemon start
+          if ($LASTEXITCODE -ne 0) { throw "daemon start failed" }
+          try {
+            $env:RAGMONK_VERSION = "0.9.1"
+            ./install.ps1
+          } finally {
+            & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" daemon stop
+          }
+          if ((Get-Content "$env:RAGMONK_INSTALL_DIR\current" -Raw).Trim() -ne "0.9.1") { throw "not switched" }
+          & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" update rollback
+          if ($LASTEXITCODE -ne 0) { throw "rollback failed" }
+          if ((Get-Content "$env:RAGMONK_INSTALL_DIR\current" -Raw).Trim() -ne "0.9.0") { throw "not rolled back" }
+          & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" version
+          if ($LASTEXITCODE -ne 0) { throw "version failed after rollback" }
+
+  # The release image builds (amd64; arm64 builds natively in
+  # rust-release.yml) and runs without Python.
+  container-image:
+    name: Container image (linux/amd64)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          build-args: RAGMONK_VERSION=0.9.0
+          tags: ragmonk:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test
+        run: |
+          docker run --rm ragmonk:ci version --json | grep -q '"0.9.0"'
+          docker run --rm --entrypoint sh ragmonk:ci -c '! command -v python3 && ! command -v python'
+          docker run --rm --entrypoint sh ragmonk:ci -c 'ragmonk init && ragmonk doctor'
+          test -n "$(docker run --rm --entrypoint ls ragmonk:ci /opt/ragmonk/models/all-minilm-l6-v2/model.safetensors)"

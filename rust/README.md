@@ -19,7 +19,7 @@ is still the product**; nothing here changes its behavior yet.
 | `ragmonk-config` | `config.yaml` + env layering with PyYAML/pydantic-exact semantics (RUST-01) |
 | `ragmonk-indexing` | scanner, ignore rules, incremental diff, retries, run lock, bounded transactional V2 coordinator (RUST-04); progress snapshot and status verdicts, daemon worker, reconciliation, PID and health files, filesystem watcher, network polling, targeted passes (RUST-11) |
 | `ragmonk-storage` | V2 SQLite control plane + per-source knowledge store, versioned migrations with backup, read-only V1 preflight/import (RUST-02) |
-| `ragmonk-update` | Native self-update: strict release tags, `update.json` cache, SHA-256 + optional minisign verification, `versions/<ver>` + `current` layout with rollback (RUST-15); see ADR 0029 and `scripts/package_release.py` |
+| `ragmonk-update` | Native self-update: strict release tags, `update.json` cache, SHA-256 + optional minisign verification, `versions/<ver>` + `current` layout with rollback (RUST-15); see ADR 0029 and `scripts/package_release.py`; releases (`rust-release.yml`) and the `rust/Dockerfile` image: ADR 0030 |
 | `ragmonk-telemetry` | JSON-lines logging, URL/credential redaction (RUST-01) |
 | `ragmonk-compat` | Python-vs-Rust differential harness; removed at RUST-16 |
 
