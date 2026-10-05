@@ -333,7 +333,7 @@ impl ragmonk_indexing::coordinator::BuildFinalizer for FailingFinalizer {
         _store: &mut ProjectStore,
         _build_id: &str,
         _touched: &[String],
-    ) -> Result<(), ProcessError> {
+    ) -> Result<ragmonk_indexing::coordinator::FinalizeReport, ProcessError> {
         Err(ProcessError {
             code: "boom".into(),
             message: "finalizer failed".into(),

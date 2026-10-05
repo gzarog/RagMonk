@@ -220,11 +220,14 @@ jobs:
           rust/target/debug/ragmonk-compat capture --impl rust --program rust/target/debug/ragmonk \
             --out "$RUNNER_TEMP/rust-capture.json"
           rust/target/debug/ragmonk-compat gate "$RUNNER_TEMP/python-capture.json" \
-            "$RUNNER_TEMP/rust-capture.json" --phase "$RUST_PHASE"
+            "$RUNNER_TEMP/rust-capture.json" --phase "$RUST_PHASE" \
+            --exclude-phase RUST-10
         env:
           # Highest merged rewrite phase; every manifest step it (or an
-          # earlier phase) owns must match the Python reference.
-          RUST_PHASE: RUST-09
+          # earlier phase) owns must match the Python reference. The
+          # RUST-10 steps run CLI query commands, which land in RUST-12
+          # slice 2; they are excluded until then.
+          RUST_PHASE: RUST-12
       # Informational: the RUST-01 golden fixtures must still reflect the
       # Python reference (pydantic/PyYAML are not locked, so drift is
       # reported rather than failing the job).

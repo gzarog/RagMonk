@@ -1,13 +1,16 @@
 //! `ragmonk` binary for the Rust rewrite.
 //!
 //! Implemented so far: `version` (RUST-00) and `config show|get|set`
-//! (RUST-01), `daemon start|stop|restart|status|run` (RUST-11). The JSON envelope matches the Python CLI's
+//! (RUST-01), `daemon start|stop|restart|status|run` (RUST-11), `init`, `source …`,
+//! `index`, `status`, `docs` and `watch` (RUST-12). The JSON envelope matches the Python CLI's
 //! `{"schema_version": "1", "data": {...}}`; `version --json` reports
 //! `runtime: "rust"` instead of the Python interpreter version. Errors print
 //! `Error: <redacted message>` to stderr and exit with the reference's
 //! stable exit codes.
 
 mod daemon_cmd;
+mod status_cmd;
+mod workflow;
 
 use std::process::ExitCode;
 
@@ -49,6 +52,29 @@ enum Command {
     /// Manage the background indexing daemon.
     #[command(subcommand)]
     Daemon(daemon_cmd::DaemonCommand),
+    /// Bootstrap the RagMonk runtime directory.
+    Init(workflow::InitArgs),
+    /// Manage registered sources.
+    #[command(subcommand)]
+    Source(workflow::SourceCommand),
+    /// Scan sources and process pending files.
+    Index {
+        /// Only index this source id.
+        #[arg(long = "source")]
+        source: Option<String>,
+    },
+    /// Show indexing status.
+    Status(status_cmd::StatusArgs),
+    /// List indexed documents.
+    Docs {
+        /// Only list this source id.
+        #[arg(long = "source")]
+        source: Option<String>,
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Run the indexing daemon in the foreground.
+    Watch,
 }
 
 #[derive(Subcommand)]
@@ -128,6 +154,67 @@ fn py_repr(value: &PyValue) -> String {
         }
         other => python_str(other).unwrap_or_default(),
     }
+}
+
+/// Console width as Rich computes it for a non-terminal: `COLUMNS` when
+/// set, else 80.
+fn console_width() -> usize {
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|c| c.trim().parse::<usize>().ok())
+        .filter(|w| *w > 0)
+        .unwrap_or(80)
+}
+
+/// `rich.pretty` layout, as `console.print(value)` renders a dict or list.
+/// A container is expanded (one child per line, 4-space indent) only when
+/// its one-line form, plus indent and trailing separator, exceeds `width`.
+/// The decision is made per node, as in Rich's `_Line.check_length`.
+fn rich_pretty(value: &PyValue, width: usize) -> String {
+    /// `(open, close, [(key repr, value)])` for a non-empty container.
+    type Kids<'a> = (char, char, Vec<(Option<String>, &'a PyValue)>);
+    fn children(v: &PyValue) -> Option<Kids<'_>> {
+        match v {
+            PyValue::Dict(e) if !e.is_empty() => Some((
+                '{',
+                '}',
+                e.iter().map(|(k, v)| (Some(py_repr(k)), v)).collect(),
+            )),
+            PyValue::List(items) if !items.is_empty() => {
+                Some(('[', ']', items.iter().map(|v| (None, v)).collect()))
+            }
+            _ => None,
+        }
+    }
+    fn render(
+        key: Option<&str>,
+        v: &PyValue,
+        ws: &str,
+        suffix: &str,
+        last: bool,
+        width: usize,
+        out: &mut Vec<String>,
+    ) {
+        let prefix = key.map(|k| format!("{k}: ")).unwrap_or_default();
+        let one_line = format!("{prefix}{}", py_repr(v));
+        let tail = if last { "" } else { suffix.trim_end() };
+        let fits = ws.chars().count() + suffix.chars().count() + one_line.chars().count() <= width;
+        match children(v) {
+            Some((open, close, kids)) if !fits => {
+                out.push(format!("{ws}{prefix}{open}"));
+                let inner = format!("{ws}    ");
+                let n = kids.len();
+                for (i, (k, child)) in kids.into_iter().enumerate() {
+                    render(k.as_deref(), child, &inner, ", ", i + 1 == n, width, out);
+                }
+                out.push(format!("{ws}{close}{tail}"));
+            }
+            _ => out.push(format!("{ws}{one_line}{tail}")),
+        }
+    }
+    let mut out = Vec::new();
+    render(None, value, "", "", true, width, &mut out);
+    out.join("\n")
 }
 
 fn prepared_home() -> Result<Home, RagMonkError> {
@@ -314,7 +401,11 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
         Command::Config(ConfigCommand::Get { key }) => {
             let home = prepared_home()?;
             let value = get_path(&load(&home)?, &key)?;
-            println!("{}", python_str(&value).unwrap_or_else(|| py_repr(&value)));
+            let text = match &value {
+                PyValue::Dict(_) | PyValue::List(_) => rich_pretty(&value, console_width()),
+                other => python_str(other).unwrap_or_else(|| py_repr(other)),
+            };
+            println!("{text}");
         }
         Command::Config(ConfigCommand::Set { key, value }) => {
             let home = prepared_home()?;
@@ -325,6 +416,12 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
         }
         Command::ServerV2(cmd) => run_server_v2(cmd)?,
         Command::Daemon(cmd) => daemon_cmd::run(cmd)?,
+        Command::Init(a) => workflow::init(&a)?,
+        Command::Source(cmd) => workflow::source(cmd)?,
+        Command::Index { source } => workflow::index(source)?,
+        Command::Status(a) => status_cmd::status(&a)?,
+        Command::Docs { source, json } => workflow::docs(source, json)?,
+        Command::Watch => daemon_cmd::run(daemon_cmd::DaemonCommand::Run)?,
         Command::MigrateToRustV2(args) => {
             let home = Home::discover();
             if args.check {
@@ -373,6 +470,21 @@ fn main() -> ExitCode {
                 err.exit_code()
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod pretty_tests {
+    use super::*;
+
+    #[test]
+    fn expands_only_what_overflows() {
+        let cfg = ragmonk_config::RagMonkConfig::default();
+        let v = get_path(&cfg, "storage").unwrap();
+        let want = "{\n    'mode': 'local',\n    'server': {\n        'engine': 'opensearch',\n        'url': '',\n        'index_prefix': 'ragmonk',\n        'verify_tls': True,\n        'request_timeout_seconds': 30.0,\n        'bulk': {'max_actions': 500, 'max_bytes': 5000000, 'concurrency': 2, 'max_retries': 3}\n    }\n}";
+        assert_eq!(rich_pretty(&v, 200), want);
+        assert_eq!(rich_pretty(&v, 400).lines().count(), 1);
+        assert_eq!(rich_pretty(&PyValue::List(vec![]), 10), "[]");
     }
 }
 

@@ -81,6 +81,10 @@ enum Cmd {
         candidate: PathBuf,
         #[arg(long)]
         phase: String,
+        /// Skip steps owned by this phase (one not merged yet while a later
+        /// one is). Repeatable.
+        #[arg(long = "exclude-phase")]
+        exclude_phase: Vec<String>,
         #[arg(long, default_value = "rust/compat/manifest.json")]
         manifest: PathBuf,
         #[arg(long, default_value_t = 1e-6)]
@@ -181,12 +185,24 @@ fn run() -> anyhow::Result<ExitCode> {
             reference,
             candidate,
             phase,
+            exclude_phase,
             manifest,
             float_tolerance,
         } => {
-            let manifest = Manifest::load(&manifest)?;
+            let mut manifest = Manifest::load(&manifest)?;
             let number = ragmonk_compat::manifest::phase_number(&phase)
                 .with_context(|| format!("invalid phase {phase:?}"))?;
+            for scenario in &mut manifest.scenarios {
+                for step in &mut scenario.steps {
+                    if step
+                        .rust_phase
+                        .as_ref()
+                        .is_some_and(|p| exclude_phase.contains(p))
+                    {
+                        step.rust_phase = None;
+                    }
+                }
+            }
             let (gated, diffs) = gate(
                 &manifest,
                 &load_value(&reference)?,

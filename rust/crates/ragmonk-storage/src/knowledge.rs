@@ -130,6 +130,28 @@ pub struct FileKnowledge {
     pub relationships: Vec<RelationshipRow>,
     pub documents: Vec<DocumentRow>,
     pub chunks: Vec<ChunkRow>,
+    /// Email attachment outcomes for this file (reported, not stored).
+    pub attachments: AttachmentStats,
+}
+
+/// Per-file email attachment outcomes (`AttachmentStats`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct AttachmentStats {
+    pub seen: usize,
+    pub indexed: usize,
+    pub skipped: usize,
+    pub failed: usize,
+    pub bytes_processed: usize,
+}
+
+impl std::ops::AddAssign for AttachmentStats {
+    fn add_assign(&mut self, o: Self) {
+        self.seen += o.seen;
+        self.indexed += o.indexed;
+        self.skipped += o.skipped;
+        self.failed += o.failed;
+        self.bytes_processed += o.bytes_processed;
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -723,6 +745,43 @@ impl ProjectStore {
             .map_err(StorageError::sqlite("list documents"))?;
         rows.collect::<rusqlite::Result<_>>()
             .map_err(StorageError::sqlite("list documents"))
+    }
+
+    /// Chunk counts per document: `(headings, paragraphs, tables)`. The
+    /// reference stores these as `section_count`, `paragraph_count` and
+    /// `table_count`, counted from the same chunks.
+    pub fn chunk_kind_counts(
+        &self,
+        build_id: &str,
+    ) -> Result<std::collections::HashMap<String, (i64, i64, i64)>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT document_id, kind, COUNT(*) FROM chunks WHERE build_id = ?1
+                 GROUP BY document_id, kind",
+            )
+            .map_err(StorageError::sqlite("count chunks"))?;
+        let rows = stmt
+            .query_map([build_id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(StorageError::sqlite("count chunks"))?;
+        let mut out: std::collections::HashMap<String, (i64, i64, i64)> = Default::default();
+        for row in rows {
+            let (doc, kind, n) = row.map_err(StorageError::sqlite("count chunks"))?;
+            let e = out.entry(doc).or_default();
+            match kind.as_str() {
+                "heading" => e.0 += n,
+                "paragraph" => e.1 += n,
+                "table" => e.2 += n,
+                _ => {}
+            }
+        }
+        Ok(out)
     }
 
     fn fts(&self, sql: &str, build_id: &str, query: &str, limit: i64) -> Result<Vec<Hit>> {

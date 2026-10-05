@@ -92,7 +92,7 @@ pub trait BuildFinalizer: Send + Sync {
         store: &mut ProjectStore,
         build_id: &str,
         touched: &[String],
-    ) -> Result<(), ProcessError>;
+    ) -> Result<FinalizeReport, ProcessError>;
 
     /// Runs on a warm pass (nothing to rebuild) against the active build,
     /// so derived state that is missing without a file change (for
@@ -101,6 +101,15 @@ pub trait BuildFinalizer: Send + Sync {
     fn on_warm_pass(&self, _store: &mut ProjectStore, _build_id: &str) -> Result<(), ProcessError> {
         Ok(())
     }
+}
+
+/// What a finalizer did, summed into the pass result.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct FinalizeReport {
+    /// Automatic knowledge links inserted (the reference's `linked`).
+    pub linked: usize,
+    /// Vectors written (the reference's `embedded`).
+    pub embedded: usize,
 }
 
 /// Processors per file kind plus the versions they produce.
@@ -215,6 +224,11 @@ pub struct SourceResult {
     pub scan_errors: Vec<String>,
     /// Only the named paths were examined (a watcher-triggered pass).
     pub targeted: bool,
+    pub linked: usize,
+    pub embedded: usize,
+    pub attachments: ragmonk_storage::knowledge::AttachmentStats,
+    /// The source was offline before this pass and is reachable again.
+    pub became_online: bool,
     pub timings: StageTimings,
 }
 
@@ -411,7 +425,13 @@ pub fn run_source_with(
         result.offline = Some(reason);
         return Ok(result);
     }
+    let was_offline = control
+        .state(&source.id)
+        .map_err(db_err)?
+        .online_status
+        .eq_ignore_ascii_case("offline");
     control.set_online(&source.id, true, None).map_err(db_err)?;
+    result.became_online = was_offline;
     let state = control.state(&source.id).map_err(db_err)?;
     let plan = plan_for(&state, &registry.versions);
     result.plan = match &plan {
@@ -699,6 +719,7 @@ fn build(
                 }
                 Ok(k) => {
                     result.indexed += 1;
+                    result.attachments += k.attachments;
                     (
                         file_row(&d.work, versions, "indexed", 0, None, None),
                         k,
@@ -761,12 +782,14 @@ fn build(
         Ok(())
     })?;
     for finalizer in &registry.finalizers {
-        finalizer.finalize(store, build_id, &touched).map_err(|e| {
+        let report = finalizer.finalize(store, build_id, &touched).map_err(|e| {
             RagMonkError::new(
                 ErrorKind::Generic,
                 format!("build finalization failed ({}): {}", e.code, e.message),
             )
         })?;
+        result.linked += report.linked;
+        result.embedded += report.embedded;
     }
     result.timings.process_seconds = started.elapsed().as_secs_f64();
     Ok(())

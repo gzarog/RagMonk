@@ -199,19 +199,23 @@ impl BuildFinalizer for EmbeddingFinalizer {
         store: &mut ProjectStore,
         build_id: &str,
         _touched: &[String],
-    ) -> Result<(), ProcessError> {
-        self.run(store, build_id)
+    ) -> Result<ragmonk_indexing::coordinator::FinalizeReport, ProcessError> {
+        Ok(ragmonk_indexing::coordinator::FinalizeReport {
+            linked: 0,
+            embedded: self.run(store, build_id)?,
+        })
     }
 
     fn on_warm_pass(&self, store: &mut ProjectStore, build_id: &str) -> Result<(), ProcessError> {
-        self.run(store, build_id)
+        self.run(store, build_id).map(|_| ())
     }
 }
 
 impl EmbeddingFinalizer {
-    fn run(&self, store: &mut ProjectStore, build_id: &str) -> Result<(), ProcessError> {
+    /// Returns the number of vectors computed (cache reuse included).
+    fn run(&self, store: &mut ProjectStore, build_id: &str) -> Result<usize, ProcessError> {
         let Ok(embedder) = self.embedder.get() else {
-            return Ok(());
+            return Ok(0);
         };
         let started = std::time::Instant::now();
         let stats = embed_build(store, build_id, embedder, &self.document_text_version)?;
@@ -248,6 +252,6 @@ impl EmbeddingFinalizer {
             stale_dropped = stats.stale_dropped,
             seconds = started.elapsed().as_secs_f64()
         );
-        Ok(())
+        Ok(stats.inferred + stats.cache_reused)
     }
 }

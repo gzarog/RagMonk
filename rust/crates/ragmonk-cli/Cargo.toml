@@ -12,11 +12,13 @@ name = "ragmonk"
 path = "src/main.rs"
 
 [dependencies]
+chrono.workspace = true
 clap.workspace = true
 ragmonk-config.workspace = true
 ragmonk-core.workspace = true
 ragmonk-backends.workspace = true
 ragmonk-convert.workspace = true
+ragmonk-documents.workspace = true
 ragmonk-indexing.workspace = true
 ragmonk-storage.workspace = true
 ragmonk-telemetry.workspace = true

@@ -422,9 +422,9 @@ impl BuildFinalizer for CrossFileResolver {
         store: &mut ProjectStore,
         build_id: &str,
         _touched: &[String],
-    ) -> Result<(), ProcessError> {
+    ) -> Result<ragmonk_indexing::coordinator::FinalizeReport, ProcessError> {
         resolve_build(store, build_id)
-            .map(|_| ())
+            .map(|_| ragmonk_indexing::coordinator::FinalizeReport::default())
             .map_err(|e| ProcessError {
                 code: "resolve_error".into(),
                 message: e.to_string(),
