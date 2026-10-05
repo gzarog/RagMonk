@@ -6,7 +6,7 @@ is still the product**; nothing here changes its behavior yet.
 
 | Crate | Status |
 |-------|--------|
-| `ragmonk-cli` | `ragmonk` binary: `version`, `config show/get/set`, `migrate-to-rust-v2 --check/--import-sources/--execute` (RUST-15), `server-v2 schema/init/legacy`, `daemon start/stop/restart/status/run`, `init`, `source add/list/info/enable/disable/remove`, `index`, `status`, `docs`, `watch`, `search`, `symbol`, `callers`, `callees`, `references`, `impact`, `explore`, `link add/remove/list`, `doctor`, `health`, `backup`, `restore`, `rebuild`, `upgrade`, `uninstall`, `vectors rebuild/backfill` (RUST-12); `serve --mcp`, the stdio MCP server with the `ragmonk_*` tools (RUST-13); `ask` and `ai providers/status/login/logout/models`, and `ui`, the local Admin UI (RUST-14) |
+| `ragmonk-cli` | `ragmonk` binary: `version`, `config show/get/set`, `migrate-to-rust-v2 --check/--import-sources/--execute` (RUST-15), `server-v2 schema/init/legacy`, `daemon start/stop/restart/status/run`, `init`, `source add/list/info/enable/disable/remove`, `index`, `status`, `docs`, `watch`, `search`, `symbol`, `callers`, `callees`, `references`, `impact`, `explore`, `link add/remove/list`, `doctor`, `health`, `backup`, `restore`, `rebuild`, `upgrade`, `uninstall`, `vectors rebuild/backfill` (RUST-12); `serve --mcp`, the stdio MCP server with the `ragmonk_*` tools (RUST-13); `ask` and `ai providers/status/login/logout/models`, and `ui`, the local Admin UI (RUST-14); `update check/status/install/rollback`, the background check and startup notice (RUST-15) |
 | `ragmonk-ai` | AI providers for `ask`: OpenAI, Anthropic, Ollama, OpenAI-compatible, Codex (stdio JSON-RPC) and Copilot (CLI) (RUST-14) |
 | `ragmonk-backends` | V2 OpenSearch/Elasticsearch schema, bounded bulk, atomic build publication, legacy cleanup (RUST-03) |
 | `ragmonk-code` | Tree-sitter code intelligence: reference `.scm` queries, extraction, resolution, framework rules, code graph, whole-build cross-file resolution (RUST-05) |
@@ -19,6 +19,7 @@ is still the product**; nothing here changes its behavior yet.
 | `ragmonk-config` | `config.yaml` + env layering with PyYAML/pydantic-exact semantics (RUST-01) |
 | `ragmonk-indexing` | scanner, ignore rules, incremental diff, retries, run lock, bounded transactional V2 coordinator (RUST-04); progress snapshot and status verdicts, daemon worker, reconciliation, PID and health files, filesystem watcher, network polling, targeted passes (RUST-11) |
 | `ragmonk-storage` | V2 SQLite control plane + per-source knowledge store, versioned migrations with backup, read-only V1 preflight/import (RUST-02) |
+| `ragmonk-update` | Native self-update: strict release tags, `update.json` cache, SHA-256 + optional minisign verification, `versions/<ver>` + `current` layout with rollback (RUST-15); see ADR 0029 and `scripts/package_release.py` |
 | `ragmonk-telemetry` | JSON-lines logging, URL/credential redaction (RUST-01) |
 | `ragmonk-compat` | Python-vs-Rust differential harness; removed at RUST-16 |
 

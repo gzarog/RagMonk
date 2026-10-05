@@ -16,6 +16,7 @@ members = [
     "crates/ragmonk-retrieval",
     "crates/ragmonk-storage",
     "crates/ragmonk-telemetry",
+    "crates/ragmonk-update",
 ]
 
 [workspace.package]
@@ -49,6 +50,7 @@ ragmonk-retrieval = { path = "crates/ragmonk-retrieval" }
 ragmonk-indexing = { path = "crates/ragmonk-indexing" }
 ragmonk-storage = { path = "crates/ragmonk-storage" }
 ragmonk-telemetry = { path = "crates/ragmonk-telemetry" }
+ragmonk-update = { path = "crates/ragmonk-update" }
 clap = { version = "4.5", features = ["derive"] }
 flate2 = "1"
 notify = "8.2"

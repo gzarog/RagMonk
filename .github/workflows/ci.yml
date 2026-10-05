@@ -380,103 +380,110 @@ jobs:
       - name: Pytest (cli_startup_benchmark)
         run: pytest -m cli_startup_benchmark -q -s
 
-  # Optional, non-blocking: runs install.sh/install.ps1 exactly as a real
-  # user would (curl/irm into a shell), pointed at *this* branch/commit via
-  # RAGMONK_REF, and verifies the resulting `ragmonk` launcher actually
-  # works. Non-blocking because it repeats the same heavy dependency
-  # download (torch, docling) as the jobs above, on top of a real network
-  # fetch of the branch tarball/zipball from GitHub -- see CONTRIBUTING.md
-  # for the same commands run locally.
+  # The native installers (RUST-15) end to end, against release archives
+  # packaged from this commit's build and served from a local directory
+  # (RAGMONK_DOWNLOAD_BASE): install, re-install a second version, then
+  # `ragmonk update rollback` back to the first.
   install-script-tests:
     name: Install script (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
+    env:
+      DIST: ${{ runner.temp }}/dist
+      RAGMONK_DOWNLOAD_BASE: ${{ runner.temp }}/dist
+      RAGMONK_INSTALL_DIR: ${{ runner.temp }}/ragmonk-install
+      RAGMONK_BIN_DIR: ${{ runner.temp }}/ragmonk-bin
+      RAGMONK_HOME: ${{ runner.temp }}/ragmonk-home
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: Swatinem/rust-cache@v2
         with:
-          python-version: "3.12"
-      - name: Run install.sh against this branch
-        env:
-          RAGMONK_REF: ${{ github.head_ref || github.ref_name }}
-          RAGMONK_INSTALL_DIR: ${{ runner.temp }}/ragmonk-install
-          RAGMONK_BIN_DIR: ${{ runner.temp }}/ragmonk-bin
-          RAGMONK_HOME: ${{ runner.temp }}/ragmonk-home
-        run: sh ./install.sh
+          workspaces: rust
+      - name: Build and package two versions
+        run: |
+          cargo build --manifest-path rust/Cargo.toml -p ragmonk-cli
+          for v in 0.9.0 0.9.1; do
+            python3 rust/scripts/package_release.py --binary rust/target/debug/ragmonk \
+              --version "$v" --target "${{ matrix.target }}" --out "$DIST"
+          done
+          cat "$DIST/SHA256SUMS"
+      - name: Install 0.9.0
+        run: RAGMONK_VERSION=0.9.0 sh ./install.sh
       - name: Verify the installed CLI works
-        env:
-          RAGMONK_HOME: ${{ runner.temp }}/ragmonk-home
         run: |
-          "${{ runner.temp }}/ragmonk-bin/ragmonk" version
-          "${{ runner.temp }}/ragmonk-bin/ragmonk" doctor
-      - name: Verify install-script metadata was written (update/installer.py detection)
+          "$RAGMONK_BIN_DIR/ragmonk" version
+          "$RAGMONK_BIN_DIR/ragmonk" doctor
+          grep -q '"install_method": "native"' "$RAGMONK_HOME/install_info.json"
+      - name: A tampered archive is refused
         run: |
-          test -f "${{ runner.temp }}/ragmonk-home/install_info.json"
-          grep -q '"install_method": "install-script"' "${{ runner.temp }}/ragmonk-home/install_info.json"
+          cp -R "$DIST" "$RUNNER_TEMP/bad" && echo x >> "$RUNNER_TEMP/bad/ragmonk-0.9.1-${{ matrix.target }}.tar.gz"
+          if RAGMONK_VERSION=0.9.1 RAGMONK_DOWNLOAD_BASE="$RUNNER_TEMP/bad" sh ./install.sh; then exit 1; fi
+          test "$(readlink "$RAGMONK_INSTALL_DIR/current")" = "versions/0.9.0"
+      - name: Install 0.9.1, then roll back
+        run: |
+          RAGMONK_VERSION=0.9.1 sh ./install.sh
+          test "$(readlink "$RAGMONK_INSTALL_DIR/current")" = "versions/0.9.1"
+          "$RAGMONK_BIN_DIR/ragmonk" update rollback
+          test "$(readlink "$RAGMONK_INSTALL_DIR/current")" = "versions/0.9.0"
+          "$RAGMONK_BIN_DIR/ragmonk" version
 
   install-script-tests-windows:
     name: Install script (windows-latest)
     runs-on: windows-latest
-    continue-on-error: true
+    env:
+      DIST: ${{ runner.temp }}\dist
+      RAGMONK_DOWNLOAD_BASE: ${{ runner.temp }}\dist
+      RAGMONK_INSTALL_DIR: ${{ runner.temp }}\ragmonk-install
+      RAGMONK_BIN_DIR: ${{ runner.temp }}\ragmonk-bin
+      RAGMONK_HOME: ${{ runner.temp }}\ragmonk-home
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: Swatinem/rust-cache@v2
         with:
-          python-version: "3.12"
-      - name: Run install.ps1 against this branch
-        env:
-          RAGMONK_REF: ${{ github.head_ref || github.ref_name }}
-          RAGMONK_INSTALL_DIR: ${{ runner.temp }}\ragmonk-install
-          RAGMONK_BIN_DIR: ${{ runner.temp }}\ragmonk-bin
-          RAGMONK_HOME: ${{ runner.temp }}\ragmonk-home
-        run: ./install.ps1
+          workspaces: rust
+      - name: Build and package two versions
+        run: |
+          cargo build --manifest-path rust/Cargo.toml -p ragmonk-cli
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          foreach ($v in "0.9.0", "0.9.1") {
+            python rust/scripts/package_release.py --binary rust/target/debug/ragmonk.exe `
+              --version $v --target x86_64-pc-windows-msvc --out $env:DIST
+            if ($LASTEXITCODE -ne 0) { throw "packaging failed" }
+          }
+      - name: Install 0.9.0
+        run: |
+          $env:RAGMONK_VERSION = "0.9.0"
+          ./install.ps1
       - name: Verify the installed CLI works
-        env:
-          RAGMONK_HOME: ${{ runner.temp }}\ragmonk-home
         run: |
-          & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" version
-          & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" doctor
-      - name: Verify install-script metadata was written (update/installer.py detection)
+          & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" version
+          if ($LASTEXITCODE -ne 0) { throw "version failed" }
+          & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" doctor
+          if ($LASTEXITCODE -ne 0) { throw "doctor failed" }
+          $info = Get-Content "$env:RAGMONK_HOME\install_info.json" -Raw | ConvertFrom-Json
+          if ($info.install_method -ne "native") { throw "unexpected install_method: $($info.install_method)" }
+      # Windows cannot overwrite a running exe: re-installing while the
+      # daemon runs from bin\ragmonk.exe proves the rename-based swap.
+      - name: Install 0.9.1 while the daemon holds the current exe, then roll back
         run: |
-          $infoPath = "${{ runner.temp }}\ragmonk-home\install_info.json"
-          if (-not (Test-Path $infoPath)) { throw "missing $infoPath" }
-          $info = Get-Content $infoPath -Raw | ConvertFrom-Json
-          if ($info.install_method -ne "install-script") { throw "unexpected install_method: $($info.install_method)" }
-      # Regression test for the Windows self-upgrade bug `ragmonk update
-      # install` hits: it re-runs this same install.ps1 from inside the
-      # currently-running venv\Scripts\ragmonk.exe. `ragmonk daemon
-      # start` spawns a real, detached background process from that exact
-      # venv (python.exe, per service loop `cli/daemon.py`'s `_spawn`)
-      # and waits for it to report healthy before returning -- a
-      # genuinely-executing process, not a synthetic file lock (an
-      # earlier version of this test used
-      # `[System.IO.File]::Open(..., FileShare.Read)`, which is *more*
-      # restrictive than what Windows actually grants a running PE image
-      # and produced a false failure here). Re-running install.ps1 while
-      # that daemon is alive and confirming both the run and the
-      # resulting CLI still work is the real proof that the rename-based
-      # swap in install.ps1 doesn't need the venv's files to be free.
-      - name: Re-run install.ps1 while a real background process holds the venv open (self-upgrade simulation)
-        env:
-          RAGMONK_REF: ${{ github.head_ref || github.ref_name }}
-          RAGMONK_INSTALL_DIR: ${{ runner.temp }}\ragmonk-install
-          RAGMONK_BIN_DIR: ${{ runner.temp }}\ragmonk-bin
-          RAGMONK_HOME: ${{ runner.temp }}\ragmonk-home
-        run: |
-          & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" daemon start
+          & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" daemon start
           if ($LASTEXITCODE -ne 0) { throw "daemon start failed" }
           try {
-              ./install.ps1
+            $env:RAGMONK_VERSION = "0.9.1"
+            ./install.ps1
           } finally {
-              & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" daemon stop
+            & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" daemon stop
           }
-      - name: Verify the installed CLI still works after the locked re-run
-        env:
-          RAGMONK_HOME: ${{ runner.temp }}\ragmonk-home
-        run: |
-          & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" version
-          & "${{ runner.temp }}\ragmonk-bin\ragmonk.cmd" doctor
+          if ((Get-Content "$env:RAGMONK_INSTALL_DIR\current" -Raw).Trim() -ne "0.9.1") { throw "not switched" }
+          & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" update rollback
+          if ($LASTEXITCODE -ne 0) { throw "rollback failed" }
+          if ((Get-Content "$env:RAGMONK_INSTALL_DIR\current" -Raw).Trim() -ne "0.9.0") { throw "not rolled back" }
+          & "$env:RAGMONK_BIN_DIR\ragmonk.cmd" version
+          if ($LASTEXITCODE -ne 0) { throw "version failed after rollback" }

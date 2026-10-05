@@ -1,145 +1,146 @@
 #!/bin/sh
-# Installs the RagMonk CLI: downloads the source for $RAGMONK_REF (default:
-# main), creates an isolated virtual environment, installs the package into
-# it, and links the `ragmonk` executable onto a per-user bin directory.
+# Installs the native RagMonk CLI (RUST-15): downloads the release archive
+# for this platform, verifies it against the release's SHA256SUMS (and the
+# minisign signature over it, when a key is configured below and
+# `minisign` is installed), unpacks it under $RAGMONK_INSTALL_DIR/versions,
+# and links `ragmonk` onto a per-user bin directory. No Python needed.
 #
-# Requires Python 3.12+ already on PATH -- this script does not install
-# Python itself. See README.md's Installation section for details.
+#   RAGMONK_VERSION        version to install (default: the latest release)
+#   RAGMONK_INSTALL_DIR    default: ~/.ragmonk
+#   RAGMONK_BIN_DIR        default: ~/.local/bin
+#   RAGMONK_HOME           default: ~/.ragmonk
+#   RAGMONK_DOWNLOAD_BASE  a URL or local directory holding the release
+#                          assets (testing and mirrors)
 set -eu
 
 REPO="gzarog/RagMonk"
-REF="${RAGMONK_REF:-main}"
+# The release-signing public key (minisign). Empty: checksums only.
+MINISIGN_PUBKEY=""
 INSTALL_DIR="${RAGMONK_INSTALL_DIR:-$HOME/.ragmonk}"
-APP_DIR="$INSTALL_DIR/app"
-VENV_DIR="$INSTALL_DIR/venv"
 BIN_DIR="${RAGMONK_BIN_DIR:-$HOME/.local/bin}"
-# Same default as ragmonk's own core/paths.py::runtime_dir() on POSIX --
-# RAGMONK_INSTALL_DIR/RAGMONK_HOME happen to share a default today, but
-# are independent overrides, so this is computed the same way rather than
-# assumed equal to INSTALL_DIR above.
 RAGMONK_HOME="${RAGMONK_HOME:-$HOME/.ragmonk}"
 
-find_python() {
-    for candidate in python3.13 python3.12 python3 python; do
-        if command -v "$candidate" >/dev/null 2>&1; then
-            version="$("$candidate" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "0.0")"
-            major="${version%%.*}"
-            minor="${version#*.}"
-            if [ "$major" -eq 3 ] && [ "$minor" -ge 12 ] 2>/dev/null; then
-                echo "$candidate"
-                return 0
-            fi
-        fi
-    done
-    return 1
-}
-
-PYTHON="$(find_python)" || {
-    echo "error: RagMonk requires Python 3.12+, but no suitable interpreter was found on PATH." >&2
-    echo "Install Python 3.12 or newer (https://www.python.org/downloads/) and re-run this script." >&2
+fail() {
+    echo "error: $*" >&2
     exit 1
 }
-echo "Using $("$PYTHON" --version) at $(command -v "$PYTHON")"
 
-TARBALL="$(mktemp)"
-trap 'rm -f "$TARBALL"' EXIT
-echo "Downloading RagMonk ($REF)..."
-DOWNLOAD_URL="https://github.com/$REPO/archive/refs/heads/$REF.tar.gz"
-# GitHub's archive/codeload endpoint can briefly 404 a branch that was just
-# pushed (its tarball cache lags the push by a few seconds) -- retry a
-# handful of times with linear backoff before giving up, rather than
-# failing outright on what is usually a transient race.
-attempt=1
-max_attempts=5
-until curl -fsSL "$DOWNLOAD_URL" -o "$TARBALL"; do
-    if [ "$attempt" -ge "$max_attempts" ]; then
-        echo "error: failed to download $DOWNLOAD_URL after $attempt attempts" >&2
-        exit 1
-    fi
-    echo "Download attempt $attempt failed, retrying in ${attempt}s..." >&2
-    sleep "$attempt"
-    attempt=$((attempt + 1))
-done
-
-rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR"
-tar -xzf "$TARBALL" -C "$APP_DIR" --strip-components=1
-
-# Resolve a version to report via SETUPTOOLS_SCM_PRETEND_VERSION: the
-# downloaded tarball above has no .git for hatch-vcs to derive one from,
-# so it would otherwise always fall back to the hardcoded "0.0.0"
-# placeholder (see pyproject.toml's [tool.hatch.version]
-# fallback-version). $REF is used directly when it already looks like
-# this project's own release-tag shape (an upgrade -- update/installer.py
-# always passes an exact, already-validated tag here); the default
-# "main" instead queries GitHub for the latest actual release, since
-# "main" itself isn't a version. Any other custom/branch $REF is left
-# unresolved -- reporting an unrelated release's version for arbitrary
-# branch content would be actively misleading. A failed or missing
-# lookup (offline, no releases yet) just skips the override, same as
-# before this existed.
-PRETEND_VERSION=""
-case "$REF" in
-    v[0-9]*.[0-9]*.[0-9]*)
-        PRETEND_VERSION="${REF#v}"
-        ;;
-    main)
-        LATEST_TAG="$(curl -fsSL -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
-            | grep -o '"tag_name" *: *"[^"]*"' | head -n1 | sed 's/.*"\([^"]*\)"$/\1/')"
-        case "$LATEST_TAG" in
-            v[0-9]*.[0-9]*.[0-9]*) PRETEND_VERSION="${LATEST_TAG#v}" ;;
-        esac
-        ;;
+case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64 | Linux-amd64) TARGET="x86_64-unknown-linux-gnu" ;;
+    Darwin-arm64 | Darwin-aarch64) TARGET="aarch64-apple-darwin" ;;
+    Darwin-x86_64) TARGET="x86_64-apple-darwin" ;;
+    *) fail "no RagMonk release for $(uname -s) $(uname -m); build from source (see README.md)" ;;
 esac
 
-echo "Creating virtual environment at $VENV_DIR..."
-rm -rf "$VENV_DIR"
-"$PYTHON" -m venv "$VENV_DIR"
+fetch() { # <url-or-path> <dest>
+    case "$1" in
+        http://* | https://*)
+            attempt=1
+            until curl -fsSL "$1" -o "$2"; do
+                [ "$attempt" -ge 4 ] && fail "failed to download $1"
+                sleep "$attempt"
+                attempt=$((attempt + 1))
+            done
+            ;;
+        *) cp "$1" "$2" || fail "missing $1" ;;
+    esac
+}
 
-echo "Installing RagMonk (this downloads its dependencies, including torch -- may take a few minutes)..."
-"$VENV_DIR/bin/pip" install --quiet --upgrade pip
-# Purge pip's cache before the real install: an entry written by whatever
-# pip version was previously on this machine can fail to deserialize under
-# the version just upgraded to above ("WARNING: Cache entry deserialization
-# failed, entry ignored") -- pip already degrades safely from that (just
-# re-downloads), but starting from a clean cache means it shouldn't happen
-# at all. `|| true`: a cache that doesn't exist yet, or isn't writable, is
-# not a reason to abort the install.
-"$VENV_DIR/bin/pip" cache purge >/dev/null 2>&1 || true
-# Still explained below in case some other/newer cache mismatch shows up
-# despite the purge above: harmless either way, pip just re-downloads that
-# entry instead of using a stale cache.
-echo "(you may see \"Cache entry deserialization failed\" warnings below -- harmless, pip just re-downloads that entry)"
-# Deliberately not --quiet here: pip's normal download/build progress output
-# is the only feedback during a multi-minute, multi-hundred-MB install (torch
-# chief among the dependencies) -- silencing it makes a slow-but-working
-# install indistinguishable from a hung one.
-if [ -n "$PRETEND_VERSION" ]; then
-    # "[server]": OpenSearch + Elasticsearch clients for storage.mode=server.
-    SETUPTOOLS_SCM_PRETEND_VERSION="$PRETEND_VERSION" "$VENV_DIR/bin/pip" install "$APP_DIR[server]"
-else
-    "$VENV_DIR/bin/pip" install "$APP_DIR[server]"
+VERSION="${RAGMONK_VERSION:-}"
+if [ -z "$VERSION" ]; then
+    TAG="$(curl -fsSL -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/$REPO/releases/latest" \
+        | grep -o '"tag_name" *: *"[^"]*"' | head -n1 | sed 's/.*"\([^"]*\)"$/\1/')" \
+        || fail "could not determine the latest release"
+    VERSION="${TAG#v}"
+    case "$VERSION" in
+        [0-9]*.[0-9]*.[0-9]*) ;;
+        *) fail "latest release tag '$TAG' is not a MAJOR.MINOR.PATCH version" ;;
+    esac
+fi
+VERSION="${VERSION#v}"
+case "$VERSION" in
+    *[!0-9A-Za-z.+-]* | "" | .*) fail "invalid version '$VERSION'" ;;
+esac
+BASE="${RAGMONK_DOWNLOAD_BASE:-https://github.com/$REPO/releases/download/v$VERSION}"
+ASSET="ragmonk-$VERSION-$TARGET.tar.gz"
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+echo "Downloading RagMonk $VERSION ($TARGET)..."
+fetch "$BASE/$ASSET" "$TMP/$ASSET"
+fetch "$BASE/SHA256SUMS" "$TMP/SHA256SUMS"
+
+if [ -n "$MINISIGN_PUBKEY" ]; then
+    if command -v minisign >/dev/null 2>&1; then
+        fetch "$BASE/SHA256SUMS.minisig" "$TMP/SHA256SUMS.minisig"
+        minisign -Vqm "$TMP/SHA256SUMS" -P "$MINISIGN_PUBKEY" \
+            || fail "SHA256SUMS signature does not verify; refusing to install"
+        echo "Signature verified."
+    else
+        echo "note: install minisign to also verify the release signature" >&2
+    fi
 fi
 
-mkdir -p "$BIN_DIR"
-ln -sf "$VENV_DIR/bin/ragmonk" "$BIN_DIR/ragmonk"
-echo "RagMonk installed: $BIN_DIR/ragmonk"
+EXPECTED="$(awk -v n="$ASSET" '{ f = $2; sub(/^\*/, "", f); if (f == n) print $1 }' "$TMP/SHA256SUMS")"
+[ -n "$EXPECTED" ] || fail "$ASSET is not listed in SHA256SUMS"
+if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL="$(sha256sum "$TMP/$ASSET" | cut -d' ' -f1)"
+else
+    ACTUAL="$(shasum -a 256 "$TMP/$ASSET" | cut -d' ' -f1)"
+fi
+[ "$ACTUAL" = "$EXPECTED" ] \
+    || fail "checksum mismatch for $ASSET: expected $EXPECTED, got $ACTUAL; refusing to install"
+echo "Checksum verified."
 
-# Lets `ragmonk update install` (update/installer.py) detect that this is
-# an install-script install and where to re-run this same script, rather
-# than guessing from the running interpreter's own path -- see this
-# file's own record of itself as the one thing that can't guess itself.
+VERSIONS="$INSTALL_DIR/versions"
+PARTIAL="$VERSIONS/$VERSION.partial"
+mkdir -p "$VERSIONS"
+rm -rf "$PARTIAL"
+mkdir -p "$PARTIAL"
+tar -xzf "$TMP/$ASSET" -C "$PARTIAL" --strip-components=1
+[ -x "$PARTIAL/ragmonk" ] || fail "$ASSET does not contain the ragmonk binary"
+"$PARTIAL/ragmonk" version >/dev/null || fail "the downloaded binary does not run on this machine"
+rm -rf "${VERSIONS:?}/$VERSION"
+mv "$PARTIAL" "$VERSIONS/$VERSION"
+
+if [ -d "$VERSIONS/$VERSION/models" ]; then
+    mkdir -p "$RAGMONK_HOME/models"
+    cp -R "$VERSIONS/$VERSION/models/." "$RAGMONK_HOME/models/"
+fi
+
+STATE="$INSTALL_DIR/install_state.json"
+OLD=""
+[ -f "$STATE" ] && OLD="$(sed -n 's/.*"current" *: *"\([^"]*\)".*/\1/p' "$STATE" | head -n1)"
+PREV="null"
+if [ -n "$OLD" ] && [ "$OLD" != "$VERSION" ]; then
+    PREV="\"$OLD\""
+elif [ -f "$STATE" ]; then
+    P="$(sed -n 's/.*"previous" *: *"\([^"]*\)".*/\1/p' "$STATE" | head -n1)"
+    [ -n "$P" ] && PREV="\"$P\""
+fi
+ln -sfn "versions/$VERSION" "$INSTALL_DIR/current"
+printf '{\n  "current": "%s",\n  "previous": %s\n}\n' "$VERSION" "$PREV" > "$STATE"
+
+mkdir -p "$BIN_DIR"
+ln -sf "$INSTALL_DIR/current/ragmonk" "$BIN_DIR/ragmonk"
+echo "RagMonk $VERSION installed: $BIN_DIR/ragmonk"
+
+# `ragmonk update` reads this to find the install it manages.
 mkdir -p "$RAGMONK_HOME"
-cat > "$RAGMONK_HOME/install_info.json" <<EOF
+cat > "$RAGMONK_HOME/install_info.json" <<JSON
 {
-  "install_method": "install-script",
+  "install_method": "native",
   "repository": "$REPO",
   "install_dir": "$INSTALL_DIR",
-  "venv_dir": "$VENV_DIR",
   "bin_dir": "$BIN_DIR"
 }
-EOF
+JSON
+
+if [ -d "$INSTALL_DIR/venv" ]; then
+    echo "note: the old Python install in $INSTALL_DIR/venv and $INSTALL_DIR/app is no longer used;"
+    echo "      run 'ragmonk migrate-to-rust-v2 --check' and remove them once you are happy."
+fi
 
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;

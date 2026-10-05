@@ -17,6 +17,7 @@ mod ops_cmd;
 mod query_cmd;
 mod status_cmd;
 mod ui;
+mod update_cmd;
 mod workflow;
 
 use std::process::ExitCode;
@@ -175,6 +176,11 @@ enum Command {
         yes: bool,
         #[arg(long = "json")]
         json: bool,
+    },
+    /// Check for and install RagMonk updates.
+    Update {
+        #[command(subcommand)]
+        command: Option<update_cmd::UpdateCommand>,
     },
     /// Apply pending schema migrations, backing up first if needed.
     Upgrade {
@@ -553,6 +559,7 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
             yes,
             json,
         } => ops_cmd::rebuild(source, fresh, yes, json)?,
+        Command::Update { command } => update_cmd::run(command)?,
         Command::Upgrade { json } => ops_cmd::upgrade(json)?,
         Command::Uninstall {
             keep_data,
@@ -568,6 +575,23 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
 fn main() -> ExitCode {
     // clap exits with code 2 on usage errors, matching EXIT_INVALID_ARGUMENTS.
     let cli = Cli::parse();
+    // Commands that must stay quiet and network-free: the update commands
+    // themselves, the MCP/daemon processes, and the ones `update install`
+    // runs on a freshly installed binary.
+    if std::env::var_os("RAGMONK_NO_UPDATE_CHECK").is_none()
+        && !matches!(
+            cli.command,
+            Command::Update { .. }
+                | Command::Version { .. }
+                | Command::Serve { .. }
+                | Command::Daemon(_)
+                | Command::Watch
+                | Command::Upgrade { .. }
+                | Command::Doctor { .. }
+        )
+    {
+        update_cmd::on_startup();
+    }
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {

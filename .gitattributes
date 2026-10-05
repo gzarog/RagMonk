@@ -6,3 +6,4 @@
 # changing their bytes and failing the integrity check. Marking them
 # binary disables any end-of-line normalization or diffing.
 src/ragmonk/tokenization/assets/** binary
+rust/crates/ragmonk-update/tests/minisign.* -text

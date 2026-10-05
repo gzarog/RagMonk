@@ -1,0 +1,4 @@
+untrusted comment: test signature
+RUQBAgMEBQYHCC9vrw/F2TpPwt5LI6e2EHAge8M8Fexd9D0yycnxhbUeM/kCx2xOzpQ36veNMz959uC1t1y9+MtyxRkfo/6hZwM=
+trusted comment: timestamp:1767225600	file:SHA256SUMS	hashed
+1BVxcfFDCVI/uokDhFRwjR7b7xKr1KvrKOhjWi9oYDWNiSYiCtzb+d/y/9P5JEQcTVqD1v58qXhUgpUltFZTBQ==
