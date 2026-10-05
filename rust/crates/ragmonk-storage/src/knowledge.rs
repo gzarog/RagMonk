@@ -109,6 +109,8 @@ pub struct ChunkRow {
     pub page_end: Option<i64>,
     pub table_rows: Option<Vec<Vec<String>>>,
     pub caption: Option<String>,
+    /// Ordinal of the enclosing heading chunk in the same document.
+    pub parent_ordinal: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -522,7 +524,7 @@ impl ProjectStore {
             )?;
             exec("INSERT INTO chunks SELECT id, ?1, document_id, file_id, kind, ordinal, heading_path,
                     heading_level, text, search_text, embedding_text, token_count, page_start,
-                    page_end, table_rows, caption
+                    page_end, table_rows, caption, parent_ordinal
                   FROM chunks WHERE build_id = ?2 AND file_id = ?3")?;
             exec(
                 "INSERT INTO embeddings SELECT ?1, subject_type, subject_id, file_id,
@@ -608,7 +610,7 @@ impl ProjectStore {
                   FROM documents WHERE build_id = ?2 AND file_id NOT IN (SELECT id FROM carry_skip)")?;
             exec("INSERT INTO chunks SELECT id, ?1, document_id, file_id, kind, ordinal, heading_path,
                     heading_level, text, search_text, embedding_text, token_count, page_start,
-                    page_end, table_rows, caption
+                    page_end, table_rows, caption, parent_ordinal
                   FROM chunks WHERE build_id = ?2 AND file_id NOT IN (SELECT id FROM carry_skip)")?;
             exec(
                 "INSERT INTO embeddings SELECT ?1, subject_type, subject_id, file_id,
@@ -1153,8 +1155,8 @@ fn insert_knowledge(tx: &Connection, build_id: &str, k: &FileKnowledge) -> Resul
             tx,
             "INSERT INTO chunks (id, build_id, document_id, file_id, kind, ordinal, heading_path,
                 heading_level, text, search_text, embedding_text, token_count, page_start,
-                page_end, table_rows, caption)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                page_end, table_rows, caption, parent_ordinal)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 c.id,
                 build_id,
@@ -1171,7 +1173,8 @@ fn insert_knowledge(tx: &Connection, build_id: &str, k: &FileKnowledge) -> Resul
                 c.page_start,
                 c.page_end,
                 rows,
-                c.caption
+                c.caption,
+                c.parent_ordinal
             ],
         )
         .map_err(err("insert chunk"))?;
@@ -1460,33 +1463,127 @@ impl ProjectStore {
     pub fn file_chunks(&self, build_id: &str, file_id: &str) -> Result<Vec<ChunkRow>> {
         self.query_rows(
             "file chunks",
-            "SELECT id, document_id, file_id, kind, ordinal, heading_path, heading_level, text,
-                search_text, embedding_text, token_count, page_start, page_end, table_rows, caption
-             FROM chunks WHERE build_id = ?1 AND file_id = ?2 ORDER BY ordinal",
+            &format!(
+                "SELECT {CHUNK_COLUMNS} FROM chunks WHERE build_id = ?1 AND file_id = ?2
+                 ORDER BY ordinal"
+            ),
             &[&build_id, &file_id],
-            |r| {
-                let heading_path: String = r.get(5)?;
-                let table_rows: Option<String> = r.get(13)?;
-                Ok(ChunkRow {
-                    id: r.get(0)?,
-                    document_id: r.get(1)?,
-                    file_id: r.get(2)?,
-                    kind: r.get(3)?,
-                    ordinal: r.get(4)?,
-                    heading_path: serde_json::from_str(&heading_path).unwrap_or_default(),
-                    heading_level: r.get(6)?,
-                    text: r.get(7)?,
-                    search_text: r.get(8)?,
-                    embedding_text: r.get(9)?,
-                    token_count: r.get(10)?,
-                    page_start: r.get(11)?,
-                    page_end: r.get(12)?,
-                    table_rows: table_rows.and_then(|t| serde_json::from_str(&t).ok()),
-                    caption: r.get(14)?,
-                })
-            },
+            chunk_from_row,
         )
     }
+
+    /// One chunk by id.
+    pub fn chunk(&self, build_id: &str, id: &str) -> Result<Option<ChunkRow>> {
+        Ok(self
+            .query_rows(
+                "chunk",
+                &format!("SELECT {CHUNK_COLUMNS} FROM chunks WHERE build_id = ?1 AND id = ?2"),
+                &[&build_id, &id],
+                chunk_from_row,
+            )?
+            .pop())
+    }
+
+    /// The chunk at `ordinal` in `document_id`.
+    pub fn chunk_at(
+        &self,
+        build_id: &str,
+        document_id: &str,
+        ordinal: i64,
+    ) -> Result<Option<ChunkRow>> {
+        Ok(self
+            .query_rows(
+                "chunk at",
+                &format!(
+                    "SELECT {CHUNK_COLUMNS} FROM chunks
+                     WHERE build_id = ?1 AND document_id = ?2 AND ordinal = ?3"
+                ),
+                &[&build_id, &document_id, &ordinal],
+                chunk_from_row,
+            )?
+            .pop())
+    }
+
+    /// Siblings of `c` (same document and enclosing heading), at most
+    /// `previous` before and `next` after it, each in ordinal order
+    /// (`documents_repo.get_chunk_neighbors`).
+    pub fn chunk_siblings(
+        &self,
+        build_id: &str,
+        c: &ChunkRow,
+        previous: i64,
+        next: i64,
+    ) -> Result<(Vec<ChunkRow>, Vec<ChunkRow>)> {
+        let mut before = if previous > 0 {
+            self.query_rows(
+                "chunk siblings",
+                &format!(
+                    "SELECT {CHUNK_COLUMNS} FROM chunks
+                     WHERE build_id = ?1 AND document_id = ?2 AND parent_ordinal IS ?3
+                       AND ordinal < ?4 ORDER BY ordinal DESC LIMIT ?5"
+                ),
+                &[
+                    &build_id,
+                    &c.document_id,
+                    &c.parent_ordinal,
+                    &c.ordinal,
+                    &previous,
+                ],
+                chunk_from_row,
+            )?
+        } else {
+            Vec::new()
+        };
+        before.reverse();
+        let after = if next > 0 {
+            self.query_rows(
+                "chunk siblings",
+                &format!(
+                    "SELECT {CHUNK_COLUMNS} FROM chunks
+                     WHERE build_id = ?1 AND document_id = ?2 AND parent_ordinal IS ?3
+                       AND ordinal > ?4 ORDER BY ordinal LIMIT ?5"
+                ),
+                &[
+                    &build_id,
+                    &c.document_id,
+                    &c.parent_ordinal,
+                    &c.ordinal,
+                    &next,
+                ],
+                chunk_from_row,
+            )?
+        } else {
+            Vec::new()
+        };
+        Ok((before, after))
+    }
+}
+
+const CHUNK_COLUMNS: &str = "id, document_id, file_id, kind, ordinal, heading_path, heading_level,
+    text, search_text, embedding_text, token_count, page_start, page_end, table_rows, caption,
+    parent_ordinal";
+
+fn chunk_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ChunkRow> {
+    let heading_path: String = r.get(5)?;
+    let table_rows: Option<String> = r.get(13)?;
+    Ok(ChunkRow {
+        id: r.get(0)?,
+        document_id: r.get(1)?,
+        file_id: r.get(2)?,
+        kind: r.get(3)?,
+        ordinal: r.get(4)?,
+        heading_path: serde_json::from_str(&heading_path).unwrap_or_default(),
+        heading_level: r.get(6)?,
+        text: r.get(7)?,
+        search_text: r.get(8)?,
+        embedding_text: r.get(9)?,
+        token_count: r.get(10)?,
+        page_start: r.get(11)?,
+        page_end: r.get(12)?,
+        table_rows: table_rows.and_then(|t| serde_json::from_str(&t).ok()),
+        caption: r.get(14)?,
+        parent_ordinal: r.get(15)?,
+    })
 }
 
 // ---- knowledge linker (RUST-08) ----------------------------------------

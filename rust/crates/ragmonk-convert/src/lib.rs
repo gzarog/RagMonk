@@ -77,7 +77,11 @@ pub fn registry_with(config: &RagMonkConfig, opts: &RegistryOptions) -> Registry
     } else {
         converter.parser_version()
     };
-    r.versions.chunker_version = ragmonk_documents::chunker::chunker_version_stamp();
+    r.versions.chunker_version = format!(
+        "{}+{}",
+        ragmonk_documents::chunker::chunker_version_stamp(),
+        ragmonk_documents::version::CHUNK_PARENTS_VERSION
+    );
     r.versions.embedding_text_version =
         Some(ragmonk_documents::chunker::EMBEDDING_TEXT_VERSION.into());
     // Cross-domain links run after cross-file resolution, over the files

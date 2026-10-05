@@ -142,9 +142,34 @@ pub fn remove(store: &mut ProjectStore, build_id: &str, id: &str) -> Result<bool
 /// chunk ordinal that no longer exists falls back to the whole document.
 pub fn apply(store: &mut ProjectStore, build_id: &str) -> Result<usize, StorageError> {
     store.delete_links_by_resolver(build_id, USER_RESOLVER)?;
+    let rows: Vec<LinkRow> = materialize(store, build_id)?
+        .into_iter()
+        .map(|(_, row)| row)
+        .collect();
+    let n = rows.len();
+    store.put_links(build_id, &rows)?;
+    Ok(n)
+}
+
+/// Materialized link id to the id of the manual link that produced it.
+pub fn manual_ids(
+    store: &ProjectStore,
+    build_id: &str,
+) -> Result<HashMap<String, String>, StorageError> {
+    Ok(materialize(store, build_id)?
+        .into_iter()
+        .map(|(manual, row)| (row.id, manual))
+        .collect())
+}
+
+/// Each manual link's rows in `build_id`, paired with its manual id.
+fn materialize(
+    store: &ProjectStore,
+    build_id: &str,
+) -> Result<Vec<(String, LinkRow)>, StorageError> {
     let manual = store.manual_links()?;
     if manual.is_empty() {
-        return Ok(0);
+        return Ok(Vec::new());
     }
     let files: HashMap<String, String> = store
         .files(build_id)?
@@ -179,25 +204,26 @@ pub fn apply(store: &mut ProjectStore, build_id: &str) -> Result<usize, StorageE
             .filter(|e| e.qualified_name == m.entity_qualified_name)
             .collect();
         for e in entities {
-            rows.push(LinkRow {
-                id: v2::link_id(
-                    &e.id,
-                    &document_id,
-                    chunk_id.as_deref(),
-                    &m.link_type,
-                    USER_RESOLVER,
-                ),
-                link_type: m.link_type.clone(),
-                entity_id: e.id,
-                document_id: document_id.clone(),
-                chunk_id: chunk_id.clone(),
-                resolver: USER_RESOLVER.into(),
-                confidence: Confidence::Exact.as_str().into(),
-                evidence: m.note.clone(),
-            });
+            rows.push((
+                m.id.clone(),
+                LinkRow {
+                    id: v2::link_id(
+                        &e.id,
+                        &document_id,
+                        chunk_id.as_deref(),
+                        &m.link_type,
+                        USER_RESOLVER,
+                    ),
+                    link_type: m.link_type.clone(),
+                    entity_id: e.id,
+                    document_id: document_id.clone(),
+                    chunk_id: chunk_id.clone(),
+                    resolver: USER_RESOLVER.into(),
+                    confidence: Confidence::Exact.as_str().into(),
+                    evidence: m.note.clone(),
+                },
+            ));
         }
     }
-    let n = rows.len();
-    store.put_links(build_id, &rows)?;
-    Ok(n)
+    Ok(rows)
 }

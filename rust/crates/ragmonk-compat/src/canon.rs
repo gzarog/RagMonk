@@ -128,7 +128,7 @@ pub fn canonical_json_full(
                         canonical_json_full(inner, masks, volatile_keys, unordered, drop);
                     if let Value::Array(items) = &mut canon {
                         if unordered.iter().any(|k| k == key) {
-                            items.sort_by_cached_key(Value::to_string);
+                            items.sort_by_cached_key(sorted_text);
                         }
                     }
                     canon
@@ -145,6 +145,27 @@ pub fn canonical_json_full(
         ),
         Value::String(s) => Value::String(masks.apply_str(s)),
         other => other.clone(),
+    }
+}
+
+/// JSON text with object keys sorted at every level, so the order of
+/// unordered arrays does not depend on either implementation's key order.
+fn sorted_text(v: &Value) -> String {
+    match v {
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            let parts: Vec<String> = keys
+                .into_iter()
+                .map(|k| format!("{}:{}", Value::String(k.clone()), sorted_text(&map[k])))
+                .collect();
+            format!("{{{}}}", parts.join(","))
+        }
+        Value::Array(items) => {
+            let parts: Vec<String> = items.iter().map(sorted_text).collect();
+            format!("[{}]", parts.join(","))
+        }
+        other => other.to_string(),
     }
 }
 
@@ -203,6 +224,15 @@ mod tests {
         let ca = canonical_json_with(&a, &masks, &[], &unordered);
         assert_eq!(ca, canonical_json_with(&b, &masks, &[], &unordered));
         assert_eq!(ca["ranked"], json!([2, 1]));
+        // Key order inside the elements does not affect their order.
+        let c: Value =
+            serde_json::from_str(r#"{"edges": [{"b": 1, "a": "y"}, {"a": "x", "b": 2}]}"#).unwrap();
+        let d: Value =
+            serde_json::from_str(r#"{"edges": [{"a": "y", "b": 1}, {"b": 2, "a": "x"}]}"#).unwrap();
+        assert_eq!(
+            canonical_json_with(&c, &masks, &[], &unordered)["edges"][0]["a"],
+            canonical_json_with(&d, &masks, &[], &unordered)["edges"][0]["a"]
+        );
     }
 
     #[test]

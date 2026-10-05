@@ -8,6 +8,11 @@ use crate::chunker::{chunker_version_stamp, EMBEDDING_TEXT_VERSION};
 /// extraction is enabled.
 pub const EMAIL_ATTACHMENTS_VERSION: &str = "eml-attachments.1";
 
+/// Folded into the stored chunker identity (Rust only): chunks record
+/// their enclosing heading (`parent_ordinal`) for search context
+/// expansion. Builds without it are rebuilt.
+pub const CHUNK_PARENTS_VERSION: &str = "chunk-parents.1";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentVersionStamp {
     pub parser_version: String,

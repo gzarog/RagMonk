@@ -632,7 +632,7 @@ pub fn search_result_json(r: &SearchResult) -> Value {
     })
 }
 
-fn semantic_hit_json(h: &crate::hybrid::SourcedHit) -> Value {
+pub fn semantic_hit_json(h: &crate::hybrid::SourcedHit) -> Value {
     let s = &h.hit;
     let location = if s.kind == "entity" {
         json!({"line_start": s.position, "line_end": s.end_line})

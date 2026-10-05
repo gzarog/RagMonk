@@ -370,4 +370,14 @@ CREATE TABLE embedding_cache (
 );
 "#,
     },
+    Migration {
+        version: 6,
+        name: "chunk_parents",
+        sql: r#"
+-- Search context expansion (RUST-12): each chunk's enclosing heading, as
+-- the ordinal of that heading chunk in the same document (the reference's
+-- document_sections.parent_id). Siblings are chunks sharing it.
+ALTER TABLE chunks ADD COLUMN parent_ordinal INTEGER;
+"#,
+    },
 ];
