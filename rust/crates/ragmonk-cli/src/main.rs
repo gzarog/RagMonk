@@ -9,6 +9,8 @@
 //! stable exit codes.
 
 mod daemon_cmd;
+mod doctor_cmd;
+mod ops_cmd;
 mod query_cmd;
 mod status_cmd;
 mod workflow;
@@ -103,6 +105,63 @@ enum Command {
     /// Inspect and manually correct the link graph.
     #[command(subcommand)]
     Link(query_cmd::LinkCommand),
+    /// Run health checks.
+    Doctor {
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Show a condensed health summary.
+    Health {
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Create a restorable backup archive of RagMonk's databases.
+    Backup {
+        /// Output archive path (default: <home>/backups/ragmonk-backup-<timestamp>.tar.gz).
+        dest: Option<String>,
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Restore RagMonk's databases from a backup archive.
+    Restore {
+        /// Path to a backup archive created by 'ragmonk backup'.
+        archive: String,
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Re-index one or every source's derived knowledge from scratch.
+    Rebuild {
+        /// Only rebuild this source id.
+        #[arg(long = "source")]
+        source: Option<String>,
+        /// Check every source root first and ask for confirmation.
+        #[arg(long)]
+        fresh: bool,
+        /// Skip the confirmation prompt for --fresh.
+        #[arg(long)]
+        yes: bool,
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Apply pending schema migrations, backing up first if needed.
+    Upgrade {
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Remove RagMonk's data (and explain how to remove the binary).
+    Uninstall {
+        /// Remove only the application; keep RAGMONK_HOME.
+        #[arg(long = "keep-data")]
+        keep_data: bool,
+        /// Skip the confirmation prompt.
+        #[arg(long, short = 'y')]
+        yes: bool,
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Manage the semantic-search ANN index.
+    #[command(subcommand)]
+    Vectors(ops_cmd::VectorsCommand),
 }
 
 #[derive(Subcommand)]
@@ -458,6 +517,23 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
         Command::Impact(a) => query_cmd::impact(&a)?,
         Command::Explore { query, json } => query_cmd::explore(&query, json)?,
         Command::Link(cmd) => query_cmd::link(cmd)?,
+        Command::Doctor { json } => doctor_cmd::doctor(json)?,
+        Command::Health { json } => doctor_cmd::health(json)?,
+        Command::Backup { dest, json } => ops_cmd::backup(dest, json)?,
+        Command::Restore { archive, json } => ops_cmd::restore(&archive, json)?,
+        Command::Rebuild {
+            source,
+            fresh,
+            yes,
+            json,
+        } => ops_cmd::rebuild(source, fresh, yes, json)?,
+        Command::Upgrade { json } => ops_cmd::upgrade(json)?,
+        Command::Uninstall {
+            keep_data,
+            yes,
+            json,
+        } => ops_cmd::uninstall(keep_data, yes, json)?,
+        Command::Vectors(cmd) => ops_cmd::vectors(cmd)?,
         Command::MigrateToRustV2(args) => {
             let home = Home::discover();
             if args.check {
@@ -499,7 +575,11 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("Error: {}", redact_urls_in_text(err.message()));
+            // An empty message is a deliberate silent exit (e.g. doctor's
+            // UNHEALTHY verdict, already printed).
+            if !err.message().is_empty() {
+                eprintln!("Error: {}", redact_urls_in_text(err.message()));
+            }
             ExitCode::from(if err.exit_code() == 0 {
                 EXIT_GENERIC_FAILURE
             } else {

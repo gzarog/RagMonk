@@ -6,7 +6,7 @@ is still the product**; nothing here changes its behavior yet.
 
 | Crate | Status |
 |-------|--------|
-| `ragmonk-cli` | `ragmonk` binary: `version`, `config show/get/set`, `migrate-to-rust-v2 --check/--import-sources`, `server-v2 schema/init/legacy`, `daemon start/stop/restart/status/run`, `init`, `source add/list/info/enable/disable/remove`, `index`, `status`, `docs`, `watch`, `search`, `symbol`, `callers`, `callees`, `references`, `impact`, `explore`, `link add/remove/list` (RUST-12) |
+| `ragmonk-cli` | `ragmonk` binary: `version`, `config show/get/set`, `migrate-to-rust-v2 --check/--import-sources`, `server-v2 schema/init/legacy`, `daemon start/stop/restart/status/run`, `init`, `source add/list/info/enable/disable/remove`, `index`, `status`, `docs`, `watch`, `search`, `symbol`, `callers`, `callees`, `references`, `impact`, `explore`, `link add/remove/list`, `doctor`, `health`, `backup`, `restore`, `rebuild`, `upgrade`, `uninstall`, `vectors rebuild/backfill` (RUST-12) |
 | `ragmonk-backends` | V2 OpenSearch/Elasticsearch schema, bounded bulk, atomic build publication, legacy cleanup (RUST-03) |
 | `ragmonk-code` | Tree-sitter code intelligence: reference `.scm` queries, extraction, resolution, framework rules, code graph, whole-build cross-file resolution (RUST-05) |
 | `ragmonk-documents` | canonical normalized-document model, exact pinned tokenizer, token-budget splitting, row-aware tables, payload-aware chunker (RUST-06) |

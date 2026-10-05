@@ -19,6 +19,7 @@ pub mod control;
 pub mod db;
 pub mod error;
 pub mod knowledge;
+pub mod maintenance;
 pub mod migrate;
 pub mod preflight;
 pub mod schema;

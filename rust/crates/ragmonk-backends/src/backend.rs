@@ -200,6 +200,17 @@ impl ServerBackend {
         Ok(report)
     }
 
+    /// Whether each V2 index exists (`HEAD`; never creates anything).
+    pub fn index_status(&self) -> Result<Vec<(String, bool)>> {
+        let mut out = Vec::new();
+        for kind in IndexKind::ALL {
+            let name = self.index(kind);
+            let head = self.call(Method::Head, &format!("/{name}"), None)?;
+            out.push((name, head.status != 404));
+        }
+        Ok(out)
+    }
+
     /// Waits until every V2 index has its primaries allocated (yellow), so
     /// the first write/read after creation does not hit an unassigned shard.
     fn wait_for_shards(&self) -> Result<()> {
