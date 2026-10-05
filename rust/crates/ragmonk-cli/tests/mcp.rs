@@ -183,11 +183,13 @@ fn normalize(v: &Value, subs: &[(String, &str)], unordered: &[String]) -> Value 
         }
         Value::Array(a) => Value::Array(a.iter().map(|x| normalize(x, subs, unordered)).collect()),
         Value::String(s) => {
-            let mut s = s.clone();
+            // Slashes first, so Windows paths match the slash-normalized
+            // needles (same result as the generator's order on POSIX).
+            let mut s = s.replace('\\', "/");
             for (needle, repl) in subs {
                 s = s.replace(needle.as_str(), repl);
             }
-            Value::String(timestamp(&s.replace('\\', "/")))
+            Value::String(timestamp(&s))
         }
         other => other.clone(),
     }
@@ -259,6 +261,16 @@ fn mcp_session_matches_reference() {
             subs.push((real.to_string_lossy().into_owned(), label));
         }
     }
+    // Needles in slash-normalized form, with and without the Windows
+    // verbatim prefix.
+    let mut subs: Vec<(String, &str)> = subs
+        .into_iter()
+        .flat_map(|(n, l)| {
+            let n = n.replace('\\', "/");
+            let short = n.strip_prefix("//?/").map(str::to_owned);
+            std::iter::once((n, l)).chain(short.map(|s| (s, l)))
+        })
+        .collect();
     subs.sort_by_key(|(n, _)| std::cmp::Reverse(n.len()));
 
     let mut child = ragmonk(&home)
