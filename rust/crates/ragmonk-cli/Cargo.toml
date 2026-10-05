@@ -14,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 chrono.workspace = true
 clap.workspace = true
+flate2.workspace = true
 ragmonk-config.workspace = true
 ragmonk-core.workspace = true
 ragmonk-backends.workspace = true
@@ -27,6 +28,8 @@ ragmonk-storage.workspace = true
 ragmonk-telemetry.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sysinfo.workspace = true
+tar.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3"
