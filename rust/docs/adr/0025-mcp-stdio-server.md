@@ -1,6 +1,6 @@
 # ADR 0025: MCP stdio server (RUST-13)
 
-Status: accepted
+Status: accepted (decision 2, omitting `ragmonk_ask`, is superseded by ADR 0026)
 
 ## Decisions (user)
 

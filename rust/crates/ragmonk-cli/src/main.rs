@@ -8,6 +8,7 @@
 //! `Error: <redacted message>` to stderr and exit with the reference's
 //! stable exit codes.
 
+mod ai_cmd;
 mod daemon_cmd;
 mod doctor_cmd;
 mod mcp;
@@ -79,6 +80,17 @@ enum Command {
     },
     /// Run the indexing daemon in the foreground.
     Watch,
+    /// Answer a question with the configured AI provider, grounded in
+    /// the evidence `explore` retrieves.
+    Ask {
+        /// Natural-language question to ask.
+        question: String,
+        #[arg(long = "json")]
+        json: bool,
+    },
+    /// Manage subscription AI providers.
+    #[command(subcommand)]
+    Ai(ai_cmd::AiCommand),
     /// Serve the indexed knowledge to agents (MCP over stdio).
     Serve {
         /// Run the MCP server over stdio.
@@ -517,6 +529,8 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
         Command::Docs { source, json } => workflow::docs(source, json)?,
         Command::Watch => daemon_cmd::run(daemon_cmd::DaemonCommand::Run)?,
         Command::Serve { mcp } => mcp::serve(mcp)?,
+        Command::Ask { question, json } => ai_cmd::ask(&question, json)?,
+        Command::Ai(cmd) => ai_cmd::run(cmd)?,
         Command::Search(a) => query_cmd::search(&a)?,
         Command::Symbol { name, json } => query_cmd::symbol(&name, json)?,
         Command::Callers(a) => query_cmd::calls(&a, ragmonk_retrieval::graph::Direction::Incoming)?,

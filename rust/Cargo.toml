@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/ragmonk-ai",
     "crates/ragmonk-backends",
     "crates/ragmonk-cli",
     "crates/ragmonk-code",
@@ -33,6 +34,7 @@ todo = "deny"
 
 [workspace.dependencies]
 anyhow = "1"
+ragmonk-ai = { path = "crates/ragmonk-ai" }
 ragmonk-backends = { path = "crates/ragmonk-backends" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 dunce = "1"

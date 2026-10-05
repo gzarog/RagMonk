@@ -5,7 +5,8 @@
 //! capabilities, the same eight read-only `ragmonk_*` tools (catalog in
 //! `mcp_tools.json`, captured from the reference), the same argument
 //! validation messages and the same `{schema_version, ok, error, ...}`
-//! tool results. `ragmonk_ask` is not served (ADR 0025).
+//! tool results. `ragmonk_ask` (RUST-14) answers through the configured
+//! AI provider, like `ragmonk ask`.
 //!
 //! Each tool call loads the config and opens the indexed sources afresh,
 //! like a CLI invocation, on a worker thread bounded by
@@ -43,7 +44,12 @@ identifier query -- it is the primary tool and runs RagMonk's deterministic quer
 other read-only tools (ragmonk_search/symbol/callers/callees/impact/documents/status) are \
 narrower, single-purpose lookups; all 8 of them return a bounded, versioned JSON result \
 (schema_version/ok/error) and never call an LLM or the network -- results are \
-retrieved/structured data for the calling agent to reason over.";
+retrieved/structured data for the calling agent to reason over. ragmonk_ask is the one \
+exception: it calls the locally configured `ai:` provider (which may be a real cloud endpoint, \
+gated by privacy.external_ai_allowed) to synthesize an answer over the same evidence \
+ragmonk_explore would return -- prefer ragmonk_explore when the calling agent can reason over \
+evidence itself; use ragmonk_ask only when a synthesized natural-language answer is \
+specifically wanted.";
 
 /// The tool catalog `tools/list` returns.
 pub fn tools() -> &'static [Value] {
@@ -399,9 +405,12 @@ fn project(value: &Value, schema: &Value, root: &Value) -> Value {
 
 // --------------------------------------------------------------- tools ---
 
-/// The reference's exception class name for an error kind.
-fn error_type(kind: ErrorKind) -> &'static str {
-    match kind {
+/// The reference's exception class name for an error.
+fn error_type(e: &RagMonkError) -> &'static str {
+    if let Some(class) = e.class() {
+        return class;
+    }
+    match e.kind() {
         ErrorKind::Generic => "RagMonkError",
         ErrorKind::Usage => "UsageError",
         ErrorKind::Config => "ConfigError",
@@ -427,11 +436,11 @@ fn failure(kind: &str, message: impl Into<String>) -> Value {
 fn run_tool(name: &str, args: Map<String, Value>) -> Value {
     let home = match prepared_home() {
         Ok(h) => h,
-        Err(e) => return failure(error_type(e.kind()), e.message()),
+        Err(e) => return failure(error_type(&e), e.message()),
     };
     let timeout = match load(&home) {
         Ok(cfg) => cfg.mcp.request_timeout_seconds,
-        Err(e) => return failure(error_type(e.kind()), e.message()),
+        Err(e) => return failure(error_type(&e), e.message()),
     };
     let (tx, rx) = mpsc::channel();
     let name = name.to_owned();
@@ -450,7 +459,7 @@ fn run_tool(name: &str, args: Map<String, Value>) -> Value {
             Value::Object(data)
         }
         Ok(Ok(Ok(_))) => failure("internal_error", "tool returned no data"),
-        Ok(Ok(Err(e))) => failure(error_type(e.kind()), e.message()),
+        Ok(Ok(Err(e))) => failure(error_type(&e), e.message()),
         Ok(Err(panic)) => failure(
             "internal_error",
             panic
@@ -582,6 +591,25 @@ fn work(home: &Home, name: &str, args: &Map<String, Value>) -> Result<Value, Rag
             Ok(json!({"documents": workflow::docs_rows(home, source)?}))
         }
         "ragmonk_status" => status_cmd::collect(home),
+        "ragmonk_ask" => {
+            let question = required(args, "question")?;
+            let r = crate::ai_cmd::ask_value(&question)?;
+            let mut warnings: Vec<Value> = Vec::new();
+            if r["evidence_truncated"] == true {
+                warnings.extend(
+                    r["evidence_truncation_reasons"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+            }
+            Ok(json!({
+                "question": r["question"],
+                "answer": r["answer"],
+                "evidence": r["evidence"],
+                "warnings": warnings,
+            }))
+        }
         other => Err(RagMonkError::usage(format!("Unknown tool: {other}"))),
     }
 }
@@ -591,11 +619,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_has_the_eight_read_only_tools() {
+    fn catalog_has_all_nine_tools() {
         let names: Vec<&str> = tools().iter().filter_map(|t| t["name"].as_str()).collect();
-        assert_eq!(names.len(), 8);
-        assert!(!names.contains(&"ragmonk_ask"));
-        assert!(!INSTRUCTIONS.contains("ragmonk_ask"));
+        assert_eq!(names.len(), 9);
+        assert!(names.contains(&"ragmonk_ask"));
     }
 
     #[test]
