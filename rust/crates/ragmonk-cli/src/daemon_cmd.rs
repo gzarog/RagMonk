@@ -91,7 +91,7 @@ fn spawn(home: &Home) -> Result<u32, RagMonkError> {
     Ok(cmd.spawn().map_err(generic)?.id())
 }
 
-fn start(home: &Home) -> Result<(), RagMonkError> {
+pub(crate) fn start(home: &Home) -> Result<(), RagMonkError> {
     if let Some(existing) = pid::running_daemon(home) {
         println!("Daemon already running (pid {})", existing.pid);
         return Ok(());
@@ -125,7 +125,7 @@ fn start(home: &Home) -> Result<(), RagMonkError> {
     Ok(())
 }
 
-fn stop(home: &Home) -> Result<(), RagMonkError> {
+pub(crate) fn stop(home: &Home) -> Result<(), RagMonkError> {
     let Some(info) = pid::running_daemon(home) else {
         pid::remove_pid_file(home);
         println!("Daemon is not running");

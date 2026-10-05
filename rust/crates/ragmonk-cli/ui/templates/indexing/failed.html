@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Failed files{% endblock %}
+{% block content %}
+<div class="spread">
+  <h1 style="margin:0">Failed files</h1>
+  <a href="/indexing" class="btn small">← Indexing</a>
+</div>
+
+<div class="panel">
+  {% if failed %}
+  <table>
+    <thead><tr><th>Path</th><th>Source</th><th>Error</th><th>Updated</th></tr></thead>
+    <tbody>
+      {% for f in failed %}
+      <tr>
+        <td class="mono">{{ f.path }}</td>
+        <td>{{ f.source_id }}</td>
+        <td>{{ f.error or "—" }}</td>
+        <td class="muted">{{ f.updated_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Re-run indexing (or rebuild the source) to retry failed files.</p>
+  {% else %}
+  <p class="muted">No failed files. 🎉</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,8 @@
+<div id="daemon-logs" hx-get="/daemon/logs" hx-trigger="every 5s" hx-swap="outerHTML">
+  {% if log_lines %}
+  <pre class="log-output">{% for line in log_lines %}{{ line }}
+{% endfor %}</pre>
+  {% else %}
+  <p class="muted">No daemon log output yet.</p>
+  {% endif %}
+</div>

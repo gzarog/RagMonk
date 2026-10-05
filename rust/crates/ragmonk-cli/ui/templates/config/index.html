@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Configuration{% endblock %}
+{% block content %}
+{% macro render_fields(fields) %}
+  {% for f in fields %}
+    {% if f.kind == "group" %}
+      <fieldset style="border:1px solid var(--border); border-radius:6px; padding:8px 12px; margin:10px 0">
+        <legend class="muted">{{ f.name }}</legend>
+        {{ render_fields(f.fields) }}
+      </fieldset>
+    {% else %}
+      <label>
+        {{ f.path }}
+        {% if f.env_overridden %}<span class="badge warn">env: {{ f.env_var }}</span>{% endif %}
+        {% if f.sensitive %}<span class="badge muted">sensitive</span>{% endif %}
+      </label>
+      {% set field_name = f.path.replace(".", "__") %}
+      {% if f.sensitive %}
+        <input type="text" value="{{ f.display }}" disabled>
+      {% elif not f.editable %}
+        <input type="text" value="{{ f.display }}" disabled>
+        <span class="tag">Effective value shown; controlled by environment variable.</span>
+      {% elif f.kind == "bool" %}
+        <select name="{{ field_name }}">
+          <option value="true" {{ 'selected' if f.value else '' }}>true</option>
+          <option value="false" {{ 'selected' if not f.value else '' }}>false</option>
+        </select>
+      {% elif f.kind == "int" or f.kind == "float" %}
+        <input type="number" step="{{ '1' if f.kind == 'int' else 'any' }}" name="{{ field_name }}" value="{{ f.value }}">
+      {% else %}
+        <input type="text" name="{{ field_name }}" value="{{ f.display }}">
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+{% endmacro %}
+
+<h1>Configuration</h1>
+
+{% if saved %}<div class="alert success">Configuration saved.</div>{% endif %}
+
+<p class="muted">Changes are validated exactly like the CLI. Environment-overridden and
+sensitive values are read-only. Lists accept comma-separated values.</p>
+
+<form hx-post="/config" hx-swap="none">
+{% for section in sections %}
+<div class="panel">
+  <h2 style="margin-top:0">{{ section.name }}</h2>
+  {{ render_fields(section.fields) }}
+</div>
+{% endfor %}
+<button class="btn primary" type="submit">Save configuration</button>
+</form>
+{% endblock %}

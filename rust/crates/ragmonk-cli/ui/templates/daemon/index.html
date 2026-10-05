@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Daemon{% endblock %}
+{% block content %}
+<h1>Daemon</h1>
+
+<div class="panel">
+  {% include "daemon/_panel.html" %}
+</div>
+
+<h2>Daemon log</h2>
+<div class="panel">
+  {% include "daemon/_logs.html" %}
+</div>
+
+<style>
+  .log-output {
+    background: var(--bg-code, #1e1e1e);
+    color: var(--fg-code, #d4d4d4);
+    padding: 1rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+  }
+</style>
+{% endblock %}

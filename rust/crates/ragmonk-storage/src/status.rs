@@ -15,6 +15,9 @@ pub struct ErrorRecord {
     pub occurred_at: String,
 }
 
+/// A file's `(last_indexed_at, updated_at)`.
+pub type FileTimes = (Option<String>, Option<String>);
+
 /// Retry/failure state of a build's files, the V2 equivalent of the
 /// reference's job-queue stats (V2 keeps retry state on file rows).
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
@@ -77,6 +80,19 @@ impl ProjectStore {
                 error_row,
             )?
             .pop())
+    }
+
+    /// `(last_indexed_at, updated_at)` of every file in `build_id`.
+    pub fn file_times(&self, build_id: &str) -> Result<BTreeMap<String, FileTimes>> {
+        Ok(self
+            .query_rows(
+                "file times",
+                "SELECT id, last_indexed_at, updated_at FROM files WHERE build_id = ?1",
+                &[&build_id],
+                |r| Ok((r.get::<_, String>(0)?, (r.get(1)?, r.get(2)?))),
+            )?
+            .into_iter()
+            .collect())
     }
 
     /// Most recent errors of this source, newest first.

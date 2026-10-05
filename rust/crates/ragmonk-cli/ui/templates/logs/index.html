@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Logs{% endblock %}
+{% block content %}
+<h1>Logs</h1>
+
+<div class="panel">
+  <form method="get" action="/logs" class="field-row">
+    <div>
+      <label>Level</label>
+      <select name="level">
+        <option value="">All</option>
+        {% for lv in data.levels %}
+        <option value="{{ lv }}" {{ 'selected' if filters.level == lv else '' }}>{{ lv }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Component</label>
+      <select name="component">
+        <option value="">All</option>
+        {% for c in data.components %}
+        <option value="{{ c }}" {{ 'selected' if filters.component == c else '' }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="flex:2">
+      <label>Text search</label>
+      <input type="text" name="q" value="{{ filters.q }}">
+    </div>
+    <div style="flex:0">
+      <label>Errors only</label>
+      <input type="checkbox" name="errors_only" value="true" {{ 'checked' if filters.errors_only else '' }}>
+    </div>
+    <div style="flex:0"><button class="btn primary" type="submit">Filter</button></div>
+  </form>
+  <p class="tag mono">{{ data.log_path }}</p>
+</div>
+
+<div class="panel">
+  <table>
+    <thead><tr><th>Time</th><th>Level</th><th>Component</th><th>Event</th></tr></thead>
+    <tbody>
+      {% for e in data.entries %}
+      <tr>
+        <td class="muted mono">{{ e.get("timestamp", "—") }}</td>
+        <td>
+          {% set lv = e.get("level", "INFO") %}
+          <span class="badge {{ 'danger' if lv in ('ERROR','CRITICAL') else ('warn' if lv == 'WARNING' else 'muted') }}">{{ lv }}</span>
+        </td>
+        <td>{{ e.get("component", "—") }}</td>
+        <td class="mono">{{ e.get("event", "") }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">No log entries match.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
