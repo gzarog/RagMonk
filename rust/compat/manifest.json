@@ -41,7 +41,7 @@
          "capture": {"name": "source_id", "regex": "(src_[0-9a-f]+)"}, "rust_phase": "RUST-12"},
         {"id": "index", "args": ["index"], "output": "text", "rust_phase": "RUST-12"},
         {"id": "reindex-unchanged", "args": ["index"], "output": "text", "rust_phase": "RUST-12"},
-        {"id": "status", "args": ["status", "--json"], "rust_phase": "RUST-11"},
+        {"id": "status", "args": ["status", "--json"], "volatile_keys": ["database_size_bytes"], "rust_phase": "RUST-11"},
         {"id": "search-bark", "args": ["search", "bark", "--json"], "rust_phase": "RUST-10"},
         {"id": "symbol-dog", "args": ["symbol", "Dog", "--json"], "rust_phase": "RUST-10"},
         {"id": "callers-speak", "args": ["callers", "speak", "--json"], "unordered_arrays": ["edges"], "rust_phase": "RUST-10"},

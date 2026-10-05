@@ -247,9 +247,12 @@ impl DocumentProcessor {
             Ok(x) => x,
             Err(e) => {
                 tracing::warn!(component = "documents", event = "email_attachments_unreadable", path = %path.display(), error = %e);
+                knowledge.attachments.failed += 1;
                 return;
             }
         };
+        knowledge.attachments.seen = extraction.seen();
+        knowledge.attachments.skipped += extraction.skipped.len();
         for s in &extraction.skipped {
             tracing::info!(component = "documents", event = "email_attachment_skipped",
                 path = %path.display(), attachment_index = s.ordinal, content_type = %s.content_type,
@@ -260,9 +263,12 @@ impl DocumentProcessor {
                 Ok(Some((doc, chunks))) => {
                     knowledge.documents.push(doc);
                     knowledge.chunks.extend(chunks);
+                    knowledge.attachments.indexed += 1;
+                    knowledge.attachments.bytes_processed += part.payload.len();
                 }
-                Ok(None) => {}
+                Ok(None) => knowledge.attachments.skipped += 1,
                 Err(e) => {
+                    knowledge.attachments.failed += 1;
                     tracing::warn!(component = "documents", event = "email_attachment_failed",
                         path = %path.display(), attachment_index = part.ordinal,
                         content_type = %part.content_type, size = part.payload.len(),

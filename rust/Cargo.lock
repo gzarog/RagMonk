@@ -2827,11 +2827,13 @@ dependencies = [
 name = "ragmonk-cli"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "clap",
  "ragmonk-backends",
  "ragmonk-config",
  "ragmonk-convert",
  "ragmonk-core",
+ "ragmonk-documents",
  "ragmonk-indexing",
  "ragmonk-storage",
  "ragmonk-telemetry",

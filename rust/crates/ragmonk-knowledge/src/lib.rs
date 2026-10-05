@@ -17,7 +17,7 @@ impl BuildFinalizer for KnowledgeLinker {
         store: &mut ProjectStore,
         build_id: &str,
         touched: &[String],
-    ) -> Result<(), ProcessError> {
+    ) -> Result<ragmonk_indexing::coordinator::FinalizeReport, ProcessError> {
         let err = |e: ragmonk_storage::StorageError| ProcessError {
             code: "link_error".into(),
             message: e.to_string(),
@@ -38,6 +38,9 @@ impl BuildFinalizer for KnowledgeLinker {
             manual,
             seconds = started.elapsed().as_secs_f64()
         );
-        Ok(())
+        Ok(ragmonk_indexing::coordinator::FinalizeReport {
+            linked: rows.len(),
+            embedded: 0,
+        })
     }
 }
