@@ -133,8 +133,7 @@ which are slice 3.
 
 ## Deferred
 
-- **Slice 3.** Targeted passes: `CoordinatorRunner` scans the whole source
-  for now. The local watcher (`notify`), network polling and debounce also
-  arrive in slice 3, and feed `Daemon::enqueue_source` with touched paths.
+- **Slice 3.** Targeted passes, the local watcher, network polling and
+  debounce: done in slice 3 ([ADR 0021](0021-watcher-and-targeted-passes.md)).
 - **Server mode.** The daemon's startup health check for server mode
   waits until the server backends are wired into the indexing path.

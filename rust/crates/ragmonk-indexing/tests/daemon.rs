@@ -136,6 +136,7 @@ fn opts() -> DaemonOptions {
         reconciliation_interval: Duration::from_secs(3600),
         lock_timeout: Duration::from_millis(100),
         contention_backoff: Duration::from_millis(50),
+        ..DaemonOptions::default()
     }
 }
 
@@ -318,4 +319,116 @@ fn coordinator_runner_indexes_and_publishes_progress() {
     assert_eq!(snap.sources[0].source_id, src.id);
     assert!(snap.sources[0].online);
     assert!(snap.sources[0].last_pass_at.is_some());
+}
+
+/// Records each request, then runs the real coordinator.
+struct Logged(Log, ragmonk_indexing::daemon::CoordinatorRunner);
+impl PassRunner for Logged {
+    fn run_pass(
+        &mut self,
+        source: &SourceRecord,
+        request: &ScanRequest,
+        p: &mut dyn Progress,
+    ) -> Result<SourceResult, RagMonkError> {
+        self.0.lock().unwrap().push(request.clone());
+        self.1.run_pass(source, request, p)
+    }
+}
+
+fn wait_until(mut f: impl FnMut() -> bool) -> bool {
+    for _ in 0..500 {
+        if f() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
+
+fn watched_daemon(network: bool) -> (tempfile::TempDir, PathBuf, Home, Log, Daemon, SourceRecord) {
+    use ragmonk_indexing::coordinator::{Options, Registry};
+    use ragmonk_indexing::daemon::CoordinatorRunner;
+    use ragmonk_storage::V2Layout;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = common::home(dir.path());
+    home.ensure_layout().unwrap();
+    let root = dir.path().join("src");
+    common::write(&root, "a.py", "A = 1\n");
+    let mut cp = common::control(&home);
+    let mut src = common::add_source(&mut cp, &root, &[], &[]);
+    if network {
+        src.source_type = SourceType::Network;
+    }
+    let log: Log = Arc::default();
+    let runner = Logged(
+        log.clone(),
+        CoordinatorRunner {
+            layout: V2Layout::new(&home),
+            control: common::control(&home),
+            registry: Registry::raw(),
+            opts: Options::from_config(&ragmonk_config::RagMonkConfig::default()),
+        },
+    );
+    let catalog = Fake(Arc::new(Mutex::new(vec![src.clone()])));
+    let o = DaemonOptions {
+        watch: true,
+        debounce_ms: 50,
+        network_poll: Duration::from_millis(100),
+        ..opts()
+    };
+    let d = Daemon::start(home.clone(), o, Box::new(catalog), Box::new(runner)).unwrap();
+    assert!(wait_until(|| d.passes_completed() >= 1));
+    assert!(d.wait_idle(Duration::from_secs(10)));
+    (dir, root, home, log, d, src)
+}
+
+fn check_watched(network: bool, reason: &str) {
+    let (_dir, root, home, log, d, src) = watched_daemon(network);
+    // Let the watcher settle before changing the tree.
+    std::thread::sleep(Duration::from_millis(300));
+    common::write(&root, "b.py", "B = 2\n");
+    assert!(
+        wait_until(|| log.lock().unwrap().iter().any(|r| r.reason == reason)),
+        "{reason}: {:?}",
+        log.lock().unwrap()
+    );
+    assert!(d.wait_idle(Duration::from_secs(10)));
+    d.stop();
+    let req = log
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|r| r.reason == reason)
+        .cloned()
+        .unwrap();
+    assert!(!req.full, "a watcher pass is targeted");
+    assert!(req.changed_paths.iter().any(|p| p.ends_with("b.py")));
+    let cp = common::control(&home);
+    let active = cp.state(&src.id).unwrap().active_build_id.unwrap();
+    let (store, _) = ragmonk_storage::knowledge::ProjectStore::open(
+        &ragmonk_storage::V2Layout::new(&home),
+        &ragmonk_core::paths::project_id_for_canonical(&src.path),
+        &src.id,
+        8,
+    )
+    .unwrap();
+    let mut files: Vec<String> = store
+        .files(&active)
+        .unwrap()
+        .into_iter()
+        .map(|f| f.rel_path)
+        .collect();
+    files.sort();
+    assert_eq!(files, ["a.py", "b.py"]);
+}
+
+#[test]
+fn local_watcher_triggers_targeted_pass() {
+    check_watched(false, "local_watcher");
+}
+
+#[test]
+fn network_poller_triggers_targeted_pass() {
+    check_watched(true, "network_watcher");
 }

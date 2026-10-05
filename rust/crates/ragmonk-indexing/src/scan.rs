@@ -180,6 +180,60 @@ pub fn scan(
     Ok(out)
 }
 
+/// A scan of named paths only (a watcher's touched paths).
+#[derive(Debug, Clone, Default)]
+pub struct TargetedScan {
+    /// Named paths that exist as regular, non-ignored files.
+    pub present: ScanOutcome,
+    /// Relative paths of named paths that no longer exist.
+    pub missing: Vec<String>,
+}
+
+/// Examines exactly `targets` (`IndexCoordinator._run_targeted`). There
+/// is no directory walk, so nothing can be silently truncated. A path is
+/// skipped when it is a symlink (unless followed), escapes the root, is a
+/// directory, or is ignored. A path that no longer exists is reported as
+/// missing.
+pub fn scan_targets(
+    root: &Path,
+    ignore: &IgnoreMatcher,
+    targets: &std::collections::BTreeSet<PathBuf>,
+    follow_symlinks: bool,
+) -> std::io::Result<TargetedScan> {
+    let root = ragmonk_core::paths::resolve(root)?;
+    let guard = PathGuard::new(std::slice::from_ref(&root))?;
+    let mut out = TargetedScan::default();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    for candidate in targets {
+        if !follow_symlinks && is_link(candidate) {
+            continue;
+        }
+        let Ok(resolved) = guard.resolve(candidate) else {
+            continue;
+        };
+        if !seen.insert(resolved.clone()) {
+            continue;
+        }
+        let meta = match std::fs::metadata(&resolved) {
+            Ok(m) => m,
+            Err(_) => {
+                out.missing.push(rel_posix(&root, &resolved));
+                continue;
+            }
+        };
+        if meta.is_dir() || ignore.is_ignored(&resolved, false) {
+            continue;
+        }
+        out.present.files.push(ScannedFile {
+            rel_path: rel_posix(&root, &resolved),
+            size: meta.len() as i64,
+            mtime: mtime_secs(&meta),
+            path: resolved,
+        });
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

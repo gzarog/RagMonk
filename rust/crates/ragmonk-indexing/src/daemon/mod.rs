@@ -16,20 +16,24 @@ pub mod scheduler;
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use ragmonk_core::errors::{ErrorKind, RagMonkError};
+use ragmonk_core::models::SourceType;
 use ragmonk_core::paths::Home;
 use ragmonk_storage::control::{ControlPlane, SourceRecord};
 use ragmonk_storage::V2Layout;
 
-use crate::coordinator::{run_source, Options, Progress, Registry, SourceResult};
+use crate::coordinator::{run_source_with, Options, Progress, Registry, SourceResult};
 use crate::lock::RunLock;
 use crate::progress::{now_iso, track};
 use health::{DaemonHealth, SourceWatchStatus};
 use scheduler::Scheduler;
+
+use crate::watcher::local::LocalWatcher;
+use crate::watcher::network::{NetworkSpec, NetworkWatcher};
 
 /// A batch of touched paths larger than this runs as a full pass.
 pub const MAX_TARGETED_PATHS: usize = 200;
@@ -78,8 +82,8 @@ pub trait PassRunner: Send {
 }
 
 /// The production runner: the V2 coordinator over a worker-owned control
-/// plane. Each pass is a full scan and diff. Targeted passes arrive with
-/// the watcher (RUST-11 slice 3).
+/// plane. A request with touched paths runs as a targeted pass. Anything
+/// else is a full scan and diff.
 pub struct CoordinatorRunner {
     pub layout: V2Layout,
     pub control: ControlPlane,
@@ -91,15 +95,17 @@ impl PassRunner for CoordinatorRunner {
     fn run_pass(
         &mut self,
         source: &SourceRecord,
-        _request: &ScanRequest,
+        request: &ScanRequest,
         progress: &mut dyn Progress,
     ) -> Result<SourceResult, RagMonkError> {
-        run_source(
+        let targets = (!request.full).then_some(&request.changed_paths);
+        run_source_with(
             &self.layout,
             &mut self.control,
             source,
             &self.registry,
             &self.opts,
+            targets,
             progress,
         )
     }
@@ -111,6 +117,30 @@ pub struct DaemonOptions {
     /// How long one pass waits for `index.lock`.
     pub lock_timeout: Duration,
     pub contention_backoff: Duration,
+    /// Attach watchers (`indexing.watch`). Off means reconciliation only.
+    pub watch: bool,
+    pub debounce_ms: i64,
+    /// Network roots are fingerprinted this often.
+    pub network_poll: Duration,
+    /// Paces the local polling fallback.
+    pub local_poll: Duration,
+    pub follow_symlinks: bool,
+}
+
+impl Default for DaemonOptions {
+    /// Reference defaults, with watching off.
+    fn default() -> Self {
+        Self {
+            reconciliation_interval: Duration::from_secs(900),
+            lock_timeout: Duration::from_secs(30),
+            contention_backoff: Duration::from_secs(5),
+            watch: false,
+            debounce_ms: 2000,
+            network_poll: Duration::from_secs(30),
+            local_poll: Duration::from_secs(2),
+            follow_symlinks: false,
+        }
+    }
 }
 
 impl DaemonOptions {
@@ -121,8 +151,19 @@ impl DaemonOptions {
             ),
             lock_timeout: Duration::from_secs_f64(cfg.indexing.lock_timeout_seconds),
             contention_backoff: Duration::from_secs(5),
+            watch: cfg.indexing.watch,
+            debounce_ms: cfg.indexing.debounce_ms,
+            network_poll: Duration::from_secs(cfg.indexing.network_poll_seconds.max(1) as u64),
+            local_poll: Duration::from_secs(2),
+            follow_symlinks: cfg.indexing.follow_symlinks,
         }
     }
+}
+
+#[derive(Default)]
+struct Watchers {
+    local: HashMap<String, LocalWatcher>,
+    network: HashMap<String, NetworkWatcher>,
 }
 
 #[derive(Default)]
@@ -142,6 +183,9 @@ struct Shared {
     catalog: Mutex<Box<dyn Catalog>>,
     state: Mutex<State>,
     cv: Condvar,
+    watchers: Mutex<Watchers>,
+    /// For watcher callbacks. Weak, so watchers never keep the daemon alive.
+    me: Weak<Shared>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -182,6 +226,69 @@ impl Shared {
         self.cv.notify_all();
     }
 
+    /// Starts the watcher for `source`, if watching is on. Failure (for
+    /// example a missing root) leaves the source unwatched until a later
+    /// reconciliation retries it.
+    fn attach_watcher(&self, source: &SourceRecord) {
+        if !self.opts.watch || self.state().stopped {
+            return;
+        }
+        let id = source.id.clone();
+        let me = self.me.clone();
+        let root = PathBuf::from(&source.path);
+        if source.source_type == SourceType::Network {
+            if lock(&self.watchers).network.contains_key(&id) {
+                return;
+            }
+            let sid = id.clone();
+            let spec = NetworkSpec {
+                root,
+                include: source.include_patterns.clone(),
+                exclude: source.exclude_patterns.clone(),
+                follow_symlinks: self.opts.follow_symlinks,
+                interval: self.opts.network_poll,
+            };
+            match NetworkWatcher::start(
+                spec,
+                Arc::new(move |paths| {
+                    if let Some(s) = me.upgrade() {
+                        s.enqueue(&sid, "network_watcher", &paths);
+                    }
+                }),
+            ) {
+                Ok(w) => {
+                    lock(&self.watchers).network.insert(id, w);
+                }
+                Err(e) => {
+                    tracing::warn!(component = "daemon", event = "network_watcher_attach_failed", source_id = %id, error = %e);
+                }
+            }
+            return;
+        }
+        if lock(&self.watchers).local.contains_key(&id) {
+            return;
+        }
+        let sid = id.clone();
+        match LocalWatcher::start(
+            &root,
+            self.opts.debounce_ms,
+            self.opts.local_poll,
+            false,
+            Arc::new(move |path| {
+                if let Some(s) = me.upgrade() {
+                    s.enqueue(&sid, "local_watcher", &[path]);
+                }
+            }),
+        ) {
+            Ok(w) => {
+                lock(&self.watchers).local.insert(id, w);
+            }
+            Err(e) => {
+                tracing::warn!(component = "daemon", event = "local_watcher_attach_failed", source_id = %id, error = %e);
+            }
+        }
+    }
+
     fn reconcile(&self) {
         if self.state().stopped {
             return;
@@ -190,6 +297,8 @@ impl Shared {
         match sources {
             Ok(sources) => {
                 for s in &sources {
+                    // Re-attaches a watcher whose root was unavailable.
+                    self.attach_watcher(s);
                     self.enqueue(&s.id, "reconciliation", &[]);
                 }
             }
@@ -353,15 +462,20 @@ impl Daemon {
         catalog: Box<dyn Catalog>,
         runner: Box<dyn PassRunner>,
     ) -> Result<Self, RagMonkError> {
-        let shared = Arc::new(Shared {
+        let shared = Arc::new_cyclic(|me| Shared {
             home,
             opts,
             started_at: now_iso(),
             catalog: Mutex::new(catalog),
             state: Mutex::new(State::default()),
             cv: Condvar::new(),
+            watchers: Mutex::new(Watchers::default()),
+            me: me.clone(),
         });
         let sources = lock(&shared.catalog).list_sources(true)?;
+        for s in &sources {
+            shared.attach_watcher(s);
+        }
         let spawn_err = |e: std::io::Error| RagMonkError::new(ErrorKind::Generic, e.to_string());
         let w = Arc::clone(&shared);
         let worker = std::thread::Builder::new()
@@ -440,6 +554,13 @@ impl Daemon {
     fn shutdown(&mut self) {
         self.shared.state().stopped = true;
         self.shared.cv.notify_all();
+        // Watchers first: debounced paths not yet due are dropped, and the
+        // next start's startup pass covers them.
+        let watchers = std::mem::take(&mut *lock(&self.shared.watchers));
+        for w in watchers.local.values() {
+            w.flush();
+        }
+        drop(watchers);
         for h in [self.worker.take(), self.reconciler.take()]
             .into_iter()
             .flatten()
