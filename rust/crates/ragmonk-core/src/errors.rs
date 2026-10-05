@@ -52,6 +52,9 @@ pub struct RagMonkError {
     kind: ErrorKind,
     message: String,
     exit_code: u8,
+    /// The reference's exception class when it is a more specific
+    /// subclass than `kind` names (e.g. `AiNotConfiguredError`).
+    class: Option<&'static str>,
 }
 
 impl RagMonkError {
@@ -60,7 +63,19 @@ impl RagMonkError {
             kind,
             message: message.into(),
             exit_code: kind.default_exit_code(),
+            class: None,
         }
+    }
+
+    /// Tags the error with the reference's (sub)class name.
+    pub fn with_class(mut self, class: &'static str) -> Self {
+        self.class = Some(class);
+        self
+    }
+
+    /// The reference's class name, when more specific than `kind`.
+    pub fn class(&self) -> Option<&'static str> {
+        self.class
     }
 
     /// Mirrors Python's `RagMonkError(message, exit_code=...)` override.

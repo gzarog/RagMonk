@@ -305,10 +305,6 @@ fn mcp_session_matches_reference() {
         } else {
             if let Some(result) = response.get_mut("result") {
                 if method == "initialize" {
-                    let instructions = result["instructions"].as_str().unwrap();
-                    assert!(instructions.starts_with("RagMonk exposes"));
-                    assert!(!instructions.contains("ragmonk_ask"));
-                    result.as_object_mut().unwrap().remove("instructions");
                     assert!(result["serverInfo"]["name"]
                         .as_str()
                         .unwrap()

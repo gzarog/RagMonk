@@ -10,9 +10,8 @@ drives ``ragmonk serve --mcp`` (FastMCP) over stdio with the session in
 
 Tool results are recorded as their ``structuredContent`` (the ``content``
 text is the same model as indented JSON; the generator asserts that).
-``ragmonk_ask`` is dropped from ``tools/list`` and the ``initialize``
-instructions/version are not recorded (the Rust server omits that tool,
-see ADR 0025). Each payload is normalized by ``normalize``: corpus paths become
+The ``initialize`` server name's version is masked. ``ragmonk_ask`` runs
+with no provider configured. Each payload is normalized by ``normalize``: corpus paths become
 ``<CORPUS>/...``, the home becomes ``<HOME>``, the source id becomes
 ``<SOURCE>``, opaque ids are dropped and volatile values (timestamps,
 pids, sizes) are masked. The Rust test applies the same rules. Writes
@@ -84,6 +83,8 @@ SESSION: list[tuple[dict, list[str]]] = [
     (call("ragmonk_documents"), []),
     (call("ragmonk_documents", {"source_id": "src_nope"}), []),
     (call("ragmonk_status"), []),
+    (call("ragmonk_ask", {"question": "  "}), []),
+    (call("ragmonk_ask", {"question": "Dog"}), []),
 ]
 
 DROP = {
@@ -191,12 +192,9 @@ def main() -> None:
             response = json.loads(proc.stdout.readline())
             result = response.get("result")
             if request["method"] == "initialize":
-                # Documented divergences (ADR 0025): the version is the
-                # build's own, and the Rust instructions omit ragmonk_ask.
+                # The version is the build's own.
                 result["serverInfo"]["name"] = "ragmonk v<VERSION>"
-                del result["instructions"]
             if request["method"] == "tools/list":
-                result["tools"] = [t for t in result["tools"] if t["name"] != "ragmonk_ask"]
                 TOOLS_OUT.write_text(
                     json.dumps(result["tools"], ensure_ascii=False, indent=1) + "\n",
                     encoding="utf-8",

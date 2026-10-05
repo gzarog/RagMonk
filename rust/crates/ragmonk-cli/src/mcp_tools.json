@@ -2030,5 +2030,218 @@
    "idempotentHint": true,
    "openWorldHint": false
   }
+ },
+ {
+  "name": "ragmonk_ask",
+  "description": "Ask a natural-language question, answered by the configured AI provider grounded in the same evidence ragmonk_explore would return. Calls out to a real (possibly cloud) AI provider -- unlike every other tool here.",
+  "inputSchema": {
+   "properties": {
+    "question": {
+     "title": "Question",
+     "type": "string"
+    }
+   },
+   "required": [
+    "question"
+   ],
+   "title": "ragmonk_askArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "AiAnswerOut": {
+     "properties": {
+      "text": {
+       "title": "Text",
+       "type": "string"
+      },
+      "provider": {
+       "title": "Provider",
+       "type": "string"
+      },
+      "model": {
+       "title": "Model",
+       "type": "string"
+      },
+      "usage": {
+       "$ref": "#/$defs/AiUsageOut"
+      }
+     },
+     "required": [
+      "text",
+      "provider",
+      "model",
+      "usage"
+     ],
+     "title": "AiAnswerOut",
+     "type": "object"
+    },
+    "AiUsageOut": {
+     "properties": {
+      "input_tokens": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Input Tokens"
+      },
+      "output_tokens": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Output Tokens"
+      }
+     },
+     "title": "AiUsageOut",
+     "type": "object"
+    },
+    "EvidenceRef": {
+     "description": "An ``EvidenceFact`` plus the source snippet that lets a reader\ninterpret it -- ``retrieval/context_builder.py``'s budgeted\n``EvidenceItem.to_dict()`` shape, used by ``ragmonk_explore``.",
+     "properties": {
+      "source": {
+       "title": "Source",
+       "type": "string"
+      },
+      "path": {
+       "title": "Path",
+       "type": "string"
+      },
+      "location": {
+       "additionalProperties": true,
+       "title": "Location",
+       "type": "object"
+      },
+      "entity": {
+       "title": "Entity",
+       "type": "string"
+      },
+      "relationship": {
+       "title": "Relationship",
+       "type": "string"
+      },
+      "confidence": {
+       "title": "Confidence",
+       "type": "string"
+      },
+      "snippet": {
+       "title": "Snippet",
+       "type": "string"
+      }
+     },
+     "required": [
+      "source",
+      "path",
+      "location",
+      "entity",
+      "relationship",
+      "confidence",
+      "snippet"
+     ],
+     "title": "EvidenceRef",
+     "type": "object"
+    },
+    "ToolError": {
+     "description": "A clear, typed error -- never a raw traceback. ``type`` is the\nRagMonk exception class name (``\"UsageError\"``, ``\"ConfigError\"``,\n...) or one of this module's own boundary types (``\"timeout\"``,\n``\"internal_error\"``), so a client can branch on it without parsing\nprose.",
+     "properties": {
+      "type": {
+       "title": "Type",
+       "type": "string"
+      },
+      "message": {
+       "title": "Message",
+       "type": "string"
+      }
+     },
+     "required": [
+      "type",
+      "message"
+     ],
+     "title": "ToolError",
+     "type": "object"
+    }
+   },
+   "description": "Not read-only and not network-free like the other 8 tools (see\n``mcp/server.py``'s per-tool annotations/instructions) -- calling this\ntool reaches the configured ``ai:`` provider, which may be a real\ncloud/network endpoint gated by ``privacy.external_ai_allowed``\nexactly like ``ragmonk ask`` itself.",
+   "properties": {
+    "schema_version": {
+     "default": "1",
+     "title": "Schema Version",
+     "type": "string"
+    },
+    "ok": {
+     "title": "Ok",
+     "type": "boolean"
+    },
+    "error": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ToolError"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "question": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Question"
+    },
+    "answer": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/AiAnswerOut"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "evidence": {
+     "items": {
+      "$ref": "#/$defs/EvidenceRef"
+     },
+     "title": "Evidence",
+     "type": "array"
+    },
+    "warnings": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Warnings",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ok"
+   ],
+   "title": "AskOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
  }
 ]
