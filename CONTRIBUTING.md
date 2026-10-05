@@ -292,24 +292,28 @@ suite still covers the same flows against in-memory engine fakes
 ### The install scripts (`install.sh` / `install.ps1`)
 
 `install.sh` and `install.ps1` at the repo root are what `README.md`'s
-`curl | sh` / `irm | iex` one-liners run. They download a branch/tag
-tarball or zipball from GitHub (`RAGMONK_REF`, default `main`), create a
-venv, `pip install` the package into it, and link/launch `ragmonk` from a
-per-user bin directory (`RAGMONK_BIN_DIR`, `RAGMONK_INSTALL_DIR` to
-override). Run them locally exactly as CI does, pointed at a branch:
+`curl | sh` / `irm | iex` one-liners run. They install the native Rust
+binary (RUST-15, `rust/docs/adr/0029-native-update.md`): download
+`ragmonk-<ver>-<target>` for this platform, verify it against the
+release's `SHA256SUMS`, unpack it under `$RAGMONK_INSTALL_DIR/versions`
+and link `ragmonk` onto `RAGMONK_BIN_DIR`. Run them locally exactly as CI
+does, against archives packaged from your own build:
 
 ```bash
-RAGMONK_REF=my-branch RAGMONK_INSTALL_DIR=/tmp/ragmonk-install RAGMONK_BIN_DIR=/tmp/ragmonk-bin sh ./install.sh
+cargo build --manifest-path rust/Cargo.toml -p ragmonk-cli
+python3 rust/scripts/package_release.py --binary rust/target/debug/ragmonk \
+    --version 0.9.0 --target x86_64-unknown-linux-gnu --out /tmp/dist
+RAGMONK_VERSION=0.9.0 RAGMONK_DOWNLOAD_BASE=/tmp/dist \
+    RAGMONK_INSTALL_DIR=/tmp/ragmonk-install RAGMONK_BIN_DIR=/tmp/ragmonk-bin sh ./install.sh
 /tmp/ragmonk-bin/ragmonk version
 ```
 
 ```powershell
-$env:RAGMONK_REF = "my-branch"; ./install.ps1
+$env:RAGMONK_VERSION = "0.9.0"; $env:RAGMONK_DOWNLOAD_BASE = "$env:TEMP\dist"; ./install.ps1
 ```
 
-Like `docling_pdf`/`embedding_model`, this repeats a real network fetch
-plus torch/docling's dependency download, so CI runs it in a separate,
-non-blocking (`continue-on-error`) job across all three OSes -- see
+CI runs this (install, re-install, `ragmonk update rollback`, a tampered
+archive) as blocking jobs on all three OSes -- see
 `.github/workflows/ci.yml`.
 
 ## Test isolation

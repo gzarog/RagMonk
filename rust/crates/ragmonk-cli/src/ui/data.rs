@@ -639,13 +639,6 @@ fn dunce_canonical(p: &Path) -> Option<std::path::PathBuf> {
     ragmonk_core::paths::resolve(p).ok().filter(|r| r.exists())
 }
 
-fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
-    let v = v.trim().trim_start_matches(['v', 'V']);
-    let mut parts = v.split(['.', '-', '+']);
-    let mut next = || parts.next()?.parse::<u64>().ok();
-    Some((next()?, next()?, next()?))
-}
-
 /// `backup_service.update_status`: the local update cache only.
 pub fn update_status(home: &Home) -> Result<Value, RagMonkError> {
     let cfg = load(home)?;
@@ -674,8 +667,7 @@ pub fn update_status(home: &Home) -> Result<Value, RagMonkError> {
         }));
     };
     let latest = c["latest_version"].as_str().unwrap_or_default();
-    let newer =
-        matches!((parse_version(latest), parse_version(installed)), (Some(a), Some(b)) if a > b);
+    let newer = ragmonk_update::versioning::is_newer(latest, installed);
     Ok(json!({
         "installed_version": installed,
         "latest_version": c["latest_version"],
