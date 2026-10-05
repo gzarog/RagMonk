@@ -2965,6 +2965,7 @@ dependencies = [
  "ragmonk-storage",
  "ragmonk-telemetry",
  "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "signal-hook",

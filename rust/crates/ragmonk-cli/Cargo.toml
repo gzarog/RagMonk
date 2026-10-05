@@ -42,6 +42,7 @@ tar.workspace = true
 signal-hook = "0.3"
 
 [dev-dependencies]
+reqwest.workspace = true
 regex.workspace = true
 sysinfo.workspace = true
 tempfile.workspace = true

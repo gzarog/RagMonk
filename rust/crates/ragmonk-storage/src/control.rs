@@ -448,6 +448,26 @@ impl ControlPlane {
         Ok(())
     }
 
+    /// Forgets every build of a source (its index data was deleted) and
+    /// requires a full rebuild. Registration and scan settings stay.
+    pub fn reset_index_state(&mut self, source_id: &str, reason: &str) -> Result<()> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE source_state SET build_state = 'needs_full_rebuild', rebuild_reason = ?1,
+                    active_build_id = NULL, pending_build_id = NULL, versions = NULL,
+                    last_full_build_at = NULL, updated_at = ?2 WHERE source_id = ?3",
+                params![reason, now_iso(), source_id],
+            )
+            .map_err(StorageError::sqlite("reset index state"))?;
+        if n == 0 {
+            return Err(StorageError::NotFound(format!(
+                "no such source: {source_id}"
+            )));
+        }
+        Ok(())
+    }
+
     /// Records that a build started. The active build stays visible.
     pub fn begin_build(&mut self, source_id: &str, build_id: &str) -> Result<()> {
         self.conn
