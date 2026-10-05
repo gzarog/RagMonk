@@ -59,9 +59,10 @@ def build(args: argparse.Namespace) -> Path:
                 data = src.read_bytes()
                 info.size, info.mode, info.mtime = len(data), mode, MTIME
                 t.addfile(info, io.BytesIO(data))
-        with open(archive, "wb") as fh, gzip.GzipFile(
-            filename="", mode="wb", fileobj=fh, mtime=MTIME
-        ) as gz:
+        with (
+            open(archive, "wb") as fh,
+            gzip.GzipFile(filename="", mode="wb", fileobj=fh, mtime=MTIME) as gz,
+        ):
             gz.write(buf.getvalue())
     return archive
 
@@ -75,7 +76,7 @@ def update_sums(out: Path, archive: Path) -> None:
         if line.split()[-1].lstrip("*") != archive.name
     ]
     lines.append(f"{digest}  {archive.name}")
-    sums.write_text("\n".join(sorted(lines, key=lambda l: l.split()[-1])) + "\n")
+    sums.write_text("\n".join(sorted(lines, key=lambda line: line.split()[-1])) + "\n")
 
 
 def main() -> None:
