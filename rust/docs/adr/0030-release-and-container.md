@@ -20,6 +20,14 @@ The workflow only runs on manual dispatch. Its inputs are `version`
 (strict `MAJOR.MINOR.PATCH`), `prerelease` (default true) and `image`
 (default true).
 
+It can also be started by pushing a `rust-v<MAJOR.MINOR.PATCH>` tag. That
+always publishes a pre-release with the image, and the version comes from
+the tag. Manual dispatch only works for workflows on the default branch,
+and this one lives on `release/rust-rewrite-v1`. The `rust-v` prefix keeps
+the tag push from firing the Python `release.yml` (`v*.*.*`). The GitHub
+release itself is still tagged `v<version>`, because that is the tag
+`ragmonk update` expects.
+
 1. **validate:** checks the version format and refuses a tag `v<version>`
    that already exists.
 2. **build:** builds one archive per target on its own runner:

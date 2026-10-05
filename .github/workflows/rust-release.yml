@@ -5,7 +5,9 @@ name: Rust release
 # minisign when the MINISIGN_SECRET_KEY secret exists), the installers,
 # and a multi-arch image on GHCR.
 #
-# Manual only, and separate from the Python release.yml until the cutover
+# Started manually, or by pushing a `rust-v<MAJOR.MINOR.PATCH>` tag (a
+# pre-release with an image; that prefix never fires the Python
+# release.yml's `v*.*.*` trigger). Separate from the Python release.yml until the cutover
 # (RUST-16). Releases default to pre-releases: GitHub's "latest release",
 # which `ragmonk update` and the Python updater both follow, ignores them.
 #
@@ -14,6 +16,9 @@ name: Rust release
 #   secrets.MINISIGN_SECRET_KEY   the matching minisign secret key file
 #   secrets.MINISIGN_PASSWORD     its password (empty for an unencrypted key)
 on:
+  push:
+    tags:
+      - "rust-v*.*.*"
   workflow_dispatch:
     inputs:
       version:
@@ -33,15 +38,33 @@ permissions:
   contents: read
 
 env:
-  VERSION: ${{ inputs.version }}
-  TAG: v${{ inputs.version }}
   IMAGE: ghcr.io/${{ github.repository_owner }}/ragmonk
 
 jobs:
   validate:
     name: Validate version
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      image: ${{ steps.v.outputs.image }}
     steps:
+      # A tag push carries no inputs: the version comes from the tag, and
+      # it is always a pre-release with an image.
+      - name: Resolve inputs
+        id: v
+        env:
+          IN_VERSION: ${{ inputs.version }}
+          IN_PRERELEASE: ${{ inputs.prerelease }}
+          IN_IMAGE: ${{ inputs.image }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            v="${GITHUB_REF_NAME#rust-v}"; pre=true; img=true
+          else
+            v="$IN_VERSION"; pre="$IN_PRERELEASE"; img="$IN_IMAGE"
+          fi
+          { echo "version=$v"; echo "prerelease=$pre"; echo "image=$img"; } >> "$GITHUB_OUTPUT"
+          { echo "VERSION=$v"; echo "TAG=v$v"; } >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -69,6 +92,9 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
     runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+      TAG: v${{ needs.validate.outputs.version }}
     defaults:
       run:
         shell: bash
@@ -89,7 +115,7 @@ jobs:
       - name: Build
         working-directory: rust
         env:
-          RAGMONK_BUILD_VERSION: ${{ inputs.version }}
+          RAGMONK_BUILD_VERSION: ${{ needs.validate.outputs.version }}
           RAGMONK_BUILD_COMMIT: ${{ github.sha }}
           RAGMONK_MINISIGN_PUBKEY: ${{ vars.MINISIGN_PUBLIC_KEY }}
         run: cargo build --release --locked -p ragmonk-cli --target ${{ matrix.target }}
@@ -112,8 +138,11 @@ jobs:
 
   release:
     name: Publish the GitHub release
-    needs: build
+    needs: [validate, build]
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+      TAG: v${{ needs.validate.outputs.version }}
     permissions:
       contents: write
     steps:
@@ -155,7 +184,7 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
         run: |
           flags=""
           [ "$PRERELEASE" = "true" ] && flags="--prerelease"
@@ -176,7 +205,7 @@ jobs:
   image:
     name: Image (${{ matrix.platform }})
     needs: validate
-    if: ${{ inputs.image }}
+    if: needs.validate.outputs.image == 'true'
     strategy:
       fail-fast: true
       matrix:
@@ -186,6 +215,9 @@ jobs:
           - platform: linux/arm64
             os: ubuntu-24.04-arm
     runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+      TAG: v${{ needs.validate.outputs.version }}
     permissions:
       contents: read
       packages: write
@@ -205,12 +237,12 @@ jobs:
           file: rust/Dockerfile
           platforms: ${{ matrix.platform }}
           build-args: |
-            RAGMONK_VERSION=${{ inputs.version }}
+            RAGMONK_VERSION=${{ needs.validate.outputs.version }}
             RAGMONK_COMMIT=${{ github.sha }}
             RAGMONK_MINISIGN_PUBKEY=${{ vars.MINISIGN_PUBLIC_KEY }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.version=${{ inputs.version }}
+            org.opencontainers.image.version=${{ needs.validate.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
       - name: Smoke test
@@ -230,8 +262,11 @@ jobs:
 
   image-manifest:
     name: Publish the multi-arch image
-    needs: [image, release]
+    needs: [validate, image, release]
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+      TAG: v${{ needs.validate.outputs.version }}
     permissions:
       contents: read
       packages: write
@@ -249,7 +284,7 @@ jobs:
           password: ${{ github.token }}
       - name: Tag the manifest list
         env:
-          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
         run: |
           tags="-t $IMAGE:$VERSION"
           [ "$PRERELEASE" = "true" ] || tags="$tags -t $IMAGE:latest"
