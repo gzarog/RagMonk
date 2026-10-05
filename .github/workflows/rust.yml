@@ -260,13 +260,14 @@ jobs:
     defaults:
       run:
         working-directory: .
-    env:
-      DIST: ${{ runner.temp }}/dist
-      RAGMONK_DOWNLOAD_BASE: ${{ runner.temp }}/dist
-      RAGMONK_INSTALL_DIR: ${{ runner.temp }}/ragmonk-install
-      RAGMONK_BIN_DIR: ${{ runner.temp }}/ragmonk-bin
-      RAGMONK_HOME: ${{ runner.temp }}/ragmonk-home
     steps:
+      # runner.temp is not available in job-level env.
+      - name: Paths
+        run: |
+          for kv in DIST=dist RAGMONK_DOWNLOAD_BASE=dist RAGMONK_INSTALL_DIR=ragmonk-install \
+                    RAGMONK_BIN_DIR=ragmonk-bin RAGMONK_HOME=ragmonk-home; do
+            echo "${kv%%=*}=$RUNNER_TEMP/${kv#*=}" >> "$GITHUB_ENV"
+          done
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
         with:
@@ -305,13 +306,14 @@ jobs:
     defaults:
       run:
         working-directory: .
-    env:
-      DIST: ${{ runner.temp }}\dist
-      RAGMONK_DOWNLOAD_BASE: ${{ runner.temp }}\dist
-      RAGMONK_INSTALL_DIR: ${{ runner.temp }}\ragmonk-install
-      RAGMONK_BIN_DIR: ${{ runner.temp }}\ragmonk-bin
-      RAGMONK_HOME: ${{ runner.temp }}\ragmonk-home
     steps:
+      # runner.temp is not available in job-level env.
+      - name: Paths
+        run: |
+          $t = $env:RUNNER_TEMP
+          @("DIST=$t\dist", "RAGMONK_DOWNLOAD_BASE=$t\dist", "RAGMONK_INSTALL_DIR=$t\ragmonk-install",
+            "RAGMONK_BIN_DIR=$t\ragmonk-bin", "RAGMONK_HOME=$t\ragmonk-home") |
+            Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
         with:
