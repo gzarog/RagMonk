@@ -12,6 +12,7 @@ mod ai_cmd;
 mod daemon_cmd;
 mod doctor_cmd;
 mod mcp;
+mod migrate_cmd;
 mod ops_cmd;
 mod query_cmd;
 mod status_cmd;
@@ -54,7 +55,7 @@ enum Command {
     ServerV2(ServerV2Command),
     /// Prepare the Rust V2 control plane from a Python-era home.
     #[command(name = "migrate-to-rust-v2")]
-    MigrateToRustV2(MigrateArgs),
+    MigrateToRustV2(migrate_cmd::MigrateArgs),
     /// Manage the background indexing daemon.
     #[command(subcommand)]
     Daemon(daemon_cmd::DaemonCommand),
@@ -224,21 +225,6 @@ struct LegacyArgs {
     json: bool,
 }
 
-#[derive(clap::Args)]
-#[command(group(clap::ArgGroup::new("action").required(true).args(["check", "import_sources"])))]
-struct MigrateArgs {
-    /// Read-only report: preserved source/config definitions, ignored V1
-    /// index-derived state and what an import would write.
-    #[arg(long)]
-    check: bool,
-    /// Import V1 source definitions into the V2 control plane and mark
-    /// every source for a full V2 rebuild. Never modifies or deletes V1 data.
-    #[arg(long = "import-sources")]
-    import_sources: bool,
-    #[arg(long = "json")]
-    json: bool,
-}
-
 #[derive(Subcommand)]
 enum ConfigCommand {
     /// Print the effective configuration as YAML.
@@ -362,7 +348,7 @@ fn print_json(data: &impl serde::Serialize) -> Result<(), RagMonkError> {
     Ok(())
 }
 
-fn print_preflight(r: &ragmonk_storage::preflight::PreflightReport) {
+pub(crate) fn print_preflight(r: &ragmonk_storage::preflight::PreflightReport) {
     println!("RagMonk home: {}", r.home);
     println!(
         "Python V1 sources.db: {}",
@@ -574,37 +560,7 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
             json,
         } => ops_cmd::uninstall(keep_data, yes, json)?,
         Command::Vectors(cmd) => ops_cmd::vectors(cmd)?,
-        Command::MigrateToRustV2(args) => {
-            let home = Home::discover();
-            if args.check {
-                let report = ragmonk_storage::preflight::preflight(&home)?;
-                if args.json {
-                    print_json(&report)?;
-                } else {
-                    print_preflight(&report);
-                }
-            } else {
-                let home = prepared_home()?;
-                let cache = load(&home)?.runtime.sqlite_cache_size_mb;
-                let result = ragmonk_storage::preflight::import_sources(&home, cache)?;
-                if args.json {
-                    print_json(&result)?;
-                } else {
-                    println!(
-                        "Imported {} source definition(s); {} already present.",
-                        result.imported.len(),
-                        result.already_present.len()
-                    );
-                    if let Some(b) = &result.control_backup {
-                        println!("Backed up the V2 control plane to {b}");
-                    }
-                    println!(
-                        "{} source(s) require a full Rust V2 rebuild.",
-                        result.needs_full_rebuild.len()
-                    );
-                }
-            }
-        }
+        Command::MigrateToRustV2(args) => migrate_cmd::run(&args)?,
     }
     Ok(())
 }
