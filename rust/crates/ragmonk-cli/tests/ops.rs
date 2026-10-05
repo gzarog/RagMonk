@@ -55,7 +55,8 @@ fn doctor_and_health() {
             "Index Lock",
             "Index",
             "Disk",
-            "Tokenizer"
+            "Tokenizer",
+            "AI"
         ]
     );
     assert_ne!(d["result"], "UNHEALTHY", "{d}");

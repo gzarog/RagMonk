@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Source detail{% endblock %}
+{% block content %}
+<div class="spread">
+  <h1 style="margin:0">Source</h1>
+  <a href="/sources" class="btn small">← All sources</a>
+</div>
+
+<div class="panel">
+  <table>
+    <tr><th>Path</th><td class="mono">{{ source.path }}</td></tr>
+    <tr><th>ID</th><td class="mono">{{ source.id }}</td></tr>
+    <tr><th>Type</th><td>{{ source.type }}</td></tr>
+    <tr><th>Enabled</th><td>{{ "yes" if source.enabled else "no" }}</td></tr>
+    <tr><th>Status</th><td>{{ source.status }}</td></tr>
+    <tr><th>Include patterns</th><td class="mono">{{ source.include_patterns|join(", ") or "—" }}</td></tr>
+    <tr><th>Exclude patterns</th><td class="mono">{{ source.exclude_patterns|join(", ") or "—" }}</td></tr>
+    <tr><th>Last scan</th><td>{{ source.last_scan_at or "—" }}</td></tr>
+    <tr><th>Last error</th><td>{{ source.last_error or "—" }}</td></tr>
+  </table>
+</div>
+
+<div class="grid">
+  <div class="stat"><div class="num">{{ source.counts.get("indexed", 0) }}</div><div class="label">Indexed</div></div>
+  <div class="stat"><div class="num">{{ source.counts.get("queued", 0) }}</div><div class="label">Queued</div></div>
+  <div class="stat"><div class="num">{{ source.counts.get("failed", 0) }}</div><div class="label">Failed</div></div>
+  <div class="stat"><div class="num">{{ source.metrics.documents_processed }}</div><div class="label">Documents</div></div>
+  <div class="stat"><div class="num">{{ source.metrics.symbols_created }}</div><div class="label">Symbols</div></div>
+  <div class="stat"><div class="num">{{ (source.metrics.database_size_bytes / 1024)|round(1) }} KB</div><div class="label">DB size</div></div>
+</div>
+
+<h2>Recent errors</h2>
+<div class="panel">
+  {% if source.errors %}
+  <table>
+    <thead><tr><th>When</th><th>Path</th><th>Error</th></tr></thead>
+    <tbody>
+      {% for e in source.errors %}
+      <tr><td class="muted mono">{{ e.occurred_at }}</td><td class="mono">{{ e.path or "—" }}</td><td>{{ e.error_code }}: {{ e.error_message }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No errors recorded for this source.</p>{% endif %}
+</div>
+{% endblock %}

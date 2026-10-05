@@ -312,15 +312,28 @@ pub fn calls_value(
     max_depth: usize,
     limit: usize,
 ) -> Result<Value, RagMonkError> {
-    let (matches, edges) = graph::traverse_symbol(
-        &corpora(opened),
+    traverse_value(
+        opened,
         name,
         direction,
         &graph::CALL_TYPES,
         max_depth,
         limit,
     )
-    .map_err(search_err)?;
+}
+
+/// `{query, matches, edges}` of a traversal over `types`.
+pub fn traverse_value(
+    opened: &[Opened],
+    name: &str,
+    direction: Direction,
+    types: &[&str],
+    max_depth: usize,
+    limit: usize,
+) -> Result<Value, RagMonkError> {
+    let (matches, edges) =
+        graph::traverse_symbol(&corpora(opened), name, direction, types, max_depth, limit)
+            .map_err(search_err)?;
     Ok(json!({
         "query": name,
         "matches": matches.iter().map(|m| match_json(m, opened)).collect::<Vec<_>>(),
@@ -649,6 +662,28 @@ fn print_explore(r: &Value) {
             ""
         }
     );
+}
+
+/// `{available, reason, results}` of a semantic search, absolute paths.
+pub fn semantic_value(
+    home: &Home,
+    cfg: &ragmonk_config::RagMonkConfig,
+    opened: &[Opened],
+    query: &str,
+    limit: usize,
+) -> Result<Value, RagMonkError> {
+    let lazy = lazy_embedder(home, cfg);
+    let embedder = lazy.get().ok().map(|a| a.as_ref());
+    let mut s = hybrid::semantic_search(
+        &corpora(opened),
+        embedder,
+        query,
+        limit,
+        Some(cfg.search.semantic_top_k.max(1) as usize),
+    )
+    .map_err(search_err)?;
+    absolutize_hits(&mut s.hits, opened);
+    Ok(semantic_json(&s))
 }
 
 /// The plain lexical ranking `search --json` reports as `results`, at

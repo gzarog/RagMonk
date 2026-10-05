@@ -196,6 +196,31 @@ fn move_aside(path: &Path, holding: &Path) -> Result<Option<PathBuf>, RagMonkErr
 pub fn restore(archive: &str, json_output: bool) -> Result<(), RagMonkError> {
     let home = prepared_home()?;
     let archive = PathBuf::from(archive);
+    let report = restore_archive(&home, &archive)?;
+    if json_output {
+        return print_json(&report);
+    }
+    let restored = report["projects_restored"].as_array().map_or(0, Vec::len);
+    let daemon_was_running = report["daemon_was_running"] == true;
+    println!("Restored from {}", archive.display());
+    println!("Projects restored: {restored}");
+    if daemon_was_running {
+        println!(
+            "Daemon was running before restore; {}",
+            if report["daemon_restarted"] == true {
+                "restarted"
+            } else {
+                "left stopped"
+            }
+        );
+    }
+    Ok(())
+}
+
+/// Verifies and restores a V2 archive into `home` (the `restore` report).
+pub fn restore_archive(home: &Home, archive: &Path) -> Result<Value, RagMonkError> {
+    let home = home.clone();
+    let archive = archive.to_path_buf();
     if !archive.is_file() {
         return Err(RagMonkError::usage(format!(
             "no such archive: {}",
@@ -318,27 +343,12 @@ pub fn restore(archive: &str, json_output: bool) -> Result<(), RagMonkError> {
         crate::daemon_cmd::run(crate::daemon_cmd::DaemonCommand::Start)?;
         daemon_restarted = true;
     }
-    if json_output {
-        return print_json(&json!({
-            "archive": archive.to_string_lossy(),
-            "projects_restored": restored,
-            "daemon_was_running": daemon_was_running,
-            "daemon_restarted": daemon_restarted,
-        }));
-    }
-    println!("Restored from {}", archive.display());
-    println!("Projects restored: {}", restored.len());
-    if daemon_was_running {
-        println!(
-            "Daemon was running before restore; {}",
-            if daemon_restarted {
-                "restarted"
-            } else {
-                "left stopped"
-            }
-        );
-    }
-    Ok(())
+    Ok(json!({
+        "archive": archive.to_string_lossy(),
+        "projects_restored": restored,
+        "daemon_was_running": daemon_was_running,
+        "daemon_restarted": daemon_restarted,
+    }))
 }
 
 // ------------------------------------------------------------ rebuild ---
@@ -371,62 +381,7 @@ pub fn rebuild(
         }
     }
     let home = prepared_home()?;
-    let cfg = load(&home)?;
-    let mut cp = control_plane(&home)?;
-    let sources = match &source_id {
-        Some(id) => vec![cp
-            .get_source(id)
-            .map_err(dberr)?
-            .ok_or_else(|| RagMonkError::usage(format!("no such source: {id}")))?],
-        None => cp.list_sources(true).map_err(dberr)?,
-    };
-    if sources.is_empty() {
-        return Err(RagMonkError::usage("no sources to rebuild"));
-    }
-    if fresh {
-        let unreachable: Vec<String> = sources
-            .iter()
-            .filter(|s| !Path::new(&s.path).exists())
-            .map(|s| format!("{} ({})", s.id, s.path))
-            .collect();
-        if !unreachable.is_empty() {
-            return Err(RagMonkError::usage(format!(
-                "cannot rebuild --fresh: source root(s) not reachable: {}. Reconnect them (or remove the sources) and try again; the existing index was left untouched.",
-                unreachable.join(", ")
-            )));
-        }
-    }
-    let lock = index_lock(&home, "rebuild")?;
-    let layout = V2Layout::new(&home);
-    let registry =
-        ragmonk_convert::registry_with(&cfg, &ragmonk_convert::RegistryOptions::for_home(&home));
-    let opts = Options::from_config(&cfg);
-    let total = sources.len() as i64;
-    let outcomes = ragmonk_indexing::progress::track(
-        &home.index_progress(),
-        "rebuild",
-        Some(total),
-        |tracker| -> Result<Vec<Value>, RagMonkError> {
-            let mut out = Vec::new();
-            for (i, s) in sources.iter().enumerate() {
-                tracker.begin_source(&s.id, Some(i as i64 + 1));
-                cp.require_full_rebuild(&s.id, "manual rebuild")
-                    .map_err(dberr)?;
-                let r = run_source(&layout, &mut cp, s, &registry, &opts, tracker)?;
-                out.push(json!({
-                    "id": s.id,
-                    "path": s.path,
-                    "scanned": r.counts.scanned,
-                    "indexed": r.indexed,
-                    "failed": r.failed,
-                    "linked": r.linked,
-                }));
-            }
-            Ok(out)
-        },
-    );
-    lock.release();
-    let outcomes = outcomes?;
+    let outcomes = rebuild_sources(&home, source_id.as_deref(), fresh, |_| {})?;
     let failed: i64 = outcomes
         .iter()
         .map(|o| o["failed"].as_i64().unwrap_or(0))
@@ -455,6 +410,75 @@ pub fn rebuild(
         ));
     }
     Ok(())
+}
+
+/// Rebuilds one or every enabled source under the `index` lock and
+/// returns one `{id, path, scanned, indexed, failed, linked}` per source.
+/// `each` sees every outcome as it completes.
+pub fn rebuild_sources(
+    home: &Home,
+    source_id: Option<&str>,
+    fresh: bool,
+    mut each: impl FnMut(&Value),
+) -> Result<Vec<Value>, RagMonkError> {
+    let cfg = load(home)?;
+    let mut cp = control_plane(home)?;
+    let sources = match source_id {
+        Some(id) => vec![cp
+            .get_source(id)
+            .map_err(dberr)?
+            .ok_or_else(|| RagMonkError::usage(format!("no such source: {id}")))?],
+        None => cp.list_sources(true).map_err(dberr)?,
+    };
+    if sources.is_empty() {
+        return Err(RagMonkError::usage("no sources to rebuild"));
+    }
+    if fresh {
+        let unreachable: Vec<String> = sources
+            .iter()
+            .filter(|s| !Path::new(&s.path).exists())
+            .map(|s| format!("{} ({})", s.id, s.path))
+            .collect();
+        if !unreachable.is_empty() {
+            return Err(RagMonkError::usage(format!(
+                "cannot rebuild --fresh: source root(s) not reachable: {}. Reconnect them (or remove the sources) and try again; the existing index was left untouched.",
+                unreachable.join(", ")
+            )));
+        }
+    }
+    let lock = index_lock(home, "rebuild")?;
+    let layout = V2Layout::new(home);
+    let registry =
+        ragmonk_convert::registry_with(&cfg, &ragmonk_convert::RegistryOptions::for_home(home));
+    let opts = Options::from_config(&cfg);
+    let total = sources.len() as i64;
+    let outcomes = ragmonk_indexing::progress::track(
+        &home.index_progress(),
+        "rebuild",
+        Some(total),
+        |tracker| -> Result<Vec<Value>, RagMonkError> {
+            let mut out = Vec::new();
+            for (i, s) in sources.iter().enumerate() {
+                tracker.begin_source(&s.id, Some(i as i64 + 1));
+                cp.require_full_rebuild(&s.id, "manual rebuild")
+                    .map_err(dberr)?;
+                let r = run_source(&layout, &mut cp, s, &registry, &opts, tracker)?;
+                let o = json!({
+                    "id": s.id,
+                    "path": s.path,
+                    "scanned": r.counts.scanned,
+                    "indexed": r.indexed,
+                    "failed": r.failed,
+                    "linked": r.linked,
+                });
+                each(&o);
+                out.push(o);
+            }
+            Ok(out)
+        },
+    );
+    lock.release();
+    outcomes
 }
 
 // ------------------------------------------------------------ upgrade ---

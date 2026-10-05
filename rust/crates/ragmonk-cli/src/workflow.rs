@@ -34,7 +34,7 @@ pub fn control_plane(home: &Home) -> Result<ControlPlane, RagMonkError> {
         .map_err(db)
 }
 
-fn get_source(cp: &ControlPlane, id: &str) -> Result<SourceRecord, RagMonkError> {
+pub fn get_source(cp: &ControlPlane, id: &str) -> Result<SourceRecord, RagMonkError> {
     cp.get_source(id)
         .map_err(db)?
         .ok_or_else(|| RagMonkError::usage(format!("no such source: {id}")))
@@ -259,6 +259,87 @@ fn confirm(prompt: &str) -> bool {
     matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
+/// Registers a source (`SourceRegistry.add`).
+pub fn add_source(
+    cp: &mut ControlPlane,
+    path: &str,
+    include: Vec<String>,
+    exclude: Vec<String>,
+) -> Result<SourceRecord, RagMonkError> {
+    let source_type = ragmonk_core::ids::detect_source_type(path);
+    let p = expand_user(path);
+    if !p.exists() {
+        return Err(RagMonkError::new(
+            ErrorKind::SourceUnavailable,
+            format!("source path does not exist: {path}"),
+        ));
+    }
+    let canonical = ragmonk_core::paths::resolve(&p)
+        .map_err(generic)?
+        .to_string_lossy()
+        .into_owned();
+    if !p.is_dir() {
+        return Err(RagMonkError::new(
+            ErrorKind::SourceUnavailable,
+            format!("source path is not a directory: {canonical}"),
+        ));
+    }
+    let (s, _) = cp
+        .add_source(&NewSource {
+            canonical_path: canonical,
+            source_type,
+            enabled: true,
+            include_patterns: include,
+            exclude_patterns: exclude,
+            origin: SourceOrigin::V2,
+            created_at: None,
+        })
+        .map_err(db)?;
+    Ok(s)
+}
+
+/// Enables or disables a registered source.
+pub fn set_source_enabled(
+    cp: &mut ControlPlane,
+    source_id: &str,
+    enabled: bool,
+) -> Result<(), RagMonkError> {
+    get_source(cp, source_id)?;
+    cp.set_enabled(source_id, enabled).map_err(db)
+}
+
+/// Removes a source and its indexed data (never the original files),
+/// under the `index` lock and only while no daemon is running. Returns
+/// whether indexed data was deleted.
+pub fn remove_source(home: &Home, source_id: &str) -> Result<bool, RagMonkError> {
+    let mut cp = control_plane(home)?;
+    let s = get_source(&cp, source_id)?;
+    assert_no_active_daemon(home)?;
+    let layout = V2Layout::new(home);
+    let project_dir = layout.project_dir(&project_id_for_canonical(&s.path));
+    let cfg = load(home)?;
+    let lock = RunLock::acquire(
+        &home.locks_dir().join("index.lock"),
+        "source-remove",
+        Some(source_id),
+        std::time::Duration::from_secs_f64(cfg.indexing.lock_timeout_seconds),
+    )?;
+    // Data first: if deleting it fails, the source stays registered
+    // rather than half removed.
+    let deleted = project_dir.exists();
+    if deleted {
+        std::fs::remove_dir_all(&project_dir).map_err(|e| {
+            generic(format!(
+                "failed to delete project data at {}: {e}; source '{source_id}' was not removed",
+                project_dir.display()
+            ))
+        })?;
+    }
+    cp.remove_source(source_id).map_err(db)?;
+    lock.release();
+    Ok(deleted)
+}
+
 pub fn source(cmd: SourceCommand) -> Result<(), RagMonkError> {
     let home = prepared_home()?;
     let mut cp = control_plane(&home)?;
@@ -268,35 +349,7 @@ pub fn source(cmd: SourceCommand) -> Result<(), RagMonkError> {
             include,
             exclude,
         } => {
-            let source_type = ragmonk_core::ids::detect_source_type(&path);
-            let p = expand_user(&path);
-            if !p.exists() {
-                return Err(RagMonkError::new(
-                    ErrorKind::SourceUnavailable,
-                    format!("source path does not exist: {path}"),
-                ));
-            }
-            let canonical = ragmonk_core::paths::resolve(&p)
-                .map_err(generic)?
-                .to_string_lossy()
-                .into_owned();
-            if !p.is_dir() {
-                return Err(RagMonkError::new(
-                    ErrorKind::SourceUnavailable,
-                    format!("source path is not a directory: {canonical}"),
-                ));
-            }
-            let (s, _) = cp
-                .add_source(&NewSource {
-                    canonical_path: canonical,
-                    source_type,
-                    enabled: true,
-                    include_patterns: include,
-                    exclude_patterns: exclude,
-                    origin: SourceOrigin::V2,
-                    created_at: None,
-                })
-                .map_err(db)?;
+            let s = add_source(&mut cp, &path, include, exclude)?;
             println!("Added source {} -> {}", s.id, s.path);
         }
         SourceCommand::List => {
@@ -323,13 +376,11 @@ pub fn source(cmd: SourceCommand) -> Result<(), RagMonkError> {
             println!("{}", serde_json::to_string_pretty(&v).map_err(generic)?);
         }
         SourceCommand::Enable { source_id } => {
-            get_source(&cp, &source_id)?;
-            cp.set_enabled(&source_id, true).map_err(db)?;
+            set_source_enabled(&mut cp, &source_id, true)?;
             println!("Enabled {source_id}");
         }
         SourceCommand::Disable { source_id } => {
-            get_source(&cp, &source_id)?;
-            cp.set_enabled(&source_id, false).map_err(db)?;
+            set_source_enabled(&mut cp, &source_id, false)?;
             println!("Disabled {source_id}");
         }
         SourceCommand::Remove { source_id, yes } => {
@@ -347,26 +398,7 @@ pub fn source(cmd: SourceCommand) -> Result<(), RagMonkError> {
                     return Ok(());
                 }
             }
-            let cfg = load(&home)?;
-            let lock = RunLock::acquire(
-                &home.locks_dir().join("index.lock"),
-                "source-remove",
-                Some(&source_id),
-                std::time::Duration::from_secs_f64(cfg.indexing.lock_timeout_seconds),
-            )?;
-            // Data first: if deleting it fails, the source stays registered
-            // rather than half removed.
-            let deleted = project_dir.exists();
-            if deleted {
-                std::fs::remove_dir_all(&project_dir).map_err(|e| {
-                    generic(format!(
-                        "failed to delete project data at {}: {e}; source '{source_id}' was not removed",
-                        project_dir.display()
-                    ))
-                })?;
-            }
-            cp.remove_source(&source_id).map_err(db)?;
-            lock.release();
+            let deleted = remove_source(&home, &source_id)?;
             println!("Removed {} ({})", s.id, s.path);
             if deleted {
                 println!("  deleted indexed data at {}", project_dir.display());

@@ -6,7 +6,7 @@ is still the product**; nothing here changes its behavior yet.
 
 | Crate | Status |
 |-------|--------|
-| `ragmonk-cli` | `ragmonk` binary: `version`, `config show/get/set`, `migrate-to-rust-v2 --check/--import-sources`, `server-v2 schema/init/legacy`, `daemon start/stop/restart/status/run`, `init`, `source add/list/info/enable/disable/remove`, `index`, `status`, `docs`, `watch`, `search`, `symbol`, `callers`, `callees`, `references`, `impact`, `explore`, `link add/remove/list`, `doctor`, `health`, `backup`, `restore`, `rebuild`, `upgrade`, `uninstall`, `vectors rebuild/backfill` (RUST-12); `serve --mcp`, the stdio MCP server with the `ragmonk_*` tools (RUST-13); `ask` and `ai providers/status/login/logout/models` (RUST-14) |
+| `ragmonk-cli` | `ragmonk` binary: `version`, `config show/get/set`, `migrate-to-rust-v2 --check/--import-sources`, `server-v2 schema/init/legacy`, `daemon start/stop/restart/status/run`, `init`, `source add/list/info/enable/disable/remove`, `index`, `status`, `docs`, `watch`, `search`, `symbol`, `callers`, `callees`, `references`, `impact`, `explore`, `link add/remove/list`, `doctor`, `health`, `backup`, `restore`, `rebuild`, `upgrade`, `uninstall`, `vectors rebuild/backfill` (RUST-12); `serve --mcp`, the stdio MCP server with the `ragmonk_*` tools (RUST-13); `ask` and `ai providers/status/login/logout/models`, and `ui`, the local Admin UI (RUST-14) |
 | `ragmonk-ai` | AI providers for `ask`: OpenAI, Anthropic, Ollama, OpenAI-compatible, Codex (stdio JSON-RPC) and Copilot (CLI) (RUST-14) |
 | `ragmonk-backends` | V2 OpenSearch/Elasticsearch schema, bounded bulk, atomic build publication, legacy cleanup (RUST-03) |
 | `ragmonk-code` | Tree-sitter code intelligence: reference `.scm` queries, extraction, resolution, framework rules, code graph, whole-build cross-file resolution (RUST-05) |
@@ -56,7 +56,8 @@ Golden fixtures for pure functions (config parsing, IDs, redaction) live in
 The MCP session golden (`compat/golden/mcp.json`) and the served tool
 catalog come from `python rust/compat/tools/gen_mcp_golden.py` (ADR 0025);
 the AI provider and `ask`/`ai` goldens from `gen_ai_golden.py` and
-`gen_ai_cli_golden.py` (ADR 0026).
+`gen_ai_cli_golden.py` (ADR 0026); the Admin UI pages from `gen_ui_golden.py`
+(ADR 0027).
 
 `--strict-ids` keeps path-derived source/project IDs for same-machine runs;
 the default *portable* mode masks them. The harness only resets work dirs

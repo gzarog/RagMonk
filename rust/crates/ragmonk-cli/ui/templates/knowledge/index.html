@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Knowledge{% endblock %}
+{% block content %}
+<h1>Code knowledge</h1>
+
+<div class="panel">
+  <form method="get" action="/knowledge" class="field-row">
+    <div style="flex:2">
+      <label>Symbol search</label>
+      <input type="text" name="q" value="{{ query }}" placeholder="function or class name">
+    </div>
+    <div style="flex:0"><button class="btn primary" type="submit">Search</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  <table>
+    <thead><tr><th>Symbol</th><th>Kind</th><th>Language</th><th>Source</th><th></th></tr></thead>
+    <tbody>
+      {% for s in symbols %}
+      <tr>
+        <td><span class="mono">{{ s.qualified_name }}</span></td>
+        <td>{{ s.kind }}</td>
+        <td>{{ s.language }}</td>
+        <td>{{ s.source_id }}</td>
+        <td class="right">
+          <a class="btn small" href="/knowledge/symbol?name={{ s.name }}&relation=callers">Callers</a>
+          <a class="btn small" href="/knowledge/symbol?name={{ s.name }}&relation=callees">Callees</a>
+          <a class="btn small" href="/knowledge/symbol?name={{ s.name }}&relation=impact">Impact</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">No symbols indexed{{ " matching your search" if query else "" }}.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

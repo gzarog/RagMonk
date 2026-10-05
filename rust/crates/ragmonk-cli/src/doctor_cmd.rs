@@ -223,11 +223,56 @@ pub fn run_checks(home: &Home) -> Result<Vec<Section>, RagMonkError> {
     }
 
     sections.push(tokenizer_section(&cfg, &stores)?);
+    sections.push(ai_section(&cfg));
 
     if cfg.storage.mode == "server" {
         sections.push(server_section(&cfg));
     }
     Ok(sections)
+}
+
+/// The configured AI provider and privacy posture; offline and
+/// secret-free, never more than a warning (`_ai_section`).
+fn ai_section(cfg: &ragmonk_config::RagMonkConfig) -> Section {
+    let provider = &cfg.ai.provider;
+    let allowed = cfg.privacy.external_ai_allowed;
+    let mut checks = vec![check(
+        "provider",
+        "ok",
+        format!(
+            "provider={provider}, external_ai_allowed={}",
+            if allowed { "True" } else { "False" }
+        ),
+    )];
+    if let Some(cap) = ragmonk_ai::registry::get(provider).filter(|c| c.subscription) {
+        if cap.cloud_egress && !allowed {
+            checks.push(check(
+                "privacy",
+                "warn",
+                format!(
+                    "{provider} is a cloud provider but privacy.external_ai_allowed=false; set it \
+                     true to use it"
+                ),
+            ));
+        }
+        let found = |exe| ragmonk_ai::runtime::which(exe).is_some();
+        checks.push(match cap.provider_id {
+            "codex" if found("codex") => check("runtime", "ok", "codex runtime found on PATH"),
+            "codex" => check(
+                "runtime",
+                "warn",
+                "codex runtime not found on PATH; run 'ragmonk ai login codex' setup",
+            ),
+            // The Rust adapter drives the Copilot CLI (ADR 0026).
+            _ if found("copilot") => check("runtime", "ok", "Copilot CLI found on PATH"),
+            _ => check(
+                "runtime",
+                "warn",
+                "Copilot CLI not found on PATH; install it and sign in with `copilot`",
+            ),
+        });
+    }
+    Section { name: "AI", checks }
 }
 
 fn tokenizer_section(

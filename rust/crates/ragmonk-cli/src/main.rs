@@ -15,6 +15,7 @@ mod mcp;
 mod ops_cmd;
 mod query_cmd;
 mod status_cmd;
+mod ui;
 mod workflow;
 
 use std::process::ExitCode;
@@ -87,6 +88,18 @@ enum Command {
         question: String,
         #[arg(long = "json")]
         json: bool,
+    },
+    /// Start the local administration web interface.
+    Ui {
+        /// Interface to bind. Defaults to localhost.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port to listen on.
+        #[arg(long, default_value_t = 8765)]
+        port: u16,
+        /// Do not open a browser automatically.
+        #[arg(long = "no-browser")]
+        no_browser: bool,
     },
     /// Manage subscription AI providers.
     #[command(subcommand)]
@@ -531,6 +544,11 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
         Command::Serve { mcp } => mcp::serve(mcp)?,
         Command::Ask { question, json } => ai_cmd::ask(&question, json)?,
         Command::Ai(cmd) => ai_cmd::run(cmd)?,
+        Command::Ui {
+            host,
+            port,
+            no_browser,
+        } => ui::serve(&host, port, no_browser)?,
         Command::Search(a) => query_cmd::search(&a)?,
         Command::Symbol { name, json } => query_cmd::symbol(&name, json)?,
         Command::Callers(a) => query_cmd::calls(&a, ragmonk_retrieval::graph::Direction::Incoming)?,
