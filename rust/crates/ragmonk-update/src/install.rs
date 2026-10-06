@@ -28,10 +28,14 @@ pub struct InstallOutcome {
 }
 
 /// Installs the latest release over the running `installed` version.
-pub fn install_latest(home: &Path, installed: &str) -> Result<InstallOutcome, String> {
+pub fn install_latest(
+    home: &Path,
+    installed: &str,
+    channel: release::Channel,
+) -> Result<InstallOutcome, String> {
     let layout = Layout::discover(home)?;
     let latest =
-        release::fetch_latest().map_err(|e| format!("could not check for updates: {e}"))?;
+        release::fetch_latest(channel).map_err(|e| format!("could not check for updates: {e}"))?;
     if !versioning::is_newer(&latest.version, installed) {
         return Ok(InstallOutcome {
             installed_version: installed.to_owned(),

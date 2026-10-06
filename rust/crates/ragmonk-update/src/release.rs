@@ -64,22 +64,51 @@ pub fn client(timeout: Duration) -> reqwest::blocking::Client {
         .unwrap_or_else(|_| reqwest::blocking::Client::new())
 }
 
-/// The latest release, or why it could not be determined.
-pub fn fetch_latest() -> Result<Release, String> {
+/// Which releases `ragmonk update` follows (`updates.channel`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Channel {
+    /// GitHub's "latest release": full releases only (the default).
+    Stable,
+    /// The newest `MAJOR.MINOR.PATCH` release, pre-releases included.
+    Prerelease,
+}
+
+impl Channel {
+    /// `updates.channel`; anything but `prerelease` is the stable channel.
+    pub fn from_config(value: &str) -> Self {
+        if value.trim().eq_ignore_ascii_case("prerelease") {
+            Self::Prerelease
+        } else {
+            Self::Stable
+        }
+    }
+}
+
+fn releases_url() -> String {
+    match test_base() {
+        Some(base) => format!("{base}/api/releases"),
+        None => format!(
+            "https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases?per_page=30"
+        ),
+    }
+}
+
+fn get_json(url: &str, what: &str) -> Result<Value, String> {
     let resp = client(TIMEOUT)
-        .get(latest_url())
+        .get(url)
         .header("accept", "application/vnd.github+json")
         .send()
         .map_err(|e| format!("GitHub is unreachable: {e}"))?;
     let status = resp.status().as_u16();
     if status >= 400 {
-        return Err(format!(
-            "GitHub returned HTTP {status} for the latest release"
-        ));
+        return Err(format!("GitHub returned HTTP {status} for {what}"));
     }
-    let data: Value = resp
-        .json()
-        .map_err(|e| format!("GitHub returned a non-JSON response: {e}"))?;
+    resp.json()
+        .map_err(|e| format!("GitHub returned a non-JSON response: {e}"))
+}
+
+/// A release from one entry of GitHub's release JSON.
+fn parse_release(data: &Value) -> Result<Release, String> {
     let tag = data["tag_name"]
         .as_str()
         .filter(|t| !t.is_empty())
@@ -97,6 +126,27 @@ pub fn fetch_latest() -> Result<Release, String> {
     })
 }
 
+/// The newest strict-`MAJOR.MINOR.PATCH` release in a release list, drafts
+/// excluded and pre-releases included. Entries with other tags (such as
+/// the `rust-v*` dry-run tags' siblings) are skipped, never an error.
+pub fn newest_release(list: &Value) -> Result<Release, String> {
+    list.as_array()
+        .ok_or("GitHub's release list was not a JSON array")?
+        .iter()
+        .filter(|r| !r["draft"].as_bool().unwrap_or(false))
+        .filter_map(|r| parse_release(r).ok())
+        .max_by_key(|r| versioning::parse(&r.version))
+        .ok_or_else(|| "GitHub has no release with a MAJOR.MINOR.PATCH tag".to_owned())
+}
+
+/// The release `channel` points at, or why it could not be determined.
+pub fn fetch_latest(channel: Channel) -> Result<Release, String> {
+    match channel {
+        Channel::Stable => parse_release(&get_json(&latest_url(), "the latest release")?),
+        Channel::Prerelease => newest_release(&get_json(&releases_url(), "the release list")?),
+    }
+}
+
 /// Downloads a release asset fully into memory (archives are tens of MB).
 pub fn download(url: &str) -> Result<Vec<u8>, String> {
     let resp = client(Duration::from_secs(600))
@@ -110,4 +160,35 @@ pub fn download(url: &str) -> Result<Vec<u8>, String> {
     resp.bytes()
         .map(|b| b.to_vec())
         .map_err(|e| format!("download failed: {url}: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn channel_from_config() {
+        assert_eq!(Channel::from_config("stable"), Channel::Stable);
+        assert_eq!(Channel::from_config(" Prerelease "), Channel::Prerelease);
+        assert_eq!(Channel::from_config("beta"), Channel::Stable);
+    }
+
+    #[test]
+    fn newest_release_includes_prereleases_skips_drafts_and_odd_tags() {
+        let list = json!([
+            {"tag_name": "v0.3.30", "html_url": "a", "prerelease": false},
+            {"tag_name": "v0.10.0", "html_url": "d", "draft": true},
+            {"tag_name": "v0.4.1", "html_url": "b", "prerelease": true},
+            {"tag_name": "nightly", "html_url": "c"},
+            {"tag_name": "v0.4.0", "html_url": "e"}
+        ]);
+        let r = newest_release(&list).unwrap();
+        assert_eq!(
+            (r.version.as_str(), r.tag_name.as_str()),
+            ("0.4.1", "v0.4.1")
+        );
+        assert!(newest_release(&json!([{"tag_name": "nightly"}])).is_err());
+        assert!(newest_release(&json!({})).is_err());
+    }
 }

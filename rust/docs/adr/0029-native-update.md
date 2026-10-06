@@ -125,3 +125,17 @@ workflow calls this script for each target.
   `update install` refuses it and says to reinstall. The installers leave an
   old `venv/` and `app/` in place and point to `migrate-to-rust-v2 --check`.
 - `update rollback` and the `background-check` subcommand are new.
+
+## Addendum (RUST-16): `updates.channel`
+
+- **`stable`** (the default): follows GitHub's `releases/latest`, which
+  skips pre-releases.
+- **`prerelease`**: reads the release list (`releases?per_page=30`) and
+  picks the newest strict-`MAJOR.MINOR.PATCH` tag. Drafts are skipped, and
+  pre-releases are included.
+- **Any other value**: stays stable. The Python era accepted free text,
+  and the config golden keeps `beta` loadable, so values are not
+  validated.
+
+This channel lets a published pre-release be tested end to end with
+`update install` and `rollback`.

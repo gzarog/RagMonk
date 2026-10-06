@@ -11,8 +11,12 @@ use crate::{release, versioning};
 /// Queries the latest release and refreshes the cache. The "already
 /// notified" marker carries over only while the latest version is
 /// unchanged, so each new release is announced exactly once.
-pub fn check_now(home: &Path, installed: &str) -> Result<UpdateCache, String> {
-    let latest = release::fetch_latest()?;
+pub fn check_now(
+    home: &Path,
+    installed: &str,
+    channel: release::Channel,
+) -> Result<UpdateCache, String> {
+    let latest = release::fetch_latest(channel)?;
     let carried = cache::read(home)
         .filter(|p| p.latest_version == latest.version)
         .and_then(|p| p.last_notified_version);
