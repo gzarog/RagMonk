@@ -124,7 +124,10 @@ jobs:
         run: |
           EXE=rust/target/${{ matrix.target }}/release/ragmonk
           [ -f "$EXE.exe" ] && EXE="$EXE.exe"
-          "$EXE" version --json | tee /dev/stderr | grep -q "\"$VERSION\""
+          # No `tee /dev/stderr`: Git Bash on Windows has no /dev/stderr.
+          out="$("$EXE" version --json)"
+          echo "$out"
+          echo "$out" | grep -q "\"$VERSION\""
           echo "EXE=$EXE" >> "$GITHUB_ENV"
       - name: Package
         run: |
