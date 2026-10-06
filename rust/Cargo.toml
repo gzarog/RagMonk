@@ -5,7 +5,6 @@ members = [
     "crates/ragmonk-backends",
     "crates/ragmonk-cli",
     "crates/ragmonk-code",
-    "crates/ragmonk-compat",
     "crates/ragmonk-config",
     "crates/ragmonk-convert",
     "crates/ragmonk-core",

@@ -21,7 +21,6 @@ is still the product**; nothing here changes its behavior yet.
 | `ragmonk-storage` | V2 SQLite control plane + per-source knowledge store, versioned migrations with backup, read-only V1 preflight/import (RUST-02) |
 | `ragmonk-update` | Native self-update: strict release tags, `update.json` cache, SHA-256 + optional minisign verification, `versions/<ver>` + `current` layout with rollback (RUST-15); see ADR 0029 and `scripts/package_release.py`; releases (`rust-release.yml`) and the `rust/Dockerfile` image: ADR 0030 |
 | `ragmonk-telemetry` | JSON-lines logging, URL/credential redaction (RUST-01) |
-| `ragmonk-compat` | Python-vs-Rust differential harness; removed at RUST-16 |
 
 ## Quality gates
 ```sh
@@ -31,38 +30,16 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
-## Compatibility harness
-`compat/manifest.json` lists scenarios (fixtures copied from `tests/fixtures`
-into an isolated work dir, then CLI steps with `RAGMONK_HOME` inside it; no
-inherited `RAGMONK_*` variables, update checks off). Run from the repo root:
+## Reference data (frozen)
+The Python reference that `compat/golden/` and `compat/benchmarks/` were
+captured from has been retired (RUST-16, [ADR 0031](docs/adr/0031-cutover.md)). The goldens are now
+frozen expectations: tests compare against them, and nothing regenerates
+them. The `ragmonk-compat` harness and the `compat/tools/gen_*.py`
+generators are still in git history before ADR 0031.
 
-```sh
-cargo build --manifest-path rust/Cargo.toml -p ragmonk-compat -p ragmonk-cli
-# Prove the Python reference is reproducible (RUST-00 gate)
-rust/target/debug/ragmonk-compat stability --impl python --program .venv/bin/ragmonk
-# Capture the Rust candidate and diff against the committed baseline
-rust/target/debug/ragmonk-compat capture --impl rust --program rust/target/debug/ragmonk --out rust.json
-rust/target/debug/ragmonk-compat compare rust/compat/baseline/python-1e92ed4.json rust.json
-```
+`compat/fixtures/corpus/` holds the code and document corpus that the MCP,
+Admin UI and `ask` golden tests index. It is a copy of the former Python
+`tests/fixtures` files those goldens were captured from.
 
-Phase gate (every step owned by the phase or earlier must match):
-
-```sh
-rust/target/debug/ragmonk-compat gate python.json rust.json --phase RUST-01
-```
-
-Golden fixtures for pure functions (config parsing, IDs, redaction) live in
-`compat/golden/` and are regenerated with
-`python rust/compat/tools/gen_core_golden.py` (Python reference installed).
-The MCP session golden (`compat/golden/mcp.json`) and the served tool
-catalog come from `python rust/compat/tools/gen_mcp_golden.py` (ADR 0025);
-the AI provider and `ask`/`ai` goldens from `gen_ai_golden.py` and
-`gen_ai_cli_golden.py` (ADR 0026); the Admin UI pages from `gen_ui_golden.py`
-(ADR 0027).
-
-`--strict-ids` keeps path-derived source/project IDs for same-machine runs;
-the default *portable* mode masks them. The harness only resets work dirs
-that carry its own marker file and opens SQLite read-only.
-
-Policies: [`docs/adr/`](docs/adr) (storage: ADR 0006, server: ADR 0007, V3 clean-slate plan). Baselines: `compat/baseline/`,
+Policies: [`docs/adr/`](docs/adr) (storage: ADR 0006, server: ADR 0007, V3 clean-slate plan). Goldens: `compat/golden/`,
 benchmarks: `compat/benchmarks/`.

@@ -16,13 +16,25 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 const FIXTURES: &[(&str, &str)] = &[
-    ("tests/fixtures/languages", "code"),
-    ("tests/fixtures/documents/simple.md", "docs/simple.md"),
-    ("tests/fixtures/documents/simple.txt", "docs/simple.txt"),
-    ("tests/fixtures/documents/simple.csv", "docs/simple.csv"),
-    ("tests/fixtures/documents/simple.html", "docs/simple.html"),
+    ("rust/compat/fixtures/corpus/languages", "code"),
     (
-        "tests/fixtures/documents/email_with_attachments.eml",
+        "rust/compat/fixtures/corpus/documents/simple.md",
+        "docs/simple.md",
+    ),
+    (
+        "rust/compat/fixtures/corpus/documents/simple.txt",
+        "docs/simple.txt",
+    ),
+    (
+        "rust/compat/fixtures/corpus/documents/simple.csv",
+        "docs/simple.csv",
+    ),
+    (
+        "rust/compat/fixtures/corpus/documents/simple.html",
+        "docs/simple.html",
+    ),
+    (
+        "rust/compat/fixtures/corpus/documents/email_with_attachments.eml",
         "docs/email_with_attachments.eml",
     ),
 ];
