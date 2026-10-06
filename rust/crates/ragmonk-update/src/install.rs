@@ -130,9 +130,11 @@ fn self_check(bin: &Path, version: &str) -> Result<(), String> {
         .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("the new binary does not run: {e}; refusing to install"))?;
+    // `version --json` prints the CLI's JSON envelope:
+    // `{"schema_version": "1", "data": {"version": ..}}`.
     let reported = serde_json::from_slice::<serde_json::Value>(&out.stdout)
         .ok()
-        .and_then(|v| v["version"].as_str().map(str::to_owned));
+        .and_then(|v| v["data"]["version"].as_str().map(str::to_owned));
     match reported {
         Some(v) if out.status.success() && versioning::normalize(&v) == version => Ok(()),
         other => Err(format!(
