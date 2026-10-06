@@ -5,17 +5,24 @@ name: Rust release
 # minisign when the MINISIGN_SECRET_KEY secret exists), the installers,
 # and a multi-arch image on GHCR.
 #
-# Started manually, or by pushing a `rust-v<MAJOR.MINOR.PATCH>` tag (a
-# pre-release with an image; that prefix never fires the Python
-# release.yml's `v*.*.*` trigger). Separate from the Python release.yml until the cutover
-# (RUST-16). Releases default to pre-releases: GitHub's "latest release",
-# which `ragmonk update` and the Python updater both follow, ignores them.
+# Three ways in:
+#   * automatically, after the CI workflow (rust.yml) passes on a push
+#     to main: the next vX.Y.Z is computed (patch bump, or minor when the
+#     merged commit message contains "[release minor]"), tagged, and
+#     published as a full release, which `ragmonk update` picks up;
+#   * a pushed `rust-v<MAJOR.MINOR.PATCH>` tag: a pre-release with the
+#     image, for dry runs;
+#   * manual dispatch (default branch only).
 #
 # Repository settings it reads:
 #   vars.MINISIGN_PUBLIC_KEY      compiled into the binary and installers
 #   secrets.MINISIGN_SECRET_KEY   the matching minisign secret key file
 #   secrets.MINISIGN_PASSWORD     its password (empty for an unencrypted key)
 on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   push:
     tags:
       - "rust-v*.*.*"
@@ -34,6 +41,10 @@ on:
         type: boolean
         default: true
 
+concurrency:
+  group: rust-release
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -43,14 +54,29 @@ env:
 jobs:
   validate:
     name: Validate version
+    # A workflow_run fires for every CI outcome; release only a green push.
+    if: >-
+      github.event_name != 'workflow_run' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       version: ${{ steps.v.outputs.version }}
       prerelease: ${{ steps.v.outputs.prerelease }}
       image: ${{ steps.v.outputs.image }}
+      sha: ${{ steps.v.outputs.sha }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit CI validated, not whatever main points at now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
       # A tag push carries no inputs: the version comes from the tag, and
-      # it is always a pre-release with an image.
+      # it is always a pre-release with an image. After CI on main, the
+      # next version is computed from the latest v* tag.
       - name: Resolve inputs
         id: v
         env:
@@ -58,16 +84,28 @@ jobs:
           IN_PRERELEASE: ${{ inputs.prerelease }}
           IN_IMAGE: ${{ inputs.image }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            v="${GITHUB_REF_NAME#rust-v}"; pre=true; img=true
-          else
-            v="$IN_VERSION"; pre="$IN_PRERELEASE"; img="$IN_IMAGE"
-          fi
-          { echo "version=$v"; echo "prerelease=$pre"; echo "image=$img"; } >> "$GITHUB_OUTPUT"
+          set -eu
+          sha="$(git rev-parse HEAD)"
+          case "$GITHUB_EVENT_NAME" in
+            push)
+              v="${GITHUB_REF_NAME#rust-v}"; pre=true; img=true ;;
+            workflow_run)
+              latest="$(git tag --list 'v*.*.*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)"
+              if git log -1 --format=%B | grep -qF '[release minor]'; then bump=minor; else bump=patch; fi
+              if [ -z "$latest" ]; then
+                v="0.1.0"
+              else
+                cur="${latest#v}"; major="${cur%%.*}"; rest="${cur#*.}"
+                minor="${rest%%.*}"; patch="${rest#*.}"
+                if [ "$bump" = minor ]; then v="$major.$((minor + 1)).0"; else v="$major.$minor.$((patch + 1))"; fi
+              fi
+              echo "Latest tag: ${latest:-<none>}, bump: $bump -> v$v"
+              pre=false; img=true ;;
+            *)
+              v="$IN_VERSION"; pre="$IN_PRERELEASE"; img="$IN_IMAGE" ;;
+          esac
+          { echo "version=$v"; echo "prerelease=$pre"; echo "image=$img"; echo "sha=$sha"; } >> "$GITHUB_OUTPUT"
           { echo "VERSION=$v"; echo "TAG=v$v"; } >> "$GITHUB_ENV"
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Strict MAJOR.MINOR.PATCH, tag not taken
         run: |
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
@@ -75,6 +113,15 @@ jobs:
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             echo "::error::tag $TAG already exists"; exit 1
           fi
+      # Reserve the version before the long builds, so two merges racing
+      # past the concurrency guard cannot both claim it.
+      - name: Push the release tag
+        if: github.event_name == 'workflow_run'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
 
   build:
     name: Build ${{ matrix.target }}
@@ -101,6 +148,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -117,7 +166,7 @@ jobs:
         working-directory: rust
         env:
           RAGMONK_BUILD_VERSION: ${{ needs.validate.outputs.version }}
-          RAGMONK_BUILD_COMMIT: ${{ github.sha }}
+          RAGMONK_BUILD_COMMIT: ${{ needs.validate.outputs.sha }}
           RAGMONK_MINISIGN_PUBKEY: ${{ vars.MINISIGN_PUBLIC_KEY }}
         run: cargo build --release --locked -p ragmonk-cli --target ${{ matrix.target }}
       - name: Smoke test
@@ -151,6 +200,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
       - uses: actions/download-artifact@v4
         with:
           pattern: dist-*
@@ -203,7 +254,7 @@ jobs:
 
           Every archive is listed in SHA256SUMS; SHA256SUMS.minisig, when present, is its minisign signature.
           NOTES
-          gh release create "$TAG" dist/* --target "${{ github.sha }}" \
+          gh release create "$TAG" dist/* --target "${{ needs.validate.outputs.sha }}" \
             --title "RagMonk $VERSION" --notes-file notes.md $flags
 
   image:
@@ -227,6 +278,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -242,12 +295,12 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             RAGMONK_VERSION=${{ needs.validate.outputs.version }}
-            RAGMONK_COMMIT=${{ github.sha }}
+            RAGMONK_COMMIT=${{ needs.validate.outputs.sha }}
             RAGMONK_MINISIGN_PUBKEY=${{ vars.MINISIGN_PUBLIC_KEY }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.validate.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ needs.validate.outputs.sha }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
       - name: Smoke test
         run: |

@@ -61,8 +61,8 @@ ragmonk link remove <ID>
 | Setting | Default | Effect |
 |---|---|---|
 | `documents.pdf_mode` | `accurate` | `fast` reads only the PDF text layer (no layout or table models, no model loading). On a 24-PDF test corpus: 81s to 1.6s. Loses heading/table structure and multi-column reading order; low-text PDFs still follow `documents.ocr`. |
-| `documents.pdf_table_structure` | `true` | `false` skips Docling's table-structure model, roughly 25% of per-page layout cost on table-heavy pages. |
-| `documents.pdf_process_workers` | `1` | More than 1 converts PDFs in that many worker processes. Each loads its own models (more memory). Torch already spreads one conversion across all cores, so gains are largest on many-core machines: 1.26x with 4 workers on a 4-core machine. |
+| `documents.pdf_table_structure` | `true` | Accepted for compatibility with older configs; the native PDF converter has no separate table-structure model, so it has no effect. |
+| `documents.pdf_process_workers` | `1` | Accepted for compatibility with older configs (1–32); the native PDF converter does not use separate worker processes, so it has no effect. |
 
 Changing `pdf_mode` or `pdf_table_structure` reprocesses PDFs on the next index (they get their own conversion-cache entries); `pdf_process_workers` does not.
 
@@ -138,7 +138,7 @@ ragmonk init --storage-mode server --storage-engine opensearch \
     --storage-url https://search.internal:9200
 ```
 
-- The install scripts always include `opensearch-py` and `elasticsearch`; with plain pip use `pip install "ragmonk[server]"`.
+- Server support is built into every binary and the container image; there is nothing extra to install.
 - `init` validates the real cluster first (reachable, right engine, OpenSearch 2+ / Elasticsearch 8+, permissions).
 - Credentials only via env vars: `RAGMONK_OPENSEARCH_{USERNAME,PASSWORD,API_KEY}` / `RAGMONK_ELASTICSEARCH_{USERNAME,PASSWORD,API_KEY}`. Never stored in `config.yaml`.
 - First index and every rebuild publish a new generation atomically; a failed rebuild keeps serving the previous one.

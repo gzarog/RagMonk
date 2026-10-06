@@ -1,8 +1,10 @@
-# RagMonk Rust rewrite (work in progress)
+# RagMonk (Rust workspace)
 
-This workspace hosts the Python→Rust rewrite tracked by the
-`RagMonk_Full_Rust_Rewrite_V1` plan. **The Python application under `src/`
-is still the product**; nothing here changes its behavior yet.
+RagMonk is a native Rust application, and this workspace is the whole
+product. The rewrite plan (`RagMonk_Full_Rust_Rewrite_V1`, RUST-00 to
+RUST-16) ported the former Python implementation, and the cutover in
+[ADR 0031](docs/adr/0031-cutover.md) removed that implementation from the
+repository.
 
 | Crate | Status |
 |-------|--------|
