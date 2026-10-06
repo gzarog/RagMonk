@@ -254,6 +254,7 @@ extend-exclude = [
     "tests/fixtures/languages",
     "rust/compat/fixtures/code",
     "rust/compat/fixtures/graph",
+    "rust/compat/fixtures/corpus",
 ]
 
 [tool.ruff.lint]
