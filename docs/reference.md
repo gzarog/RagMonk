@@ -152,8 +152,21 @@ ragmonk backup [PATH]
 ragmonk restore ARCHIVE
 ragmonk rebuild [--source ID]
 ragmonk upgrade
-ragmonk update check|install
+ragmonk update check|status|install|rollback
 ragmonk vectors rebuild
 ragmonk uninstall [--keep-data]
 ragmonk config get|set KEY [VALUE]
 ```
+
+## Updates
+
+`ragmonk update` follows GitHub's latest **full** release. To also receive
+pre-releases, for example to test a release candidate, run:
+
+```bash
+ragmonk config set updates.channel prerelease
+```
+
+The default is `stable`. Any other value is treated as `stable`.
+`updates.enabled`, `updates.check_interval_hours` and `updates.notify`
+control the background check and the "newer version" notice.

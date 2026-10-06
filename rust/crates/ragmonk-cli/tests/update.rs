@@ -271,3 +271,47 @@ fn install_refuses_a_non_native_install() {
         "{o:?}"
     );
 }
+
+#[test]
+fn prerelease_channel_follows_prereleases() {
+    let dir = tempfile::tempdir().unwrap();
+    let (home, install) = native_home(dir.path());
+    let (base, routes) = serve();
+    // 99.2.0 exists only as a pre-release; "latest" is still 99.1.0.
+    publish(&routes, "99.2.0", "99.2.0", false);
+    routes.lock().unwrap().insert(
+        "/api/releases/latest".into(),
+        br#"{"tag_name":"v99.1.0","html_url":"https://example.invalid/v99.1.0"}"#.to_vec(),
+    );
+    routes.lock().unwrap().insert(
+        "/api/releases".into(),
+        br#"[{"tag_name":"v99.2.0","prerelease":true,"html_url":"https://example.invalid/v99.2.0"},
+             {"tag_name":"v99.1.0","prerelease":false,"html_url":"https://example.invalid/v99.1.0"},
+             {"tag_name":"v99.9.0","draft":true}]"#
+            .to_vec(),
+    );
+
+    let stable = data(&ragmonk(&home, &base, &["update", "check", "--json"]));
+    assert_eq!(stable["latest_version"], "99.1.0");
+
+    // Any other value (the Python era accepted free text) stays stable.
+    let o = ragmonk(&home, &base, &["config", "set", "updates.channel", "beta"]);
+    assert!(o.status.success(), "{o:?}");
+    let beta = data(&ragmonk(&home, &base, &["update", "check", "--json"]));
+    assert_eq!(beta["latest_version"], "99.1.0");
+    let o = ragmonk(
+        &home,
+        &base,
+        &["config", "set", "updates.channel", "prerelease"],
+    );
+    assert!(o.status.success(), "{o:?}");
+
+    let pre = data(&ragmonk(&home, &base, &["update", "check", "--json"]));
+    assert_eq!(pre["latest_version"], "99.2.0");
+    let out = data(&ragmonk(&home, &base, &["update", "install", "--json"]));
+    assert_eq!(out["installed_version"], "99.2.0");
+    assert_eq!(
+        std::fs::read_link(install.join("current")).unwrap(),
+        Path::new("versions/99.2.0")
+    );
+}

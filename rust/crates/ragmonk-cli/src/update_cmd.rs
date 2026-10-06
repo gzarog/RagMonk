@@ -4,6 +4,7 @@
 
 use clap::Subcommand;
 use ragmonk_core::{ErrorKind, RagMonkError};
+use ragmonk_update::release::Channel;
 use ragmonk_update::{cache, check, install, versioning};
 
 use crate::{load, prepared_home, print_json};
@@ -39,6 +40,13 @@ fn installed() -> &'static str {
     ragmonk_core::version::version()
 }
 
+/// `updates.channel` from the home's config (stable when unreadable).
+fn channel(home: &ragmonk_core::paths::Home) -> Channel {
+    load(home)
+        .map(|cfg| Channel::from_config(&cfg.updates.channel))
+        .unwrap_or(Channel::Stable)
+}
+
 fn err(message: String) -> RagMonkError {
     RagMonkError::new(ErrorKind::Generic, message)
 }
@@ -53,7 +61,7 @@ pub fn run(cmd: Option<UpdateCommand>) -> Result<(), RagMonkError> {
             // Never recreates a home that went away while it ran.
             let home = ragmonk_core::paths::Home::discover();
             if home.root().is_dir() {
-                let _ = check::check_now(home.root(), installed());
+                let _ = check::check_now(home.root(), installed(), channel(&home));
             }
             Ok(())
         }
@@ -63,7 +71,7 @@ pub fn run(cmd: Option<UpdateCommand>) -> Result<(), RagMonkError> {
 fn check_cmd(json: bool) -> Result<(), RagMonkError> {
     let home = prepared_home()?;
     let installed = installed();
-    let latest = check::check_now(home.root(), installed)
+    let latest = check::check_now(home.root(), installed, channel(&home))
         .map_err(|e| err(format!("could not check for updates: {e}")))?;
     let available = versioning::is_newer(&latest.latest_version, installed);
     if json {
@@ -125,7 +133,7 @@ fn status(json: bool) -> Result<(), RagMonkError> {
 
 fn install_cmd(json: bool) -> Result<(), RagMonkError> {
     let home = prepared_home()?;
-    let out = install::install_latest(home.root(), installed()).map_err(err)?;
+    let out = install::install_latest(home.root(), installed(), channel(&home)).map_err(err)?;
     if json {
         print_json(&serde_json::json!({
             "installed_version": out.installed_version,
