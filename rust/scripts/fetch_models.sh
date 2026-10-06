@@ -12,11 +12,13 @@
 set -eu
 ROOT="${1:?usage: fetch_models.sh <dir>}"
 
+# Hashes stdin: Git Bash's sha256sum prefixes the digest with `\` when the
+# file name contains a backslash (Windows temp paths).
 sha() {
     if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$1" | cut -d' ' -f1
+        sha256sum < "$1" | cut -d' ' -f1
     else
-        shasum -a 256 "$1" | cut -d' ' -f1
+        shasum -a 256 < "$1" | cut -d' ' -f1
     fi
 }
 

@@ -80,7 +80,8 @@ jobs:
     name: Build ${{ matrix.target }}
     needs: validate
     strategy:
-      fail-fast: true
+      # Every target reports, even when one fails; the release needs all.
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
