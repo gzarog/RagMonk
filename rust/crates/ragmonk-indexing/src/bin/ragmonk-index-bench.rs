@@ -1,4 +1,4 @@
-//! Indexing benchmark harness (mirrors `benchmarks/indexing` scenarios).
+//! Indexing benchmark harness (mirrors the scenarios of the former Python `benchmarks/indexing`).
 //!
 //! ```text
 //! ragmonk-index-bench [--files N] [--out path.json]

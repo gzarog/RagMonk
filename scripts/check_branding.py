@@ -2,19 +2,16 @@
 """Branding audit gate: fail if any old "Ragpilot" product identifier
 survives outside a narrow, deliberate allowlist.
 
-RagMonk is a clean rename of the former Ragpilot/RAGpilot application (see
-CHANGELOG.md and README.md). Every active surface -- application code,
+RagMonk is a clean rename of the former Ragpilot/RAGpilot application (see README.md). Every active surface -- application code,
 packaging, current documentation, tests, fixtures, workflows, installers,
 comments, and generated metadata -- must use only the new ``ragmonk`` /
 ``RagMonk`` / ``RAGMONK_`` identifiers.
 
-Old identifiers are allowed only in three places:
+Old identifiers are allowed only in two places:
 
 1. This audit script's own pattern definitions (they must name what they
    forbid).
-2. Factual historical changelog entries (``CHANGELOG.md``) -- immutable
-   record of what shipped under the old name.
-3. The single clean-break / cleanup note that explains old installations
+2. The single clean-break / cleanup note that explains old installations
    are unsupported -- wrapped in ``branding-audit-allow`` markers so it is
    scoped explicitly rather than blanket-excused.
 
@@ -45,8 +42,6 @@ ALLOWLISTED_FILES = frozenset(
     {
         # This script's own pattern definitions (this file).
         "scripts/check_branding.py",
-        # Factual historical record of what shipped under the old name.
-        "CHANGELOG.md",
     }
 )
 

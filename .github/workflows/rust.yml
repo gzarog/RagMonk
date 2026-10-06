@@ -1,9 +1,9 @@
-name: Rust rewrite
+name: CI
 
 on:
   pull_request:
   push:
-    branches: ["release/rust-rewrite-v1"]
+    branches: ["main", "release/rust-rewrite-v1"]
 
 defaults:
   run:
@@ -41,6 +41,18 @@ jobs:
                 exit 1
               fi ;;
           esac
+
+  # No product identifier from before the RagMonk rename may come back
+  # (scripts/check_branding.py; standard library only).
+  branding-audit:
+    name: Branding audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/check_branding.py
 
   rust-checks:
     name: Rust fmt/clippy/test (${{ matrix.os }})

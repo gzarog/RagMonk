@@ -12,7 +12,7 @@ Two subscription providers ship, both **beta**:
 | Provider id | Product | Runtime | Optional install |
 |---|---|---|---|
 | `codex` | ChatGPT (Codex access) | official Codex runtime (`codex`) | install the Codex runtime and put it on `PATH` |
-| `github_copilot` | GitHub Copilot | official Copilot Python SDK | `pip install "ragmonk[copilot]"` |
+| `github_copilot` | GitHub Copilot | official `copilot` CLI (`copilot -p`) | install the GitHub Copilot CLI and sign in with it |
 
 ## Two ways to use a subscription
 
