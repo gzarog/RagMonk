@@ -126,24 +126,36 @@ fn parse_release(data: &Value) -> Result<Release, String> {
     })
 }
 
-/// The newest strict-`MAJOR.MINOR.PATCH` release in a release list, drafts
-/// excluded and pre-releases included. Entries with other tags (such as
-/// the `rust-v*` dry-run tags' siblings) are skipped, never an error.
-pub fn newest_release(list: &Value) -> Result<Release, String> {
+/// The newest strict-`MAJOR.MINOR.PATCH` release in a release list that
+/// ships an archive for `target`, drafts excluded and pre-releases
+/// included. Entries with other tags, and releases without a native
+/// archive for this platform (such as the Python-era releases), are
+/// skipped, never an error.
+pub fn newest_release(list: &Value, target: &str) -> Result<Release, String> {
     list.as_array()
         .ok_or("GitHub's release list was not a JSON array")?
         .iter()
         .filter(|r| !r["draft"].as_bool().unwrap_or(false))
-        .filter_map(|r| parse_release(r).ok())
+        .filter_map(|r| parse_release(r).ok().map(|rel| (r, rel)))
+        .filter(|(r, rel)| {
+            let want = crate::asset_name(&rel.version, target);
+            r["assets"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|x| x["name"].as_str() == Some(want.as_str())))
+        })
+        .map(|(_, rel)| rel)
         .max_by_key(|r| versioning::parse(&r.version))
-        .ok_or_else(|| "GitHub has no release with a MAJOR.MINOR.PATCH tag".to_owned())
+        .ok_or_else(|| format!("GitHub has no release with a native archive for {target}"))
 }
 
 /// The release `channel` points at, or why it could not be determined.
 pub fn fetch_latest(channel: Channel) -> Result<Release, String> {
     match channel {
         Channel::Stable => parse_release(&get_json(&latest_url(), "the latest release")?),
-        Channel::Prerelease => newest_release(&get_json(&releases_url(), "the release list")?),
+        Channel::Prerelease => newest_release(
+            &get_json(&releases_url(), "the release list")?,
+            crate::TARGET,
+        ),
     }
 }
 
@@ -175,20 +187,23 @@ mod tests {
     }
 
     #[test]
-    fn newest_release_includes_prereleases_skips_drafts_and_odd_tags() {
+    fn newest_release_needs_a_native_archive() {
+        let t = "x86_64-unknown-linux-gnu";
+        let with = |v: &str| json!([{"name": crate::asset_name(v, t)}, {"name": "SHA256SUMS"}]);
         let list = json!([
-            {"tag_name": "v0.3.30", "html_url": "a", "prerelease": false},
-            {"tag_name": "v0.10.0", "html_url": "d", "draft": true},
-            {"tag_name": "v0.4.1", "html_url": "b", "prerelease": true},
-            {"tag_name": "nightly", "html_url": "c"},
-            {"tag_name": "v0.4.0", "html_url": "e"}
+            // A Python-era release: newest version, but no native archive.
+            {"tag_name": "v0.3.30", "html_url": "a", "assets": [{"name": "ragmonk-0.3.30.tar.gz"}]},
+            {"tag_name": "v0.10.0", "html_url": "d", "draft": true, "assets": with("0.10.0")},
+            {"tag_name": "v0.0.6", "html_url": "b", "prerelease": true, "assets": with("0.0.6")},
+            {"tag_name": "rust-v0.0.9", "html_url": "c", "assets": with("0.0.9")},
+            {"tag_name": "v0.0.5", "html_url": "e", "prerelease": true, "assets": with("0.0.5")}
         ]);
-        let r = newest_release(&list).unwrap();
+        let r = newest_release(&list, t).unwrap();
         assert_eq!(
             (r.version.as_str(), r.tag_name.as_str()),
-            ("0.4.1", "v0.4.1")
+            ("0.0.6", "v0.0.6")
         );
-        assert!(newest_release(&json!([{"tag_name": "nightly"}])).is_err());
-        assert!(newest_release(&json!({})).is_err());
+        assert!(newest_release(&list, "aarch64-apple-darwin").is_err());
+        assert!(newest_release(&json!({}), t).is_err());
     }
 }

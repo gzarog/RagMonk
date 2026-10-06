@@ -131,11 +131,25 @@ workflow calls this script for each target.
 - **`stable`** (the default): follows GitHub's `releases/latest`, which
   skips pre-releases.
 - **`prerelease`**: reads the release list (`releases?per_page=30`) and
-  picks the newest strict-`MAJOR.MINOR.PATCH` tag. Drafts are skipped, and
-  pre-releases are included.
+  picks the newest strict-`MAJOR.MINOR.PATCH` release that ships the
+  archive for this platform. Drafts are skipped, and pre-releases are
+  included. Releases without a native archive, such as the Python-era
+  `v0.3.x` releases, are skipped.
 - **Any other value**: stays stable. The Python era accepted free text,
   and the config golden keeps `beta` loadable, so values are not
   validated.
 
 This channel lets a published pre-release be tested end to end with
 `update install` and `rollback`.
+
+## Addendum (RUST-16): TLS trust roots
+
+reqwest is built with `rustls-tls` plus `rustls-tls-native-roots`, so every
+HTTPS client trusts the operating system's trust store, including
+`SSL_CERT_FILE`, in addition to the bundled Mozilla roots. Those clients
+are update, AI providers, and the OpenSearch/Elasticsearch server backend.
+
+With only the bundled roots, `ragmonk update` and the cloud providers
+failed behind TLS-inspecting corporate proxies and with private CAs. The
+Python version honoured the system and `SSL_CERT_FILE` bundles. A live
+update test inside such a proxy found the gap.

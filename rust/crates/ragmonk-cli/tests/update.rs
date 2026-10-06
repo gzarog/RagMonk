@@ -277,7 +277,8 @@ fn prerelease_channel_follows_prereleases() {
     let dir = tempfile::tempdir().unwrap();
     let (home, install) = native_home(dir.path());
     let (base, routes) = serve();
-    // 99.2.0 exists only as a pre-release; "latest" is still 99.1.0.
+    // 99.2.0 exists only as a pre-release; "latest" is still 99.1.0, and
+    // 99.5.0 (a Python-era release with no native archive) must be skipped.
     publish(&routes, "99.2.0", "99.2.0", false);
     routes.lock().unwrap().insert(
         "/api/releases/latest".into(),
@@ -285,10 +286,17 @@ fn prerelease_channel_follows_prereleases() {
     );
     routes.lock().unwrap().insert(
         "/api/releases".into(),
-        br#"[{"tag_name":"v99.2.0","prerelease":true,"html_url":"https://example.invalid/v99.2.0"},
-             {"tag_name":"v99.1.0","prerelease":false,"html_url":"https://example.invalid/v99.1.0"},
-             {"tag_name":"v99.9.0","draft":true}]"#
-            .to_vec(),
+        format!(
+            r#"[{{"tag_name":"v99.5.0","html_url":"https://example.invalid/py",
+                  "assets":[{{"name":"ragmonk-99.5.0.tar.gz"}}]}},
+                {{"tag_name":"v99.2.0","prerelease":true,"html_url":"https://example.invalid/v99.2.0",
+                  "assets":[{{"name":"ragmonk-99.2.0-{t}.tar.gz"}}]}},
+                {{"tag_name":"v99.1.0","prerelease":false,"html_url":"https://example.invalid/v99.1.0",
+                  "assets":[{{"name":"ragmonk-99.1.0-{t}.tar.gz"}}]}},
+                {{"tag_name":"v99.9.0","draft":true}}]"#,
+            t = target()
+        )
+        .into_bytes(),
     );
 
     let stable = data(&ragmonk(&home, &base, &["update", "check", "--json"]));
