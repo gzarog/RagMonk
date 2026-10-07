@@ -1,5 +1,5 @@
 //! The daemon's heartbeat snapshot, `daemon_health.json`
-//! (`ragmonk.service.health`). `daemon status` reads it from another
+//! `daemon status` reads it from another
 //! process. The daemon rewrites it after every pass and reconciliation.
 
 use std::path::PathBuf;

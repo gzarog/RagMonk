@@ -1,5 +1,4 @@
-//! AI providers for `ragmonk ask` (RUST-14): the reference's `ai/`
-//! package. A provider only consumes the evidence `explore` already
+//! AI providers for `ragmonk ask`. A provider only consumes the evidence `explore` already
 //! assembled; nothing here reads a database or ranks anything.
 //!
 //! * [`prompt`]: the shared evidence prompt and request/answer shapes.

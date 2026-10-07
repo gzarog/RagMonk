@@ -1,6 +1,6 @@
-//! Query-driven fact extraction (`ragmonk.code.extractor`).
+//! Query-driven fact extraction.
 //!
-//! Interprets the reference's capture-name contract identically for every
+//! Interprets one capture-name contract identically for every
 //! language: `<kind>.definition`/`<kind>.name` entities (with optional
 //! `<kind>.parent_name`), `extends`/`implements` objects (optionally with a
 //! `.subject`), `call.expression`/`call.callee`, `import.module` and
@@ -133,7 +133,8 @@ fn decode(source: &[u8], node: Node<'_>) -> String {
     String::from_utf8_lossy(&source[node.start_byte()..node.end_byte()]).into_owned()
 }
 
-/// Python `str.splitlines()` boundaries.
+/// Universal line boundaries: `\n`, `\r\n`, `\r`, `\x0b`, `\x0c`,
+/// `\x1c`..`\x1e`, `\x85`, U+2028 and U+2029.
 fn is_line_break(c: char) -> bool {
     matches!(
         c,
@@ -206,7 +207,7 @@ pub(crate) fn extract_tree(
     let mut matches: Vec<Captures<'_>> = Vec::new();
     let mut it = cursor.matches(query, tree.root_node(), source);
     while let Some(m) = it.next() {
-        // Capture name -> nodes, in first-appearance order (a Python dict).
+        // Capture name -> nodes, in first-appearance order.
         let mut caps: Captures<'_> = Vec::new();
         for c in m.captures {
             let name = names[c.index as usize];
@@ -265,7 +266,7 @@ pub(crate) fn extract_tree(
                 pending.push((prefix, *node, *mi));
             }
         }
-        // Stable sort by start byte, like the reference's list.sort.
+        // Stable sort by start byte, so ties keep match order.
         pending.sort_by_key(|(_, node, _)| node.start_byte());
 
         for (prefix, def_node, mi) in pending {

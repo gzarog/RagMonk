@@ -65,7 +65,7 @@ pub struct VectorSpec {
     pub dims: u32,
     pub m: u32,
     pub ef_construction: u32,
-    /// The embedding model the vectors come from (RUST-09 selects it).
+    /// The embedding model the vectors come from.
     pub model_id: String,
 }
 

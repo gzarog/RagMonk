@@ -1,10 +1,9 @@
-//! Live indexing progress snapshot (`<home>/index_progress.json`), ported
-//! from the reference `service/progress.py`. `ragmonk status` reads it to
+//! Live indexing progress snapshot
+//! (`<home>/index_progress.json`). `ragmonk status` reads it to
 //! show which source and stage a run is on and whether it is still moving,
 //! without talking to the indexing process.
 //!
-//! * The file format is the reference's (schema version 1, same keys), so
-//!   either implementation reads the other's snapshot.
+//! * The file format is versioned (schema version 1) with stable keys.
 //! * Writes are atomic (temp file + rename) and coalesced: counter updates
 //!   at most once per [`MIN_WRITE_INTERVAL`]; source/stage changes and the
 //!   final snapshot are always written.
@@ -74,8 +73,7 @@ impl Default for IndexProgress {
     }
 }
 
-/// ISO-8601 UTC with microseconds and `+00:00`, like Python's
-/// `datetime.now(UTC).isoformat()`.
+/// ISO-8601 UTC with microseconds and `+00:00`.
 pub fn now_iso() -> String {
     chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%S%.6f+00:00")

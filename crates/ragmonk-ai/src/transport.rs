@@ -1,5 +1,5 @@
 //! A bounded, id-correlated JSON-RPC client over newline-delimited JSON
-//! on a byte stream (`ai/_transport.py`), shared by the subscription
+//! on a byte stream, shared by the subscription
 //! runtimes.
 //!
 //! A reader thread frames the stream into lines, so a message split
@@ -39,7 +39,7 @@ pub enum RpcError {
 }
 
 impl RpcError {
-    /// The reference's `JsonRpcError` text.
+    /// The JSON-RPC error text shown to the user.
     pub fn into_error(self) -> RagMonkError {
         match self {
             RpcError::Remote { code, message } => {

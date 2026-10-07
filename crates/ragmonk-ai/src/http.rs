@@ -1,8 +1,8 @@
 //! The HTTP providers: OpenAI Chat Completions (and OpenAI-compatible
 //! endpoints), the Anthropic Messages API and Ollama's `/api/chat`.
 //!
-//! Requests, response mapping and failure messages follow the reference
-//! adapters, including the messages its SDKs produce: `Connection
+//! Requests, response mapping and failure messages follow the
+//! providers' official SDKs, including their messages: `Connection
 //! error.`, `Request timed out.`, and `Error code: <status> - <body>` for
 //! a JSON error body. There are no retries: a failure surfaces at once.
 
@@ -54,7 +54,7 @@ fn sdk_status_error(status: u16, body: &str) -> String {
 
 /// Sends an SDK-backed request; `label` prefixes failures like
 /// `openai request failed: ...`. A 2xx body that is not JSON fails the
-/// way the reference's `ask` wraps an unexpected exception.
+/// way `ask` wraps an unexpected error.
 fn sdk_call(
     label: &str,
     request: reqwest::blocking::RequestBuilder,
@@ -117,8 +117,8 @@ impl OpenAiProvider {
     }
 
     pub fn compatible(api_key: String, model: String, base_url: &str, timeout: f64) -> Self {
-        // Some endpoints accept any credential; the reference's SDK
-        // requires a non-empty one, so it sends a placeholder.
+        // Some endpoints accept any credential; the official SDKs
+        // require a non-empty one, so a placeholder is sent.
         let key = if api_key.is_empty() {
             "not-required".into()
         } else {

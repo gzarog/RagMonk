@@ -1,6 +1,6 @@
-//! Tree-sitter code intelligence (RUST-05): language detection, the
-//! reference's query-driven extractor, reference resolution, framework
-//! heuristics, the code processor for the V2 indexer and graph traversal.
+//! Tree-sitter code intelligence: language detection, the
+//! query-driven extractor, reference resolution, framework heuristics,
+//! the code processor for the indexer and graph traversal.
 
 pub mod extract;
 pub mod framework;
@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use ragmonk_indexing::coordinator::{RawProcessor, Registry};
 
-/// The V2 registry with Rust-native code extraction (documents stay raw
-/// until RUST-07).
+/// The registry with Rust-native code extraction only (documents are
+/// recorded raw).
 pub fn registry() -> Registry {
     let mut r = Registry::raw();
     r.code = Arc::new(process::CodeProcessor);

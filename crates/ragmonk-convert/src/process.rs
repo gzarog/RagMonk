@@ -1,6 +1,5 @@
-//! The V2 document processor (`documents/pipeline.py`'s prepare half and
-//! `attachment_pipeline.py`): detect -> convert -> normalize -> metadata ->
-//! chunk, all on the worker, with no storage access and no Python. An
+//! The document processor's prepare half, including attachments: detect -> convert -> normalize -> metadata ->
+//! chunk, all on the worker, with no storage access. An
 //! `.eml` additionally yields one child document per converted attachment,
 //! with provenance; a bad attachment never fails its email.
 

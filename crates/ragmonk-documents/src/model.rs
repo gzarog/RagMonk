@@ -1,5 +1,5 @@
 //! The canonical intermediate format: a normalized document as a flat,
-//! index-addressed unit list (`ragmonk.documents.normalizer`), and the
+//! index-addressed unit list, and the
 //! chunks produced from it. Field names are the canonical JSON keys.
 
 use serde::{Deserialize, Serialize};
@@ -70,7 +70,7 @@ pub struct Chunk {
     pub token_count: i64,
 }
 
-/// Document-level metadata (`ragmonk.documents.metadata`).
+/// Document-level metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocumentMetadata {
     pub title: Option<String>,

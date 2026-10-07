@@ -210,7 +210,7 @@ impl<S: Subscriber> Layer<S> for JsonFileLayer {
     }
 }
 
-/// Console output: WARNING and above only, like the reference.
+/// Console output: WARNING and above only.
 pub struct ConsoleLayer {
     json: bool,
 }

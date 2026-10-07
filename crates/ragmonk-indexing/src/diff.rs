@@ -1,5 +1,4 @@
-//! Incremental change detection (`ragmonk.indexing.incremental` and the
-//! coordinator's classification/rename/delete reconciliation).
+//! Incremental change detection (and the coordinator's classification/rename/delete reconciliation).
 //!
 //! * Metadata first: a file whose size and mtime match its baseline row is
 //!   unchanged without being hashed; otherwise it is hashed and a matching
@@ -12,7 +11,7 @@
 //! * A baseline file in `retry` whose `next_attempt_at` is due is
 //!   reprocessed; one not yet due is kept as is.
 //!
-//! A full V2 rebuild passes an empty baseline, so every file is new.
+//! A full rebuild passes an empty baseline, so every file is new.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -143,8 +142,8 @@ pub fn diff(
             let old = cands.pop().expect("one candidate");
             consumed.insert(old.rel_path.clone());
             moved_targets.insert(f.rel_path.clone());
-            // Reported like the reference: a move is also unchanged content.
-            // (V2 still re-extracts it: V2 IDs derive from the path.)
+            // A move is also reported as unchanged content. (It is still
+            // re-extracted: stable IDs derive from the path.)
             counts.moved += 1;
             counts.unchanged += 1;
             decisions.push(Decision {

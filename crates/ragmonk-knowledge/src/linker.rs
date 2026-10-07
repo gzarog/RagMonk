@@ -1,4 +1,4 @@
-//! Cross-domain linker (`ragmonk.knowledge.linker.link_touched_files`):
+//! Cross-domain linker (`link_touched_files`):
 //! code entities <-> document chunks.
 //!
 //! | Resolver | Confidence | Link type | Signal |
@@ -10,7 +10,7 @@
 //! | `linker:route_heuristic` | heuristic | `related_to` | framework route path, plain substring |
 //!
 //! `exact` is reserved for manual links (`resolver = "user"`); this module
-//! cannot produce it. Scoping matches the reference: touched code files
+//! cannot produce it. Scoping: touched code files
 //! are matched against every unit, touched documents against every entity
 //! of code files not already covered, so cost tracks what changed.
 

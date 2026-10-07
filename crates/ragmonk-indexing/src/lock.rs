@@ -1,10 +1,8 @@
-//! Bounded cross-process run lock (`ragmonk.core.lifecycle.RunLock`).
+//! Bounded cross-process run lock.
 //!
 //! The OS lock (`std::fs::File::try_lock`: `flock` on POSIX, `LockFileEx`
-//! on Windows) is authoritative and is mutually exclusive with the Python
-//! reference's lock on the same file. Owner metadata is diagnostic only,
-//! sanitized, and written after byte 0 exactly where the reference writes
-//! it; the lock file is never deleted or force-unlocked based on it. On
+//! on Windows) is authoritative. Owner metadata is diagnostic only,
+//! sanitized, and written after byte 0; the lock file is never deleted or force-unlocked based on it. On
 //! Windows the whole-file lock makes a blocked process unable to read the
 //! metadata, so it reports the owner as unknown.
 
@@ -136,7 +134,7 @@ pub struct RunLock {
 }
 
 impl RunLock {
-    /// Acquires within `timeout`, else fails with the reference's
+    /// Acquires within `timeout`, else fails with a
     /// `RunLockTimeoutError` message (including diagnostic owner info).
     pub fn acquire(
         path: &Path,

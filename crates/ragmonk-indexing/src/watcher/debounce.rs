@@ -1,4 +1,4 @@
-//! Per-key debounce (`ragmonk.watcher.debounce.Debouncer`): each
+//! Per-key debounce: each
 //! `notify(key)` restarts that key's quiet period. The key fires once a
 //! full quiet period passes with no further notify. Keys never delay each
 //! other. One timer thread serves every key.
@@ -42,7 +42,7 @@ impl std::fmt::Debug for Debouncer {
 }
 
 impl Debouncer {
-    /// `quiet_ms` below zero counts as zero, as in the reference.
+    /// `quiet_ms` below zero counts as zero.
     pub fn new(quiet_ms: i64, on_fire: impl Fn(String) + Send + Sync + 'static) -> Self {
         let quiet = Duration::from_millis(quiet_ms.max(0) as u64);
         let shared = Arc::new(Shared {

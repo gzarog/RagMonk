@@ -1,8 +1,8 @@
-//! The reference's Jinja templates, embedded and rendered with minijinja.
+//! The Admin UI's Jinja templates, embedded and rendered with minijinja.
 //!
-//! Output matches Jinja2 + MarkupSafe: `None`/`True`/`False` print as in
-//! Python, whole floats keep their `.0`, and autoescaping uses MarkupSafe's
-//! entities (`&#34;`, `&#39;`). Python string/dict methods (`.get`,
+//! Output matches Jinja2 + MarkupSafe: `None`/`True`/`False` print as
+//! such, whole floats keep their `.0`, and autoescaping uses MarkupSafe's
+//! entities (`&#34;`, `&#39;`). String/dict methods (`.get`,
 //! `.split`, `.replace`) come from minijinja-contrib's pycompat.
 
 use std::sync::OnceLock;

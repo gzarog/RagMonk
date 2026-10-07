@@ -1,10 +1,8 @@
-//! Structured logging and redaction (plan phase RUST-01).
+//! Structured logging and redaction.
 //!
-//! * [`redact`] ports `ragmonk.backends.factory.redact_urls_in_text` /
-//!   `redact_url` and `ragmonk.core.config.url_has_userinfo`, including
-//!   Python `urllib.parse.urlsplit` semantics.
-//! * [`logging`] writes the same JSON-lines records as
-//!   `ragmonk.telemetry.logging.JsonFormatter` to `<home>/logs/ragmonk.log`.
+//! * [`redact`]: credential redaction in URLs and free text, and userinfo
+//!   detection, with standard `urlsplit` semantics.
+//! * [`logging`] writes JSON-lines records to `<home>/logs/ragmonk.log`.
 
 pub mod logging;
 pub mod redact;

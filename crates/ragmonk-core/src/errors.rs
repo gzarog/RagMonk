@@ -1,5 +1,4 @@
-//! Error hierarchy mapped onto RagMonk's stable CLI exit codes
-//! (`ragmonk.core.errors`).
+//! Error hierarchy mapped onto RagMonk's stable CLI exit codes.
 
 use std::fmt;
 
@@ -13,7 +12,7 @@ pub const EXIT_INDEXING_PARTIAL_FAILURE: u8 = 6;
 pub const EXIT_HEALTH_CHECK_FAILURE: u8 = 7;
 pub const EXIT_SECURITY_RESTRICTION: u8 = 8;
 
-/// One variant per Python `RagMonkError` subclass.
+/// One variant per error family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
     Generic,
@@ -52,7 +51,7 @@ pub struct RagMonkError {
     kind: ErrorKind,
     message: String,
     exit_code: u8,
-    /// The reference's exception class when it is a more specific
+    /// The specific error class when it is a more specific
     /// subclass than `kind` names (e.g. `AiNotConfiguredError`).
     class: Option<&'static str>,
 }
@@ -67,18 +66,18 @@ impl RagMonkError {
         }
     }
 
-    /// Tags the error with the reference's (sub)class name.
+    /// Tags the error with a specific (sub)class name.
     pub fn with_class(mut self, class: &'static str) -> Self {
         self.class = Some(class);
         self
     }
 
-    /// The reference's class name, when more specific than `kind`.
+    /// The specific class name, when more specific than `kind`.
     pub fn class(&self) -> Option<&'static str> {
         self.class
     }
 
-    /// Mirrors Python's `RagMonkError(message, exit_code=...)` override.
+    /// Overrides the exit code the kind implies.
     pub fn with_exit_code(mut self, exit_code: u8) -> Self {
         self.exit_code = exit_code;
         self
@@ -150,7 +149,7 @@ impl RagMonkError {
 }
 
 /// Untrusted owner metadata read from a lock file. `present` distinguishes
-/// Python's empty dict (no owner record) from a record whose fields are null.
+/// an empty object (no owner record) from a record whose fields are null.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct LockOwner {
     pub present: bool,
@@ -167,7 +166,7 @@ impl LockOwner {
     }
 }
 
-/// Python's `format(value, "g")`: 6 significant digits, trailing zeros
+/// General (`%g`) float formatting: 6 significant digits, trailing zeros
 /// stripped, exponent form below 1e-4 or at/above 1e6.
 pub fn format_g(value: f64) -> String {
     if value.is_nan() {

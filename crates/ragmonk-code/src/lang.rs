@@ -1,5 +1,5 @@
-//! Language detection and Tree-sitter grammars (`ragmonk.code.parser`,
-//! `ragmonk.code.queries`). Queries are the reference's `.scm` files,
+//! Language detection and Tree-sitter grammars. Queries are the bundled
+//! `.scm` files,
 //! compiled once per language.
 
 use std::path::Path;
@@ -36,7 +36,7 @@ pub const SUPPORTED_LANGUAGES: &[&str] = &[
     "typescript",
 ];
 
-/// The reference's `Path.suffix.lower()` lookup.
+/// Lookup by the lowercased final extension.
 pub fn detect_language(path: &Path) -> Option<&'static str> {
     let name = path.file_name()?.to_str()?;
     let suffix = path_suffix(name)?.to_lowercase();

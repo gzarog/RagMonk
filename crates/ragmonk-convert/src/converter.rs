@@ -90,7 +90,7 @@ impl DoclingConverter {
         Ok(v)
     }
 
-    /// The reference's `_convert_pdf` policy: plain text layer; OCR when
+    /// The PDF policy: plain text layer; OCR when
     /// `always`, or when `auto` and the plain result looks scanned; OCR
     /// failure or unavailability keeps the plain result.
     fn convert_pdf(&self, path: &Path, hash: &str) -> Result<Value, ConversionError> {
@@ -160,7 +160,7 @@ impl DocumentConverter for DoclingConverter {
             DocumentFormat::Pptx => F::Pptx,
             DocumentFormat::Xlsx => F::Xlsx,
             DocumentFormat::Html => F::Html,
-            // The reference routes plain text through the Markdown backend.
+            // Plain text is routed through the Markdown backend.
             DocumentFormat::Markdown | DocumentFormat::Txt => F::Md,
             DocumentFormat::Csv => F::Csv,
             DocumentFormat::Odt => F::Odt,

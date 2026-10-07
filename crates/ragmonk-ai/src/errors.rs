@@ -1,4 +1,4 @@
-//! The reference's AI error classes, as tagged [`RagMonkError`]s. Each
+//! AI error classes, as tagged [`RagMonkError`]s. Each
 //! keeps the exit code of the class it derives from.
 
 use ragmonk_core::errors::{ErrorKind, RagMonkError};

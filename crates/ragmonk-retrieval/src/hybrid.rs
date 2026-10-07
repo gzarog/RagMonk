@@ -1,5 +1,4 @@
-//! Hybrid ranking, ported from the reference `retrieval/merger.py`,
-//! `retrieval/reranker.py` and `retrieval/neural_reranker.rerank_hits`.
+//! Hybrid ranking: merge, fusion and optional neural reranking.
 //!
 //! * **Merge.** Lexical and semantic hits are deduplicated per `(kind, id)`.
 //!   A candidate keeps every signal's rank and score. Lexical display
@@ -236,7 +235,7 @@ pub struct RankedHit {
 }
 
 impl RankedHit {
-    /// The reference's `RankedHit.to_dict` shape.
+    /// The ranked hit's JSON shape.
     pub fn to_json(&self) -> serde_json::Value {
         let c = &self.candidate;
         serde_json::json!({

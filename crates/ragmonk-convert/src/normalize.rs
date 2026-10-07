@@ -1,8 +1,7 @@
-//! Docling document JSON -> RagMonk's canonical normalized document
-//! (`ragmonk.documents.normalizer`).
+//! Docling document JSON -> RagMonk's canonical normalized document.
 //!
 //! Operates on the Docling document JSON schema (`texts`, `tables`,
-//! `pictures`, `groups`, `body`, `pages`) that both Python Docling
+//! `pictures`, `groups`, `body`, `pages`) that both Docling
 //! (`export_to_dict`) and docling.rs (`export_to_json_value`) produce, and
 //! reproduces `DoclingDocument.iterate_items()` (body layer only, groups
 //! flattened, picture children limited to captions) exactly.
@@ -141,7 +140,7 @@ fn header_row_count(table: &Value) -> usize {
     }
 }
 
-/// Python `str.strip()`.
+/// Strips Unicode whitespace from both ends, like `str::trim`.
 fn strip(s: &str) -> &str {
     ragmonk_documents::tokenization::py_strip(s)
 }

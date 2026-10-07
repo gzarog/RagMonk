@@ -1,4 +1,4 @@
-//! The V2 indexing coordinator.
+//! The indexing coordinator.
 //!
 //! Per source: offline check → scan → diff against the reusable baseline
 //! (empty for a full rebuild) → begin a build → carry unchanged files
@@ -65,8 +65,8 @@ pub trait Processor: Send + Sync {
     fn prepare(&self, input: &PrepareInput) -> Result<FileKnowledge, ProcessError>;
 }
 
-/// Records the file only (the reference's `raw_processor`). Code and
-/// document extraction replace it in RUST-05/RUST-07.
+/// Records the file only. Code and document processors replace it
+/// where they apply.
 pub struct RawProcessor;
 
 impl Processor for RawProcessor {
@@ -105,9 +105,9 @@ pub trait BuildFinalizer: Send + Sync {
 /// What a finalizer did, summed into the pass result.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct FinalizeReport {
-    /// Automatic knowledge links inserted (the reference's `linked`).
+    /// Automatic knowledge links inserted.
     pub linked: usize,
-    /// Vectors written (the reference's `embedded`).
+    /// Vectors written.
     pub embedded: usize,
 }
 

@@ -1,6 +1,6 @@
 //! Pure-Rust (Candle) sentence embeddings for BERT-family models.
 //!
-//! The preprocessing contract matches the reference embedder: cap each text
+//! The preprocessing contract is fixed: cap each text
 //! at `max_chars` characters, tokenize with truncation at `max_tokens`, pad
 //! to the longest text of the batch, pool (`Mean` over the attention mask or
 //! `Cls`) and L2-normalize. Inference is serialized per embedder and runs in
@@ -67,7 +67,7 @@ pub fn read_verified(dir: &Path, name: &str, sha256: &str) -> Result<Vec<u8>, Ml
     Ok(bytes)
 }
 
-/// Default batch size (the reference's `_BATCH_SIZE`).
+/// Default batch size.
 pub const DEFAULT_BATCH_SIZE: usize = 16;
 
 pub struct Embedder {

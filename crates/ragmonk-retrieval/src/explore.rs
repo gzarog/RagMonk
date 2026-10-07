@@ -1,15 +1,13 @@
-//! `explore` and `impact` (RUST-10 slice 3), ported from the reference
-//! `retrieval/planner.py`, `retrieval/context_builder.py`,
-//! `knowledge/evidence.py`, `knowledge/document_links.py`,
-//! `cli/explore.py` and `cli/impact.py`.
+//! `explore` and `impact` with the query planner, context
+//! builder, evidence assembly and document links behind them.
 //!
 //! * [`plan`]: the deterministic query planner (intent + strategies).
 //! * [`build_context`]: deduplicated, priority-sorted evidence capped by a
 //!   [`Budget`], with explicit truncation reasons.
 //! * [`linked_document_evidence`]: documentation evidence via cross-domain
 //!   links.
-//! * [`impact`] / [`explore`]: the payloads the CLI and MCP render, with the
-//!   reference's JSON keys.
+//! * [`impact`] / [`explore`]: the payloads the CLI and MCP render, with
+//!   stable JSON keys.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::OnceLock;
@@ -137,8 +135,8 @@ fn first_match(patterns: &[Regex], text: &str) -> Option<String> {
         .find_map(|p| p.captures(text).map(|c| c[1].to_owned()))
 }
 
-/// Classifies `query` into an intent and ordered strategies (the
-/// reference's rules, in order: impact, callers, callees, document hint,
+/// Classifies `query` into an intent and ordered strategies (rules,
+/// in order: impact, callers, callees, document hint,
 /// identifier, general). `semantic_enabled` only ever adds
 /// [`Strategy::Semantic`] to document/general plans.
 pub fn plan(query: &str, semantic_enabled: bool) -> QueryPlan {
@@ -209,7 +207,7 @@ pub struct EvidenceLocation {
     pub section: Option<String>,
 }
 
-/// A relationship-shaped fact in the reference's evidence contract.
+/// A relationship-shaped fact in the evidence contract.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Evidence {
     pub source: String,
@@ -244,7 +242,7 @@ pub struct GraphPath {
     pub confidence: String,
 }
 
-/// `context.*` budget (the reference's `ContextConfig` defaults).
+/// `context.*` budget (`ContextConfig` defaults).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Budget {
     pub max_chars: usize,
@@ -459,7 +457,7 @@ fn neighbor_names(edges: &[ResolvedEdge]) -> Vec<String> {
         .collect()
 }
 
-/// The reference's `impact` payload for `name`.
+/// The `impact` payload for `name`.
 pub fn impact(
     corpora: &[Corpus<'_>],
     name: &str,
@@ -596,8 +594,7 @@ fn graph_path(e: &ResolvedEdge, incoming: bool, symbol: &str) -> GraphPath {
     }
 }
 
-/// The reference `SearchResult.to_dict` (location keys as the reference
-/// emits them for each hit kind).
+/// A search result as JSON (location keys per hit kind).
 pub fn search_result_json(r: &SearchResult) -> Value {
     let location = r.location.as_ref().map(|l| match r.kind {
         "entity" => json!({"line_start": l.line_start, "line_end": l.line_end}),
@@ -692,7 +689,7 @@ impl Default for ExploreOptions {
     }
 }
 
-/// The reference's `explore` payload for `query_plan`. `semantic` is the
+/// The `explore` payload for `query_plan`. `semantic` is the
 /// semantic search outcome when the plan includes [`Strategy::Semantic`]
 /// (the caller runs it, since it needs the embedder).
 pub fn explore(

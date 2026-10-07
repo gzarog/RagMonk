@@ -1,4 +1,4 @@
-//! Framework heuristics (`ragmonk.code.framework_rules`): Flask/FastAPI
+//! Framework heuristics: Flask/FastAPI
 //! route decorators and ASP.NET route attributes. Always HEURISTIC.
 
 use std::sync::OnceLock;

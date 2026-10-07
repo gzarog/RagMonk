@@ -1,4 +1,4 @@
-//! `daemon.pid` bookkeeping (`ragmonk.service.pid`): lets a separate CLI
+//! `daemon.pid` bookkeeping: lets a separate CLI
 //! invocation find and signal the running daemon. The per-pass
 //! `index.lock` is what keeps two writers apart. The PID file only locates
 //! the process.
@@ -40,7 +40,6 @@ pub fn read_pid_file(home: &Home) -> Option<PidInfo> {
 
 fn read_pid_path(path: &Path) -> Option<PidInfo> {
     let data: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
-    // Python: `int(data["pid"])`, `str(data["started_at"])`.
     let pid = match &data["pid"] {
         Value::Number(n) => n
             .as_i64()
@@ -67,8 +66,8 @@ pub fn running_daemon(home: &Home) -> Option<PidInfo> {
 }
 
 /// Asks the process at `pid` to shut down: SIGTERM on POSIX. Windows has
-/// no deliverable graceful signal, so this is a hard terminate there, as
-/// in the reference. Returns whether a signal was sent.
+/// no deliverable graceful signal, so this is a hard terminate
+/// there. Returns whether a signal was sent.
 pub fn signal_stop(pid: i64) -> bool {
     let Ok(pid) = u32::try_from(pid) else {
         return false;
@@ -85,7 +84,7 @@ pub fn signal_stop(pid: i64) -> bool {
 }
 
 /// Stops a running daemon and waits for it to exit. `Ok(false)` when no
-/// daemon was running. `Err` carries the reference's message when it does
+/// daemon was running. `Err` carries a timeout message when it does
 /// not stop in time.
 pub fn stop_and_wait(home: &Home, timeout: Duration, action: &str) -> Result<bool, String> {
     let Some(info) = running_daemon(home) else {

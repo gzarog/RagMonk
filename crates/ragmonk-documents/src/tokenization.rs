@@ -1,9 +1,8 @@
-//! Exact body-token counting and token-budget splitting
-//! (`ragmonk.documents.tokenization`).
+//! Exact body-token counting and token-budget splitting.
 
 use crate::tokenizer::model_tokenizer;
 
-/// Python `str.isspace()` (Unicode White_Space plus the C0 separators
+/// Whitespace test (Unicode White_Space plus the C0 separators
 /// U+001C..U+001F).
 pub fn py_isspace(c: char) -> bool {
     c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)

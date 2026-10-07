@@ -1,5 +1,4 @@
-//! Row-aware table rendering and row/cell-boundary splitting
-//! (`ragmonk.documents.table_renderer`).
+//! Row-aware table rendering and row/cell-boundary splitting.
 
 use crate::tokenization::count_tokens;
 use crate::tokenizer::model_tokenizer;

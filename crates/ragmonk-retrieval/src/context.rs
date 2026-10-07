@@ -33,8 +33,8 @@ impl ContextOptions {
     }
 }
 
-/// The chunk's text as the reference stores it: a table's is its
-/// row-aware rendering (V2 keeps the rows, not the rendering).
+/// The chunk's text as presented: a table's is its row-aware
+/// rendering (the store keeps the rows, not the rendering).
 pub fn text_of(c: &ChunkRow) -> String {
     match (&c.table_rows, c.kind.as_str()) {
         (Some(rows), "table") if c.text.is_empty() => {

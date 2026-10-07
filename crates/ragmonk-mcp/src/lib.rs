@@ -97,7 +97,7 @@ pub fn serve(mcp: bool) -> Result<(), RagMonkError> {
 /// One JSON-RPC message in, at most one message out.
 pub fn handle_line(line: &str) -> Option<Value> {
     let Ok(msg) = serde_json::from_str::<Value>(line) else {
-        // The reference logs the parse failure to the client.
+        // The parse failure is logged to the client.
         return Some(json!({
             "jsonrpc": "2.0",
             "method": "notifications/message",

@@ -1,4 +1,4 @@
-//! Knowledge linker (RUST-08): cross-domain links between code entities and
+//! Knowledge linker: cross-domain links between code entities and
 //! document chunks, and explicit (manual) links.
 
 pub mod linker;

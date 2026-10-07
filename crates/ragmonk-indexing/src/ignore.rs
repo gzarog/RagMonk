@@ -1,4 +1,4 @@
-//! Ignore rules (`ragmonk.sources.ignore.IgnoreMatcher`): default excluded
+//! Ignore rules: default excluded
 //! directories, secret filenames, `.gitignore`/`.ragmonkignore`, source
 //! exclude patterns, and include patterns that re-include an ignored path.
 
@@ -37,7 +37,7 @@ fn read_pattern_file(path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// Python `fnmatch.fnmatch` (normcase on Windows).
+/// Shell-style glob matching (case-insensitive on Windows).
 fn fn_match(name: &str, pattern: &str) -> bool {
     let (n, p) = if cfg!(windows) {
         (

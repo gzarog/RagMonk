@@ -1,10 +1,10 @@
-//! Native self-update (RUST-15): `ragmonk update check|status|install|
+//! Native self-update: `ragmonk update check|status|install|
 //! rollback`, the throttled background check and the startup notice.
 //!
 //! * [`versioning`]: strict `MAJOR.MINOR.PATCH` for untrusted release tags.
 //! * [`release`]: the latest release of this project's own repository
 //!   (hardcoded; never taken from config or the environment).
-//! * [`cache`]: `<home>/update.json`, the reference's schema.
+//! * [`cache`]: `<home>/update.json` and its schema.
 //! * [`verify`]: SHA-256 against `SHA256SUMS`, and a minisign signature
 //!   over it when a public key is compiled in.
 //! * [`layout`]: `<install>/versions/<ver>/` with an atomically switched

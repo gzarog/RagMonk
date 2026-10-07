@@ -3,8 +3,8 @@
 //! Models are not bundled. They are loaded from a directory
 //! (`RAGMONK_OCR_MODELS_DIR`, else `<home>/models/ocrs`) and verified
 //! against pinned SHA-256 digests before use. Missing or modified models
-//! make OCR unavailable: callers keep the plain conversion, exactly like
-//! the reference's best-effort OCR.
+//! make OCR unavailable: callers keep the plain conversion: OCR is
+//! best effort.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;

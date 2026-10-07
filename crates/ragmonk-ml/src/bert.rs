@@ -1,6 +1,6 @@
 //! A lean BERT encoder for CPU inference.
 //!
-//! Numerically it is the reference BERT forward pass (post-norm layers,
+//! Numerically it is the standard BERT forward pass (post-norm layers,
 //! exact-erf GELU, `(1 - mask) * f32::MIN` attention bias), restructured
 //! for Candle's CPU backend: activations stay 2-D `(tokens, hidden)` so
 //! every projection is one contiguous GEMM with a pre-transposed weight,
@@ -163,7 +163,7 @@ impl CustomOp1 for RowBias<'_> {
 }
 
 /// Softmax over the last dim of `(batch, heads, seq, seq)` scores with the
-/// reference's additive padding bias (`f32::MIN` on masked keys), in
+/// additive padding bias (`f32::MIN` on masked keys), in
 /// parallel over rows.
 struct MaskedSoftmax<'a> {
     /// `(batch, seq)` additive bias.

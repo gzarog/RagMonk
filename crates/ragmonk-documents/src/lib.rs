@@ -1,6 +1,6 @@
-//! Document core (RUST-06): the canonical normalized-document model, the
+//! Document core: the canonical normalized-document model, the
 //! exact pinned tokenizer, token-budget splitting, row-aware tables and the
-//! payload-aware chunker. Conversion (Docling replacement) is RUST-07; the
+//! payload-aware chunker. Conversion lives in `ragmonk-convert`; the
 //! chunker consumes the canonical intermediate JSON only.
 
 pub mod chunker;

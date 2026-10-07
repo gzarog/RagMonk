@@ -5,7 +5,7 @@
 //! ```
 //!
 //! Builds a corpus of N copies of each Markdown/HTML/TXT/DOCX/PPTX/XLSX
-//! fixture, then times cold, warm and single-edit passes through the V2
+//! fixture, then times cold, warm and single-edit passes through the
 //! coordinator with Rust-native conversion and chunking.
 
 use std::path::{Path, PathBuf};

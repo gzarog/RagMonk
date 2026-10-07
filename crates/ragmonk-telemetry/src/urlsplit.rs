@@ -1,4 +1,4 @@
-//! Python 3.12 `urllib.parse.urlsplit`/`urlunsplit`, restricted to what the
+//! Standard `urlsplit`/`urlunsplit` URL splitting, restricted to what the
 //! redaction helpers need.
 
 const SCHEME_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-.";
@@ -42,7 +42,7 @@ pub struct SplitResult {
     pub fragment: String,
 }
 
-/// Python raises `ValueError` for malformed bracketed hosts.
+/// Rejects malformed bracketed hosts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvalidUrl;
 

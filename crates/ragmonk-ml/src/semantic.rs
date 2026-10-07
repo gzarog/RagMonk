@@ -1,4 +1,4 @@
-//! Semantic search over one project build (RUST-09 slice 2): embed the
+//! Semantic search over one project build: embed the
 //! query, take the ANN (or exact) candidates, attach display metadata.
 
 use std::path::Path;
@@ -8,7 +8,7 @@ use ragmonk_storage::knowledge::ProjectStore;
 use crate::ann::{self, Engine};
 use crate::embedder::Embedder;
 
-/// Default number of results (the reference's `DEFAULT_LIMIT`).
+/// Default number of results.
 pub const DEFAULT_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,7 +51,7 @@ impl SemanticResult {
     }
 }
 
-/// Searches `build_id` for `query`. Like the reference, this never fails
+/// Searches `build_id` for `query`. This never fails
 /// because semantic search cannot run. An empty query, a missing model or
 /// a build without vectors is reported in `reason` instead.
 pub fn search(

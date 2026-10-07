@@ -1,4 +1,4 @@
-//! `<home>/update.json` (`update/cache.py`): written by `update check`
+//! `<home>/update.json`: written by `update check`
 //! and the background check, read by `update status`, the startup notice
 //! and the Admin UI. A missing or unreadable cache is "not checked yet".
 

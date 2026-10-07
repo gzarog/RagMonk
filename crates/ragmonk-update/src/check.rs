@@ -1,5 +1,5 @@
 //! The explicit check, the detached background check
-//! (`update/background.py`) and the startup notice (`update/notifier.py`).
+//! and the startup notice.
 //! The background check and the notice never fail or slow the calling
 //! command: every error is swallowed, and the notice only reads the cache.
 

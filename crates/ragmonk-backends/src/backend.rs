@@ -541,8 +541,8 @@ impl ServerBackend {
             .collect())
     }
 
-    /// Basic lexical chunk search over the visible builds (ranking/fusion
-    /// is RUST-10 scope).
+    /// Basic lexical chunk search over the visible builds (ranking and
+    /// fusion live in `ragmonk-retrieval`).
     pub fn search_chunks(&self, text: &str, limit: usize) -> Result<Vec<SearchHit>> {
         self.search(
             IndexKind::Chunks,

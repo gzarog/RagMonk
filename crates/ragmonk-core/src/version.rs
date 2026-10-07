@@ -1,5 +1,4 @@
-//! Version/build metadata. The Python package derives its version from git
-//! tags (hatch-vcs); release builds of the Rust binary set
+//! Version/build metadata. Release builds of the Rust binary set
 //! `RAGMONK_BUILD_VERSION` (and optionally `RAGMONK_BUILD_COMMIT`) at compile
 //! time so both report the same release string.
 

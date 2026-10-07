@@ -1,4 +1,4 @@
-//! Domain models (`ragmonk.core.models`). Enum wire values and struct
+//! Domain models. Enum wire values and struct
 //! field names are persisted in SQLite/server indexes and emitted in CLI
 //! JSON, so they must not change.
 

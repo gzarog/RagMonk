@@ -1,6 +1,6 @@
-//! On-disk runtime layout (`ragmonk.core.paths`). `RAGMONK_HOME` always
+//! On-disk runtime layout. `RAGMONK_HOME` always
 //! wins; otherwise `%LOCALAPPDATA%\RagMonk` on Windows and `~/.ragmonk`
-//! elsewhere (macOS included, matching the Python reference).
+//! elsewhere (macOS included).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -26,7 +26,7 @@ impl Env for std::collections::BTreeMap<String, String> {
     }
 }
 
-/// Python's `Path.home()`.
+/// The user's home directory.
 pub fn home_dir(env: &dyn Env, windows: bool) -> PathBuf {
     let candidates: &[&str] = if windows { &["USERPROFILE"] } else { &["HOME"] };
     candidates
@@ -36,7 +36,7 @@ pub fn home_dir(env: &dyn Env, windows: bool) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(if windows { "C:\\" } else { "/" }))
 }
 
-/// Python's `Path.expanduser()` for a leading `~` / `~/...`.
+/// Home-directory expansion of a leading `~` / `~/...`.
 pub fn expand_user(path: &str, env: &dyn Env, windows: bool) -> PathBuf {
     let is_sep = |c: char| c == '/' || (windows && c == '\\');
     if path == "~" {
@@ -71,7 +71,7 @@ pub fn runtime_dir() -> PathBuf {
     runtime_dir_with(&ProcessEnv, cfg!(windows))
 }
 
-/// Layout of one RagMonk home. Every path matches the Python reference.
+/// Layout of one RagMonk home. Every path is part of the on-disk contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Home {
     root: PathBuf,
@@ -188,7 +188,7 @@ pub fn project_config_path(cwd: &Path) -> PathBuf {
     cwd.join(".ragmonk.yaml")
 }
 
-/// Python's non-strict `Path.resolve()` (`os.path.realpath`): components
+/// Non-strict path resolution (like `realpath`): components
 /// are walked left to right, every existing prefix is resolved through the
 /// filesystem (symlinks, `/var` -> `/private/var`), a missing component is
 /// appended literally and `..` pops the path built so far. Windows results
@@ -296,7 +296,7 @@ mod tests {
                 .join("Local")
                 .join("RagMonk")
         );
-        // An empty override is ignored, like Python's falsy check.
+        // An empty override is ignored, like an unset one.
         let e = env(&[("RAGMONK_HOME", ""), ("HOME", "/h")]);
         assert_eq!(runtime_dir_with(&e, false), PathBuf::from("/h/.ragmonk"));
     }

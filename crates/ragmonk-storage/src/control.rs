@@ -302,7 +302,7 @@ impl ControlPlane {
         Ok(())
     }
 
-    /// Removes a source definition and its V2 state (not its files).
+    /// Removes a source definition and its index state (not its files).
     pub fn remove_source(&mut self, id: &str) -> Result<bool> {
         let n = self
             .conn

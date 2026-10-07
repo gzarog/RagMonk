@@ -662,7 +662,7 @@ impl ProjectStore {
             let mut stmt = tx
                 .prepare(
                     // First wins on the natural key (link ids hash it), like
-                    // the reference's INSERT OR IGNORE.
+                    // INSERT OR IGNORE.
                     "INSERT OR IGNORE INTO cross_links (id, build_id, link_type, entity_id,
                         document_id, chunk_id, resolver, confidence, evidence)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -742,8 +742,8 @@ impl ProjectStore {
             .map_err(StorageError::sqlite("list documents"))
     }
 
-    /// Chunk counts per document: `(headings, paragraphs, tables)`. The
-    /// reference stores these as `section_count`, `paragraph_count` and
+    /// Chunk counts per document: `(headings, paragraphs, tables)`. Reported
+    /// as `section_count`, `paragraph_count` and
     /// `table_count`, counted from the same chunks.
     pub fn chunk_kind_counts(
         &self,
@@ -1184,7 +1184,7 @@ fn insert_knowledge(tx: &Connection, build_id: &str, k: &FileKnowledge) -> Resul
                 c.id,
                 build_id,
                 // A heading chunk is indexed under its own text, every other
-                // chunk under its heading path (the reference's
+                // chunk under its heading path (its
                 // `fts_heading`).
                 if c.kind.as_str() == "heading" {
                     c.text.clone()
@@ -1200,7 +1200,7 @@ fn insert_knowledge(tx: &Connection, build_id: &str, k: &FileKnowledge) -> Resul
     Ok(())
 }
 
-// ---- code graph (RUST-05) ----------------------------------------------
+// ---- code graph -----------------------------------------------------
 
 pub(crate) const ENTITY_COLUMNS: &str =
     "id, file_id, kind, name, qualified_name, language, parent_id,
@@ -1579,7 +1579,7 @@ fn chunk_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ChunkRow> {
     })
 }
 
-// ---- knowledge linker (RUST-08) ----------------------------------------
+// ---- knowledge linker -----------------------------------------------
 
 /// A chunk as the linker sees it (`text` is raw; tables carry rows).
 #[derive(Debug, Clone, PartialEq)]

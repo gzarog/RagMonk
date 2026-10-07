@@ -1,5 +1,5 @@
 //! The request/answer shapes and the one shared evidence prompt
-//! (`ai/base.py`), so every provider grounds its answer in identical
+//! so every provider grounds its answer in identical
 //! context.
 
 use serde_json::{json, Map, Value};
@@ -50,7 +50,7 @@ impl AiAnswer {
     }
 }
 
-/// An evidence location's keys in the reference's insertion order
+/// An evidence location's keys in a fixed documented order
 /// (`EvidenceLocation.to_dict`), then any others.
 fn location_entries(loc: &Map<String, Value>) -> Vec<(&String, &Value)> {
     const ORDER: [&str; 4] = ["line_start", "line_end", "page", "section"];

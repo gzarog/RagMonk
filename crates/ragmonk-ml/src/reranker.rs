@@ -1,11 +1,10 @@
-//! Cross-encoder reranking (RUST-09 slice 3), ported from the reference
-//! `retrieval/neural_reranker.py`.
+//! Cross-encoder reranking.
 //!
 //! A cross-encoder scores each `(query, passage)` pair jointly:
 //! - BERT runs over `[CLS] query [SEP] passage [SEP]`, with token types
 //!   0 for the query segment and 1 for the passage.
 //! - The pooler (dense + tanh on `[CLS]`) and a one-logit classifier
-//!   produce the raw relevance logit. As in the reference, no activation
+//!   produce the raw relevance logit. No activation
 //!   is applied to it.
 //!
 //! Only a bounded prefix of the candidate list is rescored. If the model
@@ -25,7 +24,7 @@ use crate::bert::{Bert, BertConfig};
 use crate::embedder::{inference, load_err, read_verified, MlError};
 use crate::manifest::RerankerModelSpec;
 
-/// Pairs scored per forward pass (the reference's `_BATCH_SIZE`).
+/// Pairs scored per forward pass.
 pub const BATCH_SIZE: usize = 16;
 
 pub struct CrossEncoder {

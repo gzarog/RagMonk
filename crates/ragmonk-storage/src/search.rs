@@ -1,6 +1,6 @@
-//! Lexical search projections over one build (RUST-10). Each query returns
-//! rows with their file already joined in, mirroring the reference's
-//! `entities_repo`/`documents_repo`/`files_repo` search projections.
+//! Lexical search projections over one build. Each query returns
+//! rows with their file already joined in (entity, document and
+//! file search projections).
 //! Ranking and tiering live in `ragmonk-retrieval`.
 
 use rusqlite::params;
@@ -12,8 +12,7 @@ use crate::knowledge::{
 };
 
 /// Document-FTS column weights (`bm25(chunk_fts, ...)`): chunk id and build
-/// id are unindexed placeholders, then heading 5, body 1, title 8 (the
-/// reference's `_DOCUMENT_FTS_COLUMN_WEIGHTS`).
+/// id are unindexed placeholders, then heading 5, body 1, title 8.
 const CHUNK_BM25: &str = "bm25(chunk_fts, 0.0, 0.0, 5.0, 1.0, 8.0)";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -129,7 +128,7 @@ impl ProjectStore {
 
     /// Entities whose alias equals `alias`. The alias is the last two
     /// dot-separated segments of a qualified name with at least three
-    /// segments (the reference's `compute_alias`), so only a query with
+    /// segments, so only a query with
     /// exactly one dot can match.
     pub fn search_entities_alias(
         &self,
@@ -345,7 +344,7 @@ impl ProjectStore {
     }
 }
 
-/// Word tokens (`\w+`, Unicode-aware), the reference's `re.findall(r"\w+")`.
+/// Word tokens (`\w+`, Unicode-aware).
 pub fn word_tokens(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
@@ -362,16 +361,16 @@ pub fn word_tokens(text: &str) -> Vec<String> {
     out
 }
 
-/// Combining marks count as word characters in Python's `\w`.
+/// Combining marks count as word characters in Unicode `\w`.
 fn is_mark(c: char) -> bool {
     matches!(c as u32, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F)
 }
 
-// ---- graph reads (RUST-10 slice 2) ------------------------------------
+// ---- graph reads ---------------------------------------------------
 
 impl ProjectStore {
     /// Entities whose name or qualified name equals `q`, as full rows
-    /// (the reference's `entities_repo.search`).
+    /// (exact match only).
     pub fn symbol_entities(&self, build_id: &str, q: &str) -> Result<Vec<EntityRow>> {
         self.query_rows(
             "symbol entities",
@@ -471,8 +470,8 @@ pub struct EntityLinkRow {
 impl ProjectStore {
     /// Links of `entity_id` in `build_id`, strongest first: confidence,
     /// then the linker's resolver order (exact, qualified, alias, filename,
-    /// route), then link type. (The reference orders by creation time and
-    /// then random id, so its pick among same-time links is arbitrary.)
+    /// route), then link type. (This keeps the pick among same-time links
+    /// deterministic.)
     pub fn entity_links(&self, build_id: &str, entity_id: &str) -> Result<Vec<EntityLinkRow>> {
         self.query_rows(
             "entity links",

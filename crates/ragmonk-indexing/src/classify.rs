@@ -1,4 +1,4 @@
-//! Coarse file classification by extension (`ragmonk.sources.detector`).
+//! Coarse file classification by extension.
 
 use std::path::Path;
 
@@ -38,7 +38,7 @@ pub const DOCUMENT_EXTENSIONS: &[&str] = &[
     ".tiff",
 ];
 
-/// Python `Path.suffix.lower()`: the last `.ext` of the final component,
+/// The lowercased suffix: the last `.ext` of the final component,
 /// empty for dotfiles like `.env` and names ending in a dot.
 pub fn suffix_lower(path: &Path) -> String {
     let name = path

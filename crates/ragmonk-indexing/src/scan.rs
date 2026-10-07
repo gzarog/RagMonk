@@ -1,9 +1,8 @@
-//! Source tree scanning (`ragmonk.sources.scanner`).
+//! Source tree scanning.
 //!
 //! * Symlinked files/directories are skipped unless `follow_symlinks`
 //!   (on Windows, Rust also reports junctions as links, so with the default
-//!   they are skipped instead of walked — strictly safer than the reference,
-//!   which relied on de-duplication to stop junction loops).
+//!   they are skipped instead of walked, so junction loops cannot occur).
 //! * Every candidate is resolved and must stay inside the source root
 //!   ([`PathGuard`]); the same real file/directory is never yielded twice.
 //! * A directory that cannot be listed or a file that cannot be stat'ed is

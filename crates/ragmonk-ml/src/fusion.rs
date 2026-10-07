@@ -1,5 +1,5 @@
-//! Reciprocal Rank Fusion, ported from the reference `retrieval/fusion.py`.
-//! The hybrid search pipeline (RUST-10) builds on these.
+//! Reciprocal Rank Fusion.
+//! The hybrid search pipeline builds on these.
 
 /// RRF smoothing constant: `1 / (k + rank)`.
 pub const RRF_K: u32 = 60;
@@ -40,7 +40,7 @@ mod tests {
 
     #[test]
     fn matches_reference_formula() {
-        // Values from the reference: 1/61 + 1/62, 1/61, 0.
+        // Expected: 1/61 + 1/62, 1/61, 0.
         assert!((rrf_score(Some(1), Some(2), 60) - (1.0 / 61.0 + 1.0 / 62.0)).abs() < 1e-15);
         assert!((rrf_score(Some(1), None, 60) - 1.0 / 61.0).abs() < 1e-15);
         assert_eq!(rrf_score(None, None, 60), 0.0);

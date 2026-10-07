@@ -1,4 +1,4 @@
-//! Exponential backoff for transient indexing failures (`ragmonk.indexing.retry`).
+//! Exponential backoff for transient indexing failures.
 
 pub const BASE_DELAY_SECONDS: f64 = 2.0;
 pub const MAX_DELAY_SECONDS: f64 = 300.0;

@@ -115,7 +115,7 @@ impl Scheduler {
         self.queue.iter().cloned().collect()
     }
 
-    /// The reference's state name, if any.
+    /// The documented state name, if any.
     pub fn state_of(&self, source_id: &str) -> Option<&'static str> {
         self.pending.get(source_id).map(|p| p.as_str())
     }

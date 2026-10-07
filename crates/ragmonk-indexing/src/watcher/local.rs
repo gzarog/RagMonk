@@ -1,5 +1,5 @@
 //! Native filesystem events for one local root
-//! (`ragmonk.watcher.local.LocalSourceWatcher`), through `notify`. Every
+//! through `notify`. Every
 //! file-level create, modify, remove or rename (both halves) is debounced
 //! per path, then reported. Directory events are dropped, since a
 //! targeted pass skips directories anyway. When native watching cannot

@@ -18,7 +18,7 @@ pub enum Pooling {
 pub const PREPROCESSING_VERSION: &str = "1";
 
 /// Text-assembly version for code entities (`signature`, else
-/// `qualified_name`), matching the reference's `CODE_EMBEDDING_TEXT_VERSION`.
+/// `qualified_name`).
 pub const CODE_EMBEDDING_TEXT_VERSION: &str = "1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,8 +79,8 @@ impl EmbeddingModelSpec {
     }
 }
 
-/// `sentence-transformers/all-MiniLM-L6-v2`, the reference model; the V2
-/// default until the selection benchmark picks otherwise.
+/// `sentence-transformers/all-MiniLM-L6-v2`, the default
+/// model until the selection benchmark picks otherwise.
 pub const ALL_MINILM_L6_V2: EmbeddingModelSpec = EmbeddingModelSpec {
     slug: "all-minilm-l6-v2",
     hf_id: "sentence-transformers/all-MiniLM-L6-v2",
@@ -105,7 +105,7 @@ pub const ALL_MINILM_L6_V2: EmbeddingModelSpec = EmbeddingModelSpec {
     ],
 };
 
-/// The model V2 embeds with.
+/// The model RagMonk embeds with.
 pub const DEFAULT_EMBEDDING_MODEL: EmbeddingModelSpec = ALL_MINILM_L6_V2;
 
 /// A pinned cross-encoder (`BertForSequenceClassification` with one
@@ -131,7 +131,7 @@ impl RerankerModelSpec {
     }
 }
 
-/// `cross-encoder/ms-marco-MiniLM-L-6-v2`, the reference reranker.
+/// `cross-encoder/ms-marco-MiniLM-L-6-v2`, the default reranker.
 pub const MS_MARCO_MINILM_L6_V2: RerankerModelSpec = RerankerModelSpec {
     slug: "ms-marco-minilm-l6-v2",
     hf_id: "cross-encoder/ms-marco-MiniLM-L-6-v2",
@@ -154,7 +154,7 @@ pub const MS_MARCO_MINILM_L6_V2: RerankerModelSpec = RerankerModelSpec {
     ],
 };
 
-/// The reranker V2 uses.
+/// The reranker RagMonk uses.
 pub const DEFAULT_RERANKER_MODEL: RerankerModelSpec = MS_MARCO_MINILM_L6_V2;
 
 #[cfg(test)]

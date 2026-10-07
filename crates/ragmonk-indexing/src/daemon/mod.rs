@@ -1,4 +1,4 @@
-//! The background indexing daemon (`ragmonk.service.daemon.Daemon`).
+//! The background indexing daemon.
 //!
 //! One worker thread runs passes from a FIFO queue. A second thread
 //! enqueues every enabled source each `reconciliation_interval`. Triggers
@@ -81,7 +81,7 @@ pub trait PassRunner: Send {
     ) -> Result<SourceResult, RagMonkError>;
 }
 
-/// The production runner: the V2 coordinator over a worker-owned control
+/// The production runner: the coordinator over a worker-owned control
 /// plane. A request with touched paths runs as a targeted pass. Anything
 /// else is a full scan and diff.
 pub struct CoordinatorRunner {

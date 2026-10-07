@@ -1,5 +1,5 @@
-//! The latest release of this project's own repository
-//! (`update/checker.py`). HTTPS only, no project data sent, and a tag
+//! The latest release of this project's own repository.
+//! HTTPS only, no project data sent, and a tag
 //! that is not a strict `MAJOR.MINOR.PATCH` is rejected.
 //!
 //! Debug builds read `RAGMONK_UPDATE_TEST_BASE` (a stand-in for both the
@@ -129,7 +129,7 @@ fn parse_release(data: &Value) -> Result<Release, String> {
 /// The newest strict-`MAJOR.MINOR.PATCH` release in a release list that
 /// ships an archive for `target`, drafts excluded and pre-releases
 /// included. Entries with other tags, and releases without a native
-/// archive for this platform (such as the Python-era releases), are
+/// archive for this platform (such as older releases), are
 /// skipped, never an error.
 pub fn newest_release(list: &Value, target: &str) -> Result<Release, String> {
     list.as_array()
@@ -191,7 +191,7 @@ mod tests {
         let t = "x86_64-unknown-linux-gnu";
         let with = |v: &str| json!([{"name": crate::asset_name(v, t)}, {"name": "SHA256SUMS"}]);
         let list = json!([
-            // A Python-era release: newest version, but no native archive.
+            // An older release: newest version, but no native archive.
             {"tag_name": "v0.3.30", "html_url": "a", "assets": [{"name": "ragmonk-0.3.30.tar.gz"}]},
             {"tag_name": "v0.10.0", "html_url": "d", "draft": true, "assets": with("0.10.0")},
             {"tag_name": "v0.0.6", "html_url": "b", "prerelease": true, "assets": with("0.0.6")},

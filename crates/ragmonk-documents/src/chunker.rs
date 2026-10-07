@@ -1,4 +1,4 @@
-//! Payload-aware chunking (`ragmonk.documents.chunker`).
+//! Payload-aware chunking.
 //!
 //! Invariant for every emitted chunk: the exact token count of its
 //! contextual payload (with special tokens) is at most

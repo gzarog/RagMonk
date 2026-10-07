@@ -6,8 +6,7 @@ use regex::Regex;
 
 use crate::urlsplit::{urlsplit, urlunsplit};
 
-/// Env vars server credentials are read from at call time, per engine
-/// (`ragmonk.backends.factory._CREDENTIAL_ENV_VARS`).
+/// Env vars server credentials are read from at call time, per engine.
 pub const CREDENTIAL_ENV_VARS: &[(&str, [&str; 3])] = &[
     (
         "opensearch",

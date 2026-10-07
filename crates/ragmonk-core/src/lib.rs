@@ -1,8 +1,5 @@
-//! RagMonk core contracts shared by every other crate (plan phase RUST-01).
-//!
-//! Ported from the Python reference `ragmonk.core.{errors,models,paths}`,
-//! `ragmonk.sources.registry` (source IDs), `ragmonk.backends.*_ids`
-//! (server document IDs) and `ragmonk.security`.
+//! RagMonk core contracts shared by every other crate: errors,
+//! models, paths, source IDs, server document IDs and security checks.
 
 pub mod errors;
 pub mod ids;

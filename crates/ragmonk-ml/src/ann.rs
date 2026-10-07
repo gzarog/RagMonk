@@ -1,4 +1,4 @@
-//! Persistent ANN index per project (RUST-09 slice 2).
+//! Persistent ANN index per project.
 //!
 //! SQLite stays authoritative. The index file (`<project>/ann/index.hnsw`)
 //! is a cache of the active build's vectors:

@@ -239,7 +239,7 @@ fn main() {
     run("delete", &mut cp);
 
     let report = json!({
-        "plan_id": "ragmonk-full-rust-rewrite-v3-clean-slate",
+        "plan_id": "ragmonk-1.0-clean-slate",
 
         "language": "csharp",
         "files": groups * 3 + 1,

@@ -1,9 +1,9 @@
-//! Retrieval for RagMonk V2 (RUST-10).
+//! Retrieval for RagMonk.
 //!
 //! * [`lexical`]: exact / qualified / alias symbol lookups, document title
-//!   and FTS hits, and path hits, tiered and merged exactly like the
-//!   reference's `retrieval/lexical.py`.
-//! * [`hybrid`]: the reference's `merger.py` + `reranker.py`: lexical and
+//!   and FTS hits, and path hits, tiered and merged in a fixed
+//!   tier order.
+//! * [`hybrid`]: merge and rerank: lexical and
 //!   semantic candidates deduplicated per `(kind, id)`. Exact matches are
 //!   pinned; everything else is ordered by Reciprocal Rank Fusion. An
 //!   optional cross-encoder pass reorders the top of the list.

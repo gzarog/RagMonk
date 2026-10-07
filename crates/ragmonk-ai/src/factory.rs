@@ -1,4 +1,4 @@
-//! Builds the configured provider (`ai/factory.py`). The
+//! Builds the configured provider. The
 //! `privacy.external_ai_allowed` gate is applied before any provider or
 //! client is constructed. Ollama is exempt only when its configured host
 //! is loopback; a remote Ollama is gated like any cloud provider.
@@ -16,7 +16,7 @@ use crate::{codex, copilot, AiProvider};
 /// The env var an OpenAI-compatible endpoint's key is read from.
 pub const COMPATIBLE_API_KEY_ENV: &str = "RAGMONK_AI_API_KEY";
 
-/// The host of `url` the way Python's `urlparse(url).hostname` sees it:
+/// The host of `url` as a standard URL parser reports it:
 /// lowercased, brackets stripped, `None` without a `scheme://`.
 pub fn url_host(url: &str) -> Option<String> {
     let (_, rest) = url.split_once("://")?;

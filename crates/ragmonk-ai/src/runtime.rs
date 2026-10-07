@@ -1,4 +1,4 @@
-//! Subscription runtime lifecycle (`ai/runtime.py`): the status snapshot,
+//! Subscription runtime lifecycle: the status snapshot,
 //! the lifecycle trait `ragmonk ai` drives, and executable lookup.
 
 use std::path::PathBuf;

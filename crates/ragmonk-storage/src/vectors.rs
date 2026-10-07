@@ -1,4 +1,4 @@
-//! Embedding vectors and the cross-build embedding cache (RUST-09).
+//! Embedding vectors and the cross-build embedding cache.
 //!
 //! Vectors are build-scoped rows keyed by subject (`entity` or `chunk`) and
 //! stamped with the model fingerprint. Anything in a build that lacks a
@@ -50,7 +50,7 @@ pub struct StoredEmbedding {
     pub vector: Vec<f32>,
 }
 
-/// Characters of chunk text shown as a hit snippet (the reference's 280).
+/// Characters of chunk text shown as a hit snippet.
 pub const SNIPPET_CHARS: usize = 280;
 
 /// Display metadata of one semantic hit.
@@ -58,7 +58,7 @@ pub const SNIPPET_CHARS: usize = 280;
 pub struct SubjectMeta {
     pub subject_type: String,
     pub subject_id: String,
-    /// `entity` or `document` (the reference's hit kinds).
+    /// `entity` or `document` (the hit kinds).
     pub kind: String,
     pub rel_path: String,
     /// Qualified name (entity) or document title / heading path (chunk).
@@ -429,7 +429,7 @@ impl ProjectStore {
             if let Some((path, title, headings, text, ordinal, attachment_index, kind, rows, doc)) =
                 row
             {
-                // Same display contract as the reference's vector metadata:
+                // Display contract for vector hits:
                 // title = document title (else path), snippet = the first 280
                 // characters of the text (a table's cells joined by spaces).
                 let headings: Vec<String> = serde_json::from_str(&headings).unwrap_or_default();

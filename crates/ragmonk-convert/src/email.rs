@@ -1,5 +1,5 @@
 //! MIME attachment enumeration for `.eml` files
-//! (`ragmonk.documents.email_attachments`), with the reference's safety
+//! with these safety
 //! rules:
 //!
 //! - Filenames are display metadata only. They are decoded (RFC 2047 /
@@ -83,7 +83,7 @@ impl AttachmentExtraction {
     }
 }
 
-/// Unicode "other" (C*) characters the reference strips: controls,
+/// Unicode "other" (C*) characters stripped from names: controls,
 /// formats, surrogates, private use and unassigned code points we can name.
 fn is_other(c: char) -> bool {
     c.is_control()
@@ -148,8 +148,8 @@ pub fn extract_attachments(
     if !matches!(root.body, PartType::Multipart(_)) {
         return Ok(out);
     }
-    // The readable body leaves (first text/plain, first text/html), as the
-    // reference's get_body would select them.
+    // The readable body leaves (first text/plain, first text/html), as a
+    // standard body lookup selects them.
     let mut body_parts: Vec<u32> = Vec::new();
     for id in [message.text_body.first(), message.html_body.first()]
         .into_iter()

@@ -1,4 +1,4 @@
-//! Reference resolution (`ragmonk.code.resolver`).
+//! Reference resolution.
 //!
 //! EXACT: one same-file match (qualified, then bare name). HIGH: several
 //! same-file name matches, or a cross-file exact qualified-name match.

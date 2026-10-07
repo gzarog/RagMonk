@@ -1,10 +1,9 @@
-//! Exact, offline tokenizer for the pinned embedding model
-//! (`ragmonk.tokenization.model_identity` / `model_tokenizer`).
+//! Exact, offline tokenizer for the pinned embedding model.
 //!
-//! The reference's bundled `all-MiniLM-L6-v2` assets are compiled into the
+//! The bundled `all-MiniLM-L6-v2` assets are compiled into the
 //! binary and verified against the pinned SHA-256 manifest before first
 //! use. They are loaded with the same Hugging Face `tokenizers` core
-//! (0.23.2) the Python reference binds, with padding and truncation
+//! (0.23.2), with padding and truncation
 //! disabled so counts are the true sequence length.
 
 use std::sync::OnceLock;

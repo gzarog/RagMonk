@@ -1,4 +1,4 @@
-//! Lexical search, ported from the reference `retrieval/lexical.py`.
+//! Lexical search.
 //!
 //! Ranking order, best first: exact symbol > qualified symbol > alias >
 //! title/heading > FTS > path ([`RankTier`]). Within the FTS signal, a hit
@@ -14,7 +14,7 @@ use serde::Serialize;
 
 use crate::{Corpus, SearchError};
 
-/// The reference's `DEFAULT_LIMIT`.
+/// Default number of results.
 pub const DEFAULT_LIMIT: usize = 20;
 /// Tokens shorter than this are never prefix-wildcarded.
 const PREFIX_MIN_TOKEN_LEN: usize = 4;

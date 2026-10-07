@@ -1,4 +1,4 @@
-//! ChatGPT via the Codex App Server (`ai/codex.py`, beta): the official
+//! ChatGPT via the Codex App Server (beta): the official
 //! `codex app-server` spoken to over stdio JSON-RPC.
 //!
 //! Every answer runs in a fresh, isolated thread/turn (tools, files, web,
@@ -154,7 +154,8 @@ pub fn status_from_result(r: &Value) -> Result<RuntimeStatus, RagMonkError> {
     })
 }
 
-/// Python truthiness of a JSON value.
+/// Truthiness of a JSON value: null, false, zero and empty strings,
+/// arrays and objects are false.
 fn truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,

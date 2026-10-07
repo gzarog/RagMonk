@@ -1,11 +1,10 @@
-//! Indexing status verdicts, ported from the reference
-//! `service/status_service.py`: the indexer state (running / stalled /
+//! Indexing status verdicts: the indexer state (running / stalled /
 //! crashed / idle), per-source index states, the problem list and the
 //! overall health.
 //!
 //! The verdicts are pure functions over plain inputs (lock view, progress
 //! snapshot, a process-liveness probe, the clock) and build the
-//! reference's JSON shapes, so the CLI, MCP and admin UI render one
+//! documented JSON shapes, so the CLI, MCP and admin UI render one
 //! source of truth. [`indexer_state`] and [`recent_errors`] are the I/O
 //! wrappers.
 
@@ -67,8 +66,7 @@ fn parse_iso(v: Option<&str>) -> Option<DateTime<Utc>> {
         })
 }
 
-/// Seconds since `v`, never negative, rounded to 0.1 (the reference's
-/// `round(..., 1)`).
+/// Seconds since `v`, never negative, rounded to 0.1.
 fn age_seconds(v: Option<&str>, now: DateTime<Utc>) -> Option<f64> {
     let t = parse_iso(v)?;
     let secs = (now - t)
@@ -468,7 +466,7 @@ pub fn merge_queue_stats(stats: &[Value]) -> Value {
 
 // ---- full report -------------------------------------------------------
 
-/// Recent errors kept in the report (the reference's default).
+/// Recent errors kept in the report by default.
 pub const DEFAULT_RECENT_ERRORS: i64 = 10;
 
 fn file_size(p: &std::path::Path) -> u64 {
@@ -585,7 +583,7 @@ fn source_has_errors(row: &Value) -> bool {
         || row["access_state"] == "offline"
 }
 
-/// The reference's `collect_status` payload for a V2 home (local mode):
+/// The full status payload for a home (local mode):
 /// health, indexer verdict, merged queue, recent errors, problems,
 /// per-source rows and totals. The CLI adds the tokenizer and backend
 /// sections it renders.

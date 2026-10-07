@@ -1,6 +1,6 @@
 //! `ragmonk status [--json] [--watch] [--interval S] [--errors] [--verbose]`
-//! (`cli/status.py`). `--json` is the reference's full status model. The
-//! text view has the reference's panels and sources table as plain text.
+//! `--json` is the full status model. The text view renders its panels
+//! and sources table as plain text.
 
 use std::time::{Duration, Instant};
 
@@ -388,7 +388,7 @@ pub fn status(a: &StatusArgs) -> Result<(), RagMonkError> {
     loop {
         let data = collect(&home)?;
         let current = sample(&data);
-        // Clear the screen and redraw (the reference uses Rich Live).
+        // Clear the screen and redraw.
         print!("\x1b[2J\x1b[H");
         print!(
             "{}",

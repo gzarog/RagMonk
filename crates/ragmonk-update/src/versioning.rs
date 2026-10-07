@@ -1,4 +1,4 @@
-//! Version parsing and comparison (`update/versioning.py`).
+//! Version parsing and comparison.
 //!
 //! A release tag is untrusted input, so it must be exactly
 //! `MAJOR.MINOR.PATCH` (an optional leading `v`). The installed side is

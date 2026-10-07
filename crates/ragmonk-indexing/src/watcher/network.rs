@@ -1,5 +1,5 @@
 //! Polling change detection for network roots
-//! (`ragmonk.watcher.network`). Native events are not reliably delivered
+//! Native events are not reliably delivered
 //! across a network mount, so each tick fingerprints the tree and reports
 //! the paths that appeared, disappeared, or changed size or mtime.
 

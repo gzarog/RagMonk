@@ -15,7 +15,7 @@ pub const SECRET_FILENAME_PATTERNS: &[&str] = &[
     "secrets*",
 ];
 
-/// Python `fnmatch.fnmatch` semantics: case-insensitive on Windows
+/// Shell-style glob matching (`*`, `?`, `[...]`): case-insensitive on Windows
 /// (`os.path.normcase`), case-sensitive elsewhere.
 pub fn is_secret_filename(name: &str) -> bool {
     is_secret_filename_for(name, cfg!(windows))

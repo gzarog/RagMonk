@@ -1,14 +1,14 @@
-//! RagMonk indexing core (plan phase RUST-04).
+//! RagMonk indexing core.
 //!
 //! * [`classify`], [`ignore`], [`scan`], [`fingerprint`]: file discovery,
 //!   ported from `ragmonk.sources.{detector,ignore,scanner,fingerprint}`.
 //! * [`diff`]: metadata-first change classification with conditional
 //!   hashing, rename detection and incomplete/offline-scan safety
-//!   (`ragmonk.indexing.incremental` + the coordinator's reconciliation).
-//! * [`retry`]: the reference backoff policy.
+//!   (with the coordinator's reconciliation).
+//! * [`retry`]: the exponential backoff policy.
 //! * [`lock`]: the bounded cross-process run lock with owner metadata
-//!   (`ragmonk.core.lifecycle.RunLock`), without `unsafe`.
-//! * [`coordinator`]: per-source V2 builds with bounded parallel prepare,
+//!   without `unsafe`.
+//! * [`coordinator`]: per-source builds with bounded parallel prepare,
 //!   a single writer, per-source failure isolation and atomic publication.
 
 pub mod classify;

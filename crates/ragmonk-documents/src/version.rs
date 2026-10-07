@@ -1,5 +1,5 @@
-//! Document derivation identity (`ragmonk.documents.pipeline`'s
-//! `document_version_stamp`): what a stored file's stamp is compared
+//! Document derivation identity (the document version
+//! stamp): what a stored file's stamp is compared
 //! against to decide whether unchanged content needs reprocessing.
 
 use crate::chunker::{chunker_version_stamp, EMBEDDING_TEXT_VERSION};
@@ -20,7 +20,7 @@ pub struct DocumentVersionStamp {
     pub embedding_text_version: String,
 }
 
-/// `converter_parser_version` is the converter's own identity (RUST-07).
+/// `converter_parser_version` is the converter's own identity.
 pub fn document_version_stamp(
     converter_parser_version: &str,
     email_attachments: bool,

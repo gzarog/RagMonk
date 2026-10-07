@@ -1,6 +1,6 @@
-//! Rust-native document ingestion (RUST-07): format routing, the
+//! Rust-native document ingestion: format routing, the
 //! `DocumentConverter` seam backed by docling.rs, the Docling-JSON
-//! normalizer and the V2 document processor.
+//! normalizer and the document processor.
 
 pub mod cache;
 pub mod converter;
@@ -16,7 +16,7 @@ use std::sync::Arc;
 use ragmonk_config::RagMonkConfig;
 use ragmonk_indexing::coordinator::Registry;
 
-/// The full V2 registry: Rust-native code extraction plus Rust-native
+/// The full registry: Rust-native code extraction plus Rust-native
 /// document conversion and chunking. Version identities make any change in
 /// the converter, chunker or tokenizer force a full rebuild.
 pub fn registry(config: &RagMonkConfig) -> Registry {
@@ -62,7 +62,7 @@ pub fn registry_with(config: &RagMonkConfig, opts: &RegistryOptions) -> Registry
     });
     let mut r = ragmonk_code::registry();
     // Toggling attachment extraction changes what an .eml yields, so it is
-    // part of the identity (the reference's `+eml-attachments.1`).
+    // part of the identity (`+eml-attachments.1`).
     r.versions.converter_version = if d.email_attachments {
         format!(
             "{}+{}",

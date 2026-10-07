@@ -1,8 +1,8 @@
-//! The code processor for the V2 indexer (`ragmonk.code.processor`).
+//! The code processor for the indexer.
 //!
 //! `prepare` runs on worker threads with no storage access: parse, reject
-//! files with syntax errors (isolated per-file failures, like the
-//! reference's `CodeParseError`), extract, assign stable V2 IDs, and
+//! files with syntax errors (isolated per-file failures reported as
+//! `CodeParseError`), extract, assign stable IDs, and
 //! resolve what the file itself can resolve. References that need other
 //! files are stored as `pending` with their raw text; [`CrossFileResolver`]
 //! resolves them against the complete build before it is published, so the
@@ -25,7 +25,7 @@ use crate::resolve::{self, Candidate, ResolvedTarget};
 
 /// Derivation identity of code extraction; part of `parser_version`, so a
 /// change forces a full rebuild of every source. (2: an entity without a
-/// signature is indexed in code FTS under its name, RUST-10.)
+/// signature is indexed in code FTS under its name.)
 pub const CODE_DERIVATION_VERSION: &str = "rust-code-2";
 
 /// Resolver label of a reference awaiting whole-build resolution.
@@ -73,7 +73,7 @@ pub fn decorator_head(text: &str) -> String {
     stripped.split('(').next().unwrap_or("").trim().to_owned()
 }
 
-/// Stable V2 entity IDs for an extraction, in local-id order.
+/// Stable entity IDs for an extraction, in local-id order.
 pub fn entity_ids(file_id: &str, extraction: &Extraction) -> Vec<String> {
     let mut seen: HashMap<(String, String), u64> = HashMap::new();
     extraction
@@ -116,7 +116,7 @@ pub fn entity_rows(
         .collect()
 }
 
-/// Builds the file's relationships in the reference's order; `resolve`
+/// Builds the file's relationships in a stable, documented order; `resolve`
 /// maps reference text to a target.
 pub fn build_relationships(
     rel_path: &str,

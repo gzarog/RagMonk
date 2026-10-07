@@ -1,5 +1,5 @@
 //! Bounded, deterministic graph traversal over one build
-//! (`ragmonk.code.graph.traverse` / `traverse_symbol`): the inputs of
+//! (`traverse` / `traverse_symbol`): the inputs of
 //! `callers`, `callees`, `references` and `impact`.
 
 use std::collections::HashSet;

@@ -1,4 +1,4 @@
-//! Read-only status queries over one project store (RUST-11): file counts
+//! Read-only status queries over one project store: file counts
 //! by status, retry/failure queue stats and recent errors.
 
 use std::collections::BTreeMap;
@@ -18,8 +18,8 @@ pub struct ErrorRecord {
 /// A file's `(last_indexed_at, updated_at)`.
 pub type FileTimes = (Option<String>, Option<String>);
 
-/// Retry/failure state of a build's files, the V2 equivalent of the
-/// reference's job-queue stats (V2 keeps retry state on file rows).
+/// Retry/failure state of a build's files: the job-queue stats, kept as
+/// retry state on file rows.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct RetryStats {
     pub retry: i64,

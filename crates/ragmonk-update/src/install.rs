@@ -1,5 +1,5 @@
 //! `ragmonk update install` / `rollback` for a native install
-//! (`update/installer.py`, rewritten for binary releases):
+//! of a binary release:
 //!
 //! 1. the latest release (a validated tag), stop if not newer;
 //! 2. download `ragmonk-<ver>-<target>.<ext>` and `SHA256SUMS` (plus

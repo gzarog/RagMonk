@@ -1,4 +1,4 @@
-//! `ragmonk update [check|status|install|rollback]` (`cli/update.py`),
+//! `ragmonk update [check|status|install|rollback]`,
 //! plus the throttled background check and the startup notice every
 //! other command runs. `update` alone is `update check`.
 

@@ -1,4 +1,4 @@
-//! The provider capability table (`ai/registry.py`): data only, so
+//! The provider capability table: data only, so
 //! listing providers starts no runtime.
 
 use serde::Serialize;

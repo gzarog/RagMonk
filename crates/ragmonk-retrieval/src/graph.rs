@@ -1,5 +1,4 @@
-//! Symbol lookup and code-graph queries (RUST-10 slice 2), ported from the
-//! reference `code/graph.py` and `retrieval/graph.py`.
+//! Symbol lookup and code-graph queries.
 //!
 //! * [`find_symbol_matches`]: every entity named `name` (bare or qualified)
 //!   across corpora, ordered by qualified name, source, path, line.
@@ -22,9 +21,9 @@ use serde::Serialize;
 
 use crate::{Corpus, SearchError};
 
-/// The reference's `DEFAULT_MAX_DEPTH`.
+/// Default traversal depth.
 pub const DEFAULT_MAX_DEPTH: usize = 1;
-/// The reference's `DEFAULT_LIMIT`.
+/// Default number of results.
 pub const DEFAULT_LIMIT: usize = 100;
 /// Relationship types `references` and the tests signal consider.
 pub const REFERENCE_TYPES: [&str; 3] = ["calls", "imports", "references"];
@@ -57,7 +56,7 @@ pub struct TraversalEdge {
     pub relationship: RelationshipRow,
 }
 
-/// The reference's edge sort key: type, then target (entity id, else
+/// The edge sort key: type, then target (entity id, else
 /// symbol), then id.
 fn edge_key(r: &RelationshipRow) -> (String, String, String) {
     (
@@ -90,8 +89,8 @@ pub fn find_symbol_matches(
             });
         }
     }
-    // The reference's order is (qualified name, source, id). Its ids are
-    // random and V2 ids depend on the source path, so same-named entities
+    // Ordered by qualified name and source. Ids depend on the source
+    // path, so same-named entities
     // are ordered by path and line before the id.
     out.sort_by(|a, b| {
         (
@@ -423,7 +422,7 @@ pub fn resolved_outgoing(
     Ok(out)
 }
 
-/// The reference's test-file naming conventions (Python, Go, C#, Java,
+/// Test-file naming conventions (Python, Go, C#, Java,
 /// JS/TS); `\` is treated as `/`.
 pub fn is_test_file(path: &str) -> bool {
     let p = path.replace('\\', "/");

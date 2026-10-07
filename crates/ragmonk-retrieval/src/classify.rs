@@ -1,4 +1,4 @@
-//! Deterministic query classification (`retrieval/query_classifier.py`):
+//! Deterministic query classification:
 //! the query's shape (diagnostic, shown by `search --explain`) and how
 //! confident the lexical pass already is (`search.lazy_semantic`).
 

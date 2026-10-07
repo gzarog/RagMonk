@@ -1,9 +1,9 @@
 //! Whole-identifier matching and the inverted word index
-//! (`ragmonk.knowledge.linker`'s `_needle_pattern` / `UnitIndex`).
+//! used by the linker.
 //!
 //! A needle matches where it is neither preceded nor followed by a word
-//! character or `.` (the reference's `(?<![\w.])needle(?![\w.])`), with
-//! Python's Unicode `\w`: letters (L*), numbers (N*) and `_`. Because each
+//! character or `.` (`(?<![\w.])needle(?![\w.])`), with a
+//! Unicode `\w`: letters (L*), numbers (N*) and `_`. Because each
 //! maximal word run inside a needle is then a whole word of any text it
 //! matches, a unit lacking any of the needle's words cannot match; the index
 //! only narrows candidates that the exact check then confirms, so matching is
@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use unicode_general_category::{get_general_category, GeneralCategory as G};
 
-/// Python `re` `\w` for `str` patterns.
+/// Unicode `\w`: letters, numbers, `_` and combining marks.
 pub fn is_word(c: char) -> bool {
     c == '_'
         || matches!(
@@ -126,7 +126,7 @@ mod tests {
             "calculate_tax"
         ));
         assert!(!contains_identifier("xcalculate_tax", "calculate_tax"));
-        // A trailing "." blocks the match (reference behaviour).
+        // A trailing "." blocks the match.
         assert!(!contains_identifier("exposes cancelOrder.", "cancelOrder"));
         assert!(contains_identifier("(Ledger) and [post_entry]", "Ledger"));
         assert!(contains_identifier("Dog.bark here", "Dog.bark"));

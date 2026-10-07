@@ -1,7 +1,6 @@
 //! GitHub Copilot through the signed-in Copilot CLI (beta).
 //!
-//! The reference targets the Copilot Python SDK, which has no Rust
-//! counterpart. RagMonk instead runs the official `copilot` CLI in
+//! Copilot has no Rust SDK, so RagMonk runs the official `copilot` CLI in
 //! non-interactive mode (`copilot -p PROMPT`), which uses the CLI's own
 //! sign-in. Token variables (`GH_TOKEN`, `GITHUB_TOKEN`, ...) are removed
 //! from the child's environment so a token can never stand in for the

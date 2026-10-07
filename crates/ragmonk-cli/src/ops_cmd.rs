@@ -74,10 +74,10 @@ pub fn restore(archive: &str, json_output: bool) -> Result<(), RagMonkError> {
     Ok(())
 }
 
-/// Full rebuild of one or every enabled source. A V2 full build is
+/// Full rebuild of one or every enabled source. A full build is
 /// written next to the visible one and published only on success, so a
 /// failed rebuild leaves the previous index usable. `--fresh` is
-/// therefore always the behavior; the flag adds the reference's root
+/// therefore always the behavior; the flag adds a root
 /// reachability check and confirmation.
 pub fn rebuild(
     source_id: Option<String>,

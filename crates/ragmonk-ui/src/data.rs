@@ -1,5 +1,5 @@
-//! What each Admin UI page renders, in the shapes the reference's
-//! `service/*` modules hand its templates. Built from the same functions
+//! What each Admin UI page renders, in the shapes its templates
+//! expect. Built from the same functions
 //! the CLI uses (status, query, doctor, ops), never a second copy.
 
 use std::path::Path;

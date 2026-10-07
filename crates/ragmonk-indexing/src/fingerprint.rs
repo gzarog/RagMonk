@@ -1,4 +1,4 @@
-//! Content hashing and the mtime+size fast-skip (`ragmonk.sources.fingerprint`).
+//! Content hashing and the mtime+size fast-skip.
 
 use std::io::Read;
 use std::path::Path;
@@ -31,7 +31,7 @@ pub fn stat_unchanged(prev_size: i64, prev_mtime: f64, size: i64, mtime: f64) ->
     prev_size == size && (prev_mtime - mtime).abs() < MTIME_EPSILON
 }
 
-/// Seconds since the epoch, like Python's `st_mtime`.
+/// Seconds since the epoch, as a float.
 pub fn mtime_secs(meta: &std::fs::Metadata) -> f64 {
     meta.modified()
         .ok()

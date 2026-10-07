@@ -1,4 +1,4 @@
-//! `ask` and `ai providers|status|login|logout|models` (RUST-14).
+//! `ask` and `ai providers|status|login|logout|models`.
 //!
 //! `ask` runs the same retrieval as `explore` and hands the question and
 //! that evidence to the configured provider; the answer is returned
@@ -119,8 +119,8 @@ pub fn run(cmd: AiCommand) -> Result<(), RagMonkError> {
                 } else {
                     "api"
                 };
-                // The reference's " [beta]" is swallowed as console
-                // markup, leaving its leading space.
+                // The " [beta]" suffix is deliberately reduced to its
+                // leading space.
                 let beta = if cap.beta { " " } else { "" };
                 println!("{}{beta} — {}", cap.provider_id, cap.display_name);
                 println!(
