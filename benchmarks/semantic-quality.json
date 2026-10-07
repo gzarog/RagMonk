@@ -1,6 +1,4 @@
 {
-  "phase": "RUST-09",
-  "implementation": "rust",
   "queries": 72,
   "rerank_top_n": 20,
   "semantic": {

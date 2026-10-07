@@ -1,8 +1,8 @@
-//! Embedding throughput benchmark (RUST-09).
+//! Embedding throughput benchmark.
 //!
 //! Generates a deterministic mix of code-signature and document-chunk texts
 //! and times `Embedder::embed` over them. `--emit-only <file>` writes the
-//! texts as JSON so the reference embedder can be timed on the same input.
+//! texts as JSON so other embedders can be timed on the same input.
 
 use std::time::Instant;
 
@@ -56,8 +56,7 @@ fn main() {
     let wall = t.elapsed().as_secs_f64();
     assert_eq!(vectors.len(), n);
     let report = serde_json::json!({
-        "phase": "RUST-09",
-        "implementation": "rust",
+
         "model": DEFAULT_EMBEDDING_MODEL.hf_id,
         "texts": n,
         "batch_size": batch,

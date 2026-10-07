@@ -1,9 +1,6 @@
 {
   "files": 301,
-  "implementation": "rust",
   "language": "csharp",
-  "phase": "RUST-05",
-  "plan_id": "ragmonk-full-rust-rewrite-v3-clean-slate",
   "scenarios": [
     {
       "counts": {

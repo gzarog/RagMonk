@@ -1,6 +1,4 @@
 {
-  "phase": "RUST-07",
-  "implementation": "rust",
   "files": 200,
   "kinds": [
     "email_with_attachments.eml",

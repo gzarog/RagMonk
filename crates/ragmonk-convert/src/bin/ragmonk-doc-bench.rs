@@ -103,7 +103,7 @@ fn main() {
     std::fs::write(root.join(format!("d00/{stem}_0.{ext}")), bytes).expect("edit");
     run("single_edit", &mut cp);
     let report = json!({
-        "phase": "RUST-07", "implementation": "rust", "files": copies * kinds.len(), "kinds": kinds,
+        "files": copies * kinds.len(), "kinds": kinds,
         "workers": opts.workers, "scenarios": results,
     });
     let text = serde_json::to_string_pretty(&report).expect("json");

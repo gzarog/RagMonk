@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fetches the pinned model assets a release bundles (RUST-15), verified
+# Fetches the pinned model assets a release bundles, verified
 # against the same SHA-256 digests as ragmonk-ml's and ragmonk-convert's
 # manifests, into the layout `<home>/models` uses:
 #

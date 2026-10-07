@@ -1,0 +1,19 @@
+{
+ "description": "Minimum retrieval quality on fixtures/search_quality (72 golden queries, kind:path keys). A change that drops any metric below its floor fails `cargo test -p ragmonk-ml --test quality`.",
+ "semantic": {
+  "mrr": 0.83,
+  "ndcg@10": 0.81,
+  "recall@1": 0.68,
+  "recall@10": 0.89,
+  "recall@3": 0.79,
+  "recall@5": 0.83
+ },
+ "semantic_rerank": {
+  "mrr": 0.83,
+  "ndcg@10": 0.83,
+  "recall@1": 0.65,
+  "recall@10": 0.89,
+  "recall@3": 0.86,
+  "recall@5": 0.89
+ }
+}

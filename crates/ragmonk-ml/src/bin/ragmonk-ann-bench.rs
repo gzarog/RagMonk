@@ -1,8 +1,7 @@
-//! ANN benchmark (RUST-09 slice 2): build time, query latency and
-//! recall@10 of the HNSW index against exact search on deterministic
-//! unit vectors. `--emit <file>` writes the vectors as little-endian f32
-//! (n * dims) followed by the queries, so the reference index (usearch)
-//! can be measured on identical input.
+//! ANN benchmark: build time, query latency and recall@10 of the HNSW
+//! index against exact search on deterministic unit vectors. `--emit
+//! <file>` writes the vectors as little-endian f32 (n * dims) followed by
+//! the queries, so other indexes can be measured on identical input.
 
 use std::time::Instant;
 
@@ -101,8 +100,7 @@ fn main() {
     assert_eq!(loaded.0.len(), n);
     let _ = std::fs::remove_file(&path);
     let report = serde_json::json!({
-        "phase": "RUST-09",
-        "implementation": "rust",
+
         "engine": "hnsw (m=16, ef_construction=128, ef_search=96)",
         "vectors": n,
         "dims": dims,

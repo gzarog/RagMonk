@@ -8,7 +8,14 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+flate2.workspace = true
 regex.workspace = true
+sha2.workspace = true
+tar.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

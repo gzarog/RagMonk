@@ -1,6 +1,4 @@
 {
-  "phase": "RUST-07",
-  "implementation": "rust",
   "files": 600,
   "workers": 1,
   "scenarios": [

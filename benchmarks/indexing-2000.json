@@ -1,8 +1,5 @@
 {
   "files": 2000,
-  "implementation": "rust",
-  "phase": "RUST-04",
-  "plan_id": "ragmonk-full-rust-rewrite-v3-clean-slate",
   "processing": "raw (scan/diff/hash/storage/publication only)",
   "scenarios": [
     {

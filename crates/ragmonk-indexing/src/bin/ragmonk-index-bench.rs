@@ -1,15 +1,14 @@
-//! Indexing benchmark harness (mirrors the scenarios of the former Python `benchmarks/indexing`).
+//! Indexing benchmark harness.
 //!
 //! ```text
 //! ragmonk-index-bench [--files N] [--out path.json]
 //! ```
 //!
-//! Generates a synthetic corpus (N Python modules plus N/20 text documents,
-//! like the reference fixtures), then measures in-process wall time for
-//! cold, warm-unchanged, single-edit, 1%-change, burst, rename and delete
-//! passes through the V2 coordinator. Processing uses the raw registry
-//! until code/document extraction land (RUST-05/07), so only scan, diff,
-//! hashing, storage and publication costs are measured.
+//! Generates a synthetic corpus (N Python source modules plus N/20 text
+//! documents), then measures in-process wall time for cold,
+//! warm-unchanged, single-edit, 1%-change, burst, rename and delete passes
+//! through the indexing coordinator. Processing uses the raw registry, so
+//! only scan, diff, hashing, storage and publication costs are measured.
 
 use std::path::Path;
 use std::time::Instant;
@@ -121,8 +120,7 @@ fn main() {
 
     let report = json!({
         "plan_id": "ragmonk-full-rust-rewrite-v3-clean-slate",
-        "phase": "RUST-04",
-        "implementation": "rust",
+
         "files": n,
         "processing": "raw (scan/diff/hash/storage/publication only)",
         "scenarios": results,

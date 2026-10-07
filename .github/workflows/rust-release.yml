@@ -1,6 +1,6 @@
 name: Rust release
 
-# Publishes a native RagMonk release (RUST-15, ADR 0030): archives for the
+# Publishes a RagMonk release (ADR 0030): archives for the
 # four release targets with their bundled models, SHA256SUMS (signed with
 # minisign when the MINISIGN_SECRET_KEY secret exists), the installers,
 # and a multi-arch image on GHCR.
@@ -150,9 +150,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.validate.outputs.sha }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
       - name: Toolchain
         run: rustup show active-toolchain || rustup toolchain install; rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
@@ -177,7 +174,7 @@ jobs:
           echo "EXE=$EXE" >> "$GITHUB_ENV"
       - name: Package
         run: |
-          python scripts/package_release.py --binary "$EXE" --version "$VERSION" \
+          cargo xtask package --binary "$EXE" --version "$VERSION" \
             --target ${{ matrix.target }} --models "$RUNNER_TEMP/models" --out dist
           mv dist/SHA256SUMS "dist/SHA256SUMS.${{ matrix.target }}"
       - uses: actions/upload-artifact@v4
@@ -208,8 +205,7 @@ jobs:
         env:
           PUBKEY: ${{ vars.MINISIGN_PUBLIC_KEY }}
         run: |
-          cat dist/SHA256SUMS.* | sort -k2 > dist/SHA256SUMS
-          rm dist/SHA256SUMS.*
+          cargo xtask release-manifest --dist dist
           cat dist/SHA256SUMS
           # The installers carry the release key when one is configured.
           sed "s|^MINISIGN_PUBKEY=\"\"|MINISIGN_PUBKEY=\"$PUBKEY\"|" install.sh > dist/install.sh
@@ -241,7 +237,7 @@ jobs:
           flags=""
           [ "$PRERELEASE" = "true" ] && flags="--prerelease"
           cat > notes.md <<NOTES
-          Native RagMonk $VERSION (no Python required).
+          RagMonk $VERSION.
 
           Install: \`curl -fsSL https://github.com/${{ github.repository }}/releases/download/$TAG/install.sh | sh\`
           (Windows: \`irm https://github.com/${{ github.repository }}/releases/download/$TAG/install.ps1 | iex\`).

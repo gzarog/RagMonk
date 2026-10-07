@@ -1,6 +1,4 @@
 {
-  "phase": "RUST-07",
-  "implementation": "rust",
   "files": 100,
   "kinds": [
     "sample.pdf",

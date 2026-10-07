@@ -227,7 +227,7 @@ fn blank(line: &str, neutral: &[Regex]) -> String {
     })
 }
 
-fn repo_root() -> Result<PathBuf> {
+pub fn repo_root() -> Result<PathBuf> {
     let out = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .output()
@@ -238,7 +238,7 @@ fn repo_root() -> Result<PathBuf> {
     Ok(PathBuf::from(String::from_utf8(out.stdout)?.trim()))
 }
 
-fn tracked_files(root: &Path) -> Result<Vec<String>> {
+pub fn tracked_files(root: &Path) -> Result<Vec<String>> {
     let out = Command::new("git")
         .args(["ls-files", "-z"])
         .current_dir(root)
@@ -255,7 +255,7 @@ fn tracked_files(root: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
-fn read_text(path: &Path) -> Option<String> {
+pub fn read_text(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
     if bytes.contains(&0) {
         return None;

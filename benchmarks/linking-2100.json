@@ -1,6 +1,4 @@
 {
-  "phase": "RUST-08",
-  "implementation": "rust",
   "code_files": 2000,
   "documents": 100,
   "entities": 14000,

@@ -1,7 +1,6 @@
-//! Cross-encoder latency benchmark (RUST-09 slice 3). Scores every query
-//! in fixtures/embeddings/queries.json against all 20 passages of
-//! texts.json, 3 rounds, and reports p50/p95 per 20-pair call. That is the
-//! same workload the reference measurement uses.
+//! Cross-encoder latency benchmark. Scores every query in
+//! fixtures/embeddings/queries.json against all 20 passages of texts.json,
+//! 3 rounds, and reports p50/p95 per 20-pair call.
 //!
 //! `ragmonk-rerank-bench <models root> [--out file]`
 
@@ -41,8 +40,7 @@ fn main() {
     ms.sort_by(f64::total_cmp);
     let p = |q: f64| ms[((ms.len() - 1) as f64 * q).round() as usize];
     let report = serde_json::json!({
-        "phase": "RUST-09",
-        "implementation": "rust",
+
         "model": DEFAULT_RERANKER_MODEL.hf_id,
         "pairs_per_call": passages.len(),
         "calls": ms.len(),

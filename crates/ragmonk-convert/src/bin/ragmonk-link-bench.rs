@@ -4,9 +4,9 @@
 //! ragmonk-link-bench [--code N] [--docs M] [--out report.json] [--emit-only DIR]
 //! ```
 //!
-//! Generates N Python modules (the reference's indexing-benchmark template)
-//! and M Markdown documents that mention entities by bare name, qualified
-//! name, alias and filename, indexes them with the full V2 registry, then
+//! Generates N Python source modules and M Markdown documents that mention
+//! entities by bare name, qualified name, alias and filename, indexes them
+//! with the full processor registry, then
 //! times a full relink (every file touched) of the built corpus.
 
 use std::path::Path;
@@ -119,7 +119,7 @@ fn main() {
     let units = store.count("chunks", &build).expect("count");
     eprintln!("cold_index={cold_index:.3}s full_relink={best:.4}s links={links} entities={entities} units={units}");
     let report = json!({
-        "phase": "RUST-08", "implementation": "rust", "code_files": n_code, "documents": n_docs,
+        "code_files": n_code, "documents": n_docs,
         "entities": entities, "units": units, "links": links,
         "cold_index_wall_s": cold_index, "full_relink_wall_s": best,
     });

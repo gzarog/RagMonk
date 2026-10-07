@@ -5262,7 +5262,12 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "flate2",
  "regex",
+ "sha2 0.10.9",
+ "tar",
+ "tempfile",
+ "zip 8.6.0",
 ]
 
 [[package]]

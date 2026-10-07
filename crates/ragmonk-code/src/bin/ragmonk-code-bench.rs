@@ -7,9 +7,8 @@
 //! Generates a representative ASP.NET-style C# repository (namespaces,
 //! interfaces, controllers with route attributes, services, models and
 //! cross-file calls), then measures cold, warm, single-edit, 1%-change and
-//! delete passes through the V2 coordinator with Rust-native extraction and
-//! whole-build cross-file resolution. `--emit-only` writes the corpus and
-//! exits (used to time the Python reference on identical input).
+//! delete passes through the indexing coordinator with whole-build
+//! cross-file resolution. `--emit-only` writes the corpus and exits.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -241,8 +240,7 @@ fn main() {
 
     let report = json!({
         "plan_id": "ragmonk-full-rust-rewrite-v3-clean-slate",
-        "phase": "RUST-05",
-        "implementation": "rust",
+
         "language": "csharp",
         "files": groups * 3 + 1,
         "scenarios": results,
