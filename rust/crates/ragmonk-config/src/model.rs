@@ -1,16 +1,15 @@
-//! The typed configuration schema (`ragmonk.core.config` models).
+//! The typed configuration schema.
 //!
-//! Field order is significant: it drives validation-error order and the
-//! `config show` / `config.yaml` output order, both matching pydantic.
+//! Field order drives validation-error order and the `config show` /
+//! `config.yaml` output order.
 
 use crate::coerce::{self, Coerced};
-use crate::pyvalue::{py_repr_str, py_repr_str_list, PyValue};
+use crate::value::Value;
 
-/// The pinned embedding model's maximum sequence length
-/// (`ragmonk.tokenization.model_identity.MAX_SEQUENCE_TOKENS`).
+/// The pinned embedding model's maximum sequence length.
 pub const MAX_SEQUENCE_TOKENS: i64 = 256;
 
-/// Collected `(loc, msg)` validation errors, in pydantic order.
+/// Collected `(location, message)` validation errors, in field order.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Errors(pub Vec<(String, String)>);
 
@@ -24,7 +23,7 @@ impl Errors {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
-    /// pydantic's `"; ".join(f"{loc}: {msg}")` rendering.
+    /// `loc: msg; loc: msg`.
     pub fn render(&self) -> String {
         self.0
             .iter()
@@ -48,10 +47,10 @@ pub fn join_loc(parent: &str, child: &str) -> String {
     }
 }
 
-/// A field type: lax coercion from a Python value, and `model_dump(mode="json")`.
+/// A field type: conversion from a loaded [`Value`] and back.
 pub trait ConfigField: Sized + Clone {
-    fn coerce(errors: &mut Errors, value: &PyValue, loc: &str) -> Option<Self>;
-    fn dump(&self) -> PyValue;
+    fn coerce(errors: &mut Errors, value: &Value, loc: &str) -> Option<Self>;
+    fn dump(&self) -> Value;
 }
 
 fn scalar<T>(errors: &mut Errors, loc: &str, r: Coerced<T>) -> Option<T> {
@@ -59,71 +58,60 @@ fn scalar<T>(errors: &mut Errors, loc: &str, r: Coerced<T>) -> Option<T> {
 }
 
 impl ConfigField for i64 {
-    fn coerce(e: &mut Errors, v: &PyValue, loc: &str) -> Option<Self> {
+    fn coerce(e: &mut Errors, v: &Value, loc: &str) -> Option<Self> {
         scalar(e, loc, coerce::to_int(v))
     }
-    fn dump(&self) -> PyValue {
-        PyValue::Int(i128::from(*self))
+    fn dump(&self) -> Value {
+        Value::Int(*self)
     }
 }
 
 impl ConfigField for f64 {
-    fn coerce(e: &mut Errors, v: &PyValue, loc: &str) -> Option<Self> {
+    fn coerce(e: &mut Errors, v: &Value, loc: &str) -> Option<Self> {
         scalar(e, loc, coerce::to_float(v))
     }
-    fn dump(&self) -> PyValue {
-        PyValue::Float(*self)
+    fn dump(&self) -> Value {
+        Value::Float(*self)
     }
 }
 
 impl ConfigField for bool {
-    fn coerce(e: &mut Errors, v: &PyValue, loc: &str) -> Option<Self> {
+    fn coerce(e: &mut Errors, v: &Value, loc: &str) -> Option<Self> {
         scalar(e, loc, coerce::to_bool(v))
     }
-    fn dump(&self) -> PyValue {
-        PyValue::Bool(*self)
+    fn dump(&self) -> Value {
+        Value::Bool(*self)
     }
 }
 
 impl ConfigField for String {
-    fn coerce(e: &mut Errors, v: &PyValue, loc: &str) -> Option<Self> {
+    fn coerce(e: &mut Errors, v: &Value, loc: &str) -> Option<Self> {
         scalar(e, loc, coerce::to_str(v))
     }
-    fn dump(&self) -> PyValue {
-        PyValue::Str(self.clone())
+    fn dump(&self) -> Value {
+        Value::Str(self.clone())
     }
 }
 
 impl ConfigField for Option<String> {
-    fn coerce(e: &mut Errors, v: &PyValue, loc: &str) -> Option<Self> {
+    fn coerce(e: &mut Errors, v: &Value, loc: &str) -> Option<Self> {
         scalar(e, loc, coerce::to_opt_str(v))
     }
-    fn dump(&self) -> PyValue {
-        self.as_ref()
-            .map_or(PyValue::None, |s| PyValue::Str(s.clone()))
+    fn dump(&self) -> Value {
+        self.as_ref().map_or(Value::Null, |s| Value::Str(s.clone()))
     }
 }
 
 impl ConfigField for Vec<String> {
-    fn coerce(e: &mut Errors, v: &PyValue, loc: &str) -> Option<Self> {
-        let PyValue::List(items) = v else {
-            e.push(loc, coerce::MSG_LIST_TYPE);
-            return None;
-        };
-        let start = e.len();
-        let out: Vec<Option<String>> = items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| scalar(e, &join_loc(loc, &i.to_string()), coerce::to_str(item)))
-            .collect();
-        (e.len() == start).then(|| out.into_iter().flatten().collect())
+    fn coerce(e: &mut Errors, v: &Value, loc: &str) -> Option<Self> {
+        scalar(e, loc, coerce::to_str_list(v))
     }
-    fn dump(&self) -> PyValue {
-        PyValue::List(self.iter().map(|s| PyValue::Str(s.clone())).collect())
+    fn dump(&self) -> Value {
+        Value::List(self.iter().map(|s| Value::Str(s.clone())).collect())
     }
 }
 
-/// `documents.chunking.max_tokens: int | Literal["auto"]`.
+/// `documents.chunking.max_tokens`: an integer or `auto`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MaxTokens {
     Auto,
@@ -131,28 +119,27 @@ pub enum MaxTokens {
 }
 
 impl ConfigField for MaxTokens {
-    fn coerce(e: &mut Errors, v: &PyValue, loc: &str) -> Option<Self> {
-        if matches!(v, PyValue::Str(s) if s == "auto") {
+    fn coerce(e: &mut Errors, v: &Value, loc: &str) -> Option<Self> {
+        if matches!(v, Value::Str(s) if s.trim() == "auto") {
             return Some(MaxTokens::Auto);
         }
         match coerce::to_int(v) {
             Ok(i) => Some(MaxTokens::Value(i)),
-            Err(msg) => {
-                e.push(&format!("{loc}.int"), msg);
-                e.push(&format!("{loc}.literal['auto']"), "Input should be 'auto'");
+            Err(_) => {
+                e.push(loc, "expected an integer or 'auto'");
                 None
             }
         }
     }
-    fn dump(&self) -> PyValue {
+    fn dump(&self) -> Value {
         match self {
-            MaxTokens::Auto => PyValue::str("auto"),
-            MaxTokens::Value(i) => PyValue::Int(i128::from(*i)),
+            MaxTokens::Auto => Value::str("auto"),
+            MaxTokens::Value(i) => Value::Int(*i),
         }
     }
 }
 
-/// `storage.server.engine: Literal["opensearch", "elasticsearch"]`.
+/// `storage.server.engine`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageEngine {
     OpenSearch,
@@ -169,18 +156,18 @@ impl StorageEngine {
 }
 
 impl ConfigField for StorageEngine {
-    fn coerce(e: &mut Errors, v: &PyValue, loc: &str) -> Option<Self> {
+    fn coerce(e: &mut Errors, v: &Value, loc: &str) -> Option<Self> {
         match v {
-            PyValue::Str(s) if s == "opensearch" => Some(StorageEngine::OpenSearch),
-            PyValue::Str(s) if s == "elasticsearch" => Some(StorageEngine::Elasticsearch),
+            Value::Str(s) if s == "opensearch" => Some(StorageEngine::OpenSearch),
+            Value::Str(s) if s == "elasticsearch" => Some(StorageEngine::Elasticsearch),
             _ => {
-                e.push(loc, "Input should be 'opensearch' or 'elasticsearch'");
+                e.push(loc, "expected 'opensearch' or 'elasticsearch'");
                 None
             }
         }
     }
-    fn dump(&self) -> PyValue {
-        PyValue::str(self.as_str())
+    fn dump(&self) -> Value {
+        Value::str(self.as_str())
     }
 }
 
@@ -188,7 +175,7 @@ type Check<T> = fn(&T) -> Result<(), String>;
 
 fn coerce_field<T: ConfigField>(
     e: &mut Errors,
-    obj: &PyValue,
+    obj: &Value,
     loc: &str,
     key: &str,
     default: &T,
@@ -201,7 +188,7 @@ fn coerce_field<T: ConfigField>(
     };
     if let Some(check) = check {
         if let Err(msg) = check(&value) {
-            e.push(&floc, format!("Value error, {msg}"));
+            e.push(&floc, msg);
             return None;
         }
     }
@@ -229,16 +216,19 @@ macro_rules! section {
         }
 
         impl ConfigField for $name {
-            fn coerce(e: &mut Errors, value: &PyValue, loc: &str) -> Option<Self> {
-                if value.as_dict().is_none() {
-                    e.push(loc, concat!(
-                        "Input should be a valid dictionary or instance of ",
-                        stringify!($name)
-                    ));
+            fn coerce(e: &mut Errors, value: &Value, loc: &str) -> Option<Self> {
+                let Some(entries) = value.as_map() else {
+                    e.push(loc, coerce::MSG_MAP);
                     return None;
-                }
+                };
                 let defaults = Self::default();
                 let start = e.len();
+                const FIELDS: &[&str] = &[$( stringify!($field), )*];
+                for (key, _) in entries {
+                    if !FIELDS.contains(&key.as_str()) {
+                        e.push(&join_loc(loc, key), "unknown setting");
+                    }
+                }
                 $(
                     #[allow(unused_mut, unused_assignments)]
                     let mut check: Option<Check<$ty>> = None;
@@ -254,41 +244,35 @@ macro_rules! section {
                 $(
                     let mcheck: Check<Self> = $mcheck;
                     if let Err(msg) = mcheck(&out) {
-                        e.push(loc, format!("Value error, {msg}"));
+                        e.push(loc, msg);
                         return None;
                     }
                 )?
                 Some(out)
             }
 
-            fn dump(&self) -> PyValue {
-                PyValue::Dict(vec![
-                    $( (PyValue::str(stringify!($field)), self.$field.dump()), )*
+            fn dump(&self) -> Value {
+                Value::Map(vec![
+                    $( (stringify!($field).to_owned(), self.$field.dump()), )*
                 ])
             }
         }
     };
 }
 
-fn one_of(field: &str, value: &str, allowed: &[&str]) -> Result<(), String> {
+fn one_of(value: &str, allowed: &[&str]) -> Result<(), String> {
     if allowed.contains(&value) {
         return Ok(());
     }
-    let mut sorted = allowed.to_vec();
-    sorted.sort_unstable();
     Err(format!(
-        "unknown {field} {}; expected one of {}",
-        py_repr_str(value),
-        py_repr_str_list(&sorted)
+        "unknown value {value:?}; expected one of: {}",
+        allowed.join(", ")
     ))
 }
 
 section! {
     RuntimeConfig {
         log_level: String = "info".into();
-        max_workers: i64 = 6;
-        max_memory_mb: i64 = 4096;
-        temp_directory: String = "auto".into();
         sqlite_cache_size_mb: i64 = 64;
     }
 }
@@ -299,7 +283,6 @@ section! {
         debounce_ms: i64 = 2000;
         max_file_size_mb: i64 = 100;
         follow_symlinks: bool = false;
-        hash_algorithm: String = "sha256".into();
         network_poll_seconds: i64 = 30;
         reconciliation_interval_seconds: i64 = 900;
         code_extraction_workers: i64 = 1;
@@ -307,11 +290,11 @@ section! {
         embedding_batch_size: i64 = 16;
         lock_timeout_seconds: f64 = 30.0, check = |v| {
             if *v > 0.0 && *v <= 3600.0 { Ok(()) } else {
-                Err("indexing.lock_timeout_seconds must be > 0 and <= 3600".into())
+                Err("must be > 0 and <= 3600".into())
             }
         };
         status_stall_threshold_seconds: f64 = 120.0, check = |v| {
-            if *v <= 0.0 { Err("indexing.status_stall_threshold_seconds must be > 0".into()) } else { Ok(()) }
+            if *v <= 0.0 { Err("must be > 0".into()) } else { Ok(()) }
         };
     }
 }
@@ -328,21 +311,20 @@ impl ChunkingConfig {
 
 section! {
     ChunkingConfig {
-        strategy: String = "hybrid".into(), check = |v| one_of("documents.chunking.strategy", v, &["hybrid"]);
         max_tokens: MaxTokens = MaxTokens::Auto, check = |v| match v {
             MaxTokens::Auto => Ok(()),
-            MaxTokens::Value(n) if *n < 16 => Err("documents.chunking.max_tokens must be at least 16".into()),
+            MaxTokens::Value(n) if *n < 16 => Err("must be at least 16".into()),
             MaxTokens::Value(n) if *n > MAX_SEQUENCE_TOKENS => Err(format!(
-                "documents.chunking.max_tokens ({n}) exceeds the embedding model's \
+                "{n} exceeds the embedding model's \
                  maximum sequence length ({MAX_SEQUENCE_TOKENS}); a larger value would \
                  let chunks be silently truncated at embedding time. Use 'auto' or a \
                  value <= {MAX_SEQUENCE_TOKENS}."
             )),
             MaxTokens::Value(_) => Ok(()),
         };
-        min_tokens: i64 = 60, check = |v| if *v < 1 { Err("documents.chunking.min_tokens must be at least 1".into()) } else { Ok(()) };
-        overlap_tokens: i64 = 40, check = |v| if *v < 0 { Err("documents.chunking.overlap_tokens must not be negative".into()) } else { Ok(()) };
-        safety_tokens: i64 = 4, check = |v| if *v < 0 { Err("documents.chunking.safety_tokens must not be negative".into()) } else { Ok(()) };
+        min_tokens: i64 = 60, check = |v| if *v < 1 { Err("must be at least 1".into()) } else { Ok(()) };
+        overlap_tokens: i64 = 40, check = |v| if *v < 0 { Err("must not be negative".into()) } else { Ok(()) };
+        safety_tokens: i64 = 4, check = |v| if *v < 0 { Err("must not be negative".into()) } else { Ok(()) };
         merge_peers: bool = true;
     }
     model_check = |c| {
@@ -364,21 +346,21 @@ fn positive_attachment(field: &'static str) -> Check<i64> {
     match field {
         "email_attachment_max_bytes" => |v| {
             if *v <= 0 {
-                Err("documents.email_attachment_max_bytes must be > 0".into())
+                Err("must be > 0".into())
             } else {
                 Ok(())
             }
         },
         "email_attachment_max_count" => |v| {
             if *v <= 0 {
-                Err("documents.email_attachment_max_count must be > 0".into())
+                Err("must be > 0".into())
             } else {
                 Ok(())
             }
         },
         _ => |v| {
             if *v <= 0 {
-                Err("documents.email_attachment_total_max_bytes must be > 0".into())
+                Err("must be > 0".into())
             } else {
                 Ok(())
             }
@@ -388,16 +370,11 @@ fn positive_attachment(field: &'static str) -> Check<i64> {
 
 section! {
     DocumentsConfig {
-        enabled: bool = true;
-        ocr: String = "auto".into(), check = |v| one_of("documents.ocr", v, &["off", "auto", "always"]);
+        ocr: String = "auto".into(), check = |v| one_of(v, &["off", "auto", "always"]);
         max_pages: i64 = 1000;
         chunking: ChunkingConfig = ChunkingConfig::default();
         image_ocr: bool = false;
-        pdf_mode: String = "accurate".into(), check = |v| one_of("documents.pdf_mode", v, &["accurate", "fast"]);
-        pdf_table_structure: bool = true;
-        pdf_process_workers: i64 = 1, check = |v| {
-            if (1..=32).contains(v) { Ok(()) } else { Err("documents.pdf_process_workers must be between 1 and 32".into()) }
-        };
+        pdf_mode: String = "accurate".into(), check = |v| one_of(v, &["accurate", "fast"]);
         email_attachments: bool = true;
         email_attachment_max_bytes: i64 = 25 * 1024 * 1024, check = positive_attachment("email_attachment_max_bytes");
         email_attachment_max_count: i64 = 50, check = positive_attachment("email_attachment_max_count");
@@ -406,51 +383,29 @@ section! {
 }
 
 section! {
-    CodeConfig {
-        enabled: bool = true;
-    }
-}
-
-section! {
-    SearchVectorConfig {
-        engine: String = "auto".into();
-        rebuild_deleted_ratio: f64 = 0.15;
-    }
-}
-
-section! {
-    SearchCacheConfig {
-        enabled: bool = true;
-        max_queries: i64 = 256;
-        max_query_embeddings: i64 = 256;
-    }
-}
-
-section! {
     SearchOutputConfig {
         fallback: Vec<String> = vec!["snippets".into(), "json".into(), "files".into()], check = |v| {
             if v.is_empty() {
-                return Err("search.output.fallback must not be empty".into());
+                return Err("must not be empty".into());
             }
             for mode in v {
                 if !["snippets", "json", "files", "table"].contains(&mode.as_str()) {
                     return Err(format!(
-                        "unknown search.output.fallback mode {}; expected one of ['files', 'json', 'snippets', 'table']",
-                        py_repr_str(mode)
+                        "unknown search.output.fallback mode {mode:?}; expected one of: snippets, json, files, table"
                     ));
                 }
             }
             Ok(())
         };
         snippet_max_tokens: i64 = 32, check = |v| if (1..=64).contains(v) { Ok(()) } else {
-            Err("search.output.snippet_max_tokens must be between 1 and 64 (SQLite FTS5's own snippet() limit)".into())
+            Err("must be between 1 and 64 (SQLite FTS5's own snippet() limit)".into())
         };
     }
 }
 
 fn non_negative_chunks(v: &i64) -> Result<(), String> {
     if *v < 0 {
-        Err("search.context.previous_chunks/next_chunks must be >= 0".into())
+        Err("must be >= 0".into())
     } else {
         Ok(())
     }
@@ -461,14 +416,14 @@ section! {
         parent_heading: bool = true;
         previous_chunks: i64 = 1, check = non_negative_chunks;
         next_chunks: i64 = 1, check = non_negative_chunks;
-        max_tokens: i64 = 1200, check = |v| if *v <= 0 { Err("search.context.max_tokens must be > 0".into()) } else { Ok(()) };
+        max_tokens: i64 = 1200, check = |v| if *v <= 0 { Err("must be > 0".into()) } else { Ok(()) };
     }
 }
 
 section! {
     SearchRerankerConfig {
         enabled: bool = false;
-        top_n: i64 = 20, check = |v| if *v < 1 { Err("search.reranker.top_n must be >= 1".into()) } else { Ok(()) };
+        top_n: i64 = 20, check = |v| if *v < 1 { Err("must be >= 1".into()) } else { Ok(()) };
     }
 }
 
@@ -479,8 +434,6 @@ section! {
         semantic: bool = false;
         lazy_semantic: bool = false;
         semantic_top_k: i64 = 30;
-        vector: SearchVectorConfig = SearchVectorConfig::default();
-        cache: SearchCacheConfig = SearchCacheConfig::default();
         output: SearchOutputConfig = SearchOutputConfig::default();
         context: SearchContextConfig = SearchContextConfig::default();
         reranker: SearchRerankerConfig = SearchRerankerConfig::default();
@@ -503,30 +456,8 @@ section! {
 }
 
 section! {
-    ApiConfig {
-        enabled: bool = false;
-        bind: String = "127.0.0.1".into();
-        port: i64 = 8765;
-    }
-}
-
-section! {
     PrivacyConfig {
         external_ai_allowed: bool = false;
-    }
-}
-
-section! {
-    /// Stores no credential; sign-in is delegated to the Codex runtime.
-    CodexAiConfig {
-        auth_mode: String = "chatgpt".into(), check = |v| one_of("ai.codex.auth_mode", v, &["chatgpt"]);
-    }
-}
-
-section! {
-    /// Stores no credential; relies on the signed-in Copilot CLI.
-    GithubCopilotAiConfig {
-        auth_mode: String = "signed_in_user".into(), check = |v| one_of("ai.github_copilot.auth_mode", v, &["signed_in_user"]);
     }
 }
 
@@ -537,14 +468,6 @@ section! {
         model: String = String::new();
         base_url: Option<String> = None;
         timeout_seconds: f64 = 60.0;
-        codex: CodexAiConfig = CodexAiConfig::default();
-        github_copilot: GithubCopilotAiConfig = GithubCopilotAiConfig::default();
-    }
-}
-
-section! {
-    TelemetryConfig {
-        anonymous_usage: bool = false;
     }
 }
 
@@ -559,7 +482,7 @@ section! {
 
 fn bulk_positive(v: &i64) -> Result<(), String> {
     if *v < 1 {
-        Err("storage.server.bulk fields must be >= 1".into())
+        Err("must be >= 1".into())
     } else {
         Ok(())
     }
@@ -569,8 +492,7 @@ section! {
     BulkConfig {
         max_actions: i64 = 500, check = bulk_positive;
         max_bytes: i64 = 5_000_000, check = bulk_positive;
-        concurrency: i64 = 2, check = bulk_positive;
-        max_retries: i64 = 3, check = |v| if *v < 0 { Err("storage.server.bulk.max_retries must be >= 0".into()) } else { Ok(()) };
+        max_retries: i64 = 3, check = |v| if *v < 0 { Err("must be >= 0".into()) } else { Ok(()) };
     }
 }
 
@@ -581,7 +503,7 @@ section! {
         engine: StorageEngine = StorageEngine::OpenSearch;
         url: String = String::new(), check = |v| {
             if ragmonk_telemetry::redact::url_has_userinfo(v) {
-                Err("storage.server.url must not contain credentials (user-info such as \
+                Err("must not contain credentials (user-info such as \
                      'user:password@'); set RAGMONK_OPENSEARCH_USERNAME/_PASSWORD/_API_KEY \
                      or RAGMONK_ELASTICSEARCH_USERNAME/_PASSWORD/_API_KEY instead".into())
             } else {
@@ -591,7 +513,7 @@ section! {
         index_prefix: String = "ragmonk".into();
         verify_tls: bool = true;
         request_timeout_seconds: f64 = 30.0, check = |v| {
-            if *v <= 0.0 { Err("storage.server.request_timeout_seconds must be > 0".into()) } else { Ok(()) }
+            if *v <= 0.0 { Err("must be > 0".into()) } else { Ok(()) }
         };
         bulk: BulkConfig = BulkConfig::default();
     }
@@ -600,24 +522,20 @@ section! {
 section! {
     /// `mode="local"` stays the default even when the section is absent.
     StorageConfig {
-        mode: String = "local".into(), check = |v| one_of("storage.mode", v, &["local", "server"]);
+        mode: String = "local".into(), check = |v| one_of(v, &["local", "server"]);
         server: ServerStorageConfig = ServerStorageConfig::default();
     }
 }
 
 section! {
     RagMonkConfig {
-        version: i64 = 1;
         runtime: RuntimeConfig = RuntimeConfig::default();
         indexing: IndexingConfig = IndexingConfig::default();
         documents: DocumentsConfig = DocumentsConfig::default();
-        code: CodeConfig = CodeConfig::default();
         search: SearchConfig = SearchConfig::default();
         context: ContextConfig = ContextConfig::default();
         mcp: McpConfig = McpConfig::default();
-        api: ApiConfig = ApiConfig::default();
         privacy: PrivacyConfig = PrivacyConfig::default();
-        telemetry: TelemetryConfig = TelemetryConfig::default();
         ai: AiConfig = AiConfig::default();
         updates: UpdatesConfig = UpdatesConfig::default();
         storage: StorageConfig = StorageConfig::default();
@@ -626,25 +544,21 @@ section! {
 
 /// Top-level sections recognized by the `RAGMONK_<SECTION>__...` env layer.
 pub const KNOWN_SECTIONS: &[&str] = &[
-    "version",
     "runtime",
     "indexing",
     "documents",
-    "code",
     "search",
     "context",
     "mcp",
-    "api",
     "privacy",
-    "telemetry",
     "ai",
     "updates",
     "storage",
 ];
 
 impl RagMonkConfig {
-    /// `RagMonkConfig.model_validate(value)`.
-    pub fn validate(value: &PyValue) -> Result<Self, Errors> {
+    /// Validates a merged value tree into the typed configuration.
+    pub fn validate(value: &Value) -> Result<Self, Errors> {
         let mut errors = Errors::default();
         match <Self as ConfigField>::coerce(&mut errors, value, "") {
             Some(cfg) if errors.is_empty() => Ok(cfg),
@@ -652,8 +566,38 @@ impl RagMonkConfig {
         }
     }
 
-    /// `model_dump(mode="json")`.
-    pub fn to_pyvalue(&self) -> PyValue {
+    /// The configuration as a value tree (field order preserved).
+    pub fn to_value(&self) -> Value {
         self.dump()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_keys_and_bad_values_are_reported_in_order() {
+        let v = crate::yaml::parse(
+            "runtime:\n  log_level: debug\n  max_workers: 4\nsearch:\n  semantic: maybe\nstorage:\n  mode: cloud\n",
+        )
+        .unwrap();
+        let merged = crate::value::deep_merge(&RagMonkConfig::default().to_value(), &v);
+        let err = RagMonkConfig::validate(&merged).unwrap_err().render();
+        assert_eq!(
+            err,
+            "runtime.max_workers: unknown setting; search.semantic: expected true or false; \
+             storage.mode: unknown value \"cloud\"; expected one of: local, server"
+        );
+    }
+
+    #[test]
+    fn defaults_round_trip() {
+        let cfg = RagMonkConfig::default();
+        assert_eq!(RagMonkConfig::validate(&cfg.to_value()).unwrap(), cfg);
+        assert_eq!(
+            cfg.documents.chunking.resolved_max_tokens(),
+            MAX_SEQUENCE_TOKENS
+        );
     }
 }

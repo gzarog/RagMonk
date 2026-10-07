@@ -22,8 +22,7 @@ mod workflow;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use ragmonk_config::loader::{dump_yaml, get_path, python_str, set_path};
-use ragmonk_config::pyvalue::{py_repr_str, PyValue};
+use ragmonk_config::loader::{dump_yaml, get_path, set_path};
 use ragmonk_config::{load_config, write_user_config, LoadOptions};
 use ragmonk_core::errors::{RagMonkError, EXIT_GENERIC_FAILURE};
 use ragmonk_core::paths::Home;
@@ -34,7 +33,10 @@ use ragmonk_telemetry::redact::redact_urls_in_text;
 const SCHEMA_VERSION: &str = "1";
 
 #[derive(Parser)]
-#[command(name = "ragmonk", about = "RagMonk (Rust rewrite preview)")]
+#[command(
+    name = "ragmonk",
+    about = "RagMonk: local code and document knowledge for people and agents"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -225,86 +227,6 @@ fn version_payload() -> serde_json::Value {
     })
 }
 
-/// Python `repr()` of a dumped config value (used for `config set`).
-fn py_repr(value: &PyValue) -> String {
-    match value {
-        PyValue::Str(s) => py_repr_str(s),
-        PyValue::List(items) => {
-            let inner: Vec<String> = items.iter().map(py_repr).collect();
-            format!("[{}]", inner.join(", "))
-        }
-        PyValue::Dict(entries) => {
-            let inner: Vec<String> = entries
-                .iter()
-                .map(|(k, v)| format!("{}: {}", py_repr(k), py_repr(v)))
-                .collect();
-            format!("{{{}}}", inner.join(", "))
-        }
-        other => python_str(other).unwrap_or_default(),
-    }
-}
-
-/// Console width as Rich computes it for a non-terminal: `COLUMNS` when
-/// set, else 80.
-fn console_width() -> usize {
-    std::env::var("COLUMNS")
-        .ok()
-        .and_then(|c| c.trim().parse::<usize>().ok())
-        .filter(|w| *w > 0)
-        .unwrap_or(80)
-}
-
-/// `rich.pretty` layout, as `console.print(value)` renders a dict or list.
-/// A container is expanded (one child per line, 4-space indent) only when
-/// its one-line form, plus indent and trailing separator, exceeds `width`.
-/// The decision is made per node, as in Rich's `_Line.check_length`.
-fn rich_pretty(value: &PyValue, width: usize) -> String {
-    /// `(open, close, [(key repr, value)])` for a non-empty container.
-    type Kids<'a> = (char, char, Vec<(Option<String>, &'a PyValue)>);
-    fn children(v: &PyValue) -> Option<Kids<'_>> {
-        match v {
-            PyValue::Dict(e) if !e.is_empty() => Some((
-                '{',
-                '}',
-                e.iter().map(|(k, v)| (Some(py_repr(k)), v)).collect(),
-            )),
-            PyValue::List(items) if !items.is_empty() => {
-                Some(('[', ']', items.iter().map(|v| (None, v)).collect()))
-            }
-            _ => None,
-        }
-    }
-    fn render(
-        key: Option<&str>,
-        v: &PyValue,
-        ws: &str,
-        suffix: &str,
-        last: bool,
-        width: usize,
-        out: &mut Vec<String>,
-    ) {
-        let prefix = key.map(|k| format!("{k}: ")).unwrap_or_default();
-        let one_line = format!("{prefix}{}", py_repr(v));
-        let tail = if last { "" } else { suffix.trim_end() };
-        let fits = ws.chars().count() + suffix.chars().count() + one_line.chars().count() <= width;
-        match children(v) {
-            Some((open, close, kids)) if !fits => {
-                out.push(format!("{ws}{prefix}{open}"));
-                let inner = format!("{ws}    ");
-                let n = kids.len();
-                for (i, (k, child)) in kids.into_iter().enumerate() {
-                    render(k.as_deref(), child, &inner, ", ", i + 1 == n, width, out);
-                }
-                out.push(format!("{ws}{close}{tail}"));
-            }
-            _ => out.push(format!("{ws}{one_line}{tail}")),
-        }
-    }
-    let mut out = Vec::new();
-    render(None, value, "", "", true, width, &mut out);
-    out.join("\n")
-}
-
 fn prepared_home() -> Result<Home, RagMonkError> {
     let home = Home::discover();
     home.ensure_layout().map_err(|e| {
@@ -400,19 +322,14 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
         }
         Command::Config(ConfigCommand::Get { key }) => {
             let home = prepared_home()?;
-            let value = get_path(&load(&home)?, &key)?;
-            let text = match &value {
-                PyValue::Dict(_) | PyValue::List(_) => rich_pretty(&value, console_width()),
-                other => python_str(other).unwrap_or_else(|| py_repr(other)),
-            };
-            println!("{text}");
+            println!("{}", get_path(&load(&home)?, &key)?);
         }
         Command::Config(ConfigCommand::Set { key, value }) => {
             let home = prepared_home()?;
             let (updated, stored) = set_path(&load(&home)?, &key, &value)?;
             let path = write_user_config(&updated, &home)
                 .map_err(|e| RagMonkError::new(ragmonk_core::ErrorKind::Generic, e.to_string()))?;
-            println!("Set {key} = {} in {}", py_repr(&stored), path.display());
+            println!("Set {key} = {stored} in {}", path.display());
         }
         Command::Server(cmd) => run_server(cmd)?,
         Command::Daemon(cmd) => daemon_cmd::run(cmd)?,
@@ -496,26 +413,11 @@ fn main() -> ExitCode {
 }
 
 #[cfg(test)]
-mod pretty_tests {
-    use super::*;
-
-    #[test]
-    fn expands_only_what_overflows() {
-        let cfg = ragmonk_config::RagMonkConfig::default();
-        let v = get_path(&cfg, "storage").unwrap();
-        let want = "{\n    'mode': 'local',\n    'server': {\n        'engine': 'opensearch',\n        'url': '',\n        'index_prefix': 'ragmonk',\n        'verify_tls': True,\n        'request_timeout_seconds': 30.0,\n        'bulk': {'max_actions': 500, 'max_bytes': 5000000, 'concurrency': 2, 'max_retries': 3}\n    }\n}";
-        assert_eq!(rich_pretty(&v, 200), want);
-        assert_eq!(rich_pretty(&v, 400).lines().count(), 1);
-        assert_eq!(rich_pretty(&PyValue::List(vec![]), 10), "[]");
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn version_json_uses_python_envelope() {
+    fn version_json_envelope() {
         let value = version_payload();
         assert_eq!(value["schema_version"], "1");
         assert_eq!(value["data"]["version"], version::version());

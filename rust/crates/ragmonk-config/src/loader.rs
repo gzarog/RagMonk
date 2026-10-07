@@ -1,4 +1,4 @@
-//! Layered configuration loading (`ragmonk.core.config.load_config`).
+//! Layered configuration loading.
 //!
 //! Precedence, highest wins: CLI overrides > environment variables
 //! (`RAGMONK_` prefix, `__` nesting) > project config (`./.ragmonk.yaml`)
@@ -9,11 +9,8 @@ use std::path::{Path, PathBuf};
 use ragmonk_core::errors::RagMonkError;
 use ragmonk_core::paths::{project_config_path, Home};
 
-use crate::coerce::{parse_python_float, parse_python_int};
 use crate::model::{RagMonkConfig, KNOWN_SECTIONS};
-use crate::pyvalue::{dict_set, PyValue};
-use crate::yaml_emit::safe_dump;
-use crate::yaml_load::safe_load;
+use crate::value::{deep_merge, Value};
 
 const ENV_PREFIX: &str = "RAGMONK_";
 
@@ -24,12 +21,13 @@ pub struct LoadOptions {
     pub cwd: Option<PathBuf>,
     /// Ordered `(name, value)` pairs; `None` reads the process environment.
     pub environ: Option<Vec<(String, String)>>,
-    pub cli_overrides: Option<PyValue>,
+    pub cli_overrides: Option<Value>,
 }
 
-fn load_yaml_file(path: &Path) -> Result<PyValue, RagMonkError> {
+/// Reads a YAML config file; a missing or empty file is an empty mapping.
+pub fn load_yaml_file(path: &Path) -> Result<Value, RagMonkError> {
     if !path.is_file() {
-        return Ok(PyValue::Dict(Vec::new()));
+        return Ok(Value::empty_map());
     }
     let read_err = |e: &dyn std::fmt::Display| {
         RagMonkError::config(format!(
@@ -38,9 +36,9 @@ fn load_yaml_file(path: &Path) -> Result<PyValue, RagMonkError> {
         ))
     };
     let raw = std::fs::read_to_string(path).map_err(|e| read_err(&e))?;
-    match safe_load(&raw).map_err(|e| read_err(&e))? {
-        PyValue::None => Ok(PyValue::Dict(Vec::new())),
-        dict @ PyValue::Dict(_) => Ok(dict),
+    match crate::yaml::parse(&raw).map_err(|e| read_err(&e))? {
+        Value::Null => Ok(Value::empty_map()),
+        map @ Value::Map(_) => Ok(map),
         _ => Err(RagMonkError::config(format!(
             "config file {} must contain a mapping at the top level",
             path.display()
@@ -48,24 +46,10 @@ fn load_yaml_file(path: &Path) -> Result<PyValue, RagMonkError> {
     }
 }
 
-/// `_coerce_scalar`: env values become bool, int, float or stay strings.
-pub fn coerce_env_scalar(raw: &str) -> PyValue {
-    let lowered = raw.trim().to_lowercase();
-    if lowered == "true" || lowered == "false" {
-        return PyValue::Bool(lowered == "true");
-    }
-    if let Some(i) = parse_python_int(raw) {
-        return PyValue::Int(i);
-    }
-    if let Some(f) = parse_python_float(raw) {
-        return PyValue::Float(f);
-    }
-    PyValue::Str(raw.to_owned())
-}
-
-/// `_env_overrides`.
-pub fn env_overrides(environ: &[(String, String)]) -> PyValue {
-    let mut overrides = PyValue::Dict(Vec::new());
+/// `RAGMONK_<SECTION>__<KEY>[__<KEY>...]=value` variables as a value tree.
+/// Values stay strings; validation parses them into each field's type.
+pub fn env_overrides(environ: &[(String, String)]) -> Value {
+    let mut overrides = Value::empty_map();
     for (key, value) in environ {
         let Some(remainder) = key.strip_prefix(ENV_PREFIX) else {
             continue;
@@ -84,51 +68,26 @@ pub fn env_overrides(environ: &[(String, String)]) -> PyValue {
         if !KNOWN_SECTIONS.contains(&first.as_str()) {
             continue;
         }
-        set_nested(&mut overrides, &segments, coerce_env_scalar(value));
+        set_nested(&mut overrides, &segments, Value::str(value.as_str()));
     }
     overrides
 }
 
-fn set_nested(root: &mut PyValue, segments: &[String], value: PyValue) {
-    let PyValue::Dict(dict) = root else {
-        // Python would raise TypeError indexing a non-dict; skip instead.
-        return;
-    };
-    let key = PyValue::Str(segments[0].clone());
+fn set_nested(root: &mut Value, segments: &[String], value: Value) {
     if segments.len() == 1 {
-        dict_set(dict, key, value);
+        root.set(&segments[0], value);
         return;
     }
-    if !dict.iter().any(|(k, _)| k.key_eq(&key)) {
-        dict.push((key.clone(), PyValue::Dict(Vec::new())));
+    if !matches!(root.get(&segments[0]), Some(Value::Map(_))) {
+        root.set(&segments[0], Value::empty_map());
     }
-    if let Some((_, child)) = dict.iter_mut().find(|(k, _)| k.key_eq(&key)) {
+    if let Some(child) = root.get_mut(&segments[0]) {
         set_nested(child, &segments[1..], value);
     }
 }
 
-/// `_deep_merge`.
-pub fn deep_merge(base: &PyValue, over: &PyValue) -> PyValue {
-    let (PyValue::Dict(b), PyValue::Dict(o)) = (base, over) else {
-        return over.clone();
-    };
-    let mut result = b.clone();
-    for (key, value) in o {
-        let existing = result
-            .iter()
-            .find(|(k, _)| k.key_eq(key))
-            .map(|(_, v)| v.clone());
-        let merged = match (value, existing) {
-            (PyValue::Dict(_), Some(prev @ PyValue::Dict(_))) => deep_merge(&prev, value),
-            _ => value.clone(),
-        };
-        dict_set(&mut result, key.clone(), merged);
-    }
-    PyValue::Dict(result)
-}
-
 /// The merged, not-yet-validated layers.
-pub fn merged_layers(opts: &LoadOptions) -> Result<PyValue, RagMonkError> {
+pub fn merged_layers(opts: &LoadOptions) -> Result<Value, RagMonkError> {
     let home = opts
         .home
         .clone()
@@ -148,7 +107,7 @@ pub fn merged_layers(opts: &LoadOptions) -> Result<PyValue, RagMonkError> {
             })
             .collect()
     });
-    let defaults = RagMonkConfig::default().to_pyvalue();
+    let defaults = RagMonkConfig::default().to_value();
     let user = load_yaml_file(&home.user_config())?;
     let project = load_yaml_file(&project_config_path(&cwd))?;
     let env = env_overrides(&environ);
@@ -161,8 +120,8 @@ pub fn merged_layers(opts: &LoadOptions) -> Result<PyValue, RagMonkError> {
     Ok(merged)
 }
 
-/// `load_config`. Validation errors become a `ConfigError` (exit code 3)
-/// whose message never echoes input values and has URL user-info scrubbed.
+/// Loads and validates the layered configuration. Validation errors are a
+/// config error (exit code 3) whose message has URL user-info scrubbed.
 pub fn load_config(opts: &LoadOptions) -> Result<RagMonkConfig, RagMonkError> {
     let merged = merged_layers(opts)?;
     RagMonkConfig::validate(&merged).map_err(|errors| {
@@ -181,12 +140,12 @@ fn scrub_url_userinfo(text: &str) -> String {
     .into_owned()
 }
 
-/// `yaml.safe_dump(config.model_dump(mode="json"), sort_keys=False)`.
+/// The configuration as YAML (`config show`, `config.yaml`).
 pub fn dump_yaml(config: &RagMonkConfig) -> String {
-    safe_dump(&config.to_pyvalue())
+    crate::yaml::emit(&config.to_value())
 }
 
-/// `write_user_config`.
+/// Writes the full configuration to `<home>/config.yaml`.
 pub fn write_user_config(config: &RagMonkConfig, home: &Home) -> std::io::Result<PathBuf> {
     let path = home.user_config();
     if let Some(parent) = path.parent() {
@@ -196,98 +155,46 @@ pub fn write_user_config(config: &RagMonkConfig, home: &Home) -> std::io::Result
     Ok(path)
 }
 
-/// `config get`: the dumped value at a dotted key.
-pub fn get_path(config: &RagMonkConfig, dotted: &str) -> Result<PyValue, RagMonkError> {
+/// `config get`: the value at a dotted key.
+pub fn get_path(config: &RagMonkConfig, dotted: &str) -> Result<Value, RagMonkError> {
     let unknown = || RagMonkError::usage(format!("unknown config key: {dotted}"));
-    let mut cursor = config.to_pyvalue();
+    let mut cursor = config.to_value();
     for segment in dotted.split('.') {
         cursor = cursor.get(segment).cloned().ok_or_else(unknown)?;
     }
     Ok(cursor)
 }
 
-/// `config set` coercion + validation. Returns the validated config and
-/// the stored value. Errors keep the reference's exit codes: unknown key
-/// = 2, unparsable number or failed validation = 1.
+/// `config set`: parses `raw` into the key's type and validates the
+/// result. Returns the validated config and the stored value. An unknown
+/// key is a usage error (exit code 2); an unparsable or invalid value is a
+/// generic failure (exit code 1).
 pub fn set_path(
     config: &RagMonkConfig,
     dotted: &str,
     raw: &str,
-) -> Result<(RagMonkConfig, PyValue), RagMonkError> {
+) -> Result<(RagMonkConfig, Value), RagMonkError> {
     let unknown = || RagMonkError::usage(format!("unknown config key: {dotted}"));
-    let mut data = config.to_pyvalue();
-    let segments: Vec<&str> = dotted.split('.').collect();
-    let (last, parents) = segments.split_last().ok_or_else(unknown)?;
+    let mut data = config.to_value();
     let mut cursor = &mut data;
-    for segment in parents {
-        let PyValue::Dict(entries) = cursor else {
-            return Err(unknown());
-        };
-        cursor = entries
-            .iter_mut()
-            .find(|(k, v)| {
-                matches!(k, PyValue::Str(s) if s == segment) && matches!(v, PyValue::Dict(_))
-            })
-            .map(|(_, v)| v)
-            .ok_or_else(unknown)?;
+    for segment in dotted.split('.') {
+        cursor = cursor.get_mut(segment).ok_or_else(unknown)?;
     }
-    let PyValue::Dict(entries) = cursor else {
+    if matches!(cursor, Value::Map(_)) {
         return Err(unknown());
-    };
-    let slot = entries
-        .iter_mut()
-        .find(|(k, _)| matches!(k, PyValue::Str(s) if s == last))
-        .map(|(_, v)| v)
-        .ok_or_else(unknown)?;
-    let generic = |m: String| RagMonkError::new(ragmonk_core::ErrorKind::Generic, m);
-    let new_value = match slot {
-        PyValue::Bool(_) => PyValue::Bool(matches!(
-            raw.trim().to_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )),
-        PyValue::Int(_) => PyValue::Int(parse_python_int(raw).ok_or_else(|| {
-            generic(format!(
-                "invalid literal for int() with base 10: {}",
-                crate::pyvalue::py_repr_str(raw)
-            ))
-        })?),
-        PyValue::Float(_) => PyValue::Float(parse_python_float(raw).ok_or_else(|| {
-            generic(format!(
-                "could not convert string to float: {}",
-                crate::pyvalue::py_repr_str(raw)
-            ))
-        })?),
-        PyValue::List(_) => PyValue::List(
-            raw.split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(PyValue::str)
-                .collect(),
-        ),
-        _ => PyValue::str(raw),
-    };
-    *slot = new_value.clone();
+    }
+    *cursor = Value::str(raw);
     let updated = RagMonkConfig::validate(&data).map_err(|errors| {
-        generic(format!(
-            "invalid configuration: {}",
-            scrub_url_userinfo(&errors.render())
-        ))
+        RagMonkError::new(
+            ragmonk_core::ErrorKind::Generic,
+            format!(
+                "invalid configuration: {}",
+                scrub_url_userinfo(&errors.render())
+            ),
+        )
     })?;
-    Ok((updated, new_value))
-}
-
-/// Python `str(value)` as `rich` prints a scalar `config get` result.
-pub fn python_str(value: &PyValue) -> Option<String> {
-    Some(match value {
-        PyValue::None => "None".into(),
-        PyValue::Bool(b) => if *b { "True" } else { "False" }.into(),
-        PyValue::Int(i) => i.to_string(),
-        PyValue::Float(f) if f.is_nan() => "nan".into(),
-        PyValue::Float(f) if f.is_infinite() => if *f > 0.0 { "inf" } else { "-inf" }.into(),
-        PyValue::Float(f) => ragmonk_telemetry::logging::python_float_repr(*f),
-        PyValue::Str(s) => s.clone(),
-        _ => return None,
-    })
+    let stored = get_path(&updated, dotted)?;
+    Ok((updated, stored))
 }
 
 #[cfg(test)]
@@ -295,27 +202,81 @@ mod tests {
     use super::*;
 
     #[test]
-    fn env_scalar_coercion() {
-        assert_eq!(coerce_env_scalar(" TrUe "), PyValue::Bool(true));
-        assert_eq!(coerce_env_scalar("1_0"), PyValue::Int(10));
-        assert_eq!(coerce_env_scalar("1e3"), PyValue::Float(1000.0));
-        assert_eq!(coerce_env_scalar("0x4"), PyValue::str("0x4"));
-        assert_eq!(coerce_env_scalar(""), PyValue::str(""));
+    fn env_layer_is_typed_by_validation() {
+        let env = vec![
+            ("RAGMONK_SEARCH__SEMANTIC".to_owned(), " TrUe ".to_owned()),
+            (
+                "RAGMONK_RUNTIME__SQLITE_CACHE_SIZE_MB".to_owned(),
+                "16".to_owned(),
+            ),
+            ("RAGMONK_NOT_A_SECTION__X".to_owned(), "1".to_owned()),
+            ("RAGMONK_HOME".to_owned(), "/x".to_owned()),
+        ];
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = load_config(&LoadOptions {
+            home: Some(tmp.path().to_path_buf()),
+            cwd: Some(tmp.path().to_path_buf()),
+            environ: Some(env),
+            cli_overrides: None,
+        })
+        .unwrap();
+        assert!(cfg.search.semantic);
+        assert_eq!(cfg.runtime.sqlite_cache_size_mb, 16);
+    }
+
+    #[test]
+    fn layers_and_unknown_keys() {
+        let tmp = tempfile::tempdir().unwrap();
+        let opts = |env: Vec<(String, String)>| LoadOptions {
+            home: Some(tmp.path().join("home")),
+            cwd: Some(tmp.path().to_path_buf()),
+            environ: Some(env),
+            cli_overrides: None,
+        };
+        std::fs::create_dir_all(tmp.path().join("home")).unwrap();
+        std::fs::write(
+            tmp.path().join("home/config.yaml"),
+            "runtime:\n  log_level: debug\nsearch:\n  lexical: false\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path().join(".ragmonk.yaml"),
+            "runtime:\n  log_level: warning\n",
+        )
+        .unwrap();
+        let cfg = load_config(&opts(vec![])).unwrap();
+        assert_eq!(cfg.runtime.log_level, "warning");
+        assert!(!cfg.search.lexical);
+        std::fs::write(
+            tmp.path().join(".ragmonk.yaml"),
+            "runtime:\n  max_workers: 2\n",
+        )
+        .unwrap();
+        let err = load_config(&opts(vec![])).unwrap_err();
+        assert_eq!(err.exit_code(), 3);
+        assert!(
+            err.to_string()
+                .contains("runtime.max_workers: unknown setting"),
+            "{err}"
+        );
     }
 
     #[test]
     fn set_and_get() {
         let cfg = RagMonkConfig::default();
-        let (cfg, v) = set_path(&cfg, "runtime.max_workers", "3").unwrap();
-        assert_eq!(v, PyValue::Int(3));
-        assert_eq!(cfg.runtime.max_workers, 3);
+        let (cfg, v) = set_path(&cfg, "runtime.sqlite_cache_size_mb", "32").unwrap();
+        assert_eq!(v, Value::Int(32));
+        assert_eq!(cfg.runtime.sqlite_cache_size_mb, 32);
         let (cfg, _) = set_path(&cfg, "search.output.fallback", "json, files,").unwrap();
         assert_eq!(cfg.search.output.fallback, vec!["json", "files"]);
+        let (cfg, v) = set_path(&cfg, "indexing.watch", "off").unwrap();
+        assert_eq!(v, Value::Bool(false));
         let (cfg, _) = set_path(&cfg, "ai.base_url", "http://x").unwrap();
         assert_eq!(cfg.ai.base_url.as_deref(), Some("http://x"));
         assert_eq!(set_path(&cfg, "no.such", "1").unwrap_err().exit_code(), 2);
+        assert_eq!(set_path(&cfg, "search", "1").unwrap_err().exit_code(), 2);
         assert_eq!(
-            set_path(&cfg, "runtime.max_workers", "x")
+            set_path(&cfg, "runtime.sqlite_cache_size_mb", "x")
                 .unwrap_err()
                 .exit_code(),
             1
@@ -327,13 +288,20 @@ mod tests {
             1
         );
         assert_eq!(
-            get_path(&cfg, "runtime.max_workers").unwrap(),
-            PyValue::Int(3)
+            get_path(&cfg, "runtime.sqlite_cache_size_mb")
+                .unwrap()
+                .to_string(),
+            "32"
         );
         assert_eq!(get_path(&cfg, "runtime.nope").unwrap_err().exit_code(), 2);
-        assert_eq!(
-            python_str(&get_path(&cfg, "indexing.watch").unwrap()).unwrap(),
-            "True"
-        );
+    }
+
+    #[test]
+    fn dump_is_loadable() {
+        let cfg = RagMonkConfig::default();
+        let text = dump_yaml(&cfg);
+        assert!(text.starts_with("runtime:\n"), "{text}");
+        let back = crate::yaml::parse(&text).unwrap();
+        assert_eq!(RagMonkConfig::validate(&back).unwrap(), cfg);
     }
 }

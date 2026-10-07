@@ -105,8 +105,8 @@ fn validated_server_config(
     }
     if !matches!(a.storage_engine.as_str(), "opensearch" | "elasticsearch") {
         return Err(RagMonkError::usage(format!(
-            "unknown --storage-engine {}; expected 'opensearch' or 'elasticsearch'",
-            ragmonk_config::pyvalue::py_repr_str(&a.storage_engine)
+            "unknown --storage-engine {:?}; expected 'opensearch' or 'elasticsearch'",
+            a.storage_engine
         )));
     }
     let mut cfg = ragmonk_config::RagMonkConfig::default();
@@ -156,8 +156,7 @@ pub fn init(a: &InitArgs) -> Result<(), RagMonkError> {
             }
             other => {
                 return Err(RagMonkError::usage(format!(
-                    "unknown --storage-mode {}; expected 'local' or 'server'",
-                    ragmonk_config::pyvalue::py_repr_str(other)
+                    "unknown --storage-mode {other:?}; expected 'local' or 'server'"
                 )))
             }
         }

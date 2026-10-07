@@ -142,7 +142,7 @@ pub fn create_provider_with_env(
         _ => Err(not_configured(format!(
             "unknown ai.provider={}; expected one of openai, anthropic, ollama, \
              openai_compatible, codex, github_copilot",
-            crate::pyfmt::repr(&serde_json::Value::String(ai.provider.clone()))
+            crate::text::quoted(&serde_json::Value::String(ai.provider.clone()))
         ))),
     }
 }

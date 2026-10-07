@@ -192,10 +192,11 @@ fn urlencode(s: &str) -> String {
 
 #[test]
 fn admin_ui_matches_reference() {
-    let golden: Vec<Value> = serde_json::from_str(
-        &std::fs::read_to_string(repo().join("rust/compat/golden/ui.json")).unwrap(),
-    )
-    .unwrap();
+    let golden_path = repo().join("rust/compat/golden/ui.json");
+    let mut golden: Vec<Value> =
+        serde_json::from_str(&std::fs::read_to_string(&golden_path).unwrap()).unwrap();
+    // `RAGMONK_BLESS=1` rewrites the expected pages from this build's output.
+    let bless = std::env::var_os("RAGMONK_BLESS").is_some();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let corpus = dir.path().join("source");
@@ -316,7 +317,7 @@ fn admin_ui_matches_reference() {
     };
 
     let mut failures = Vec::new();
-    for rec in &golden {
+    for rec in golden.iter_mut() {
         let method = rec["method"].as_str().unwrap();
         if method == "WRITE_LOG" {
             let log = home.join("logs").join("ragmonk.log");
@@ -363,7 +364,7 @@ fn admin_ui_matches_reference() {
             .unwrap_or_default()
             .trim()
             .to_owned();
-        if u64::from(r.status) != rec["status"].as_u64().unwrap() {
+        if !bless && u64::from(r.status) != rec["status"].as_u64().unwrap() {
             failures.push(format!(
                 "{label}: status {} != {}\n{}",
                 r.status, rec["status"], r.body
@@ -382,6 +383,20 @@ fn admin_ui_matches_reference() {
                 "{label}: hx-redirect {hx:?} != {}",
                 rec["hx_redirect"]
             ));
+        }
+        if bless {
+            rec["status"] = r.status.into();
+            rec["content_type"] = ctype.clone().into();
+            rec["hx_redirect"] = hx.clone().map_or(Value::Null, Value::from);
+            rec["body"] = if rec["body"].is_string() {
+                schema
+                    .replace_all(&normalize(&r.body), "schema v<N>")
+                    .into_owned()
+                    .into()
+            } else {
+                serde_json::from_str(&normalize(&r.body)).unwrap_or(Value::Null)
+            };
+            continue;
         }
         let ok = match &rec["body"] {
             Value::String(expected) => {
@@ -413,6 +428,18 @@ fn admin_ui_matches_reference() {
         if !ok {
             failures.push(format!("{label}: json body {} != {}", r.body, rec["body"]));
         }
+    }
+    if bless {
+        let mut out = Vec::new();
+        let fmt = serde_json::ser::PrettyFormatter::with_indent(b" ");
+        serde::Serialize::serialize(
+            &golden,
+            &mut serde_json::Serializer::with_formatter(&mut out, fmt),
+        )
+        .unwrap();
+        out.push(b'\n');
+        std::fs::write(&golden_path, out).unwrap();
+        return;
     }
     assert!(
         failures.is_empty(),

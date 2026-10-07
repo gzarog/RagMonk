@@ -15,9 +15,9 @@ pub mod errors;
 pub mod factory;
 pub mod http;
 pub mod prompt;
-pub mod pyfmt;
 pub mod registry;
 pub mod runtime;
+pub mod text;
 pub mod transport;
 
 pub use factory::create_provider;

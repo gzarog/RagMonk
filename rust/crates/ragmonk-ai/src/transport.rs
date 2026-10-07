@@ -16,7 +16,7 @@ use ragmonk_core::errors::RagMonkError;
 use serde_json::{json, Map, Value};
 
 use crate::errors::{invalid_response, json_rpc, provider_error, timeout};
-use crate::pyfmt::str_of;
+use crate::text::plain;
 
 const MAX_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
 
@@ -40,7 +40,7 @@ impl RpcError {
     pub fn into_error(self) -> RagMonkError {
         match self {
             RpcError::Remote { code, message } => {
-                json_rpc(format!("runtime error {}: {message}", str_of(&code)))
+                json_rpc(format!("runtime error {}: {message}", plain(&code)))
             }
             RpcError::Other(e) => e,
         }
@@ -190,14 +190,14 @@ impl JsonRpcClient {
                         code: err.get("code").cloned().unwrap_or(Value::Null),
                         message: err
                             .get("message")
-                            .map(str_of)
+                            .map(plain)
                             .unwrap_or_else(|| "unknown error".into()),
                     })
                 }
                 Some(other) => {
                     return Err(RpcError::Remote {
                         code: Value::Null,
-                        message: str_of(other),
+                        message: plain(other),
                     })
                 }
             }

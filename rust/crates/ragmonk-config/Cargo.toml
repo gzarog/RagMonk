@@ -8,13 +8,13 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+serde_json.workspace = true
 ragmonk-core.workspace = true
 ragmonk-telemetry.workspace = true
 regex.workspace = true
 yaml-rust2.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
 tempfile.workspace = true
 
 [lints]

@@ -706,11 +706,11 @@ pub fn read_logs(
             };
             let comp = record
                 .get("component")
-                .map_or_else(|| "-".to_owned(), crate::ui::py_str_json);
+                .map_or_else(|| "-".to_owned(), crate::ui::plain_json);
             components.insert(comp);
             let lvl = record
                 .get("level")
-                .map_or_else(|| "INFO".to_owned(), crate::ui::py_str_json)
+                .map_or_else(|| "INFO".to_owned(), crate::ui::plain_json)
                 .to_uppercase();
             if errors_only && !matches!(lvl.as_str(), "ERROR" | "CRITICAL") {
                 continue;
@@ -721,7 +721,7 @@ pub fn read_logs(
             if component.is_some_and(|c| {
                 record
                     .get("component")
-                    .map_or_else(|| "None".to_owned(), crate::ui::py_str_json)
+                    .map_or_else(|| "None".to_owned(), crate::ui::plain_json)
                     != c
             }) {
                 continue;

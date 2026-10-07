@@ -62,10 +62,6 @@ ai:
   provider: codex        # or github_copilot, or an existing provider
   model: ""              # empty = let the runtime choose and report it
   timeout_seconds: 120
-  codex:
-    auth_mode: chatgpt
-  github_copilot:
-    auth_mode: signed_in_user
 privacy:
   external_ai_allowed: true
 ```

@@ -244,10 +244,11 @@ fn same(a: &Value, b: &Value, path: &str) -> Result<(), String> {
 
 #[test]
 fn mcp_session_matches_reference() {
-    let golden: Vec<Value> = serde_json::from_str(
-        &std::fs::read_to_string(repo().join("rust/compat/golden/mcp.json")).unwrap(),
-    )
-    .unwrap();
+    let golden_path = repo().join("rust/compat/golden/mcp.json");
+    let mut golden: Vec<Value> =
+        serde_json::from_str(&std::fs::read_to_string(&golden_path).unwrap()).unwrap();
+    // `RAGMONK_BLESS=1` rewrites the expected responses from this build.
+    let bless = std::env::var_os("RAGMONK_BLESS").is_some();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let corpus = dir.path().join("source");
@@ -295,9 +296,9 @@ fn mcp_session_matches_reference() {
     let mut stdin = child.stdin.take().unwrap();
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
     let mut failures = Vec::new();
-    for record in &golden {
-        let request = &record["request"];
-        writeln!(stdin, "{}", serde_json::to_string(request).unwrap()).unwrap();
+    for record in golden.iter_mut() {
+        let request = record["request"].clone();
+        writeln!(stdin, "{}", serde_json::to_string(&request).unwrap()).unwrap();
         stdin.flush().unwrap();
         if record["response"].is_null() {
             continue;
@@ -322,6 +323,7 @@ fn mcp_session_matches_reference() {
                         .unwrap()
                         .starts_with("ragmonk v"));
                     result["serverInfo"]["name"] = "ragmonk v<VERSION>".into();
+                    result["serverInfo"]["version"] = "<VERSION>".into();
                 }
                 if let Some(structured) = result.get("structuredContent") {
                     let text = result["content"][0]["text"].as_str().unwrap();
@@ -335,6 +337,10 @@ fn mcp_session_matches_reference() {
             "{method} {}",
             serde_json::to_string(&request["params"]).unwrap()
         );
+        if bless {
+            record["response"] = actual;
+            continue;
+        }
         if let Err(e) = same(&actual, &record["response"], "") {
             failures.push(format!(
                 "{label}\n  {e}\n  actual:   {}\n  expected: {}",
@@ -346,6 +352,18 @@ fn mcp_session_matches_reference() {
     drop(stdin);
     let status = child.wait().unwrap();
     assert!(status.success());
+    if bless {
+        let mut out = Vec::new();
+        let fmt = serde_json::ser::PrettyFormatter::with_indent(b" ");
+        serde::Serialize::serialize(
+            &golden,
+            &mut serde_json::Serializer::with_formatter(&mut out, fmt),
+        )
+        .unwrap();
+        out.push(b'\n');
+        std::fs::write(&golden_path, out).unwrap();
+        return;
+    }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 

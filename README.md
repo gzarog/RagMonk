@@ -263,7 +263,7 @@ Jobs: queued=720 processing=1 retry=23 failed=7
 
 ## ⚙️ Configuration
 
-Settings live in `~/.ragmonk/config.yaml` (Windows: `%LOCALAPPDATA%\RagMonk`). Change them with `ragmonk config set KEY VALUE`, or override any of them with an environment variable, e.g. `RAGMONK_DOCUMENTS__OCR=off`. Set `RAGMONK_HOME` to move the whole runtime folder.
+Settings live in `~/.ragmonk/config.yaml` (Windows: `%LOCALAPPDATA%\RagMonk`); unknown keys are rejected. Change them with `ragmonk config set KEY VALUE`, or override any of them with an environment variable, e.g. `RAGMONK_DOCUMENTS__OCR=off`. Set `RAGMONK_HOME` to move the whole runtime folder.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -271,8 +271,6 @@ Settings live in `~/.ragmonk/config.yaml` (Windows: `%LOCALAPPDATA%\RagMonk`). C
 | `documents.image_ocr` | `false` | OCR plain images (PNG/JPG/TIFF) |
 | `documents.max_pages` | `1000` | Skip larger PDFs |
 | `documents.pdf_mode` | `accurate` | `fast` = text layer only, much faster, no layout/tables |
-| `documents.pdf_table_structure` | `true` | `false` = skip table detection (faster) |
-| `documents.pdf_process_workers` | `1` | Convert PDFs in N parallel processes (more RAM) |
 | `documents.email_attachments` | `true` | Index supported `.eml` attachments as child documents |
 | `search.semantic` | `false` | Local embedding-based semantic search |
 | `indexing.watch` | `true` | Daemon watches folders for changes |
@@ -288,11 +286,9 @@ Settings live in `~/.ragmonk/config.yaml` (Windows: `%LOCALAPPDATA%\RagMonk`). C
 | Situation | Try |
 |---|---|
 | Many digital (non-scanned) PDFs, speed matters more than layout | `ragmonk config set documents.pdf_mode fast`: 81s → 1.6s on a 24-PDF test set |
-| PDFs without tables | `ragmonk config set documents.pdf_table_structure false` |
-| Many-core machine, lots of PDFs | `ragmonk config set documents.pdf_process_workers 4` |
 | Big first index | Let it finish once. After that only changed files are reprocessed |
 
-Changing `pdf_mode` or `pdf_table_structure` reprocesses PDFs on the next `ragmonk index`.
+Changing `pdf_mode` reprocesses PDFs on the next `ragmonk index`.
 
 </details>
 

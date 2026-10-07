@@ -4,7 +4,7 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::pyfmt::str_of;
+use crate::text::plain;
 
 pub const SYSTEM_PROMPT: &str = "You are RagMonk's evidence-grounded assistant. Answer the user's \
 question using ONLY the evidence and call-graph paths provided below -- they were retrieved \
@@ -61,7 +61,7 @@ fn location_entries(loc: &Map<String, Value>) -> Vec<(&String, &Value)> {
 }
 
 fn field(item: &Value, key: &str) -> String {
-    str_of(item.get(key).unwrap_or(&Value::Null))
+    plain(item.get(key).unwrap_or(&Value::Null))
 }
 
 /// The provider-agnostic evidence prompt (`build_prompt`).
@@ -83,10 +83,10 @@ pub fn build_prompt(request: &AiRequest) -> String {
             let where_ = location_entries(location)
                 .into_iter()
                 .filter(|(_, v)| !v.is_null())
-                .map(|(k, v)| format!("{k}={}", str_of(v)))
+                .map(|(k, v)| format!("{k}={}", plain(v)))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let snippet = item.get("snippet").map(str_of).unwrap_or_default();
+            let snippet = item.get("snippet").map(plain).unwrap_or_default();
             lines.push(format!(
                 "- [{}] {} ({}{}): {}",
                 field(item, "confidence"),

@@ -56,9 +56,9 @@ pub(crate) fn db_error(e: &impl std::fmt::Display) -> RagMonkError {
     RagMonkError::new(ErrorKind::Database, e.to_string())
 }
 
-/// Python `str()` of a JSON value.
-pub(crate) fn py_str_json(v: &Value) -> String {
-    ragmonk_ai::pyfmt::str_of(v)
+/// A JSON value as display text.
+pub(crate) fn plain_json(v: &Value) -> String {
+    ragmonk_ai::text::plain(v)
 }
 
 #[derive(Clone)]
@@ -494,7 +494,7 @@ async fn indexing_events(State(st): State<AppState>) -> Response {
                     chunk.push_str(&format!(
                         "event: {}\ndata: {}\n\n",
                         e["kind"].as_str().unwrap_or_default(),
-                        python_json(&e)
+                        e
                     ));
                 }
             }
@@ -510,45 +510,6 @@ async fn indexing_events(State(st): State<AppState>) -> Response {
         .header("x-accel-buffering", "no")
         .body(Body::from_stream(stream))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
-}
-
-/// `json.dumps` spacing (`", "` and `": "`), ASCII-escaped.
-fn python_json(v: &Value) -> String {
-    match v {
-        Value::Object(o) => format!(
-            "{{{}}}",
-            o.iter()
-                .map(|(k, v)| format!("{}: {}", python_json(&json!(k)), python_json(v)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Value::Array(a) => format!(
-            "[{}]",
-            a.iter().map(python_json).collect::<Vec<_>>().join(", ")
-        ),
-        Value::String(s) => {
-            let mut out = String::from("\"");
-            for c in s.chars() {
-                match c {
-                    '"' => out.push_str("\\\""),
-                    '\\' => out.push_str("\\\\"),
-                    '\n' => out.push_str("\\n"),
-                    '\r' => out.push_str("\\r"),
-                    '\t' => out.push_str("\\t"),
-                    c if (c as u32) < 0x20 || (c as u32) > 0x7e => {
-                        let mut buf = [0u16; 2];
-                        for u in c.encode_utf16(&mut buf) {
-                            out.push_str(&format!("\\u{u:04x}"));
-                        }
-                    }
-                    c => out.push(c),
-                }
-            }
-            out.push('"');
-            out
-        }
-        other => other.to_string(),
-    }
 }
 
 async fn documents_page(

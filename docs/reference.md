@@ -61,10 +61,8 @@ ragmonk link remove <ID>
 | Setting | Default | Effect |
 |---|---|---|
 | `documents.pdf_mode` | `accurate` | `fast` reads only the PDF text layer (no layout or table models, no model loading). On a 24-PDF test corpus: 81s to 1.6s. Loses heading/table structure and multi-column reading order; low-text PDFs still follow `documents.ocr`. |
-| `documents.pdf_table_structure` | `true` | Accepted for compatibility with older configs; the native PDF converter has no separate table-structure model, so it has no effect. |
-| `documents.pdf_process_workers` | `1` | Accepted for compatibility with older configs (1–32); the native PDF converter does not use separate worker processes, so it has no effect. |
 
-Changing `pdf_mode` or `pdf_table_structure` reprocesses PDFs on the next index (they get their own conversion-cache entries); `pdf_process_workers` does not.
+Changing `pdf_mode` reprocesses PDFs on the next index (each mode has its own conversion-cache entries).
 
 Cross-domain linking (code identifiers mentioned in documents) uses a word index plus a pattern cache instead of testing every identifier against every document section: a 2,100-file cold index spent 222s linking before and 0.7s after, with identical links.
 

@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 
 use crate::errors::provider_error;
 use crate::prompt::{build_messages, AiAnswer, AiRequest, AiUsage};
-use crate::pyfmt::{json_error, repr_json_text};
+use crate::text::json_body;
 use crate::AiProvider;
 use ragmonk_core::errors::RagMonkError;
 
@@ -45,7 +45,7 @@ fn sdk_transport_error(e: &reqwest::Error) -> &'static str {
 
 /// The SDK-style message for a non-2xx response.
 fn sdk_status_error(status: u16, body: &str) -> String {
-    match repr_json_text(body) {
+    match json_body(body) {
         Some(r) => format!("Error code: {status} - {r}"),
         None if !body.is_empty() => body.to_owned(),
         None => format!("Error code: {status}"),
@@ -78,12 +78,8 @@ fn sdk_call(
             sdk_status_error(status, &body)
         )));
     }
-    serde_json::from_str(&body).map_err(|e| {
-        provider_error(format!(
-            "ai provider call failed: {}",
-            json_error(&body, &e)
-        ))
-    })
+    serde_json::from_str(&body)
+        .map_err(|e| provider_error(format!("ai provider call failed: {}", e)))
 }
 
 fn int(v: Option<&Value>) -> Option<i64> {
@@ -299,12 +295,8 @@ impl AiProvider for OllamaProvider {
                 "ollama returned HTTP {status}: {head}"
             )));
         }
-        let data: Value = serde_json::from_str(&text).map_err(|e| {
-            provider_error(format!(
-                "ollama returned a non-JSON response: {}",
-                json_error(&text, &e)
-            ))
-        })?;
+        let data: Value = serde_json::from_str(&text)
+            .map_err(|e| provider_error(format!("ollama returned a non-JSON response: {}", e)))?;
         Ok(AiAnswer {
             text: data["message"]["content"]
                 .as_str()

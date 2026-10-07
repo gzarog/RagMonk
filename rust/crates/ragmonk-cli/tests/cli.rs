@@ -15,8 +15,6 @@ fn version_json_envelope() {
 
 #[test]
 fn unknown_command_exits_with_invalid_arguments_code() {
-    // Python's Typer CLI returns 2 (EXIT_INVALID_ARGUMENTS); see the
-    // committed baseline step cli-basics/unknown-command.
     let out = ragmonk().arg("definitely-not-a-command").output().unwrap();
     assert_eq!(out.status.code(), Some(2));
 }
@@ -43,7 +41,7 @@ fn config_show_get_set_round_trip() {
         .unwrap();
     assert!(out.status.success());
     let text = String::from_utf8(out.stdout).unwrap();
-    assert!(text.starts_with("version: 1\nruntime:\n  log_level: info\n"));
+    assert!(text.starts_with("runtime:\n  log_level: info\n"), "{text}");
     assert!(
         home.join("logs").is_dir(),
         "config show ensures the runtime layout"
@@ -51,7 +49,7 @@ fn config_show_get_set_round_trip() {
 
     let out = with_home(&home)
         .current_dir(tmp.path())
-        .args(["config", "set", "runtime.max_workers", "3"])
+        .args(["config", "set", "runtime.sqlite_cache_size_mb", "32"])
         .output()
         .unwrap();
     assert!(
@@ -61,16 +59,19 @@ fn config_show_get_set_round_trip() {
     );
     let out = with_home(&home)
         .current_dir(tmp.path())
-        .args(["config", "get", "runtime.max_workers"])
+        .args(["config", "get", "runtime.sqlite_cache_size_mb"])
         .output()
         .unwrap();
-    assert_eq!(String::from_utf8(out.stdout).unwrap(), "3\n");
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), "32\n");
     let written = std::fs::read_to_string(home.join("config.yaml")).unwrap();
-    assert!(written.contains("  max_workers: 3\n"));
+    assert!(
+        written.contains("  sqlite_cache_size_mb: 32\n"),
+        "{written}"
+    );
 }
 
 #[test]
-fn config_errors_use_python_exit_codes() {
+fn config_errors_exit_codes_and_redaction() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("home");
     let out = with_home(&home)
@@ -97,7 +98,12 @@ fn config_errors_use_python_exit_codes() {
         .unwrap();
     assert_eq!(out.status.code(), Some(3));
     let stderr = String::from_utf8(out.stderr).unwrap();
-    assert!(stderr.starts_with("Error: invalid configuration: storage.server.url: Value error"));
+    assert!(
+        stderr.starts_with(
+            "Error: invalid configuration: storage.server.url: must not contain credentials"
+        ),
+        "{stderr}"
+    );
     assert!(!stderr.contains("hunter2"), "credential leaked: {stderr}");
 }
 

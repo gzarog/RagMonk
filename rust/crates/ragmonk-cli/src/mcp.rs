@@ -1,18 +1,15 @@
 //! `ragmonk serve --mcp` (RUST-13): the stdio MCP server.
 //!
-//! A hand-rolled JSON-RPC 2.0 loop over newline-delimited stdin/stdout
-//! that answers like the reference FastMCP server: the same `initialize`
-//! capabilities, the same eight read-only `ragmonk_*` tools (catalog in
-//! `mcp_tools.json`, captured from the reference), the same argument
-//! validation messages and the same `{schema_version, ok, error, ...}`
-//! tool results. `ragmonk_ask` (RUST-14) answers through the configured
-//! AI provider, like `ragmonk ask`.
+//! A JSON-RPC 2.0 loop over newline-delimited stdin/stdout exposing the
+//! read-only `ragmonk_*` tools (catalog in `mcp_tools.json`) with
+//! `{schema_version, ok, error, ...}` results. `ragmonk_ask` answers
+//! through the configured AI provider, like `ragmonk ask`.
 //!
 //! Each tool call loads the config and opens the indexed sources afresh,
 //! like a CLI invocation, on a worker thread bounded by
 //! `mcp.request_timeout_seconds`. Errors never cross the boundary as
-//! protocol failures: they become `ok: false` results typed by the
-//! reference's exception class name, `timeout` or `internal_error`.
+//! protocol failures: they become `ok: false` results typed by the error
+//! kind, `timeout` or `internal_error`.
 
 use std::io::{BufRead, Write};
 use std::sync::mpsc;
@@ -32,10 +29,7 @@ use crate::{load, prepared_home, status_cmd, workflow};
 const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
     &["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
 const LATEST_PROTOCOL_VERSION: &str = "2025-11-25";
-/// The reference reports its MCP SDK version as `serverInfo.version`.
-const SERVER_VERSION: &str = "1.30.0";
 const SCHEMA_VERSION: &str = "1";
-const PYDANTIC_DOCS: &str = "https://errors.pydantic.dev/2.13/v";
 
 pub const INSTRUCTIONS: &str =
     "RagMonk exposes code and document knowledge already indexed locally \
@@ -151,7 +145,7 @@ fn initialize(params: &Value) -> Value {
         },
         "serverInfo": {
             "name": format!("ragmonk v{}", ragmonk_core::version::version()),
-            "version": SERVER_VERSION,
+            "version": ragmonk_core::version::version(),
         },
         "instructions": INSTRUCTIONS,
     })
@@ -192,86 +186,33 @@ fn call_tool(params: &Value) -> Value {
 
 // ---------------------------------------------------------- validation ---
 
-/// Python `repr` of a JSON value, as pydantic prints `input_value`.
-fn py_repr(v: &Value) -> String {
-    match v {
-        Value::Null => "None".into(),
-        Value::Bool(b) => if *b { "True" } else { "False" }.into(),
-        Value::Number(n) => match (n.as_i64(), n.as_f64()) {
-            (Some(i), _) => i.to_string(),
-            (None, Some(f)) if f.fract() == 0.0 && f.abs() < 1e16 => format!("{f:.1}"),
-            _ => n.to_string(),
-        },
-        Value::String(s) => {
-            if s.contains('\'') && !s.contains('"') {
-                format!("\"{s}\"")
-            } else {
-                format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))
-            }
-        }
-        Value::Array(a) => format!("[{}]", a.iter().map(py_repr).collect::<Vec<_>>().join(", ")),
-        Value::Object(o) => format!(
-            "{{{}}}",
-            o.iter()
-                .map(|(k, v)| format!("{}: {}", py_repr(&Value::String(k.clone())), py_repr(v)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    }
-}
-
-fn py_type(v: &Value) -> &'static str {
-    match v {
-        Value::Null => "NoneType",
-        Value::Bool(_) => "bool",
-        Value::Number(n) if n.is_f64() => "float",
-        Value::Number(_) => "int",
-        Value::String(_) => "str",
-        Value::Array(_) => "list",
-        Value::Object(_) => "dict",
-    }
-}
-
 struct Issue {
     field: String,
     message: &'static str,
-    kind: &'static str,
-    input: Value,
 }
 
-/// pydantic lax-mode coercion to `int`.
-fn as_int(v: &Value) -> Result<Value, (&'static str, &'static str)> {
+/// Integer arguments also accept integral floats and numeric strings.
+fn as_int(v: &Value) -> Result<Value, &'static str> {
     match v {
         Value::Number(n) if n.is_i64() || n.is_u64() => Ok(v.clone()),
         Value::Number(n) => match n.as_f64() {
             Some(f) if f.fract() == 0.0 => Ok(json!(f as i64)),
-            _ => Err((
-                "Input should be a valid integer, got a number with a fractional part",
-                "int_from_float",
-            )),
+            _ => Err("expected an integer"),
         },
-        Value::Bool(b) => Ok(json!(i64::from(*b))),
-        Value::String(s) => s.trim().parse::<i64>().map(|i| json!(i)).map_err(|_| {
-            (
-                "Input should be a valid integer, unable to parse string as an integer",
-                "int_parsing",
-            )
-        }),
-        _ => Err(("Input should be a valid integer", "int_type")),
+        Value::String(s) => s
+            .trim()
+            .parse::<i64>()
+            .map(|i| json!(i))
+            .map_err(|_| "expected an integer"),
+        _ => Err("expected an integer"),
     }
 }
 
-/// Checks `args` against a tool's input schema the way the reference's
-/// pydantic argument model does, returning the coerced arguments.
+/// Checks `args` against a tool's input schema, returning the coerced
+/// arguments or a message listing every invalid field.
 fn validate(tool: &str, schema: &Value, args: &Value) -> Result<Map<String, Value>, String> {
     let Value::Object(given) = args else {
-        return Err(format!(
-            "1 validation error for {tool}Arguments\n  Input should be a valid dictionary or \
-             instance of {tool}Arguments [type=model_type, input_value={}, input_type={}]\n    \
-             For further information visit {PYDANTIC_DOCS}/model_type",
-            py_repr(args),
-            py_type(args)
-        ));
+        return Err(format!("invalid arguments for {tool}: expected an object"));
     };
     let required: Vec<&str> = schema["required"]
         .as_array()
@@ -286,9 +227,7 @@ fn validate(tool: &str, schema: &Value, args: &Value) -> Result<Map<String, Valu
             if required.contains(&field.as_str()) {
                 issues.push(Issue {
                     field: field.clone(),
-                    message: "Field required",
-                    kind: "missing",
-                    input: args.clone(),
+                    message: "required",
                 });
             }
             continue;
@@ -311,7 +250,7 @@ fn validate(tool: &str, schema: &Value, args: &Value) -> Result<Map<String, Valu
         let checked = match ty {
             Some("string") => match value {
                 Value::String(_) => Ok(value.clone()),
-                _ => Err(("Input should be a valid string", "string_type")),
+                _ => Err("expected a string"),
             },
             Some("integer") => as_int(value),
             _ => Ok(value.clone()),
@@ -320,34 +259,23 @@ fn validate(tool: &str, schema: &Value, args: &Value) -> Result<Map<String, Valu
             Ok(v) => {
                 out.insert(field.clone(), v);
             }
-            Err((message, kind)) => issues.push(Issue {
+            Err(message) => issues.push(Issue {
                 field: field.clone(),
                 message,
-                kind,
-                input: value.clone(),
             }),
         }
     }
     if issues.is_empty() {
         return Ok(out);
     }
-    let mut text = format!(
-        "{} validation error{} for {tool}Arguments",
-        issues.len(),
-        if issues.len() == 1 { "" } else { "s" }
-    );
-    for i in &issues {
-        text.push_str(&format!(
-            "\n{}\n  {} [type={}, input_value={}, input_type={}]\n    For further information visit {PYDANTIC_DOCS}/{}",
-            i.field,
-            i.message,
-            i.kind,
-            py_repr(&i.input),
-            py_type(&i.input),
-            i.kind
-        ));
-    }
-    Err(text)
+    let detail: Vec<String> = issues
+        .iter()
+        .map(|i| format!("{}: {}", i.field, i.message))
+        .collect();
+    Err(format!(
+        "invalid arguments for {tool}: {}",
+        detail.join("; ")
+    ))
 }
 
 // ---------------------------------------------------------- projection ---
@@ -362,8 +290,8 @@ fn resolve<'a>(schema: &'a Value, root: &'a Value) -> &'a Value {
     }
 }
 
-/// Shapes `value` like the reference's pydantic output model: only the
-/// schema's fields, defaults for the missing ones.
+/// Shapes `value` to the tool's output schema: only the schema's fields,
+/// defaults for the missing ones.
 fn project(value: &Value, schema: &Value, root: &Value) -> Value {
     let schema = resolve(schema, root);
     if let Some(options) = schema["anyOf"].as_array() {
@@ -405,7 +333,7 @@ fn project(value: &Value, schema: &Value, root: &Value) -> Value {
 
 // --------------------------------------------------------------- tools ---
 
-/// The reference's exception class name for an error.
+/// The error type name reported in a failed tool result.
 fn error_type(e: &RagMonkError) -> &'static str {
     if let Some(class) = e.class() {
         return class;
@@ -445,7 +373,7 @@ fn run_tool(name: &str, args: Map<String, Value>) -> Value {
     let (tx, rx) = mpsc::channel();
     let name = name.to_owned();
     // An abandoned worker runs to completion in the background; the
-    // timeout only stops waiting for it (same contract as the reference).
+    // timeout only stops waiting for it.
     std::thread::spawn(move || {
         let outcome = std::panic::catch_unwind(|| work(&home, &name, &args));
         let _ = tx.send(outcome);
@@ -470,21 +398,9 @@ fn run_tool(name: &str, args: Map<String, Value>) -> Value {
         ),
         Err(mpsc::RecvTimeoutError::Timeout) => failure(
             "timeout",
-            format!(
-                "tool call exceeded mcp.request_timeout_seconds={}s",
-                py_float(timeout)
-            ),
+            format!("tool call exceeded mcp.request_timeout_seconds={timeout}s"),
         ),
         Err(mpsc::RecvTimeoutError::Disconnected) => failure("internal_error", "worker stopped"),
-    }
-}
-
-/// Python `str(float)` for the timeout message.
-fn py_float(f: f64) -> String {
-    if f.fract() == 0.0 && f.abs() < 1e16 {
-        format!("{f:.1}")
-    } else {
-        f.to_string()
     }
 }
 
@@ -626,11 +542,13 @@ mod tests {
     }
 
     #[test]
-    fn validation_matches_pydantic() {
+    fn validation_lists_every_invalid_field() {
         let schema = &tool("ragmonk_search").unwrap()["inputSchema"];
         let err = validate("ragmonk_search", schema, &json!({"limit": "x"})).unwrap_err();
-        assert!(err.starts_with("2 validation errors for ragmonk_searchArguments\nquery\n  Field required [type=missing, input_value={'limit': 'x'}, input_type=dict]"), "{err}");
-        assert!(err.contains("limit\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='x', input_type=str]"), "{err}");
+        assert_eq!(
+            err,
+            "invalid arguments for ragmonk_search: query: required; limit: expected an integer"
+        );
         let ok = validate(
             "ragmonk_search",
             schema,

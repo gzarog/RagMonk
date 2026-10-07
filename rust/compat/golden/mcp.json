@@ -33,7 +33,7 @@
     },
     "serverInfo": {
      "name": "ragmonk v<VERSION>",
-     "version": "1.30.0"
+     "version": "<VERSION>"
     },
     "instructions": "RagMonk exposes code and document knowledge already indexed locally on this machine (see `ragmonk index`). Start with ragmonk_explore for a natural-language or identifier query -- it is the primary tool and runs RagMonk's deterministic query planner. The other read-only tools (ragmonk_search/symbol/callers/callees/impact/documents/status) are narrower, single-purpose lookups; all 8 of them return a bounded, versioned JSON result (schema_version/ok/error) and never call an LLM or the network -- results are retrieved/structured data for the calling agent to reason over. ragmonk_ask is the one exception: it calls the locally configured `ai:` provider (which may be a real cloud endpoint, gated by privacy.external_ai_allowed) to synthesize an answer over the same evidence ragmonk_explore would return -- prefer ragmonk_explore when the calling agent can reason over evidence itself; use ragmonk_ask only when a synthesized natural-language answer is specifically wanted."
    }
@@ -2423,7 +2423,7 @@
     "content": [
      {
       "type": "text",
-      "text": "Error executing tool ragmonk_symbol: 1 validation error for ragmonk_symbolArguments\nname\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing"
+      "text": "Error executing tool ragmonk_symbol: invalid arguments for ragmonk_symbol: name: required"
      }
     ],
     "isError": true
@@ -2449,7 +2449,7 @@
     "content": [
      {
       "type": "text",
-      "text": "Error executing tool ragmonk_symbol: 1 validation error for ragmonk_symbolArguments\nname\n  Input should be a valid string [type=string_type, input_value=5, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type"
+      "text": "Error executing tool ragmonk_symbol: invalid arguments for ragmonk_symbol: name: expected a string"
      }
     ],
     "isError": true

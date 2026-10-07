@@ -19,8 +19,8 @@ use crate::errors::{
     runtime_unavailable, unsupported_version,
 };
 use crate::prompt::{build_prompt, AiAnswer, AiRequest, AiUsage, SYSTEM_PROMPT};
-use crate::pyfmt::{repr, str_of};
 use crate::runtime::{which, RuntimeStatus, SubscriptionRuntime};
+use crate::text::{plain, quoted};
 use crate::transport::{JsonRpcClient, RpcError};
 use crate::AiProvider;
 
@@ -92,7 +92,7 @@ pub fn map_runtime_error(e: RpcError) -> RagMonkError {
     let code_s = if code.is_null() {
         String::new()
     } else {
-        str_of(&code).to_lowercase()
+        plain(&code).to_lowercase()
     };
     let text = format!("{code_s} {message}").to_lowercase();
     let is = |set: &[&str]| set.contains(&code_s.as_str());
@@ -138,7 +138,7 @@ pub fn status_from_result(r: &Value) -> Result<RuntimeStatus, RagMonkError> {
         return Err(policy_blocked(format!(
             "the Codex runtime is signed in with an unexpected auth mode {}; RagMonk's codex \
              provider requires ChatGPT (subscription) sign-in, not an API key",
-            repr(mode)
+            quoted(mode)
         )));
     }
     Ok(RuntimeStatus {
@@ -175,7 +175,7 @@ pub fn answer_from_result(r: &Value) -> Result<(String, String, AiUsage), RagMon
     if !status.is_null() && status != "completed" {
         return Err(invalid_response(format!(
             "Codex turn did not complete (status={}); refusing to present it as an answer",
-            repr(status)
+            quoted(status)
         )));
     }
     let text = match &r["message"] {
@@ -184,7 +184,7 @@ pub fn answer_from_result(r: &Value) -> Result<(String, String, AiUsage), RagMon
             Some(Value::Array(blocks)) => blocks
                 .iter()
                 .filter(|b| b.is_object() && b["type"] == "text")
-                .map(|b| str_of(b.get("text").unwrap_or(&Value::String(String::new()))))
+                .map(|b| plain(b.get("text").unwrap_or(&Value::String(String::new()))))
                 .collect(),
             _ => String::new(),
         },

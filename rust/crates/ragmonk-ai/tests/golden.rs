@@ -16,9 +16,47 @@ use ragmonk_config::model::{AiConfig, PrivacyConfig};
 use ragmonk_core::errors::RagMonkError;
 use serde_json::{json, Value};
 
+const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../compat/golden/ai.json");
+
 fn golden() -> Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../compat/golden/ai.json");
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    serde_json::from_str(&std::fs::read_to_string(GOLDEN).unwrap()).unwrap()
+}
+
+/// `RAGMONK_BLESS=1` rewrites expected results from this build's output.
+fn bless() -> bool {
+    std::env::var_os("RAGMONK_BLESS").is_some()
+}
+
+fn write_section(section: &str, cases: Vec<Value>) {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = LOCK.lock().unwrap();
+    let mut g = golden();
+    g[section] = Value::Array(cases);
+    let mut out = Vec::new();
+    let fmt = serde_json::ser::PrettyFormatter::with_indent(b" ");
+    serde::Serialize::serialize(
+        &g,
+        &mut serde_json::Serializer::with_formatter(&mut out, fmt),
+    )
+    .unwrap();
+    out.push(b'\n');
+    std::fs::write(GOLDEN, out).unwrap();
+}
+
+/// Stores `got` (`{"error": ..}` or `{key: ..}`) as the case's expectation.
+fn record(case: &mut Value, got: &Value, key: &str, port: Option<u16>) {
+    let obj = case.as_object_mut().unwrap();
+    obj.remove("error");
+    obj.remove(key);
+    if let Some(e) = got.get("error") {
+        let mut e = e.clone();
+        if let (Some(port), Some(m)) = (port, e["message"].as_str()) {
+            e["message"] = m.replace(&port.to_string(), "<PORT>").into();
+        }
+        obj.insert("error".into(), e);
+    } else if let Some(v) = got.get(key) {
+        obj.insert(key.into(), v.clone());
+    }
 }
 
 fn request(v: &Value) -> AiRequest {
@@ -63,6 +101,7 @@ fn prompt_matches_reference() {
 #[test]
 fn factory_matches_reference() {
     let g = golden();
+    let mut blessed = Vec::new();
     for case in g["factory"].as_array().unwrap() {
         let ai = ai_config(&case["config"]);
         let privacy = PrivacyConfig {
@@ -80,7 +119,17 @@ fn factory_matches_reference() {
             .get("error")
             .map(|e| json!({"error": e}))
             .unwrap_or(json!({"ok": true}));
+        if bless() {
+            let mut case = case.clone();
+            record(&mut case, &got, "ok", None);
+            case.as_object_mut().unwrap().remove("ok");
+            blessed.push(case);
+            continue;
+        }
         assert_eq!(got, expected, "{case}");
+    }
+    if bless() {
+        write_section("factory", blessed);
     }
 }
 
@@ -141,13 +190,10 @@ fn mock(response: (u16, String, String)) -> (u16, Arc<Mutex<Vec<Captured>>>) {
     (port, seen)
 }
 
-fn dead_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+/// A port nothing listens on. An ephemeral port that was bound and
+/// released can be taken by a concurrent test's mock server, turning a
+/// "connection refused" case into a live connection.
+const DEAD_PORT: u16 = 1;
 
 #[test]
 fn http_providers_match_reference() {
@@ -162,6 +208,7 @@ fn http_providers_match_reference() {
         external_ai_allowed: true,
     };
     let mut failures = Vec::new();
+    let mut blessed = Vec::new();
     for case in g["providers"].as_array().unwrap() {
         let name = case["case"].as_str().unwrap();
         let req = request(&g["requests"][case["request"].as_str().unwrap()]);
@@ -171,7 +218,7 @@ fn http_providers_match_reference() {
                 r["content_type"].as_str().unwrap().into(),
                 r["body"].as_str().unwrap().into(),
             )),
-            None => (dead_port(), Arc::default()),
+            None => (DEAD_PORT, Arc::default()),
         };
         let cfg_text = case["config"]
             .to_string()
@@ -202,8 +249,18 @@ fn http_providers_match_reference() {
             if !msg.starts_with("ollama request failed: ") || got["error"]["exit_code"] != 1 {
                 failures.push(format!("{name}: {got}"));
             }
+        } else if bless() {
+            let mut case = case.clone();
+            let live = (port != DEAD_PORT).then_some(port);
+            record(&mut case, &got, "answer", live);
+            blessed.push(case);
+            continue;
         } else if got != expected {
             failures.push(format!("{name}:\n  got      {got}\n  expected {expected}"));
+        }
+        if bless() {
+            blessed.push(case.clone());
+            continue;
         }
         if let Some(sent) = case.get("sent").filter(|s| !s.is_null()) {
             let seen = seen.lock().unwrap();
@@ -228,6 +285,10 @@ fn http_providers_match_reference() {
                 }
             }
         }
+    }
+    if bless() {
+        write_section("providers", blessed);
+        return;
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -271,6 +332,7 @@ fn scripted(replies: Vec<Value>) -> (JsonRpcClient, std::thread::JoinHandle<Vec<
 fn codex_exchanges_match_reference() {
     let g = golden();
     let mut failures = Vec::new();
+    let mut blessed = Vec::new();
     for case in g["codex"].as_array().unwrap() {
         let name = case["case"].as_str().unwrap();
         let (client, handle) = scripted(case["replies"].as_array().unwrap().clone());
@@ -300,6 +362,12 @@ fn codex_exchanges_match_reference() {
             Some(e) => json!({"error": e}),
             None => json!({"result": case["result"]}),
         };
+        if bless() {
+            let mut case = case.clone();
+            record(&mut case, &got, "result", None);
+            blessed.push(case);
+            continue;
+        }
         if got != expected {
             failures.push(format!("{name}:\n  got      {got}\n  expected {expected}"));
         }
@@ -310,6 +378,10 @@ fn codex_exchanges_match_reference() {
                 case["sent"]
             ));
         }
+    }
+    if bless() {
+        write_section("codex", blessed);
+        return;
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
