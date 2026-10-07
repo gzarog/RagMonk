@@ -80,8 +80,8 @@ fn empty_and_whitespace_documents() {
 #[test]
 fn metadata_and_version_stamp() {
     let doc = NormalizedDocument::default();
-    let m = DocumentMetadata::from_normalized(&doc, "markdown", "notes.v2.md");
-    assert_eq!(m.title.as_deref(), Some("notes.v2"));
+    let m = DocumentMetadata::from_normalized(&doc, "markdown", "notes.draft.md");
+    assert_eq!(m.title.as_deref(), Some("notes.draft"));
     assert_eq!(m.author, None);
     let s = document_version_stamp("1", true);
     assert_eq!(s.parser_version, "1+eml-attachments.1");

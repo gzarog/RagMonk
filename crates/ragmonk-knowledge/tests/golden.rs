@@ -1,5 +1,5 @@
-//! Link parity with the Python reference over fixtures/linking
-//! (golden/links.json), plus incremental and manual-link behaviour.
+//! Cross-domain links over fixtures/linking against
+//! fixtures/expected/links.json, plus incremental and manual-link behaviour.
 
 mod common;
 
@@ -91,7 +91,7 @@ impl Fx {
         (s, active)
     }
 
-    /// Links in the reference's canonical, id-free form.
+    /// Links in canonical, id-free form.
     fn canonical(&self) -> Vec<Value> {
         let (s, b) = self.store();
         let paths: HashMap<String, String> = s
@@ -154,7 +154,7 @@ fn key(v: &Value) -> String {
 }
 
 #[test]
-fn cold_links_match_reference() {
+fn cold_links_are_as_expected() {
     let mut f = fixture();
     f.index();
     let golden: Value = serde_json::from_str(
@@ -168,7 +168,7 @@ fn cold_links_match_reference() {
     let only_py: Vec<_> = want.iter().filter(|x| !got.contains(x)).collect();
     assert!(
         only_rust.is_empty() && only_py.is_empty(),
-        "only rust: {only_rust:#?}\nonly python: {only_py:#?}"
+        "only got: {only_rust:#?}\nonly expected: {only_py:#?}"
     );
 }
 

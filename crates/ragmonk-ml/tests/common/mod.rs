@@ -74,7 +74,7 @@ pub fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
-/// `RAGMONK_MODELS_DIR` when it holds the default model (see parity.rs).
+/// `RAGMONK_MODELS_DIR` when it holds the default model.
 pub fn models_root() -> Option<PathBuf> {
     let root = std::env::var_os("RAGMONK_MODELS_DIR").map(PathBuf::from);
     match root {
@@ -107,7 +107,7 @@ pub fn fixture() -> Fx {
     fixture_of("fixtures/linking")
 }
 
-/// A fresh source over a copy of `compat/<rel>`.
+/// A fresh source over a copy of `<repo>/<rel>`.
 pub fn fixture_of(rel: &str) -> Fx {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("corpus");

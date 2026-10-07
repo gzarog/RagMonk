@@ -54,12 +54,12 @@ pub fn static_asset(path: &str) -> Option<(&'static str, &'static [u8])> {
     }
 }
 
-/// Python `str()` of a value.
-pub fn py_str(v: &Value) -> String {
+/// A template value as display text: empty for none, `true`/`false`, and
+/// integral floats with one decimal.
+pub fn display(v: &Value) -> String {
     match v.kind() {
-        ValueKind::Undefined => String::new(),
-        ValueKind::None => "None".into(),
-        ValueKind::Bool => if v.is_true() { "True" } else { "False" }.into(),
+        ValueKind::Undefined | ValueKind::None => String::new(),
+        ValueKind::Bool => if v.is_true() { "true" } else { "false" }.into(),
         ValueKind::Number => match f64::try_from(v.clone()) {
             Ok(f) if v.as_i64().is_none() => {
                 if f.is_finite() && f.fract() == 0.0 && f.abs() < 1e16 {
@@ -90,7 +90,7 @@ pub fn markup_escape(s: &str, out: &mut impl std::fmt::Write) -> std::fmt::Resul
 }
 
 fn formatter(out: &mut Output, state: &State, value: &Value) -> Result<(), Error> {
-    let text = py_str(value);
+    let text = display(value);
     let escape = !matches!(state.auto_escape(), AutoEscape::None) && !value.is_safe();
     if escape {
         markup_escape(&text, out).map_err(Error::from)
@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn formats_like_jinja2() {
+    fn formats_values_plainly() {
         let out = env()
             .render_str(
                 "{{ a }}|{{ b }}|{{ c }}|{{ d }}|{{ e }}|{{ f.get('x', 'y') }}|{{ g.split('/')[-1] }}",
@@ -140,7 +140,7 @@ mod tests {
                 }),
             )
             .unwrap();
-        assert_eq!(out, "None|True|2.0|<'\">&|3|y|c");
+        assert_eq!(out, "|true|2.0|<'\">&|3|y|c");
         let html = render(
             "daemon/_logs.html",
             &serde_json::json!({"log_lines": ["<x> 'q'"]}),

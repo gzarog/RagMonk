@@ -1,4 +1,5 @@
-//! Vector parity with the reference embedder (cosine tolerance).
+//! Embedding vectors against fixtures/expected/embeddings-minilm.json
+//! (cosine tolerance).
 //!
 //! Needs the pinned model under `RAGMONK_MODELS_DIR/<slug>`. Without it the
 //! test is skipped, unless `RAGMONK_REQUIRE_MODELS=1` (set in CI).
@@ -29,7 +30,7 @@ pub fn model_dir() -> Option<PathBuf> {
 }
 
 #[test]
-fn vectors_match_reference_within_cosine_tolerance() {
+fn vectors_are_as_expected_within_cosine_tolerance() {
     let Some(dir) = model_dir() else { return };
     let embedder = Embedder::load(&dir, DEFAULT_EMBEDDING_MODEL).expect("load");
     let texts: serde_json::Value = serde_json::from_str(
@@ -71,7 +72,7 @@ fn vectors_match_reference_within_cosine_tolerance() {
         let norm: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
         assert!((norm - 1.0).abs() < 1e-4, "text {i}: norm {norm}");
     }
-    eprintln!("worst cosine vs reference: {worst}");
+    eprintln!("worst cosine vs expected: {worst}");
     // Batch composition must not change a vector (padding is masked out).
     let single = embedder.embed(&texts[..1]).unwrap();
     assert!(cosine(&single[0], &actual[0]) > 0.99999);

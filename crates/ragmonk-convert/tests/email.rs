@@ -1,4 +1,4 @@
-//! Email parity with the Python reference (golden/email.json): parent
+//! Email conversion against fixtures/expected/email.json: parent
 //! body, attachment enumeration under default and tight limits, and each
 //! attachment's conversion outcome (format, title, chunks / skip / failure).
 
@@ -29,7 +29,7 @@ fn limits(name: &str) -> AttachmentSettings {
 }
 
 #[test]
-fn emails_match_reference() {
+fn emails_convert_as_expected() {
     let g: Value = serde_json::from_str(
         &std::fs::read_to_string(root().join("fixtures/expected/email.json")).unwrap(),
     )

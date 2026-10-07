@@ -244,10 +244,7 @@ fn ai_section(cfg: &ragmonk_config::RagMonkConfig) -> Section {
     let mut checks = vec![check(
         "provider",
         "ok",
-        format!(
-            "provider={provider}, external_ai_allowed={}",
-            if allowed { "True" } else { "False" }
-        ),
+        format!("provider={provider}, external_ai_allowed={allowed}"),
     )];
     if let Some(cap) = ragmonk_ai::registry::get(provider).filter(|c| c.subscription) {
         if cap.cloud_egress && !allowed {

@@ -1,7 +1,5 @@
 //! `init`, `source …`, `index`, `status` and `docs` end to end on a fresh
-//! home. The compat harness checks byte parity with the reference. This
-//! covers the remaining behavior (list, info, enable/disable, remove,
-//! errors, text views).
+//! home: list, info, enable/disable, remove, errors and text views.
 
 use std::path::Path;
 use std::process::{Command, Output};

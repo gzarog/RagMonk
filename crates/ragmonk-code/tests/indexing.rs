@@ -1,5 +1,5 @@
-//! Code intelligence through the V2 indexer: parse-failure isolation,
-//! whole-build resolution equal to the reference semantics, incremental
+//! Code intelligence through the indexer: parse-failure isolation,
+//! whole-build resolution matching the expected relationships, incremental
 //! re-resolution, determinism and graph traversal.
 
 mod common;
@@ -125,7 +125,7 @@ fn sort_key(v: &Value) -> String {
 }
 
 #[test]
-fn cold_build_matches_reference_semantics_and_isolates_parse_failures() {
+fn cold_build_resolves_as_expected_and_isolates_parse_failures() {
     let mut f = fixture();
     let r = f.index();
     assert!(r.published, "{r:?}");
@@ -140,7 +140,7 @@ fn cold_build_matches_reference_semantics_and_isolates_parse_failures() {
     assert_eq!(status["python/animals.py"], "indexed");
     assert_eq!(status["misc/script.rb"], "indexed");
 
-    // Translate V2 ids back to the reference generator's "<rel>#<local>" keys.
+    // Translate record ids back to the expected file's "<rel>#<local>" keys.
     let mut key_of: HashMap<String, String> = HashMap::new();
     for file in &files {
         let source = std::fs::read(f.root.join(&file.rel_path)).unwrap();
@@ -183,7 +183,7 @@ fn cold_build_matches_reference_semantics_and_isolates_parse_failures() {
         want.sort_by_key(key);
         if got != want {
             mismatches.push(format!(
-                "{}:\n rust   {got:?}\n python {want:?}",
+                "{}:\n got      {got:?}\n expected {want:?}",
                 file.rel_path
             ));
         }
@@ -287,7 +287,7 @@ fn callers_and_callees_traverse_the_build() {
         .collect();
     assert!(evidence.contains(&"d.bark".to_owned()), "{evidence:?}");
     // `dog.bark` in another file resolves by bare name to the first `bark`
-    // by qualified name (Java's), exactly as the reference does.
+    // by qualified name (Java's).
     assert!(!evidence.contains(&"dog.bark".to_owned()), "{evidence:?}");
 
     let (_, out) = traverse_symbol(

@@ -252,9 +252,10 @@ fn truthy(v: &Value) -> bool {
     }
 }
 
-fn py_str(v: &Value) -> String {
+/// A value as message text (`-` for null).
+fn text(v: &Value) -> String {
     match v {
-        Value::Null => "None".into(),
+        Value::Null => "-".into(),
         Value::String(s) => s.clone(),
         other => other.to_string(),
     }
@@ -276,13 +277,13 @@ pub fn derive_problems(
         );
     };
     if truthy(&backend["error"]) {
-        add("error", "backend", py_str(&backend["error"]), Value::Null);
+        add("error", "backend", text(&backend["error"]), Value::Null);
     }
     if indexer["state"] == "stalled" {
         add(
             "error",
             "runtime",
-            format!("indexing stalled: {}", py_str(&indexer["stall_reason"])),
+            format!("indexing stalled: {}", text(&indexer["stall_reason"])),
             indexer["current_source_id"].clone(),
         );
     }
@@ -294,7 +295,7 @@ pub fn derive_problems(
     let op = || {
         let o = &last_run["operation"];
         if truthy(o) {
-            py_str(o)
+            text(o)
         } else {
             "index".into()
         }
@@ -306,13 +307,13 @@ pub fn derive_problems(
             format!(
                 "last {} run (pid {}) exited without finishing",
                 op(),
-                py_str(&last_run["pid"])
+                text(&last_run["pid"])
             ),
             Value::Null,
         );
     } else if last_run["outcome"] == "failed" && indexer["state"] == "idle" {
         let error = if truthy(&last_run["error"]) {
-            py_str(&last_run["error"])
+            text(&last_run["error"])
         } else {
             String::new()
         };
@@ -335,7 +336,7 @@ pub fn derive_problems(
         .collect();
     for r in &offline {
         let reason = if truthy(&r["last_error"]) {
-            py_str(&r["last_error"])
+            text(&r["last_error"])
         } else {
             "unreachable".into()
         };
@@ -359,12 +360,7 @@ pub fn derive_problems(
             continue;
         }
         if truthy(&r["last_error"]) {
-            add(
-                "warning",
-                "source",
-                py_str(&r["last_error"]),
-                r["id"].clone(),
-            );
+            add("warning", "source", text(&r["last_error"]), r["id"].clone());
         }
         let failed = r["counts"]["failed"].as_i64().unwrap_or(0);
         if failed != 0 {
@@ -381,8 +377,8 @@ pub fn derive_problems(
             let detail = if truthy(latest) {
                 format!(
                     " (last: {}: {})",
-                    py_str(&latest["error_code"]),
-                    py_str(&latest["error_message"])
+                    text(&latest["error_code"]),
+                    text(&latest["error_message"])
                 )
             } else {
                 String::new()

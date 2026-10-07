@@ -1,5 +1,5 @@
-//! Replays fixtures generated from the Python reference by
-//! `rust/compat/tools/gen_core_golden.py`.
+//! Core identities, secret detection, lock messages and the home layout
+//! against fixtures/expected/core_*.json.
 
 use ragmonk_core::errors::{LockOwner, RagMonkError};
 use ragmonk_core::ids;
@@ -20,7 +20,7 @@ fn s(v: &Value) -> &str {
 }
 
 #[test]
-fn source_and_project_ids_match_python() {
+fn source_and_project_ids_are_as_expected() {
     let g = golden("core_ids.json");
     for case in g["source_ids"].as_array().unwrap() {
         assert_eq!(
@@ -44,7 +44,7 @@ fn source_and_project_ids_match_python() {
 }
 
 #[test]
-fn secret_patterns_match_python_posix() {
+fn secret_patterns_are_as_expected() {
     let g = golden("core_misc.json");
     for c in g["secrets"].as_array().unwrap() {
         assert_eq!(
@@ -56,7 +56,7 @@ fn secret_patterns_match_python_posix() {
 }
 
 #[test]
-fn lock_timeout_messages_match_python() {
+fn lock_timeout_messages_are_as_expected() {
     let g = golden("core_misc.json");
     for c in g["lock_timeouts"].as_array().unwrap() {
         let owner = match &c["owner"] {
@@ -88,7 +88,7 @@ fn lock_timeout_messages_match_python() {
 }
 
 #[test]
-fn home_layout_matches_python() {
+fn home_layout_is_as_expected() {
     let g = golden("core_misc.json");
     let home = Home::new("/H");
     let rel = |p: std::path::PathBuf| {

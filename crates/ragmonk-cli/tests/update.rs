@@ -1,4 +1,4 @@
-//! `ragmonk update` (RUST-15) against a stand-in release host
+//! `ragmonk update` against a stand-in release host
 //! (`RAGMONK_UPDATE_TEST_BASE`, honoured by debug builds only): check,
 //! status, the background check and notice, install with checksum
 //! verification, self-check and rollback. POSIX only: the fake release
@@ -278,7 +278,7 @@ fn prerelease_channel_follows_prereleases() {
     let (home, install) = native_home(dir.path());
     let (base, routes) = serve();
     // 99.2.0 exists only as a pre-release; "latest" is still 99.1.0, and
-    // 99.5.0 (a Python-era release with no native archive) must be skipped.
+    // 99.5.0 (a release with no archive for this target) must be skipped.
     publish(&routes, "99.2.0", "99.2.0", false);
     routes.lock().unwrap().insert(
         "/api/releases/latest".into(),
@@ -302,7 +302,7 @@ fn prerelease_channel_follows_prereleases() {
     let stable = data(&ragmonk(&home, &base, &["update", "check", "--json"]));
     assert_eq!(stable["latest_version"], "99.1.0");
 
-    // Any other value (the Python era accepted free text) stays stable.
+    // Any other value stays stable.
     let o = ragmonk(&home, &base, &["config", "set", "updates.channel", "beta"]);
     assert!(o.status.success(), "{o:?}");
     let beta = data(&ragmonk(&home, &base, &["update", "check", "--json"]));

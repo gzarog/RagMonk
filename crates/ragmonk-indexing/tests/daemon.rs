@@ -264,7 +264,7 @@ fn stop_lets_the_running_pass_finish_and_drops_queued_ones() {
 }
 
 #[test]
-fn uptime_format_matches_reference_cases() {
+fn uptime_format_cases() {
     for (s, want) in [
         (0.0, "0s"),
         (59.9, "59s"),

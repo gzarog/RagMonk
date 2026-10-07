@@ -1,6 +1,6 @@
-//! Chunk parity with the Python reference: every golden normalized document
-//! (TXT/Markdown/HTML fixtures converted by the reference, plus synthetic
-//! table/heading/Unicode edge cases) under every golden configuration.
+//! Chunking against fixtures/expected/documents.json: every normalized
+//! document (TXT/Markdown/HTML fixtures plus synthetic table/heading/Unicode
+//! edge cases) under every configuration listed there.
 
 use std::path::Path;
 
@@ -38,7 +38,7 @@ fn config(v: &Value) -> ChunkingConfig {
 }
 
 #[test]
-fn version_stamp_matches_reference() {
+fn version_stamp_is_as_expected() {
     let g = golden();
     assert_eq!(g["identity"]["chunker_version"], chunker_version_stamp());
     assert_eq!(
@@ -48,7 +48,7 @@ fn version_stamp_matches_reference() {
 }
 
 #[test]
-fn chunks_match_reference_for_every_document_and_config() {
+fn chunks_are_as_expected_for_every_document_and_config() {
     let g = golden();
     let tok = model_tokenizer().unwrap();
     let mut failures = Vec::new();
@@ -76,7 +76,7 @@ fn chunks_match_reference_for_every_document_and_config() {
                     .zip(gw)
                     .position(|(c, w)| serde_json::to_value(c).unwrap() != *w);
                 failures.push(format!(
-                    "{name}/{cfg_name}: {} vs {} chunks; first diff at {first:?}:\n rust   {}\n python {}",
+                    "{name}/{cfg_name}: {} vs {} chunks; first diff at {first:?}:\n got      {}\n expected {}",
                     chunks.len(),
                     gw.len(),
                     first.map(|i| serde_json::to_string(&chunks[i]).unwrap()).unwrap_or_default(),
@@ -91,7 +91,7 @@ fn chunks_match_reference_for_every_document_and_config() {
                 ));
             }
             // The payload ceiling holds for every non-atomic chunk (headings
-            // are stored whole by design, like the reference).
+            // are stored whole by design).
             let ceiling = cfg.resolved_max_tokens() - cfg.safety_tokens;
             for c in &chunks {
                 let n = tok.count(&c.contextual_text, true);

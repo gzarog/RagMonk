@@ -1,5 +1,141 @@
 {
- "description": "Minimum retrieval quality on fixtures/search_quality (72 golden queries, kind:path keys). A change that drops any metric below its floor fails `cargo test -p ragmonk-ml --test quality`.",
+ "description": "Minimum retrieval quality on fixtures/search_quality (72 golden queries over mixed code and documents, kind:path keys). semantic/semantic_rerank are gated by ragmonk-ml's quality test; lexical and hybrid (per query category and 'all') by ragmonk-retrieval's. Floors sit 0.03 below the measured values; a change that drops any metric below its floor fails the test.",
+ "hybrid": {
+  "all": {
+   "mrr": 0.88,
+   "ndcg@10": 0.89,
+   "recall@10": 0.97,
+   "recall@3": 0.95
+  },
+  "code_to_document": {
+   "mrr": 0.47,
+   "ndcg@10": 0.62,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "cross_document": {
+   "mrr": 0.9,
+   "ndcg@10": 0.88,
+   "recall@10": 0.97,
+   "recall@3": 0.86
+  },
+  "exact_heading_lookup": {
+   "mrr": 0.97,
+   "ndcg@10": 0.97,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "exact_symbol_lookup": {
+   "mrr": 0.97,
+   "ndcg@10": 0.97,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "exact_title_lookup": {
+   "mrr": 0.97,
+   "ndcg@10": 0.97,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "file_path_lookup": {
+   "mrr": 0.8,
+   "ndcg@10": 0.76,
+   "recall@10": 0.97,
+   "recall@3": 0.84
+  },
+  "keyword_search": {
+   "mrr": 0.97,
+   "ndcg@10": 0.97,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "semantic_document": {
+   "mrr": 0.9,
+   "ndcg@10": 0.91,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "table_question": {
+   "mrr": 0.9,
+   "ndcg@10": 0.92,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "typo_partial_term": {
+   "mrr": 0.78,
+   "ndcg@10": 0.83,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  }
+ },
+ "lexical": {
+  "all": {
+   "mrr": 0.87,
+   "ndcg@10": 0.9,
+   "recall@10": 0.97,
+   "recall@3": 0.95
+  },
+  "code_to_document": {
+   "mrr": 0.47,
+   "ndcg@10": 0.62,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "cross_document": {
+   "mrr": 0.9,
+   "ndcg@10": 0.91,
+   "recall@10": 0.97,
+   "recall@3": 0.86
+  },
+  "exact_heading_lookup": {
+   "mrr": 0.97,
+   "ndcg@10": 0.97,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "exact_symbol_lookup": {
+   "mrr": 0.97,
+   "ndcg@10": 0.97,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "exact_title_lookup": {
+   "mrr": 0.97,
+   "ndcg@10": 0.97,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "file_path_lookup": {
+   "mrr": 0.84,
+   "ndcg@10": 0.84,
+   "recall@10": 0.97,
+   "recall@3": 0.84
+  },
+  "keyword_search": {
+   "mrr": 0.9,
+   "ndcg@10": 0.92,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "semantic_document": {
+   "mrr": 0.76,
+   "ndcg@10": 0.83,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "table_question": {
+   "mrr": 0.97,
+   "ndcg@10": 0.97,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  },
+  "typo_partial_term": {
+   "mrr": 0.84,
+   "ndcg@10": 0.87,
+   "recall@10": 0.97,
+   "recall@3": 0.97
+  }
+ },
  "semantic": {
   "mrr": 0.83,
   "ndcg@10": 0.81,

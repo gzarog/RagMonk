@@ -1,11 +1,9 @@
-//! `ask` and `ai …` parity with the reference CLI.
+//! `ask` and `ai …` end to end.
 //!
-//! Replays `fixtures/expected/ai_cli.json` (from
-//! `rust/compat/tools/gen_ai_cli_golden.py`): the compat corpus indexed by
-//! the Rust binary, `ai.provider=ollama` pointed at a local mock, and no
-//! `codex` on `PATH`. Exit codes, stdout and the provider request must
-//! match; stderr matches up to line wrapping (the reference's console
-//! wraps long errors).
+//! Replays `fixtures/expected/ai_cli.json`: the fixture corpus indexed by
+//! the binary, `ai.provider=ollama` pointed at a local mock, and no `codex`
+//! on `PATH`. Exit codes, stdout and the provider request must match;
+//! stderr matches up to whitespace.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -128,7 +126,7 @@ fn words(s: &str) -> String {
 }
 
 #[test]
-fn ask_and_ai_match_reference() {
+fn ask_and_ai_commands_are_as_expected() {
     let golden_path = repo().join("fixtures/expected/ai_cli.json");
     let mut golden: Vec<Value> =
         serde_json::from_str(&std::fs::read_to_string(&golden_path).unwrap()).unwrap();

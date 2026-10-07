@@ -1,8 +1,7 @@
-//! Parity with the reference's AI layer (`fixtures/expected/ai.json`,
-//! from `rust/compat/tools/gen_ai_golden.py`): the evidence prompt, every
-//! HTTP provider's request and response/failure mapping against a mock
-//! server, the factory's configuration/privacy errors, and the Codex
-//! JSON-RPC exchanges against a scripted runtime.
+//! The AI layer against its expected results (`fixtures/expected/ai.json`):
+//! the evidence prompt, every HTTP provider's request and response/failure
+//! mapping against a mock server, the factory's configuration/privacy
+//! errors, and the Codex JSON-RPC exchanges against a scripted runtime.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -92,7 +91,7 @@ fn ai_config(c: &Value) -> AiConfig {
 }
 
 #[test]
-fn prompt_matches_reference() {
+fn prompt_is_as_expected() {
     let g = golden();
     assert_eq!(build_prompt(&request(&g["requests"]["full"])), g["prompt"]);
     assert_eq!(
@@ -102,7 +101,7 @@ fn prompt_matches_reference() {
 }
 
 #[test]
-fn factory_matches_reference() {
+fn factory_errors_are_as_expected() {
     let g = golden();
     let mut blessed = Vec::new();
     for case in g["factory"].as_array().unwrap() {
@@ -199,7 +198,7 @@ fn mock(response: (u16, String, String)) -> (u16, Arc<Mutex<Vec<Captured>>>) {
 const DEAD_PORT: u16 = 1;
 
 #[test]
-fn http_providers_match_reference() {
+fn http_providers_behave_as_expected() {
     let g = golden();
     let env = |k: &str| match k {
         "OPENAI_API_KEY" => Some("sk-test".to_owned()),
@@ -246,7 +245,7 @@ fn http_providers_match_reference() {
             }
         };
         // The OS error text behind a refused Ollama connection is the
-        // platform's; only the reference's prefix is a contract.
+        // platform's; only the prefix is a contract.
         if name == "ollama/connection_refused" {
             let msg = got["error"]["message"].as_str().unwrap_or_default();
             if !msg.starts_with("ollama request failed: ") || got["error"]["exit_code"] != 1 {
@@ -332,7 +331,7 @@ fn scripted(replies: Vec<Value>) -> (JsonRpcClient, std::thread::JoinHandle<Vec<
 }
 
 #[test]
-fn codex_exchanges_match_reference() {
+fn codex_exchanges_are_as_expected() {
     let g = golden();
     let mut failures = Vec::new();
     let mut blessed = Vec::new();

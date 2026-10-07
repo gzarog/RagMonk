@@ -1,4 +1,5 @@
-//! Exact tokenizer parity with the Python reference (golden/documents.json).
+//! Tokenizer identity, counts and splits against
+//! fixtures/expected/documents.json.
 
 use std::path::Path;
 
@@ -12,7 +13,7 @@ fn golden() -> Value {
 }
 
 #[test]
-fn identity_matches_reference() {
+fn identity_is_as_expected() {
     let g = golden();
     let id = &g["identity"];
     assert_eq!(id["model_id"], tokenizer::EMBEDDING_MODEL_ID);
@@ -26,7 +27,7 @@ fn identity_matches_reference() {
 }
 
 #[test]
-fn counts_and_splits_match_reference() {
+fn counts_and_splits_are_as_expected() {
     let g = golden();
     let tok = model_tokenizer().unwrap();
     let mut failures = Vec::new();

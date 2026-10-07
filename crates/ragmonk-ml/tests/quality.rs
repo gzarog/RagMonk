@@ -65,7 +65,7 @@ fn summarize(ranked: &[(Vec<String>, HashSet<String>)]) -> BTreeMap<String, f64>
 }
 
 #[test]
-fn semantic_and_reranked_quality_match_the_reference() {
+fn semantic_and_reranked_quality_meet_the_gates() {
     let Some(models) = models_root() else { return };
     let rerank_dir = models.join(DEFAULT_RERANKER_MODEL.slug);
     if !rerank_dir.join("model.safetensors").exists() {

@@ -1,5 +1,5 @@
-//! Compares extraction and relationship building with the Python
-//! reference over fixtures/code (fixtures/expected/code.json).
+//! Extraction and relationship building over fixtures/code, against the
+//! expected entities and relationships in fixtures/expected/code.json.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -60,7 +60,7 @@ fn canon(mut v: Vec<Value>) -> Vec<Value> {
 }
 
 #[test]
-fn extraction_and_relationships_match_python_reference() {
+fn extraction_and_relationships_are_as_expected() {
     let root = repo_root().join("fixtures/code");
     let golden: Value = serde_json::from_str(
         &std::fs::read_to_string(repo_root().join("fixtures/expected/code.json")).unwrap(),
@@ -70,7 +70,7 @@ fn extraction_and_relationships_match_python_reference() {
 
     let mut prepared = BTreeMap::new();
     for rel in files(&root) {
-        // Normalize CRLF checkouts so byte columns match the reference.
+        // Normalize CRLF checkouts so byte columns match the expectation.
         let raw = std::fs::read(root.join(&rel)).unwrap();
         let source = String::from_utf8_lossy(&raw)
             .replace("\r\n", "\n")
@@ -82,7 +82,7 @@ fn extraction_and_relationships_match_python_reference() {
         golden.as_object().unwrap().keys().collect::<Vec<_>>()
     );
 
-    // Entities keyed like the reference generator: "<rel>#<local_id>".
+    // Entities keyed as in the expected file: "<rel>#<local_id>".
     let mut entities: BTreeMap<String, (Vec<String>, Vec<EntityRow>)> = BTreeMap::new();
     for (rel, p) in &prepared {
         if let Ok(PreparedCode::Parsed {
@@ -136,7 +136,7 @@ fn extraction_and_relationships_match_python_reference() {
                     .collect();
                 if got_entities != g["entities"].as_array().cloned().unwrap_or_default() {
                     failures.push(format!(
-                        "{rel}: entities differ\n rust:   {}\n python: {}",
+                        "{rel}: entities differ\n got:      {}\n expected: {}",
                         serde_json::to_string(&got_entities).unwrap(),
                         serde_json::to_string(&g["entities"]).unwrap()
                     ));
@@ -183,7 +183,7 @@ fn extraction_and_relationships_match_python_reference() {
                     let only_rust: Vec<_> = got.iter().filter(|x| !want.contains(x)).collect();
                     let only_py: Vec<_> = want.iter().filter(|x| !got.contains(x)).collect();
                     failures.push(format!(
-                        "{rel}: relationships differ\n only rust:   {only_rust:?}\n only python: {only_py:?}"
+                        "{rel}: relationships differ\n only got:      {only_rust:?}\n only expected: {only_py:?}"
                     ));
                 }
             }

@@ -1,4 +1,4 @@
-//! Local-mode CRUD/FTS and build visibility on the V2 knowledge store.
+//! Local-mode CRUD/FTS and build visibility on the knowledge store.
 
 use ragmonk_core::ids::record;
 use ragmonk_core::models::SourceType;

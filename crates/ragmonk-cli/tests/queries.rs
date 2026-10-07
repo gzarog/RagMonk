@@ -1,5 +1,5 @@
-//! Query commands end to end. The compat harness checks `--json` parity
-//! with the reference; this covers text modes, errors and `link …`.
+//! Query commands end to end: text modes, errors and `link …` (the
+//! retrieval crate's tests cover the `--json` data).
 
 use std::path::Path;
 use std::process::{Command, Output};

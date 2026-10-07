@@ -1,5 +1,5 @@
-//! Semantic search: golden parity with the reference's exact cosine ranking
-//! (fixtures/expected/semantic.json), and ANN crash/delete/rebuild behaviour.
+//! Semantic search: rankings against the exact cosine ranking in
+//! fixtures/expected/semantic.json, and ANN crash/delete/rebuild behaviour.
 
 mod common;
 
@@ -36,7 +36,7 @@ fn run(fx: &Fx, emb: &Embedder, q: &str, k: usize) -> (Engine, Vec<SemanticHit>)
     (r.engine.unwrap(), r.hits)
 }
 
-/// Same ranking as the reference, allowing swaps only between near-ties.
+/// Same ranking as expected, allowing swaps only between near-ties.
 fn assert_matches(golden: &Value, hits: &[SemanticHit], q: &str) {
     let expected = golden["hits"].as_array().unwrap();
     assert_eq!(hits.len(), expected.len(), "{q}");
@@ -53,7 +53,7 @@ fn assert_matches(golden: &Value, hits: &[SemanticHit], q: &str) {
 }
 
 #[test]
-fn hnsw_and_exact_rankings_match_the_reference() {
+fn hnsw_and_exact_rankings_are_as_expected() {
     let Some(models) = models_root() else { return };
     let golden: Value = serde_json::from_str(
         &std::fs::read_to_string(repo_root().join("fixtures/expected/semantic.json")).unwrap(),
@@ -66,7 +66,7 @@ fn hnsw_and_exact_rankings_match_the_reference() {
     assert_eq!(
         s.embeddings(&b).unwrap().len() as u64,
         golden["subjects"].as_u64().unwrap(),
-        "same subjects embedded as the reference"
+        "same subjects embedded as expected"
     );
     let dir = s.project_dir().unwrap();
     drop(s);

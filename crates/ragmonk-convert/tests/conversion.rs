@@ -1,6 +1,6 @@
-//! docling.rs conversion vs the Python reference's normalized documents
-//! (quality reference, not byte parity: V3 allows V2 to differ). Every
-//! fixture must convert; headings, tables and text must be preserved.
+//! Native document conversion against the expected normalized documents
+//! (fixtures/expected/docling.json). Every fixture must convert; headings,
+//! tables and text must be preserved.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -68,8 +68,8 @@ fn every_fixture_converts_and_preserves_content() {
             ours.units.len(), theirs.units.len(), headings(&ours), headings(&theirs),
             tables(&ours), tables(&theirs), recall, ours.title, theirs.title
         ));
-        // docling.rs is pinned; today every fixture is byte-identical to the
-        // reference after normalization, so any drift is caught here.
+        // docling.rs is pinned; today every fixture is byte-identical to its
+        // expectation after normalization, so any drift is caught here.
         if !exact || recall < 0.95 || tables(&ours) < tables(&theirs) {
             failures.push(name.clone());
         }

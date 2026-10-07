@@ -70,7 +70,7 @@ fn start_status_stop() {
     assert_eq!(s["running"], false);
     assert_eq!(s["pid"], serde_json::Value::Null);
     let keys: Vec<_> = s.as_object().unwrap().keys().cloned().collect();
-    // Same key order as the reference payload.
+    // Stable key order.
     assert_eq!(
         keys,
         [

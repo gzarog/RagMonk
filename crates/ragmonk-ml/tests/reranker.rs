@@ -1,5 +1,4 @@
-//! Score parity with the reference cross-encoder
-//! (fixtures/expected/reranker-ms-marco.json).
+//! Cross-encoder scores against fixtures/expected/reranker-ms-marco.json.
 //!
 //! Needs the pinned reranker under `RAGMONK_MODELS_DIR/<slug>`. Without it
 //! the test is skipped, unless `RAGMONK_REQUIRE_MODELS=1` (set in CI).
@@ -35,12 +34,12 @@ fn read(rel: &str) -> Value {
 }
 
 #[test]
-fn logits_and_orderings_match_the_reference() {
+fn logits_and_orderings_are_as_expected() {
     let Some(dir) = model_dir() else { return };
     let ce = CrossEncoder::load(&dir, DEFAULT_RERANKER_MODEL).expect("load");
     let texts: Vec<String> =
         serde_json::from_value(read("fixtures/embeddings/texts.json")["texts"].clone()).unwrap();
-    let golden = read("golden/reranker-ms-marco.json");
+    let golden = read("fixtures/expected/reranker-ms-marco.json");
     let passages: Vec<&str> = texts.iter().map(String::as_str).collect();
     let mut worst = 0f32;
     for (q, expected) in golden["queries"]
@@ -76,7 +75,7 @@ fn logits_and_orderings_match_the_reference() {
             );
         }
     }
-    eprintln!("worst logit difference vs reference: {worst}");
+    eprintln!("worst logit difference vs expected: {worst}");
 }
 
 #[test]

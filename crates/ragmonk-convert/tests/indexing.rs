@@ -1,4 +1,4 @@
-//! Rust-native documents through the V2 indexer.
+//! Native document processing through the indexer.
 
 mod common;
 
@@ -62,7 +62,7 @@ fn documents_are_converted_chunked_and_searchable() {
         "image_ocr off: no content, not failed"
     );
 
-    // Stored chunks equal the Python reference's chunks (default config).
+    // Stored chunks equal the expected chunks (default config).
     let golden: Value = serde_json::from_str(
         &std::fs::read_to_string(repo_root().join("fixtures/expected/documents.json")).unwrap(),
     )

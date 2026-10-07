@@ -1,5 +1,5 @@
-//! Scan and step-by-step change-count parity with the Python reference
-//! (`fixtures/expected/indexing.json`, from `gen_indexing_golden.py`).
+//! Scans and step-by-step change counts against
+//! `fixtures/expected/indexing.json`.
 
 mod common;
 
@@ -27,7 +27,7 @@ fn strs(v: &Value) -> Vec<String> {
 }
 
 #[test]
-fn scan_and_change_counts_match_python() {
+fn scan_and_change_counts_are_as_expected() {
     let g = golden();
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("src_root");
@@ -38,7 +38,7 @@ fn scan_and_change_counts_match_python() {
     let include = strs(&g["include"]);
     let exclude = strs(&g["exclude"]);
 
-    // Scan parity.
+    // Scan results.
     let resolved = ragmonk_core::paths::resolve(&root).unwrap();
     let m = IgnoreMatcher::new(&resolved, &exclude, &include);
     let out = scan(&root, &m, &ScanOptions::default()).unwrap();
@@ -61,7 +61,7 @@ fn scan_and_change_counts_match_python() {
         .collect();
     assert_eq!(got, want);
 
-    // Step-by-step count parity.
+    // Step-by-step counts.
     let home = common::home(tmp.path());
     let mut cp = common::control(&home);
     let inc: Vec<&str> = include.iter().map(String::as_str).collect();

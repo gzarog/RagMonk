@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/css/app.css">
   <script src="/static/js/htmx.min.js" defer></script>
 </head>
-<!-- Every HTMX request carries the CSRF token as X-CSRF-Token (plan §14.2);
+<!-- Every HTMX request carries the CSRF token as X-CSRF-Token;
      the server validates it against the double-submit cookie. -->
 <body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
   <div class="layout">

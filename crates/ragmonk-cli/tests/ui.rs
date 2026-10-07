@@ -1,9 +1,8 @@
-//! `ragmonk ui` parity with the reference Admin UI.
+//! `ragmonk ui` end to end.
 //!
-//! Replays `fixtures/expected/ui.json` (from
-//! `rust/compat/tools/gen_ui_golden.py`) against the Rust server on the
-//! same corpus indexed by the Rust binary: status codes, content types,
-//! `HX-Redirect` targets and bodies normalized with the generator's rules.
+//! Replays `fixtures/expected/ui.json` against the server on the fixture
+//! corpus: status codes, content types, `HX-Redirect` targets and bodies
+//! with paths, ids, timestamps and sizes normalized.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -56,8 +55,8 @@ fn ragmonk(home: &Path) -> Command {
     c
 }
 
-/// Every corpus file gets the generator's fixed mtime, so search ties
-/// break the same way on both sides.
+/// Every corpus file gets a fixed mtime, so search ties break the same
+/// way on every run.
 fn pin_mtimes(dir: &Path) {
     for e in std::fs::read_dir(dir).unwrap() {
         let p = e.unwrap().path();
@@ -179,7 +178,7 @@ fn urlencode(s: &str) -> String {
 }
 
 #[test]
-fn admin_ui_matches_reference() {
+fn admin_ui_is_as_expected() {
     let golden_path = repo().join("fixtures/expected/ui.json");
     let mut golden: Vec<Value> =
         serde_json::from_str(&std::fs::read_to_string(&golden_path).unwrap()).unwrap();
@@ -279,7 +278,7 @@ fn admin_ui_matches_reference() {
         for (needle, repl) in &subs {
             t = t.replace(needle.as_str(), repl);
         }
-        // Windows paths: the reference ran on POSIX.
+        // Windows paths are compared in their slash form.
         let t = t.replace('\\', "/");
         let t = ts.replace_all(&t, "<TS>");
         let t = hex.replace_all(&t, "<ID>");
@@ -288,11 +287,10 @@ fn admin_ui_matches_reference() {
         between.replace_all(&t, "><").trim().to_owned()
     };
     let golden_size = Regex::new(r"(?:<N> KB|\d+(?:\.\d+)? (?:[KMGT]?B)\b)").unwrap();
-    // The control database's schema version is V1's on one side and
-    // V2's on the other (ADR 0027).
-    let schema = Regex::new(r"schema (v\d+|[0-9a-f]{16})").unwrap();
+    // The schema fingerprint changes with every schema edit.
+    let schema = Regex::new(r"schema [0-9a-f]{16}").unwrap();
     // Windows checkouts convert the fixtures to CRLF, so file sizes in the
-    // Documents table differ from the reference's (POSIX) ones there.
+    // Documents table differ from the expected (POSIX) ones there.
     let doc_size = Regex::new(r"</td><td>\d+</td><td>(indexed|failed|queued|—)").unwrap();
     let doc_size = |t: &str| -> String {
         if cfg!(windows) {
@@ -378,7 +376,7 @@ fn admin_ui_matches_reference() {
             rec["hx_redirect"] = hx.clone().map_or(Value::Null, Value::from);
             rec["body"] = if rec["body"].is_string() {
                 schema
-                    .replace_all(&normalize(&r.body), "schema v<N>")
+                    .replace_all(&normalize(&r.body), "schema <FP>")
                     .into_owned()
                     .into()
             } else {
@@ -389,9 +387,9 @@ fn admin_ui_matches_reference() {
         let ok = match &rec["body"] {
             Value::String(expected) => {
                 let expected = golden_size.replace_all(expected, "<N> B");
-                let expected = schema.replace_all(&expected, "schema v<N>");
+                let expected = schema.replace_all(&expected, "schema <FP>");
                 let got = normalize(&r.body);
-                let got = doc_size(&schema.replace_all(&got, "schema v<N>"));
+                let got = doc_size(&schema.replace_all(&got, "schema <FP>"));
                 let expected = doc_size(&expected);
                 if got != expected {
                     let at = got
@@ -436,8 +434,7 @@ fn admin_ui_matches_reference() {
         failures.join("\n\n")
     );
 
-    // A saved configuration shows at once (the reference shows the value
-    // it started with until restarted; ADR 0027).
+    // A saved configuration shows at once, without a restart.
     let cfg = request(
         port,
         "GET",

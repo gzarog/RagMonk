@@ -1,4 +1,5 @@
-//! Replays redaction fixtures generated from the Python reference.
+//! Secret and URL-credential redaction against
+//! fixtures/expected/core_redaction.json.
 
 use ragmonk_telemetry::redact::{redact_url, redact_urls_in_text_with, url_has_userinfo};
 use serde_json::Value;
@@ -12,7 +13,7 @@ fn golden() -> Value {
 }
 
 #[test]
-fn text_redaction_matches_python() {
+fn text_redaction_is_as_expected() {
     let g = golden();
     let env = g["env"].clone();
     let lookup = move |k: &str| env.get(k).and_then(|v| v.as_str()).map(str::to_owned);
@@ -27,7 +28,7 @@ fn text_redaction_matches_python() {
 }
 
 #[test]
-fn url_redaction_matches_python() {
+fn url_redaction_is_as_expected() {
     for c in golden()["urls"].as_array().unwrap() {
         let url = c["url"].as_str().unwrap();
         assert_eq!(redact_url(url), c["redacted"].as_str().unwrap(), "{url:?}");

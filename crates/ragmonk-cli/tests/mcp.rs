@@ -1,8 +1,7 @@
-//! `ragmonk serve --mcp` parity with the reference FastMCP server.
+//! `ragmonk serve --mcp` end to end.
 //!
-//! Replays the stdio session in `fixtures/expected/mcp.json` (recorded by
-//! `rust/compat/tools/gen_mcp_golden.py`) against the same corpus indexed
-//! by the Rust binary, normalizing responses with the generator's rules.
+//! Replays the stdio session in `fixtures/expected/mcp.json` against the
+//! fixture corpus, normalizing paths, ids and timestamps in responses.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -32,7 +31,6 @@ const DROP: &[&str] = &[
 const VOLATILE: &[&str] = &[
     "pid",
     "hostname",
-    "python",
     "running_for_seconds",
     "database_size_bytes",
 ];
@@ -129,8 +127,7 @@ fn timestamp(s: &str) -> String {
     out
 }
 
-/// Compact key-sorted JSON text, like Python's
-/// `json.dumps(sort_keys=True, separators=(",", ":"))`.
+/// Compact key-sorted JSON text (a canonical form for unordered lists).
 fn sorted_text(v: &Value) -> String {
     match v {
         Value::Object(m) => {
@@ -155,7 +152,8 @@ fn sorted(mut v: Vec<Value>) -> Vec<Value> {
     v
 }
 
-/// Mirrors `normalize` in gen_mcp_golden.py.
+/// Replaces volatile values (paths, ids, timestamps) with placeholders and
+/// sorts the lists named in `unordered`.
 fn normalize(v: &Value, subs: &[(String, &str)], unordered: &[String]) -> Value {
     match v {
         Value::Object(map) => {
@@ -184,7 +182,7 @@ fn normalize(v: &Value, subs: &[(String, &str)], unordered: &[String]) -> Value 
         Value::Array(a) => Value::Array(a.iter().map(|x| normalize(x, subs, unordered)).collect()),
         Value::String(s) => {
             // Slashes first, so Windows paths match the slash-normalized
-            // needles (same result as the generator's order on POSIX).
+            // needles.
             let mut s = s.replace('\\', "/");
             for (needle, repl) in subs {
                 s = s.replace(needle.as_str(), repl);
@@ -231,7 +229,7 @@ fn same(a: &Value, b: &Value, path: &str) -> Result<(), String> {
 }
 
 #[test]
-fn mcp_session_matches_reference() {
+fn mcp_session_is_as_expected() {
     let golden_path = repo().join("fixtures/expected/mcp.json");
     let mut golden: Vec<Value> =
         serde_json::from_str(&std::fs::read_to_string(&golden_path).unwrap()).unwrap();

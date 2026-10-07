@@ -722,7 +722,7 @@ pub fn read_logs(
             if component.is_some_and(|c| {
                 record
                     .get("component")
-                    .map_or_else(|| "None".to_owned(), crate::plain_json)
+                    .map_or_else(String::new, crate::plain_json)
                     != c
             }) {
                 continue;

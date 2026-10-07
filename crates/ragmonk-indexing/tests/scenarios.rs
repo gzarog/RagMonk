@@ -247,7 +247,7 @@ fn one_failing_source_does_not_stop_others_and_lock_is_bounded() {
     common::add_source(&mut cp, &good1, &[], &[]);
     let bad_src = common::add_source(&mut cp, &bad, &[], &[]);
     common::add_source(&mut cp, &good2, &[], &[]);
-    // Break the bad source's V2 project store: its path is a file.
+    // Break the bad source's project store: its path is a file.
     let layout = StorageLayout::new(&home);
     let pdir = layout.project_dir(&project_id_for_canonical(&bad_src.path));
     std::fs::create_dir_all(pdir.parent().unwrap()).unwrap();
