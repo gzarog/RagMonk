@@ -1,11 +1,11 @@
-//! Connection factory and transactions, matching the reference's pragmas:
+//! Connection factory and transactions. Pragmas:
 //! WAL, foreign keys on, `synchronous=NORMAL`, 5 s busy timeout, in-memory
 //! temp store and a configurable page cache (MB).
 
 use std::path::Path;
 use std::time::Duration;
 
-use rusqlite::{Connection, OpenFlags, TransactionBehavior};
+use rusqlite::{Connection, TransactionBehavior};
 
 use crate::error::{Result, StorageError};
 
@@ -32,24 +32,6 @@ pub fn open(path: &Path, cache_size_mb: i64) -> Result<Connection> {
     ))
     .map_err(StorageError::sqlite(ctx))?;
     conn.set_prepared_statement_cache_capacity(64);
-    Ok(conn)
-}
-
-/// Opens an existing database strictly read-only (used for Python V1 data,
-/// which this crate must never modify).
-pub fn open_read_only(path: &Path) -> Result<Connection> {
-    let ctx = format!("open read-only {}", path.display());
-    let conn = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX
-            | OpenFlags::SQLITE_OPEN_URI,
-    )
-    .map_err(StorageError::sqlite(ctx.clone()))?;
-    conn.busy_timeout(BUSY_TIMEOUT)
-        .map_err(StorageError::sqlite(ctx.clone()))?;
-    conn.execute_batch("PRAGMA query_only = ON;")
-        .map_err(StorageError::sqlite(ctx))?;
     Ok(conn)
 }
 

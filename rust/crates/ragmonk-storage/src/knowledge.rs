@@ -9,11 +9,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::control::{IndexVersions, RebuildPlan};
-use crate::db::{now_iso, open, write_tx};
+use crate::db::{now_iso, write_tx};
 use crate::error::{Result, StorageError};
-use crate::migrate::{self, Applied};
-use crate::schema::KNOWLEDGE_MIGRATIONS;
-use crate::V2Layout;
+use crate::schema::{open_current, KNOWLEDGE_SCHEMA};
+use crate::StorageLayout;
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct FileRow {
@@ -191,26 +190,20 @@ pub struct ProjectStore {
 }
 
 impl ProjectStore {
+    /// Opens `<home>/projects/<project_id>/knowledge.db`, creating it at
+    /// the current schema when missing and refusing any other schema.
     pub fn open(
-        layout: &V2Layout,
+        layout: &StorageLayout,
         project_id: &str,
         source_id: &str,
         cache_size_mb: i64,
-    ) -> Result<(Self, Applied)> {
-        let mut conn = open(&layout.project_db(project_id), cache_size_mb)?;
-        let applied = migrate::apply(
-            &mut conn,
-            &format!("knowledge-{project_id}"),
-            KNOWLEDGE_MIGRATIONS,
-            layout.migration_backups(),
-        )?;
-        Ok((
-            Self {
-                conn,
-                source_id: source_id.to_owned(),
-            },
-            applied,
-        ))
+    ) -> Result<Self> {
+        let path = layout.project_db(project_id);
+        let conn = open_current(&path, cache_size_mb, KNOWLEDGE_SCHEMA)?;
+        Ok(Self {
+            conn,
+            source_id: source_id.to_owned(),
+        })
     }
 
     /// Directory holding this project's database (derived caches such as

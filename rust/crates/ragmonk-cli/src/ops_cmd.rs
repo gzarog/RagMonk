@@ -1,12 +1,12 @@
 //! Operations (RUST-12 slice 3): `backup`, `restore`, `rebuild`,
-//! `upgrade`, `uninstall` and `vectors rebuild|backfill`.
+//! `uninstall` and `vectors rebuild|backfill`.
 //!
-//! Archives are V2-native (ADR 0024): a `.tar.gz` holding
-//! `manifest.json`, a consistent `VACUUM INTO` snapshot of
-//! `v2/control.db` and of every indexed project's
-//! `v2/projects/<id>/knowledge.db`, plus `config.yaml`. Manifest keys
-//! follow the reference. `format_version` 2 and `storage: "v2"` mark the
-//! layout; any other archive format is refused. ANN index
+//! Archives are a `.tar.gz` holding `manifest.json`, a consistent
+//! `VACUUM INTO` snapshot of `state/control.db` and of every indexed
+//! project's `projects/<id>/knowledge.db`, plus `config.yaml`. The
+//! manifest records the archive `format_version` and the schema
+//! fingerprints of the databases; an archive whose format or schemas
+//! differ from this build is refused, never converted. ANN index
 //! files are caches and are not archived: queries fall back to exact
 //! search until the next sync rebuilds them.
 
@@ -20,14 +20,16 @@ use ragmonk_indexing::coordinator::{run_source, Options};
 use ragmonk_indexing::daemon::pid;
 use ragmonk_indexing::lock::RunLock;
 use ragmonk_storage::maintenance;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::maintenance::SchemaState;
+use ragmonk_storage::schema::{control_fingerprint, knowledge_fingerprint};
+use ragmonk_storage::StorageLayout;
 use serde_json::{json, Value};
 
 use crate::query_cmd::open_sources;
 use crate::workflow::control_plane;
 use crate::{load, prepared_home, print_json};
 
-pub const MANIFEST_FORMAT_VERSION: i64 = 2;
+pub const MANIFEST_FORMAT_VERSION: i64 = 1;
 const STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn generic(e: impl std::fmt::Display) -> RagMonkError {
@@ -74,28 +76,26 @@ impl Drop for Scratch {
 
 // ------------------------------------------------------------- backup ---
 
-/// Writes a V2 backup archive and returns `(path, manifest)`. Reads every
-/// database through read-only snapshots, so it never migrates anything
-/// (`upgrade` relies on that).
+/// Writes a backup archive and returns `(path, manifest)`. Reads every
+/// database through read-only snapshots.
 pub fn create_backup(home: &Home, dest: Option<&Path>) -> Result<(PathBuf, Value), RagMonkError> {
-    let layout = V2Layout::new(home);
+    let layout = StorageLayout::new(home);
     let control = layout.control_db();
     let mut projects = serde_json::Map::new();
     let mut sources = Vec::new();
     for (id, path) in maintenance::registered_sources(&control) {
         let pid = project_id_for_canonical(&path);
-        if let Some(v) = maintenance::schema_version(&layout.project_db(&pid)) {
-            projects.insert(pid.clone(), json!(v));
+        if layout.project_db(&pid).is_file() {
+            projects.insert(pid.clone(), json!(knowledge_fingerprint()));
         }
         sources.push(json!({"id": id, "path": path, "project_id": pid}));
     }
     let created_at = now_iso();
     let manifest = json!({
         "format_version": MANIFEST_FORMAT_VERSION,
-        "storage": "v2",
         "ragmonk_version": ragmonk_core::version::version(),
         "created_at": created_at,
-        "sources_schema_version": maintenance::schema_version(&control).unwrap_or(0),
+        "control_schema": control_fingerprint(),
         "projects": projects,
         "sources": sources,
     });
@@ -116,16 +116,12 @@ pub fn create_backup(home: &Home, dest: Option<&Path>) -> Result<(PathBuf, Value
     let scratch = Scratch::new(home, "backup")?;
     let stage = &scratch.0;
     if control.is_file() {
-        maintenance::snapshot(&control, &stage.join("v2").join("control.db")).map_err(dberr)?;
+        maintenance::snapshot(&control, &stage.join("state").join("control.db")).map_err(dberr)?;
     }
     for pid in projects.keys() {
         maintenance::snapshot(
             &layout.project_db(pid),
-            &stage
-                .join("v2")
-                .join("projects")
-                .join(pid)
-                .join("knowledge.db"),
+            &stage.join("projects").join(pid).join("knowledge.db"),
         )
         .map_err(dberr)?;
     }
@@ -159,7 +155,7 @@ pub fn backup(dest: Option<String>, json_output: bool) -> Result<(), RagMonkErro
         "archive": archive.to_string_lossy(),
         "ragmonk_version": m["ragmonk_version"],
         "created_at": m["created_at"],
-        "sources_schema_version": m["sources_schema_version"],
+        "control_schema": m["control_schema"],
         "projects": m["projects"],
     });
     if json_output {
@@ -217,7 +213,7 @@ pub fn restore(archive: &str, json_output: bool) -> Result<(), RagMonkError> {
     Ok(())
 }
 
-/// Verifies and restores a V2 archive into `home` (the `restore` report).
+/// Verifies and restores an archive into `home` (the `restore` report).
 pub fn restore_archive(home: &Home, archive: &Path) -> Result<Value, RagMonkError> {
     let home = home.clone();
     let archive = archive.to_path_buf();
@@ -237,35 +233,35 @@ pub fn restore_archive(home: &Home, archive: &Path) -> Result<Value, RagMonkErro
                 .map_err(|e| dberr(format!("archive manifest is unreadable: {e}")))
         })?;
     let format = manifest["format_version"].as_i64();
-    if format != Some(MANIFEST_FORMAT_VERSION) || manifest["storage"] != "v2" {
+    if format != Some(MANIFEST_FORMAT_VERSION) {
         return Err(dberr(format!(
             "unsupported backup archive format v{} (this RagMonk restores v{MANIFEST_FORMAT_VERSION}); \
              refusing to restore, nothing was changed",
             format.map_or_else(|| "?".to_owned(), |v| v.to_string())
         )));
     }
-    let staged_v2 = stage.join("v2");
-    let control = staged_v2.join("control.db");
+    let incompatible = |what: &str, detail: &str| {
+        dberr(format!(
+            "{what} in this archive does not match this RagMonk's storage format ({detail}); \
+             refusing to restore, nothing was changed. Reindex your sources instead"
+        ))
+    };
+    let staged_state = stage.join("state");
+    let staged_projects = stage.join("projects");
+    let control = staged_state.join("control.db");
     if !control.is_file() {
         return Err(dberr(
-            "archive is missing v2/control.db; refusing to restore",
+            "archive is missing state/control.db; refusing to restore",
         ));
     }
     maintenance::integrity_check(&control).map_err(dberr)?;
-    let newer = |what: &str, v: i64, latest: i64| {
-        dberr(format!(
-            "{what} schema v{v} is newer than this RagMonk version understands (v{latest}); refusing to restore"
-        ))
-    };
-    let (cv, cl) = (
-        maintenance::schema_version(&control).unwrap_or(0),
-        maintenance::latest_control_version(),
-    );
-    if cv > cl {
-        return Err(newer("control.db", cv, cl));
+    match maintenance::control_schema_state(&control) {
+        SchemaState::Current => {}
+        SchemaState::Missing => return Err(incompatible("control.db", "empty database")),
+        SchemaState::Incompatible(d) => return Err(incompatible("control.db", &d)),
     }
     let mut restored = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(staged_v2.join("projects")) {
+    if let Ok(entries) = std::fs::read_dir(&staged_projects) {
         let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
         dirs.sort();
         for dir in dirs {
@@ -278,12 +274,8 @@ pub fn restore_archive(home: &Home, archive: &Path) -> Result<Value, RagMonkErro
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            let (v, l) = (
-                maintenance::schema_version(&db).unwrap_or(0),
-                maintenance::latest_knowledge_version(),
-            );
-            if v > l {
-                return Err(newer(&format!("project {name}"), v, l));
+            if let SchemaState::Incompatible(d) = maintenance::knowledge_schema_state(&db) {
+                return Err(incompatible(&format!("project {name}"), &d));
             }
             restored.push(name);
         }
@@ -297,31 +289,33 @@ pub fn restore_archive(home: &Home, archive: &Path) -> Result<Value, RagMonkErro
         chrono::Utc::now().format("%Y%m%d%H%M%S%f")
     ));
     std::fs::create_dir_all(&holding).map_err(generic)?;
-    let live_v2 = V2Layout::new(&home).root().to_path_buf();
     let staged_config = stage.join("config.yaml");
-    let mut aside: Vec<(PathBuf, PathBuf)> = Vec::new();
-    if let Some(t) = move_aside(&live_v2, &holding)? {
-        aside.push((t, live_v2.clone()));
-    }
+    let mut moves = vec![
+        (staged_state, home.state_dir()),
+        (staged_projects, home.projects_dir()),
+    ];
     if staged_config.is_file() {
-        if let Some(t) = move_aside(&home.user_config(), &holding)? {
-            aside.push((t, home.user_config()));
+        moves.push((staged_config, home.user_config()));
+    }
+    let mut aside: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for (_, live) in &moves {
+        if let Some(t) = move_aside(live, &holding)? {
+            aside.push((t, live.clone()));
         }
     }
-    let swap = std::fs::rename(&staged_v2, &live_v2).and_then(|()| {
-        if staged_config.is_file() {
-            std::fs::rename(&staged_config, home.user_config())
-        } else {
-            Ok(())
-        }
-    });
+    let swap = moves
+        .iter()
+        .filter(|(staged, _)| staged.exists())
+        .try_for_each(|(staged, live)| std::fs::rename(staged, live));
     if let Err(e) = swap {
-        for (moved, original) in aside.into_iter().rev() {
-            if original.is_dir() {
-                let _ = std::fs::remove_dir_all(&original);
+        for (_, live) in &moves {
+            if live.is_dir() {
+                let _ = std::fs::remove_dir_all(live);
             } else {
-                let _ = std::fs::remove_file(&original);
+                let _ = std::fs::remove_file(live);
             }
+        }
+        for (moved, original) in aside.into_iter().rev() {
             let _ = std::fs::rename(&moved, &original);
         }
         return Err(generic(format!(
@@ -438,7 +432,7 @@ pub fn rebuild_sources(
         }
     }
     let lock = index_lock(home, "rebuild")?;
-    let layout = V2Layout::new(home);
+    let layout = StorageLayout::new(home);
     let registry =
         ragmonk_convert::registry_with(&cfg, &ragmonk_convert::RegistryOptions::for_home(home));
     let opts = Options::from_config(&cfg);
@@ -470,94 +464,6 @@ pub fn rebuild_sources(
     );
     lock.release();
     outcomes
-}
-
-// ------------------------------------------------------------ upgrade ---
-
-pub fn upgrade(json_output: bool) -> Result<(), RagMonkError> {
-    let home = prepared_home()?;
-    let layout = V2Layout::new(&home);
-    let control_before = maintenance::schema_version(&layout.control_db()).unwrap_or(0);
-    let mut projects_before = std::collections::BTreeMap::new();
-    for (_, path) in maintenance::registered_sources(&layout.control_db()) {
-        let pid = project_id_for_canonical(&path);
-        if let Some(v) = maintenance::schema_version(&layout.project_db(&pid)) {
-            projects_before.insert(pid, v);
-        }
-    }
-    let pending = control_before < maintenance::latest_control_version()
-        || projects_before
-            .values()
-            .any(|v| *v < maintenance::latest_knowledge_version());
-    let backup_archive = if pending {
-        Some(create_backup(&home, None)?.0)
-    } else {
-        None
-    };
-    // Opening applies pending migrations.
-    let cfg = load(&home)?;
-    let cp = control_plane(&home)?;
-    let control_after = maintenance::schema_version(&layout.control_db()).unwrap_or(0);
-    let mut databases =
-        vec![json!({"name": "control", "before": control_before, "after": control_after})];
-    for s in cp.list_sources(false).map_err(dberr)? {
-        let pid = project_id_for_canonical(&s.path);
-        let Some(before) = projects_before.get(&pid).copied() else {
-            continue;
-        };
-        ragmonk_storage::knowledge::ProjectStore::open(
-            &layout,
-            &pid,
-            &s.id,
-            cfg.runtime.sqlite_cache_size_mb,
-        )
-        .map_err(dberr)?;
-        let after = maintenance::schema_version(&layout.project_db(&pid)).unwrap_or(0);
-        databases.push(json!({"name": format!("project:{pid}"), "before": before, "after": after}));
-    }
-    let healthy_after =
-        crate::doctor_cmd::overall(&crate::doctor_cmd::run_checks(&home)?) != "UNHEALTHY";
-    let archive_str = backup_archive
-        .as_ref()
-        .map(|p| p.to_string_lossy().into_owned());
-    if json_output {
-        print_json(&json!({
-            "pending": pending,
-            "backup_archive": archive_str,
-            "databases": databases,
-            "healthy_after": healthy_after,
-        }))?;
-    } else {
-        match &archive_str {
-            None => println!("Already up to date; no pending migrations."),
-            Some(a) => println!("Backup taken before upgrading: {a}"),
-        }
-        for d in &databases {
-            let (b, a) = (d["before"].as_i64(), d["after"].as_i64());
-            println!(
-                "  {}: v{} {} v{}",
-                d["name"].as_str().unwrap_or_default(),
-                b.unwrap_or(0),
-                if b == a { "==" } else { "->" },
-                a.unwrap_or(0)
-            );
-        }
-        if healthy_after {
-            println!("Post-upgrade health check: OK");
-        } else {
-            let hint = archive_str.as_ref().map_or_else(
-                || "the most recent 'ragmonk backup' archive".to_owned(),
-                |a| format!("'ragmonk restore {a}'"),
-            );
-            println!(
-                "Post-upgrade health check: UNHEALTHY -- see 'ragmonk doctor' for detail. No automatic rollback was attempted; if needed, restore the pre-upgrade backup with {hint}."
-            );
-        }
-    }
-    if !healthy_after {
-        return Err(RagMonkError::new(ErrorKind::HealthCheck, ""));
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------- uninstall ---
@@ -639,7 +545,7 @@ pub enum VectorsCommand {
 
 pub fn vectors(cmd: VectorsCommand) -> Result<(), RagMonkError> {
     let home = prepared_home()?;
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let spec = ragmonk_ml::manifest::DEFAULT_EMBEDDING_MODEL;
     let fp = spec.fingerprint();
     match cmd {

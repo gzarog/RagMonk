@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use ragmonk_core::paths::Home;
 use ragmonk_indexing::coordinator::{run_source, Options};
 use ragmonk_indexing::lock::RunLock;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::{json, Map, Value};
 
 use crate::load;
@@ -152,7 +152,7 @@ impl Indexer {
             Some(id) => vec![get_source(&cp, id)?],
             None => cp.list_sources(true).map_err(|e| crate::ui::db_error(&e))?,
         };
-        let layout = V2Layout::new(home);
+        let layout = StorageLayout::new(home);
         let registry =
             ragmonk_convert::registry_with(&cfg, &ragmonk_convert::RegistryOptions::for_home(home));
         let opts = Options::from_config(&cfg);

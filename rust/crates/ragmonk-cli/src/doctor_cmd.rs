@@ -11,7 +11,7 @@ use ragmonk_indexing::lock::{inspect_lock, LockState};
 use ragmonk_indexing::scan::check_root_accessible;
 use ragmonk_storage::knowledge::ProjectStore;
 use ragmonk_storage::maintenance;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::{json, Value};
 
 use crate::workflow::control_plane;
@@ -73,7 +73,7 @@ fn free_gb(path: &Path) -> Option<f64> {
 pub fn run_checks(home: &Home) -> Result<Vec<Section>, RagMonkError> {
     let cfg = load(home)?;
     let cp = control_plane(home)?;
-    let layout = V2Layout::new(home);
+    let layout = StorageLayout::new(home);
     let db =
         |e: ragmonk_storage::StorageError| RagMonkError::new(ErrorKind::Database, e.to_string());
     let mut sections = vec![Section {
@@ -86,8 +86,7 @@ pub fn run_checks(home: &Home) -> Result<Vec<Section>, RagMonkError> {
     }];
 
     let journal = maintenance::journal_mode(cp.connection());
-    let version = maintenance::schema_version(&layout.control_db()).unwrap_or(0);
-    let latest = maintenance::latest_control_version();
+    let schema = maintenance::control_schema_state(&layout.control_db());
     sections.push(Section {
         name: "Database",
         checks: vec![
@@ -99,8 +98,17 @@ pub fn run_checks(home: &Home) -> Result<Vec<Section>, RagMonkError> {
             ),
             check(
                 "schema",
-                if version == latest { "ok" } else { "fail" },
-                format!("schema v{version}"),
+                if schema == maintenance::SchemaState::Current {
+                    "ok"
+                } else {
+                    "fail"
+                },
+                match &schema {
+                    maintenance::SchemaState::Incompatible(d) => {
+                        format!("schema incompatible: {d}")
+                    }
+                    _ => format!("schema {}", ragmonk_storage::schema::control_fingerprint()),
+                },
             ),
         ],
     });
@@ -193,9 +201,8 @@ pub fn run_checks(home: &Home) -> Result<Vec<Section>, RagMonkError> {
     for s in &sources {
         if let Some(build) = cp.state(&s.id).map_err(db)?.active_build_id {
             let pid = project_id_for_canonical(&s.path);
-            let (store, _) =
-                ProjectStore::open(&layout, &pid, &s.id, cfg.runtime.sqlite_cache_size_mb)
-                    .map_err(db)?;
+            let store = ProjectStore::open(&layout, &pid, &s.id, cfg.runtime.sqlite_cache_size_mb)
+                .map_err(db)?;
             stores.push((pid, store, build));
         }
     }

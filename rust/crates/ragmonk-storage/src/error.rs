@@ -10,12 +10,16 @@ pub enum StorageError {
     },
     #[error("{0}")]
     Io(String),
-    /// The database was written by a newer RagMonk; refuse to touch it.
-    #[error("{db} has schema version {found}, newer than this build supports ({supported}); upgrade RagMonk")]
-    SchemaTooNew {
-        db: String,
-        found: i64,
-        supported: i64,
+    /// The database does not have this build's schema; it is never altered.
+    #[error(
+        "{path} does not match this RagMonk's storage format ({found}; expected {expected}). \
+         RagMonk does not convert databases: remove it (or reset the RagMonk home) and run \
+         `ragmonk index` to rebuild from your sources"
+    )]
+    IncompatibleSchema {
+        path: String,
+        found: String,
+        expected: String,
     },
     #[error("{0}")]
     Invalid(String),

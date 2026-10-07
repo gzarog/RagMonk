@@ -15,7 +15,7 @@ use ragmonk_retrieval::lexical::{self, SearchResult};
 use ragmonk_retrieval::{classify, context, explore, hybrid, Corpus};
 use ragmonk_storage::control::SourceRecord;
 use ragmonk_storage::knowledge::ProjectStore;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::{json, Value};
 
 use crate::workflow::{control_plane, print_table};
@@ -43,13 +43,13 @@ pub fn open_sources(home: &Home, only: Option<&str>) -> Result<Vec<Opened>, RagM
             .ok_or_else(|| RagMonkError::usage(format!("no such source: {id}")))?],
         None => cp.list_sources(false).map_err(db)?,
     };
-    let layout = V2Layout::new(home);
+    let layout = StorageLayout::new(home);
     let mut out = Vec::new();
     for source in sources {
         let Some(build) = cp.state(&source.id).map_err(db)?.active_build_id else {
             continue;
         };
-        let (store, _) = ProjectStore::open(
+        let store = ProjectStore::open(
             &layout,
             &project_id_for_canonical(&source.path),
             &source.id,

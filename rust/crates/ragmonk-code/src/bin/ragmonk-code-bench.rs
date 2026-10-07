@@ -17,9 +17,9 @@ use std::time::Instant;
 use ragmonk_core::models::SourceType;
 use ragmonk_core::paths::{project_id_for_canonical, Home};
 use ragmonk_indexing::coordinator::{run_source, NoProgress, Options, SourceResult};
-use ragmonk_storage::control::{ControlPlane, NewSource, SourceOrigin};
+use ragmonk_storage::control::{ControlPlane, NewSource};
 use ragmonk_storage::knowledge::ProjectStore;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::json;
 
 fn controller(i: usize, n: usize) -> String {
@@ -171,8 +171,8 @@ fn main() {
     emit(&root, n);
 
     let home = Home::new(tmp.join("home"));
-    let layout = V2Layout::new(&home);
-    let (mut cp, _) = ControlPlane::open(&layout, 64).expect("control plane");
+    let layout = StorageLayout::new(&home);
+    let mut cp = ControlPlane::open(&layout, 64).expect("control plane");
     let canonical = ragmonk_core::paths::resolve(&root)
         .expect("resolve")
         .to_string_lossy()
@@ -184,8 +184,6 @@ fn main() {
             enabled: true,
             include_patterns: vec![],
             exclude_patterns: vec![],
-            origin: SourceOrigin::V2,
-            created_at: None,
         })
         .expect("add source");
     let reg = ragmonk_code::registry();
@@ -201,7 +199,7 @@ fn main() {
         let wall = started.elapsed().as_secs_f64();
         let (entities, relationships) = match &r.build_id {
             Some(b) => {
-                let (store, _) =
+                let store =
                     ProjectStore::open(&layout, &project_id_for_canonical(&canonical), &src.id, 64)
                         .expect("store");
                 (

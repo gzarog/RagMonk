@@ -36,17 +36,12 @@ pub struct RegistryOptions {
 }
 
 impl RegistryOptions {
-    /// `<home>/models/ocrs` and `<home>/v2/cache/conversion`.
+    /// `<home>/models/ocrs` and `<home>/cache/conversion`.
     pub fn for_home(home: &ragmonk_core::paths::Home) -> Self {
         Self {
-            ocr_models_dir: Some(home.root().join("models").join("ocrs")),
-            models_root: Some(home.root().join("models")),
-            cache_dir: Some(
-                ragmonk_storage::V2Layout::new(home)
-                    .root()
-                    .join("cache")
-                    .join("conversion"),
-            ),
+            ocr_models_dir: Some(home.models_dir().join("ocrs")),
+            models_root: Some(home.models_dir()),
+            cache_dir: Some(home.cache_dir().join("conversion")),
         }
     }
 }

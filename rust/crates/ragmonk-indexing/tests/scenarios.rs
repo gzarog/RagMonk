@@ -15,7 +15,7 @@ use ragmonk_indexing::coordinator::{
 use ragmonk_indexing::lock::RunLock;
 use ragmonk_storage::control::BuildState;
 use ragmonk_storage::knowledge::{FileKnowledge, ProjectStore};
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 
 fn opts() -> Options {
     let mut o = Options::from_config(&ragmonk_config::RagMonkConfig::default());
@@ -24,7 +24,7 @@ fn opts() -> Options {
 }
 
 fn visible_files(
-    layout: &V2Layout,
+    layout: &StorageLayout,
     cp: &ragmonk_storage::control::ControlPlane,
     src: &ragmonk_storage::control::SourceRecord,
 ) -> Vec<(String, String)> {
@@ -32,7 +32,7 @@ fn visible_files(
     let Some(active) = state.active_build_id else {
         return vec![];
     };
-    let (store, _) =
+    let store =
         ProjectStore::open(layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
     store
         .files(&active)
@@ -50,7 +50,7 @@ fn full_then_warm_then_incremental() {
         common::write(&root, &format!("pkg/m{i}.py"), &format!("x = {i}\n"));
     }
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     let reg = Registry::raw();
@@ -90,7 +90,7 @@ fn incomplete_scan_keeps_unseen_files_and_offline_root_keeps_build() {
     common::write(&root, "sub/b.py", "b");
     common::write(&root, "sub/c.py", "c");
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     let reg = Registry::raw();
@@ -152,7 +152,7 @@ fn failures_are_isolated_per_file_and_retried_with_backoff() {
         common::write(&root, f, f);
     }
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     let flaky = Arc::new(Flaky {
@@ -182,7 +182,7 @@ fn permanent_failures_stop_retrying() {
     let root = tmp.path().join("r");
     common::write(&root, "fail.py", "x");
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     let mut reg = Registry::raw();
@@ -205,7 +205,7 @@ fn oversized_files_are_recorded_not_processed() {
     let root = tmp.path().join("r");
     common::write(&root, "big.py", &"x".repeat(2048));
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     let mut o = opts();
@@ -248,7 +248,7 @@ fn one_failing_source_does_not_stop_others_and_lock_is_bounded() {
     let bad_src = common::add_source(&mut cp, &bad, &[], &[]);
     common::add_source(&mut cp, &good2, &[], &[]);
     // Break the bad source's V2 project store: its path is a file.
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let pdir = layout.project_dir(&project_id_for_canonical(&bad_src.path));
     std::fs::create_dir_all(pdir.parent().unwrap()).unwrap();
     std::fs::write(&pdir, "not a directory").unwrap();
@@ -379,11 +379,11 @@ impl Processor for Observer {
 }
 
 fn snapshot(
-    layout: &V2Layout,
+    layout: &StorageLayout,
     src: &ragmonk_storage::control::SourceRecord,
     build: &str,
 ) -> Vec<String> {
-    let (store, _) =
+    let store =
         ProjectStore::open(layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
     let mut rows: Vec<String> = store
         .files(build)
@@ -408,7 +408,7 @@ fn failed_incremental_build_rolls_back_completely() {
         common::write(&root, &format!("m{i}.py"), &format!("x = {i}\n"));
     }
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     run_source(
@@ -470,7 +470,7 @@ fn failed_full_build_leaves_no_rows_and_previous_build_visible() {
         common::write(&root, &format!("m{i}.py"), &format!("x = {i}\n"));
     }
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     run_source(
@@ -493,7 +493,7 @@ fn failed_full_build_leaves_no_rows_and_previous_build_visible() {
         cp.state(&src.id).unwrap().active_build_id.as_deref(),
         Some(active.as_str())
     );
-    let (store, _) =
+    let store =
         ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
     let builds: i64 = store
         .connection()
@@ -523,7 +523,7 @@ fn readers_see_only_committed_state_during_a_build() {
         common::write(&root, &format!("m{i}.py"), &format!("x = {i}\n"));
     }
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     run_source(

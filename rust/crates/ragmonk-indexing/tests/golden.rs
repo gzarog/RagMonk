@@ -7,7 +7,7 @@ use ragmonk_indexing::classify::classify;
 use ragmonk_indexing::coordinator::{run_source, NoProgress, Options, Registry};
 use ragmonk_indexing::ignore::IgnoreMatcher;
 use ragmonk_indexing::scan::{scan, ScanOptions};
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::Value;
 
 fn golden() -> Value {
@@ -67,7 +67,7 @@ fn scan_and_change_counts_match_python() {
     let inc: Vec<&str> = include.iter().map(String::as_str).collect();
     let exc: Vec<&str> = exclude.iter().map(String::as_str).collect();
     let source = common::add_source(&mut cp, &root, &inc, &exc);
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let registry = Registry::raw();
     let opts = Options::from_config(&ragmonk_config::RagMonkConfig::default());
     for step in g["steps"].as_array().unwrap() {

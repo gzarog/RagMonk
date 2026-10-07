@@ -151,7 +151,7 @@ ragmonk init --storage-mode server --storage-engine opensearch \
 ragmonk backup [PATH]
 ragmonk restore ARCHIVE
 ragmonk rebuild [--source ID]
-ragmonk upgrade
+ragmonk doctor
 ragmonk update check|status|install|rollback
 ragmonk vectors rebuild
 ragmonk uninstall [--keep-data]

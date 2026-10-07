@@ -8,8 +8,8 @@
 //! 3. unpack into `versions/<ver>.partial`, then rename it into place;
 //! 4. self-check: the new binary's `version --json` must report `<ver>`;
 //! 5. copy its bundled models into `<home>/models`, switch `current`;
-//! 6. run the new binary's `upgrade` and `doctor` (migrations + health),
-//!    rolling back to the previous version if it cannot run at all.
+//! 6. run the new binary's `doctor` (health), rolling back to the
+//!    previous version if it cannot run at all.
 
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -23,7 +23,6 @@ use crate::{asset_name, verify, versioning, SIG_ASSET, SUMS_ASSET, TARGET};
 pub struct InstallOutcome {
     pub installed_version: String,
     pub upgraded: bool,
-    pub migrations_applied: bool,
     pub healthy: bool,
 }
 
@@ -40,7 +39,6 @@ pub fn install_latest(
         return Ok(InstallOutcome {
             installed_version: installed.to_owned(),
             upgraded: false,
-            migrations_applied: true,
             healthy: true,
         });
     }
@@ -90,7 +88,6 @@ pub fn install_release(
     let state = layout.switch_to(version)?;
 
     let bin = layout.binary(version);
-    let migrations_applied = run_quiet(&bin, &["upgrade", "--json"], home);
     let healthy = run_quiet(&bin, &["doctor", "--json"], home);
     if self_check(&bin, version).is_err() {
         if let Some(prev) = state.previous {
@@ -104,7 +101,6 @@ pub fn install_release(
     Ok(InstallOutcome {
         installed_version: version.to_owned(),
         upgraded: true,
-        migrations_applied,
         healthy,
     })
 }

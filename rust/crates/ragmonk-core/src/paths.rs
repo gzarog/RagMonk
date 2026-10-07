@@ -89,8 +89,18 @@ impl Home {
     pub fn root(&self) -> &Path {
         &self.root
     }
-    pub fn sources_db(&self) -> PathBuf {
-        self.root.join("sources.db")
+    /// `<home>/state`: the control database and other durable state.
+    pub fn state_dir(&self) -> PathBuf {
+        self.root.join("state")
+    }
+    pub fn control_db(&self) -> PathBuf {
+        self.state_dir().join("control.db")
+    }
+    pub fn models_dir(&self) -> PathBuf {
+        self.root.join("models")
+    }
+    pub fn cache_dir(&self) -> PathBuf {
+        self.root.join("cache")
     }
     pub fn user_config(&self) -> PathBuf {
         self.root.join("config.yaml")
@@ -148,6 +158,7 @@ impl Home {
     pub fn ensure_layout(&self) -> std::io::Result<&Path> {
         for dir in [
             self.root.clone(),
+            self.state_dir(),
             self.projects_dir(),
             self.logs_dir(),
             self.backups_dir(),

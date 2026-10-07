@@ -3,18 +3,20 @@
 //! Layout inside a RagMonk home:
 //!
 //! ```text
-//! <home>/v2/control.db                                   control plane
-//! <home>/v2/projects/<project_id>/knowledge.db           per-source knowledge
+//! <home>/state/control.db                       control plane (sources, build state)
+//! <home>/projects/<project_id>/knowledge.db     per-source knowledge
 //! ```
 //!
-//! Every new source starts in [`control::BuildState::NeedsFullRebuild`].
+//! Each database is created directly at its current schema
+//! ([`schema`]); an existing database with any other schema is refused,
+//! never converted. Every new source starts in
+//! [`control::BuildState::NeedsFullRebuild`].
 
 pub mod control;
 pub mod db;
 pub mod error;
 pub mod knowledge;
 pub mod maintenance;
-pub mod migrate;
 pub mod schema;
 pub mod search;
 pub mod status;
@@ -24,35 +26,32 @@ pub use error::StorageError;
 
 use std::path::{Path, PathBuf};
 
-/// V2 paths under a RagMonk home.
+/// Storage paths under a RagMonk home.
 #[derive(Debug, Clone)]
-pub struct V2Layout {
-    root: PathBuf,
-    backups: PathBuf,
+pub struct StorageLayout {
+    state: PathBuf,
+    projects: PathBuf,
 }
 
-impl V2Layout {
+impl StorageLayout {
     pub fn new(home: &ragmonk_core::paths::Home) -> Self {
         Self {
-            root: home.root().join("v2"),
-            backups: home.backups_dir().join("v2-migrations"),
+            state: home.state_dir(),
+            projects: home.projects_dir(),
         }
     }
 
-    pub fn root(&self) -> &Path {
-        &self.root
+    /// `<home>/state`.
+    pub fn state_dir(&self) -> &Path {
+        &self.state
     }
     pub fn control_db(&self) -> PathBuf {
-        self.root.join("control.db")
+        self.state.join("control.db")
     }
     pub fn project_dir(&self, project_id: &str) -> PathBuf {
-        self.root.join("projects").join(project_id)
+        self.projects.join(project_id)
     }
     pub fn project_db(&self, project_id: &str) -> PathBuf {
         self.project_dir(project_id).join("knowledge.db")
-    }
-    /// Where automatic pre-migration backups are written.
-    pub fn migration_backups(&self) -> &Path {
-        &self.backups
     }
 }

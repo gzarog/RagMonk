@@ -18,7 +18,7 @@ use ragmonk_indexing::daemon::{
 };
 use ragmonk_indexing::status::is_process_alive;
 use ragmonk_storage::control::ControlPlane;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 
 use crate::{load, prepared_home, print_json};
 
@@ -213,13 +213,9 @@ fn run_foreground(home: &Home) -> Result<(), RagMonkError> {
         "text",
     );
     let stop = stop_flag()?;
-    let layout = V2Layout::new(home);
+    let layout = StorageLayout::new(home);
     let cache = cfg.runtime.sqlite_cache_size_mb;
-    let open = || {
-        ControlPlane::open(&layout, cache)
-            .map(|(c, _)| c)
-            .map_err(generic)
-    };
+    let open = || ControlPlane::open(&layout, cache).map_err(generic);
     // The daemon's catalog connection and the worker's own connection.
     let (catalog, control) = (open()?, open()?);
     let runner = CoordinatorRunner {

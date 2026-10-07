@@ -4,15 +4,15 @@ use std::path::Path;
 
 use ragmonk_core::models::SourceType;
 use ragmonk_core::paths::Home;
-use ragmonk_storage::control::{ControlPlane, NewSource, SourceOrigin, SourceRecord};
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::control::{ControlPlane, NewSource, SourceRecord};
+use ragmonk_storage::StorageLayout;
 
 pub fn home(dir: &Path) -> Home {
     Home::new(dir.join("home"))
 }
 
 pub fn control(home: &Home) -> ControlPlane {
-    ControlPlane::open(&V2Layout::new(home), 8).unwrap().0
+    ControlPlane::open(&StorageLayout::new(home), 8).unwrap()
 }
 
 pub fn add_source(
@@ -31,8 +31,6 @@ pub fn add_source(
         enabled: true,
         include_patterns: include.iter().map(|s| s.to_string()).collect(),
         exclude_patterns: exclude.iter().map(|s| s.to_string()).collect(),
-        origin: SourceOrigin::V2,
-        created_at: None,
     })
     .unwrap()
     .0

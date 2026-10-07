@@ -491,7 +491,7 @@ fn access_state(enabled: bool, online_status: &str) -> &'static str {
 
 /// One source's report row plus its recent errors (newest first).
 fn source_row(
-    layout: &ragmonk_storage::V2Layout,
+    layout: &ragmonk_storage::StorageLayout,
     control: &ragmonk_storage::control::ControlPlane,
     source: &ragmonk_storage::control::SourceRecord,
     indexer: &Value,
@@ -511,7 +511,7 @@ fn source_row(
     let mut last_error_detail = Value::Null;
     let mut errors = Vec::new();
     if db.exists() {
-        let (store, _) = ProjectStore::open(layout, &project_id, &source.id, 8)?;
+        let store = ProjectStore::open(layout, &project_id, &source.id, 8)?;
         if let Some(build) = state.active_build_id.as_deref() {
             for (k, v) in store.file_counts_by_status(build)? {
                 counts.insert(k, json!(v));
@@ -599,7 +599,7 @@ pub fn collect_status(
     threshold: f64,
     now: DateTime<Utc>,
 ) -> Result<Value, ragmonk_storage::error::StorageError> {
-    let layout = ragmonk_storage::V2Layout::new(home);
+    let layout = ragmonk_storage::StorageLayout::new(home);
     let indexer = indexer_state(home, threshold, now);
     let mut rows = Vec::new();
     let mut errors = Vec::new();

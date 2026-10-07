@@ -136,7 +136,6 @@ fn home_layout_matches_python() {
             .replace('\\', "/")
     };
     let hp = &g["home_paths"];
-    assert_eq!(rel(home.sources_db()), s(&hp["sources_db"]));
     assert_eq!(rel(home.user_config()), s(&hp["user_config"]));
     assert_eq!(rel(home.logs_dir()), s(&hp["logs"]));
     assert_eq!(rel(home.backups_dir()), s(&hp["backups"]));

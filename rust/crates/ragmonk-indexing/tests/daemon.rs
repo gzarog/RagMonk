@@ -14,7 +14,7 @@ use ragmonk_indexing::daemon::{
     format_uptime, health, Catalog, Daemon, DaemonOptions, PassRunner, ScanRequest,
 };
 use ragmonk_indexing::lock::RunLock;
-use ragmonk_storage::control::{SourceOrigin, SourceRecord};
+use ragmonk_storage::control::SourceRecord;
 
 fn source(id: &str, path: &str) -> SourceRecord {
     SourceRecord {
@@ -24,7 +24,6 @@ fn source(id: &str, path: &str) -> SourceRecord {
         enabled: true,
         include_patterns: vec![],
         exclude_patterns: vec![],
-        origin: SourceOrigin::V2,
         created_at: String::new(),
         updated_at: String::new(),
     }
@@ -286,7 +285,7 @@ mod common;
 fn coordinator_runner_indexes_and_publishes_progress() {
     use ragmonk_indexing::coordinator::{Options, Registry};
     use ragmonk_indexing::daemon::CoordinatorRunner;
-    use ragmonk_storage::V2Layout;
+    use ragmonk_storage::StorageLayout;
 
     let dir = tempfile::tempdir().unwrap();
     let home = common::home(dir.path());
@@ -297,7 +296,7 @@ fn coordinator_runner_indexes_and_publishes_progress() {
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     let runner = CoordinatorRunner {
-        layout: V2Layout::new(&home),
+        layout: StorageLayout::new(&home),
         control: common::control(&home),
         registry: Registry::raw(),
         opts: Options::from_config(&ragmonk_config::RagMonkConfig::default()),
@@ -348,7 +347,7 @@ fn wait_until(mut f: impl FnMut() -> bool) -> bool {
 fn watched_daemon(network: bool) -> (tempfile::TempDir, PathBuf, Home, Log, Daemon, SourceRecord) {
     use ragmonk_indexing::coordinator::{Options, Registry};
     use ragmonk_indexing::daemon::CoordinatorRunner;
-    use ragmonk_storage::V2Layout;
+    use ragmonk_storage::StorageLayout;
 
     let dir = tempfile::tempdir().unwrap();
     let home = common::home(dir.path());
@@ -364,7 +363,7 @@ fn watched_daemon(network: bool) -> (tempfile::TempDir, PathBuf, Home, Log, Daem
     let runner = Logged(
         log.clone(),
         CoordinatorRunner {
-            layout: V2Layout::new(&home),
+            layout: StorageLayout::new(&home),
             control: common::control(&home),
             registry: Registry::raw(),
             opts: Options::from_config(&ragmonk_config::RagMonkConfig::default()),
@@ -406,8 +405,8 @@ fn check_watched(network: bool, reason: &str) {
     assert!(req.changed_paths.iter().any(|p| p.ends_with("b.py")));
     let cp = common::control(&home);
     let active = cp.state(&src.id).unwrap().active_build_id.unwrap();
-    let (store, _) = ragmonk_storage::knowledge::ProjectStore::open(
-        &ragmonk_storage::V2Layout::new(&home),
+    let store = ragmonk_storage::knowledge::ProjectStore::open(
+        &ragmonk_storage::StorageLayout::new(&home),
         &ragmonk_core::paths::project_id_for_canonical(&src.path),
         &src.id,
         8,

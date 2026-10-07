@@ -26,8 +26,7 @@ use ragmonk_core::models::FileKind;
 use ragmonk_core::paths::{project_id_for_canonical, Home};
 use ragmonk_storage::control::{plan_for, ControlPlane, IndexVersions, RebuildPlan, SourceRecord};
 use ragmonk_storage::knowledge::{FileKnowledge, FileRow, ProjectStore};
-use ragmonk_storage::schema::V2_SCHEMA_VERSION;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde::Serialize;
 
 use crate::diff::{diff, Change, Decision, DiffCounts};
@@ -130,7 +129,6 @@ impl Registry {
             unknown: raw,
             finalizers: Vec::new(),
             versions: IndexVersions {
-                schema_version: V2_SCHEMA_VERSION,
                 parser_version: "raw-1".into(),
                 chunker_version: "none".into(),
                 converter_version: "none".into(),
@@ -387,7 +385,7 @@ fn run_workers(
 
 /// Indexes one source. Errors abort only this source's pending build.
 pub fn run_source(
-    layout: &V2Layout,
+    layout: &StorageLayout,
     control: &mut ControlPlane,
     source: &SourceRecord,
     registry: &Registry,
@@ -405,7 +403,7 @@ pub fn run_source(
 /// Targets are ignored when the plan is a full rebuild, which must see
 /// the whole tree.
 pub fn run_source_with(
-    layout: &V2Layout,
+    layout: &StorageLayout,
     control: &mut ControlPlane,
     source: &SourceRecord,
     registry: &Registry,
@@ -439,7 +437,7 @@ pub fn run_source_with(
         RebuildPlan::Incremental { .. } => "incremental".into(),
     };
     let project_id = project_id_for_canonical(&source.path);
-    let (mut store, _) =
+    let mut store =
         ProjectStore::open(layout, &project_id, &source.id, opts.cache_size_mb).map_err(db_err)?;
 
     progress.event(&ProgressEvent::Stage {
@@ -817,7 +815,7 @@ pub fn index_all(
         None,
         opts.lock_timeout,
     )?;
-    let layout = V2Layout::new(home);
+    let layout = StorageLayout::new(home);
     let sources = control.list_sources(true).map_err(db_err)?;
     let mut summary = RunSummary::default();
     let total = sources.len();

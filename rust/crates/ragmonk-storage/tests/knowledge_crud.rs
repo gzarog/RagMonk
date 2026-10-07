@@ -3,18 +3,15 @@
 use ragmonk_core::ids::v2;
 use ragmonk_core::models::SourceType;
 use ragmonk_core::paths::Home;
-use ragmonk_storage::control::{
-    plan_for, ControlPlane, IndexVersions, NewSource, RebuildPlan, SourceOrigin,
-};
+use ragmonk_storage::control::{plan_for, ControlPlane, IndexVersions, NewSource, RebuildPlan};
 use ragmonk_storage::knowledge::{
     AttachmentProvenance, ChunkRow, DocumentRow, EntityRow, FileKnowledge, FileRow, LinkRow,
     ProjectStore, RelationshipRow,
 };
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 
 fn versions() -> IndexVersions {
     IndexVersions {
-        schema_version: 1,
         parser_version: "p".into(),
         chunker_version: "c".into(),
         converter_version: "d".into(),
@@ -141,8 +138,8 @@ fn email_knowledge(f: &FileRow) -> FileKnowledge {
 fn builds_are_invisible_until_published_and_incremental_carry_forward_works() {
     let tmp = tempfile::tempdir().unwrap();
     let home = Home::new(tmp.path());
-    let layout = V2Layout::new(&home);
-    let (mut cp, _) = ControlPlane::open(&layout, 8).unwrap();
+    let layout = StorageLayout::new(&home);
+    let mut cp = ControlPlane::open(&layout, 8).unwrap();
     let (src, _) = cp
         .add_source(&NewSource {
             canonical_path: "/r".into(),
@@ -150,11 +147,9 @@ fn builds_are_invisible_until_published_and_incremental_carry_forward_works() {
             enabled: true,
             include_patterns: vec![],
             exclude_patterns: vec![],
-            origin: SourceOrigin::V2,
-            created_at: None,
         })
         .unwrap();
-    let (mut store, _) = ProjectStore::open(&layout, "proj", &src.id, 8).unwrap();
+    let mut store = ProjectStore::open(&layout, "proj", &src.id, 8).unwrap();
 
     // Full build b1.
     cp.begin_build(&src.id, "b1").unwrap();
@@ -270,8 +265,8 @@ fn builds_are_invisible_until_published_and_incremental_carry_forward_works() {
 #[test]
 fn jobs_claim_retry_fail_and_recover() {
     let tmp = tempfile::tempdir().unwrap();
-    let layout = V2Layout::new(&Home::new(tmp.path()));
-    let (mut store, _) = ProjectStore::open(&layout, "p", "src_x", 8).unwrap();
+    let layout = StorageLayout::new(&Home::new(tmp.path()));
+    let mut store = ProjectStore::open(&layout, "p", "src_x", 8).unwrap();
     store.create_build("b", true, &versions()).unwrap();
     let j1 = store.enqueue("b", "f1", "a.py", 0).unwrap();
     let j2 = store.enqueue("b", "f2", "b.py", 5).unwrap();
@@ -305,58 +300,47 @@ fn jobs_claim_retry_fail_and_recover() {
 }
 
 #[test]
-fn migration_from_v1_schema_backs_up_and_adds_retry_columns() {
-    use ragmonk_storage::migrate;
-    use ragmonk_storage::schema::KNOWLEDGE_MIGRATIONS;
+fn fresh_home_creates_current_schema_and_refuses_anything_else() {
     let tmp = tempfile::tempdir().unwrap();
-    let layout = V2Layout::new(&Home::new(tmp.path()));
-    // A database created by the RUST-02 build (schema version 1) with data.
+    let layout = StorageLayout::new(&Home::new(tmp.path()));
+    // A fresh home: both databases are created directly where expected.
+    ControlPlane::open(&layout, 8).unwrap();
+    ProjectStore::open(&layout, "p", "s", 8).unwrap();
+    assert!(tmp.path().join("state").join("control.db").is_file());
+    assert!(tmp
+        .path()
+        .join("projects")
+        .join("p")
+        .join("knowledge.db")
+        .is_file());
+    // Reopening a current database is a no-op.
+    ProjectStore::open(&layout, "p", "s", 8).unwrap();
+
+    // A database with any other schema is refused and left as it was.
+    let foreign = layout.project_db("q");
     {
-        let mut conn = ragmonk_storage::db::open(&layout.project_db("p"), 8).unwrap();
-        migrate::apply(
-            &mut conn,
-            "knowledge-p",
-            &KNOWLEDGE_MIGRATIONS[..1],
-            layout.migration_backups(),
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO builds (id, source_id, kind, status, versions, started_at)
-             VALUES ('b', 's', 'full', 'published', '{}', 't')",
-            [],
-        )
-        .unwrap();
+        let conn = ragmonk_storage::db::open(&foreign, 8).unwrap();
+        conn.execute_batch("CREATE TABLE files (id TEXT); INSERT INTO files VALUES ('x');")
+            .unwrap();
     }
-    let (store, applied) = ProjectStore::open(&layout, "p", "s", 8).unwrap();
-    assert_eq!((applied.from, applied.to), (1, 6));
-    assert!(
-        applied.backup.is_some(),
-        "existing data is backed up before migrating"
-    );
-    let builds: i64 = store
-        .connection()
-        .query_row("SELECT COUNT(*) FROM builds", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(builds, 1);
-    let cols: i64 = store
-        .connection()
+    let err = ProjectStore::open(&layout, "q", "s", 8).err().unwrap();
+    assert!(err.to_string().contains("ragmonk index"), "{err}");
+    let conn = rusqlite::Connection::open(&foreign).unwrap();
+    let tables: i64 = conn
         .query_row(
-            "SELECT (SELECT COUNT(*) FROM pragma_table_info('files')
-                     WHERE name IN ('attempt_count', 'next_attempt_at'))
-                  + (SELECT COUNT(*) FROM pragma_table_info('relationships')
-                     WHERE name = 'reference_text')",
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'",
             [],
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(cols, 3);
+    assert_eq!(tables, 1, "nothing was created or altered");
 }
 
 #[test]
 fn set_based_carry_forward_copies_everything_but_excluded_files() {
     let tmp = tempfile::tempdir().unwrap();
-    let layout = V2Layout::new(&Home::new(tmp.path()));
-    let (mut store, _) = ProjectStore::open(&layout, "p", "s", 8).unwrap();
+    let layout = StorageLayout::new(&Home::new(tmp.path()));
+    let mut store = ProjectStore::open(&layout, "p", "s", 8).unwrap();
     store.create_build("b1", true, &versions()).unwrap();
     let a = file("s", "a.py", "1");
     let b = file("s", "b.py", "2");
@@ -388,63 +372,6 @@ fn set_based_carry_forward_copies_everything_but_excluded_files() {
     let files = store.files("b2").unwrap();
     let ra = files.iter().find(|f| f.id == a.id).unwrap();
     assert_eq!((ra.size, ra.mtime), (99, 9.5));
-}
-
-#[test]
-fn migration_to_v3_rekeys_lexical_rows_and_keeps_search_working() {
-    use ragmonk_storage::migrate;
-    use ragmonk_storage::schema::KNOWLEDGE_MIGRATIONS;
-    let tmp = tempfile::tempdir().unwrap();
-    let layout = V2Layout::new(&Home::new(tmp.path()));
-    // A schema-v2 database whose FTS rowids do not match the base rows.
-    {
-        let mut conn = ragmonk_storage::db::open(&layout.project_db("p"), 8).unwrap();
-        migrate::apply(
-            &mut conn,
-            "knowledge-p",
-            &KNOWLEDGE_MIGRATIONS[..2],
-            layout.migration_backups(),
-        )
-        .unwrap();
-        conn.execute_batch(
-            "INSERT INTO builds (id, source_id, kind, status, versions, started_at)
-                VALUES ('b', 's', 'full', 'published', '{}', 't');
-             INSERT INTO files (id, source_id, rel_path, kind, size, mtime, status, build_id,
-                created_at, updated_at) VALUES ('f1', 's', 'src/alpha_module.py', 'code', 1, 1.0,
-                'indexed', 'b', 't', 't');
-             INSERT INTO path_fts (rowid, file_id, build_id, path) VALUES (999, 'f1', 'b', 'src/alpha_module.py');
-             INSERT INTO entities (id, build_id, file_id, kind, name, qualified_name, language,
-                start_line, end_line) VALUES ('e1', 'b', 'f1', 'function', 'alpha_fn', 'm.alpha_fn',
-                'python', 1, 2);
-             INSERT INTO code_fts (rowid, entity_id, build_id, name, qualified_name, signature)
-                VALUES (777, 'e1', 'b', 'alpha_fn', 'm.alpha_fn', 'def alpha_fn()');",
-        )
-        .unwrap();
-    }
-    let (mut store, applied) = ProjectStore::open(&layout, "p", "s", 8).unwrap();
-    assert_eq!((applied.from, applied.to), (2, 6));
-    assert!(applied.backup.is_some());
-    assert_eq!(
-        store.search_paths("b", "alpha_module", 5).unwrap()[0].id,
-        "f1"
-    );
-    assert_eq!(store.search_code("b", "alpha_fn", 5).unwrap()[0].id, "e1");
-    let aligned: i64 = store
-        .connection()
-        .query_row(
-            "SELECT COUNT(*) FROM code_fts c JOIN entities e ON e.rowid = c.rowid AND e.id = c.entity_id",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(aligned, 1);
-    // Per-file deletes now find the lexical rows by rowid.
-    store.remove_file("b", "f1").unwrap();
-    assert!(store
-        .search_paths("b", "alpha_module", 5)
-        .unwrap()
-        .is_empty());
-    assert!(store.search_code("b", "alpha_fn", 5).unwrap().is_empty());
 }
 
 #[test]

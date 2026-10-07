@@ -133,3 +133,26 @@ fn server_v2_requires_server_mode() {
     assert_eq!(v["data"]["indexes"].as_array().unwrap().len(), 6);
     assert_eq!(v["data"]["indexes"][0]["name"], "ragmonk-v2-source-state");
 }
+
+#[test]
+fn incompatible_control_database_is_refused_not_converted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let db = home.join("state").join("control.db");
+    std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+    {
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute_batch("CREATE TABLE sources (id TEXT); INSERT INTO sources VALUES ('x');")
+            .unwrap();
+    }
+    let before = std::fs::read(&db).unwrap();
+    let out = with_home(&home)
+        .current_dir(tmp.path())
+        .args(["source", "list"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("ragmonk index"), "{err}");
+    assert_eq!(std::fs::read(&db).unwrap(), before, "never altered");
+}

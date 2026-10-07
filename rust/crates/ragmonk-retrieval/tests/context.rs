@@ -6,9 +6,9 @@ use ragmonk_core::models::SourceType;
 use ragmonk_core::paths::{project_id_for_canonical, Home};
 use ragmonk_indexing::coordinator::{run_source, NoProgress, Options};
 use ragmonk_retrieval::context::{expand_chunk_context, ContextOptions};
-use ragmonk_storage::control::{ControlPlane, NewSource, SourceOrigin};
+use ragmonk_storage::control::{ControlPlane, NewSource};
 use ragmonk_storage::knowledge::{ChunkRow, ProjectStore};
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 
 const DOC: &str = "# Guide\n\nIntro paragraph.\n\n## Setup\n\nStep one text.\n\nStep two text.\n\nStep three text.\n\n| Key | Value |\n| --- | --- |\n| a | 1 |\n\n## Usage\n\nUse it well.\n";
 
@@ -18,8 +18,8 @@ fn index() -> (tempfile::TempDir, ProjectStore, String) {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("guide.md"), DOC).unwrap();
     let home = Home::new(tmp.path().join("home"));
-    let layout = V2Layout::new(&home);
-    let mut cp = ControlPlane::open(&layout, 8).unwrap().0;
+    let layout = StorageLayout::new(&home);
+    let mut cp = ControlPlane::open(&layout, 8).unwrap();
     let canonical = ragmonk_core::paths::resolve(&root)
         .unwrap()
         .to_string_lossy()
@@ -31,8 +31,6 @@ fn index() -> (tempfile::TempDir, ProjectStore, String) {
             enabled: true,
             include_patterns: vec![],
             exclude_patterns: vec![],
-            origin: SourceOrigin::V2,
-            created_at: None,
         })
         .unwrap()
         .0;
@@ -47,9 +45,8 @@ fn index() -> (tempfile::TempDir, ProjectStore, String) {
     )
     .unwrap();
     let build = cp.state(&src.id).unwrap().active_build_id.unwrap();
-    let store = ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8)
-        .unwrap()
-        .0;
+    let store =
+        ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
     (tmp, store, build)
 }
 

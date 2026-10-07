@@ -9,7 +9,7 @@ use ragmonk_core::paths::{project_id_for_canonical, Home};
 use ragmonk_retrieval::graph::{self, Direction};
 use ragmonk_storage::control::SourceRecord;
 use ragmonk_storage::knowledge::ProjectStore;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::{json, Map, Value};
 
 use crate::query_cmd::{self, open_sources, Opened};
@@ -768,5 +768,5 @@ pub fn format_uptime(started_at: Option<&str>) -> String {
 /// The project directory of a source (for completeness of the layout).
 #[allow(dead_code)]
 pub fn project_dir(home: &Home, source_path: &str) -> std::path::PathBuf {
-    V2Layout::new(home).project_dir(&project_id_for_canonical(source_path))
+    StorageLayout::new(home).project_dir(&project_id_for_canonical(source_path))
 }

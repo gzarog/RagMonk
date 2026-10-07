@@ -1,12 +1,12 @@
-//! Read-only inspection and consistent snapshots of V2 databases, for
-//! `backup`, `restore`, `upgrade` and `doctor`. Nothing here applies a
-//! migration or writes to the database it inspects.
+//! Read-only inspection and consistent snapshots of RagMonk databases, for
+//! `backup`, `restore` and `doctor`. Nothing here writes to the database it
+//! inspects.
 
 use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags};
 
-use crate::schema::{CONTROL_MIGRATIONS, KNOWLEDGE_MIGRATIONS};
+use crate::schema::{control_fingerprint, knowledge_fingerprint, recorded_fingerprint};
 
 fn read_only(path: &Path) -> rusqlite::Result<Connection> {
     Connection::open_with_flags(
@@ -15,40 +15,45 @@ fn read_only(path: &Path) -> rusqlite::Result<Connection> {
     )
 }
 
-/// Latest control-plane schema version this build knows.
-pub fn latest_control_version() -> i64 {
-    CONTROL_MIGRATIONS.last().map_or(0, |m| m.version)
+/// Whether a database file has this build's schema.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SchemaState {
+    /// No file (it is created on first use).
+    Missing,
+    Current,
+    /// Anything else; the string says what was found.
+    Incompatible(String),
 }
 
-/// Latest knowledge schema version this build knows.
-pub fn latest_knowledge_version() -> i64 {
-    KNOWLEDGE_MIGRATIONS.last().map_or(0, |m| m.version)
+impl SchemaState {
+    pub fn is_incompatible(&self) -> bool {
+        matches!(self, SchemaState::Incompatible(_))
+    }
 }
 
-/// Applied schema version, without migrating: `None` when the file is
-/// missing or unreadable, `0` when no migration was ever applied.
-pub fn schema_version(path: &Path) -> Option<i64> {
+fn schema_state(path: &Path, expected: &str) -> SchemaState {
     if !path.is_file() {
-        return None;
+        return SchemaState::Missing;
     }
-    let conn = read_only(path).ok()?;
-    let has_table: bool = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'",
-            [],
-            |r| r.get::<_, i64>(0),
-        )
-        .ok()?
-        > 0;
-    if !has_table {
-        return Some(0);
+    let found = read_only(path)
+        .map_err(|e| e.to_string())
+        .and_then(|conn| recorded_fingerprint(&conn));
+    match found {
+        Ok(Some(f)) if f == expected => SchemaState::Current,
+        Ok(None) => SchemaState::Missing,
+        Ok(Some(f)) => SchemaState::Incompatible(format!("schema {f}, expected {expected}")),
+        Err(e) => SchemaState::Incompatible(e),
     }
-    conn.query_row(
-        "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
-        [],
-        |r| r.get(0),
-    )
-    .ok()
+}
+
+/// Schema state of a control database, read without modifying it.
+pub fn control_schema_state(path: &Path) -> SchemaState {
+    schema_state(path, &control_fingerprint())
+}
+
+/// Schema state of a project knowledge database, read without modifying it.
+pub fn knowledge_schema_state(path: &Path) -> SchemaState {
+    schema_state(path, &knowledge_fingerprint())
 }
 
 /// `PRAGMA integrity_check`; the error describes what is wrong.
@@ -104,28 +109,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn versions_snapshot_and_integrity() {
+    fn schema_state_snapshot_and_integrity() {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("a.db");
-        assert_eq!(schema_version(&db), None);
-        let conn = Connection::open(&db).unwrap();
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL; CREATE TABLE t (x); INSERT INTO t VALUES (1);",
-        )
-        .unwrap();
-        assert_eq!(schema_version(&db), Some(0));
-        conn.execute_batch(
-            "CREATE TABLE schema_migrations (version INTEGER, name TEXT, applied_at TEXT);
-             INSERT INTO schema_migrations VALUES (3, 'x', 'now');",
-        )
-        .unwrap();
-        assert_eq!(schema_version(&db), Some(3));
+        assert_eq!(control_schema_state(&db), SchemaState::Missing);
+        let mut conn = crate::db::open(&db, 8).unwrap();
+        crate::schema::create_or_verify(&mut conn, &db, crate::schema::CONTROL_SCHEMA).unwrap();
+        assert_eq!(control_schema_state(&db), SchemaState::Current);
+        assert!(knowledge_schema_state(&db).is_incompatible());
         let copy = dir.path().join("out/b.db");
         snapshot(&db, &copy).unwrap();
-        assert_eq!(schema_version(&copy), Some(3));
+        assert_eq!(control_schema_state(&copy), SchemaState::Current);
         integrity_check(&copy).unwrap();
         std::fs::write(dir.path().join("bad.db"), b"not sqlite at all, sorry").unwrap();
         assert!(integrity_check(&dir.path().join("bad.db")).is_err());
-        assert!(latest_knowledge_version() >= 6);
+        assert!(control_schema_state(&dir.path().join("bad.db")).is_incompatible());
     }
 }

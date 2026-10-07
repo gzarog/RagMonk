@@ -11,9 +11,9 @@ use ragmonk_core::paths::{project_id_for_canonical, Home};
 use ragmonk_indexing::coordinator::{run_source, Options};
 use ragmonk_indexing::daemon::pid;
 use ragmonk_indexing::lock::RunLock;
-use ragmonk_storage::control::{ControlPlane, NewSource, SourceOrigin, SourceRecord};
+use ragmonk_storage::control::{ControlPlane, NewSource, SourceRecord};
 use ragmonk_storage::knowledge::ProjectStore;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::{json, Value};
 
 use crate::{load, prepared_home, print_json};
@@ -26,12 +26,10 @@ fn db(e: impl std::fmt::Display) -> RagMonkError {
     RagMonkError::new(ErrorKind::Database, e.to_string())
 }
 
-/// The V2 control plane (created and migrated on first use).
+/// The control plane (created on first use).
 pub fn control_plane(home: &Home) -> Result<ControlPlane, RagMonkError> {
     let cfg = load(home)?;
-    ControlPlane::open(&V2Layout::new(home), cfg.runtime.sqlite_cache_size_mb)
-        .map(|(c, _)| c)
-        .map_err(db)
+    ControlPlane::open(&StorageLayout::new(home), cfg.runtime.sqlite_cache_size_mb).map_err(db)
 }
 
 pub fn get_source(cp: &ControlPlane, id: &str) -> Result<SourceRecord, RagMonkError> {
@@ -225,7 +223,6 @@ fn source_info(cp: &ControlPlane, s: &SourceRecord) -> Result<Value, RagMonkErro
         "enabled": s.enabled,
         "include_patterns": s.include_patterns,
         "exclude_patterns": s.exclude_patterns,
-        "origin": s.origin,
         "status": state.online_status,
         "build_state": state.build_state.as_str(),
         "rebuild_reason": state.rebuild_reason,
@@ -291,8 +288,6 @@ pub fn add_source(
             enabled: true,
             include_patterns: include,
             exclude_patterns: exclude,
-            origin: SourceOrigin::V2,
-            created_at: None,
         })
         .map_err(db)?;
     Ok(s)
@@ -315,7 +310,7 @@ pub fn remove_source(home: &Home, source_id: &str) -> Result<bool, RagMonkError>
     let mut cp = control_plane(home)?;
     let s = get_source(&cp, source_id)?;
     assert_no_active_daemon(home)?;
-    let layout = V2Layout::new(home);
+    let layout = StorageLayout::new(home);
     let project_dir = layout.project_dir(&project_id_for_canonical(&s.path));
     let cfg = load(home)?;
     let lock = RunLock::acquire(
@@ -386,7 +381,7 @@ pub fn source(cmd: SourceCommand) -> Result<(), RagMonkError> {
         SourceCommand::Remove { source_id, yes } => {
             let s = get_source(&cp, &source_id)?;
             assert_no_active_daemon(&home)?;
-            let layout = V2Layout::new(&home);
+            let layout = StorageLayout::new(&home);
             let project_dir = layout.project_dir(&project_id_for_canonical(&s.path));
             if !yes {
                 println!("This will permanently remove:");
@@ -422,7 +417,7 @@ pub fn index(source_id: Option<String>) -> Result<(), RagMonkError> {
         println!("No enabled sources to index.");
         return Ok(());
     }
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let registry =
         ragmonk_convert::registry_with(&cfg, &ragmonk_convert::RegistryOptions::for_home(&home));
     let opts = Options::from_config(&cfg);
@@ -553,13 +548,13 @@ pub fn docs_rows(home: &Home, source_id: Option<&str>) -> Result<Vec<Value>, Rag
         Some(id) => vec![get_source(&cp, id)?],
         None => cp.list_sources(false).map_err(db)?,
     };
-    let layout = V2Layout::new(home);
+    let layout = StorageLayout::new(home);
     let mut rows = Vec::new();
     for s in &sources {
         let Some(build) = cp.state(&s.id).map_err(db)?.active_build_id else {
             continue;
         };
-        let (store, _) = ProjectStore::open(
+        let store = ProjectStore::open(
             &layout,
             &project_id_for_canonical(&s.path),
             &s.id,

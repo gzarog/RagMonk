@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use ragmonk_core::paths::project_id_for_canonical;
 use ragmonk_indexing::coordinator::{run_source, NoProgress, Options};
 use ragmonk_storage::knowledge::ProjectStore;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::Value;
 
 fn compat() -> PathBuf {
@@ -35,7 +35,7 @@ fn documents_are_converted_chunked_and_searchable() {
     }
 
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     let cfg = ragmonk_config::RagMonkConfig::default();
@@ -47,7 +47,7 @@ fn documents_are_converted_chunked_and_searchable() {
     assert_eq!(r.failed, 1, "only corrupt.docx fails");
 
     let active = cp.state(&src.id).unwrap().active_build_id.unwrap();
-    let (store, _) =
+    let store =
         ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
     let files: HashMap<String, _> = store
         .files(&active)
@@ -153,7 +153,7 @@ fn documents_are_converted_chunked_and_searchable() {
     .unwrap();
     let inc = run_source(&layout, &mut cp, &src, &reg, &opts, &mut NoProgress).unwrap();
     assert_eq!((inc.counts.changed, inc.indexed), (1, 1));
-    let (store, _) =
+    let store =
         ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
     assert_eq!(
         store.search_chunks(&active, "zebracorn", 5).unwrap().len(),

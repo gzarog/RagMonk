@@ -301,7 +301,7 @@ fn admin_ui_matches_reference() {
     let golden_size = Regex::new(r"(?:<N> KB|\d+(?:\.\d+)? (?:[KMGT]?B)\b)").unwrap();
     // The control database's schema version is V1's on one side and
     // V2's on the other (ADR 0027).
-    let schema = Regex::new(r"schema v\d+").unwrap();
+    let schema = Regex::new(r"schema (v\d+|[0-9a-f]{16})").unwrap();
     // Windows checkouts convert the fixtures to CRLF, so file sizes in the
     // Documents table differ from the reference's (POSIX) ones there.
     let doc_size = Regex::new(r"</td><td>\d+</td><td>(indexed|failed|queued|—)").unwrap();

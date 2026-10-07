@@ -24,7 +24,7 @@ use ragmonk_core::errors::{ErrorKind, RagMonkError};
 use ragmonk_core::models::SourceType;
 use ragmonk_core::paths::Home;
 use ragmonk_storage::control::{ControlPlane, SourceRecord};
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 
 use crate::coordinator::{run_source_with, Options, Progress, Registry, SourceResult};
 use crate::lock::RunLock;
@@ -85,7 +85,7 @@ pub trait PassRunner: Send {
 /// plane. A request with touched paths runs as a targeted pass. Anything
 /// else is a full scan and diff.
 pub struct CoordinatorRunner {
-    pub layout: V2Layout,
+    pub layout: StorageLayout,
     pub control: ControlPlane,
     pub registry: Registry,
     pub opts: Options,

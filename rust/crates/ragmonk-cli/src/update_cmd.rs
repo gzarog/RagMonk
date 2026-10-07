@@ -138,20 +138,12 @@ fn install_cmd(json: bool) -> Result<(), RagMonkError> {
         print_json(&serde_json::json!({
             "installed_version": out.installed_version,
             "upgraded": out.upgraded,
-            "migrations_applied": out.migrations_applied,
             "healthy": out.healthy,
         }))?;
     } else if !out.upgraded {
         println!("RagMonk {} is already up to date.", out.installed_version);
     } else {
         println!("✓ Installed RagMonk {}", out.installed_version);
-        if out.migrations_applied {
-            println!("✓ Database migrations complete");
-        } else {
-            println!(
-                "! Database migrations did not complete cleanly -- run `ragmonk upgrade` to retry"
-            );
-        }
         if out.healthy {
             println!("✓ Health check passed");
         } else {
@@ -159,7 +151,7 @@ fn install_cmd(json: bool) -> Result<(), RagMonkError> {
         }
         println!("\nRagMonk {} is ready.", out.installed_version);
     }
-    if out.upgraded && !(out.migrations_applied && out.healthy) {
+    if out.upgraded && !out.healthy {
         return Err(RagMonkError::new(ErrorKind::HealthCheck, String::new()));
     }
     Ok(())
@@ -172,7 +164,6 @@ fn rollback(json: bool) -> Result<(), RagMonkError> {
         return print_json(&serde_json::json!({ "from_version": from, "installed_version": to }));
     }
     println!("✓ Rolled back RagMonk {from} → {to}");
-    println!("Run `ragmonk upgrade` if {to} needs its database schema.");
     Ok(())
 }
 

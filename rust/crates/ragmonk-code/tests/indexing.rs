@@ -14,7 +14,7 @@ use ragmonk_core::paths::project_id_for_canonical;
 use ragmonk_indexing::coordinator::{run_source, NoProgress, Options};
 use ragmonk_storage::control::{ControlPlane, SourceRecord};
 use ragmonk_storage::knowledge::ProjectStore;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::{json, Value};
 
 fn compat() -> PathBuf {
@@ -45,7 +45,7 @@ fn opts() -> Options {
 struct Fixture {
     _tmp: tempfile::TempDir,
     root: PathBuf,
-    layout: V2Layout,
+    layout: StorageLayout,
     cp: ControlPlane,
     src: SourceRecord,
 }
@@ -56,7 +56,7 @@ fn fixture() -> Fixture {
     std::fs::create_dir_all(&root).unwrap();
     copy_tree(&compat().join("fixtures/code"), &root);
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     Fixture {
@@ -88,7 +88,7 @@ impl Fixture {
             .unwrap()
             .active_build_id
             .unwrap();
-        let (store, _) = ProjectStore::open(
+        let store = ProjectStore::open(
             &self.layout,
             &project_id_for_canonical(&self.src.path),
             &self.src.id,
@@ -250,12 +250,12 @@ fn rebuilding_from_scratch_reproduces_identical_ids() {
     // handles keep Windows from deleting the first one).
     let home_root = f
         .layout
-        .root()
+        .state_dir()
         .parent()
         .unwrap()
         .with_file_name("home-again");
     let home = ragmonk_core::paths::Home::new(&home_root);
-    f.layout = V2Layout::new(&home);
+    f.layout = StorageLayout::new(&home);
     f.cp = common::control(&home);
     let src = common::add_source(&mut f.cp, &f.root.clone(), &[], &[]);
     assert_eq!(src.id, f.src.id);

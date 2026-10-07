@@ -1,4 +1,4 @@
-//! V2 control plane: source definitions plus V2-only build state.
+//! Control plane: source definitions plus their build state.
 
 use std::path::Path;
 
@@ -8,11 +8,10 @@ use serde::{Deserialize, Serialize};
 use ragmonk_core::ids::make_source_id;
 use ragmonk_core::models::SourceType;
 
-use crate::db::{now_iso, open, write_tx};
+use crate::db::{now_iso, write_tx};
 use crate::error::{Result, StorageError};
-use crate::migrate::{self, Applied};
-use crate::schema::{CONTROL_MIGRATIONS, V2_SCHEMA_VERSION};
-use crate::V2Layout;
+use crate::schema::{open_current, CONTROL_SCHEMA};
+use crate::StorageLayout;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -48,28 +47,11 @@ impl BuildState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SourceOrigin {
-    V2,
-    V1Import,
-}
-
-impl SourceOrigin {
-    fn as_str(self) -> &'static str {
-        match self {
-            SourceOrigin::V2 => "v2",
-            SourceOrigin::V1Import => "v1_import",
-        }
-    }
-}
-
 /// Versions of everything that shapes index-derived data. A published
 /// build records the versions it was built with; any difference in the
 /// structural ones forces a full rebuild.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexVersions {
-    pub schema_version: i64,
     pub parser_version: String,
     pub chunker_version: String,
     pub converter_version: String,
@@ -81,9 +63,6 @@ impl IndexVersions {
     /// Field names whose values differ from `other`.
     pub fn differences(&self, other: &IndexVersions) -> Vec<&'static str> {
         let mut out = Vec::new();
-        if self.schema_version != other.schema_version {
-            out.push("schema_version");
-        }
         if self.parser_version != other.parser_version {
             out.push("parser_version");
         }
@@ -111,7 +90,6 @@ pub struct SourceRecord {
     pub enabled: bool,
     pub include_patterns: Vec<String>,
     pub exclude_patterns: Vec<String>,
-    pub origin: SourceOrigin,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -153,7 +131,7 @@ pub fn plan_for(state: &SourceState, current: &IndexVersions) -> RebuildPlan {
                 .unwrap_or_else(|| "needs_full_rebuild".into()),
         ),
         BuildState::Building | BuildState::Failed if state.active_build_id.is_none() => {
-            full("no published V2 build".into())
+            full("no published build".into())
         }
         _ => match (&state.active_build_id, &state.versions) {
             (Some(active), Some(built)) => {
@@ -166,7 +144,7 @@ pub fn plan_for(state: &SourceState, current: &IndexVersions) -> RebuildPlan {
                     full(format!("versions changed: {}", diff.join(", ")))
                 }
             }
-            _ => full("no published V2 build".into()),
+            _ => full("no published build".into()),
         },
     }
 }
@@ -192,11 +170,6 @@ fn source_from_row(row: &Row<'_>) -> rusqlite::Result<(SourceRecord, String, Str
             enabled: row.get::<_, i64>("enabled")? != 0,
             include_patterns: Vec::new(),
             exclude_patterns: Vec::new(),
-            origin: if row.get::<_, String>("origin")? == "v1_import" {
-                SourceOrigin::V1Import
-            } else {
-                SourceOrigin::V2
-            },
             created_at: row.get("created_at")?,
             updated_at: row.get("updated_at")?,
         },
@@ -213,28 +186,15 @@ pub struct NewSource {
     pub enabled: bool,
     pub include_patterns: Vec<String>,
     pub exclude_patterns: Vec<String>,
-    pub origin: SourceOrigin,
-    /// Preserve the original creation time on import.
-    pub created_at: Option<String>,
 }
 
 impl ControlPlane {
-    /// Opens `<home>/v2/control.db`, applying migrations (with backup).
-    pub fn open(layout: &V2Layout, cache_size_mb: i64) -> Result<(Self, Applied)> {
-        let mut conn = open(&layout.control_db(), cache_size_mb)?;
-        let applied = migrate::apply(
-            &mut conn,
-            "control",
-            CONTROL_MIGRATIONS,
-            layout.migration_backups(),
-        )?;
-        conn.execute(
-            "INSERT INTO metadata (key, value) VALUES ('v2_schema_version', ?1)
-             ON CONFLICT(key) DO NOTHING",
-            [V2_SCHEMA_VERSION.to_string()],
-        )
-        .map_err(StorageError::sqlite("write metadata"))?;
-        Ok((Self { conn }, applied))
+    /// Opens `<home>/state/control.db`, creating it at the current schema
+    /// when missing and refusing any other schema.
+    pub fn open(layout: &StorageLayout, cache_size_mb: i64) -> Result<Self> {
+        let path = layout.control_db();
+        let conn = open_current(&path, cache_size_mb, CONTROL_SCHEMA)?;
+        Ok(Self { conn })
     }
 
     pub fn connection(&self) -> &Connection {
@@ -249,16 +209,12 @@ impl ControlPlane {
         }
         let id = make_source_id(&new.canonical_path);
         let now = now_iso();
-        let created = new.created_at.clone().unwrap_or_else(|| now.clone());
-        let reason = match new.origin {
-            SourceOrigin::V1Import => "imported from Python V1; initial Rust V2 build required",
-            SourceOrigin::V2 => "new source",
-        };
+        let reason = "new source";
         write_tx(&mut self.conn, |tx| {
             tx.execute(
                 "INSERT INTO sources (id, path, source_type, enabled, include_patterns,
-                    exclude_patterns, origin, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    exclude_patterns, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     id,
                     new.canonical_path,
@@ -266,8 +222,7 @@ impl ControlPlane {
                     i64::from(new.enabled),
                     serde_json::to_string(&new.include_patterns).unwrap_or_else(|_| "[]".into()),
                     serde_json::to_string(&new.exclude_patterns).unwrap_or_else(|_| "[]".into()),
-                    new.origin.as_str(),
-                    created,
+                    now,
                     now,
                 ],
             )
@@ -525,16 +480,6 @@ impl ControlPlane {
         Ok(())
     }
 
-    pub fn log(&mut self, action: &str, details: &serde_json::Value) -> Result<()> {
-        self.conn
-            .execute(
-                "INSERT INTO migration_log (action, details, created_at) VALUES (?1, ?2, ?3)",
-                params![action, details.to_string(), now_iso()],
-            )
-            .map_err(StorageError::sqlite("write migration log"))?;
-        Ok(())
-    }
-
     pub fn path_exists(path: &str) -> bool {
         Path::new(path).is_dir()
     }
@@ -546,7 +491,6 @@ mod tests {
 
     fn versions() -> IndexVersions {
         IndexVersions {
-            schema_version: 1,
             parser_version: "p1".into(),
             chunker_version: "c1".into(),
             converter_version: "d1".into(),
@@ -557,7 +501,7 @@ mod tests {
 
     fn plane(dir: &Path) -> ControlPlane {
         let home = ragmonk_core::paths::Home::new(dir);
-        ControlPlane::open(&V2Layout::new(&home), 8).unwrap().0
+        ControlPlane::open(&StorageLayout::new(&home), 8).unwrap()
     }
 
     fn new_source(path: &str) -> NewSource {
@@ -567,8 +511,6 @@ mod tests {
             enabled: true,
             include_patterns: vec!["*.py".into()],
             exclude_patterns: vec![],
-            origin: SourceOrigin::V2,
-            created_at: None,
         }
     }
 

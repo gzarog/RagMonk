@@ -178,11 +178,6 @@ enum Command {
         #[command(subcommand)]
         command: Option<update_cmd::UpdateCommand>,
     },
-    /// Apply pending schema migrations, backing up first if needed.
-    Upgrade {
-        #[arg(long = "json")]
-        json: bool,
-    },
     /// Remove RagMonk's data (and explain how to remove the binary).
     Uninstall {
         /// Remove only the application; keep RAGMONK_HOME.
@@ -457,7 +452,6 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
             json,
         } => ops_cmd::rebuild(source, fresh, yes, json)?,
         Command::Update { command } => update_cmd::run(command)?,
-        Command::Upgrade { json } => ops_cmd::upgrade(json)?,
         Command::Uninstall {
             keep_data,
             yes,
@@ -482,7 +476,6 @@ fn main() -> ExitCode {
                 | Command::Serve { .. }
                 | Command::Daemon(_)
                 | Command::Watch
-                | Command::Upgrade { .. }
                 | Command::Doctor { .. }
         )
     {

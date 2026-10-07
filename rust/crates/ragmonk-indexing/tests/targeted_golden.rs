@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use ragmonk_core::paths::project_id_for_canonical;
 use ragmonk_indexing::coordinator::{run_source, run_source_with, NoProgress, Options, Registry};
 use ragmonk_storage::knowledge::ProjectStore;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::{json, Value};
 
 fn golden() -> Value {
@@ -37,7 +37,7 @@ fn targeted_passes_match_reference() {
     let outside = tmp.path().join("outside.py");
     std::fs::write(&outside, "O = 1\n").unwrap();
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     let reg = Registry::raw();
@@ -90,7 +90,7 @@ fn targeted_passes_match_reference() {
         assert_eq!(&got, want, "{name} counts");
 
         let state = cp.state(&src.id).unwrap();
-        let (store, _) =
+        let store =
             ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
         let mut files: Vec<Value> = store
             .files(&state.active_build_id.unwrap())

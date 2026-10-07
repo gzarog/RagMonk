@@ -7,16 +7,16 @@ use ragmonk_core::paths::project_id_for_canonical;
 use ragmonk_core::paths::Home;
 use ragmonk_indexing::coordinator::{run_source, NoProgress, Options};
 use ragmonk_ml::manifest::DEFAULT_EMBEDDING_MODEL;
-use ragmonk_storage::control::{ControlPlane, NewSource, SourceOrigin, SourceRecord};
+use ragmonk_storage::control::{ControlPlane, NewSource, SourceRecord};
 use ragmonk_storage::knowledge::ProjectStore;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 
 pub fn home(dir: &Path) -> Home {
     Home::new(dir.join("home"))
 }
 
 pub fn control(home: &Home) -> ControlPlane {
-    ControlPlane::open(&V2Layout::new(home), 8).unwrap().0
+    ControlPlane::open(&StorageLayout::new(home), 8).unwrap()
 }
 
 pub fn add_source(
@@ -35,8 +35,6 @@ pub fn add_source(
         enabled: true,
         include_patterns: include.iter().map(|s| s.to_string()).collect(),
         exclude_patterns: exclude.iter().map(|s| s.to_string()).collect(),
-        origin: SourceOrigin::V2,
-        created_at: None,
     })
     .unwrap()
     .0
@@ -100,7 +98,7 @@ pub fn models_root() -> Option<PathBuf> {
 pub struct Fx {
     pub _tmp: tempfile::TempDir,
     pub root: PathBuf,
-    pub layout: V2Layout,
+    pub layout: StorageLayout,
     pub cp: ControlPlane,
     pub src: SourceRecord,
 }
@@ -115,7 +113,7 @@ pub fn fixture_of(rel: &str) -> Fx {
     let root = tmp.path().join("corpus");
     copy_tree(&compat().join(rel), &root);
     let home = home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = control(&home);
     let src = add_source(&mut cp, &root, &[], &[]);
     Fx {
@@ -154,7 +152,7 @@ impl Fx {
             .unwrap()
             .active_build_id
             .unwrap();
-        let (s, _) = ProjectStore::open(
+        let s = ProjectStore::open(
             &self.layout,
             &project_id_for_canonical(&self.src.path),
             &self.src.id,

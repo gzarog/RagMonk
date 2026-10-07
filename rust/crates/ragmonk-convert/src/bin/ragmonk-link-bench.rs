@@ -15,9 +15,9 @@ use std::time::Instant;
 use ragmonk_core::models::SourceType;
 use ragmonk_core::paths::{project_id_for_canonical, Home};
 use ragmonk_indexing::coordinator::{run_source, NoProgress, Options};
-use ragmonk_storage::control::{ControlPlane, NewSource, SourceOrigin};
+use ragmonk_storage::control::{ControlPlane, NewSource};
 use ragmonk_storage::knowledge::ProjectStore;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::json;
 
 fn module(i: usize) -> String {
@@ -70,8 +70,8 @@ fn main() {
     let root = tmp.join("source");
     emit(&root, n_code, n_docs);
     let home = Home::new(tmp.join("home"));
-    let layout = V2Layout::new(&home);
-    let (mut cp, _) = ControlPlane::open(&layout, 64).expect("control");
+    let layout = StorageLayout::new(&home);
+    let mut cp = ControlPlane::open(&layout, 64).expect("control");
     let canonical = ragmonk_core::paths::resolve(&root)
         .expect("resolve")
         .to_string_lossy()
@@ -83,8 +83,6 @@ fn main() {
             enabled: true,
             include_patterns: vec![],
             exclude_patterns: vec![],
-            origin: SourceOrigin::V2,
-            created_at: None,
         })
         .expect("source");
     let cfg = ragmonk_config::RagMonkConfig::default();
@@ -100,9 +98,8 @@ fn main() {
     .expect("index");
     let cold_index = t.elapsed().as_secs_f64();
     let build = r.build_id.expect("build");
-    let (store, _) =
-        ProjectStore::open(&layout, &project_id_for_canonical(&canonical), &src.id, 64)
-            .expect("store");
+    let store = ProjectStore::open(&layout, &project_id_for_canonical(&canonical), &src.id, 64)
+        .expect("store");
     let touched: Vec<String> = store
         .files(&build)
         .expect("files")

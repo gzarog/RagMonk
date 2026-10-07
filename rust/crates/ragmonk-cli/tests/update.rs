@@ -80,7 +80,7 @@ fn target() -> &'static str {
 
 /// A release archive whose binary is a script printing the real
 /// `version --json` envelope (`{"schema_version", "data": {"version"}}`) and
-/// succeeding at `upgrade`/`doctor`, with one bundled model file.
+/// succeeding at `doctor`, with one bundled model file.
 fn archive(version: &str, reported: &str) -> Vec<u8> {
     let script = format!(
         "#!/bin/sh\ncase \"$1\" in version) echo '{{\"schema_version\":\"1\",\"data\":{{\"version\":\"{reported}\",\"runtime\":\"rust\"}}}}';; esac\nexit 0\n"

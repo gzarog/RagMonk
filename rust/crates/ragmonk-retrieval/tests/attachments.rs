@@ -13,9 +13,9 @@ use ragmonk_ml::manifest::DEFAULT_EMBEDDING_MODEL;
 use ragmonk_retrieval::hybrid;
 use ragmonk_retrieval::lexical;
 use ragmonk_retrieval::Corpus;
-use ragmonk_storage::control::{ControlPlane, NewSource, SourceOrigin};
+use ragmonk_storage::control::{ControlPlane, NewSource};
 use ragmonk_storage::knowledge::ProjectStore;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::{json, Value};
 
 const MTIME: u64 = 1_700_000_000;
@@ -69,8 +69,8 @@ fn index(rel: &str, models: Option<&Path>) -> Indexed {
     let root = tmp.path().join("corpus");
     copy_pinned(&compat().join(rel), &root);
     let home = Home::new(tmp.path().join("home"));
-    let layout = V2Layout::new(&home);
-    let mut cp = ControlPlane::open(&layout, 8).unwrap().0;
+    let layout = StorageLayout::new(&home);
+    let mut cp = ControlPlane::open(&layout, 8).unwrap();
     let canonical = ragmonk_core::paths::resolve(&root)
         .unwrap()
         .to_string_lossy()
@@ -82,8 +82,6 @@ fn index(rel: &str, models: Option<&Path>) -> Indexed {
             enabled: true,
             include_patterns: vec![],
             exclude_patterns: vec![],
-            origin: SourceOrigin::V2,
-            created_at: None,
         })
         .unwrap()
         .0;
@@ -103,9 +101,8 @@ fn index(rel: &str, models: Option<&Path>) -> Indexed {
     )
     .unwrap();
     let build = cp.state(&src.id).unwrap().active_build_id.unwrap();
-    let store = ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8)
-        .unwrap()
-        .0;
+    let store =
+        ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
     Indexed {
         _tmp: tmp,
         store,

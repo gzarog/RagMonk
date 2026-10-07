@@ -1,5 +1,5 @@
 //! Ops commands end to end: doctor/health, backup → restore round trip,
-//! V1-archive refusal, rebuild, upgrade, vectors and uninstall.
+//! foreign-archive refusal, rebuild, vectors and uninstall.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -72,7 +72,7 @@ fn doctor_and_health() {
 }
 
 #[test]
-fn backup_restore_round_trip_and_v1_refusal() {
+fn backup_restore_round_trip_and_foreign_refusal() {
     let (dir, home, src) = setup();
     let archive = dir.path().join("b.tar.gz");
     let b = json(&home, &["backup", archive.to_str().unwrap(), "--json"]);
@@ -106,7 +106,7 @@ fn backup_restore_round_trip_and_v1_refusal() {
     std::fs::create_dir_all(&stage).unwrap();
     std::fs::write(
         stage.join("manifest.json"),
-        r#"{"format_version": 1, "ragmonk_version": "0.9", "sources_schema_version": 5}"#,
+        r#"{"format_version": 0, "ragmonk_version": "0.9"}"#,
     )
     .unwrap();
     std::fs::write(stage.join("sources.db"), b"").unwrap();
@@ -140,19 +140,13 @@ fn backup_restore_round_trip_and_v1_refusal() {
 }
 
 #[test]
-fn rebuild_upgrade_vectors_uninstall() {
+fn rebuild_vectors_uninstall() {
     let (_dir, home, _src) = setup();
     let r = json(&home, &["rebuild", "--json"]);
     assert_eq!(r["sources"][0]["scanned"], 2);
     assert_eq!(r["sources"][0]["indexed"], 2);
     let t = out(&ragmonk(&home, &["rebuild", "--fresh", "--yes"]));
     assert!(t.contains("rebuilt scanned=2 indexed=2"), "{t}");
-
-    let u = json(&home, &["upgrade", "--json"]);
-    assert_eq!(u["pending"], false);
-    assert!(u["backup_archive"].is_null());
-    assert_eq!(u["healthy_after"], true);
-    assert_eq!(u["databases"].as_array().unwrap().len(), 2);
 
     let v = json(&home, &["vectors", "rebuild", "--json"]);
     assert!(

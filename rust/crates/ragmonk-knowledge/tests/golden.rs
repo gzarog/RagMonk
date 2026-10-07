@@ -11,7 +11,7 @@ use ragmonk_indexing::coordinator::{run_source, NoProgress, Options};
 use ragmonk_knowledge::manual;
 use ragmonk_storage::control::{ControlPlane, SourceRecord};
 use ragmonk_storage::knowledge::ProjectStore;
-use ragmonk_storage::V2Layout;
+use ragmonk_storage::StorageLayout;
 use serde_json::{json, Value};
 
 fn compat() -> PathBuf {
@@ -37,7 +37,7 @@ fn copy_tree(from: &Path, to: &Path) {
 struct Fx {
     _tmp: tempfile::TempDir,
     root: PathBuf,
-    layout: V2Layout,
+    layout: StorageLayout,
     cp: ControlPlane,
     src: SourceRecord,
 }
@@ -47,7 +47,7 @@ fn fixture() -> Fx {
     let root = tmp.path().join("corpus");
     copy_tree(&compat().join("fixtures/linking"), &root);
     let home = common::home(tmp.path());
-    let layout = V2Layout::new(&home);
+    let layout = StorageLayout::new(&home);
     let mut cp = common::control(&home);
     let src = common::add_source(&mut cp, &root, &[], &[]);
     Fx {
@@ -81,7 +81,7 @@ impl Fx {
             .unwrap()
             .active_build_id
             .unwrap();
-        let (s, _) = ProjectStore::open(
+        let s = ProjectStore::open(
             &self.layout,
             &project_id_for_canonical(&self.src.path),
             &self.src.id,
