@@ -340,9 +340,6 @@ mod tests {
     fn python_fixtures_are_allowed_only_under_fixtures() {
         assert!(allowed("python-file", "fixtures/code/python/animals.py"));
         assert!(!allowed("python-file", "scripts/check_branding.py"));
-        assert!(!allowed(
-            "python",
-            "crates/ragmonk-config/src/value.rs"
-        ));
+        assert!(!allowed("python", "crates/ragmonk-config/src/value.rs"));
     }
 }

@@ -31,9 +31,10 @@ fn words(doc: &NormalizedDocument) -> BTreeSet<String> {
 #[test]
 fn every_fixture_converts_and_preserves_content() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let g: Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join("fixtures/expected/docling.json")).unwrap())
-            .unwrap();
+    let g: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("fixtures/expected/docling.json")).unwrap(),
+    )
+    .unwrap();
     let mut report = Vec::new();
     let mut failures = Vec::new();
     let mut exact_count = 0;

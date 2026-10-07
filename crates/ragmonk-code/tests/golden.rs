@@ -62,9 +62,10 @@ fn canon(mut v: Vec<Value>) -> Vec<Value> {
 #[test]
 fn extraction_and_relationships_match_python_reference() {
     let root = repo_root().join("fixtures/code");
-    let golden: Value =
-        serde_json::from_str(&std::fs::read_to_string(repo_root().join("fixtures/expected/code.json")).unwrap())
-            .unwrap();
+    let golden: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo_root().join("fixtures/expected/code.json")).unwrap(),
+    )
+    .unwrap();
     let golden = &golden["files"];
 
     let mut prepared = BTreeMap::new();

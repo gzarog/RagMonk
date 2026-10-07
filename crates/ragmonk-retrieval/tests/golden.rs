@@ -122,8 +122,10 @@ fn index(rel: &str, models: Option<&Path>) -> Indexed {
 }
 
 fn golden() -> Value {
-    serde_json::from_str(&std::fs::read_to_string(repo_root().join("fixtures/expected/search.json")).unwrap())
-        .unwrap()
+    serde_json::from_str(
+        &std::fs::read_to_string(repo_root().join("fixtures/expected/search.json")).unwrap(),
+    )
+    .unwrap()
 }
 
 fn round5(x: Option<f64>) -> Value {

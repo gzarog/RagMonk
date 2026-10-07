@@ -157,9 +157,10 @@ fn key(v: &Value) -> String {
 fn cold_links_match_reference() {
     let mut f = fixture();
     f.index();
-    let golden: Value =
-        serde_json::from_str(&std::fs::read_to_string(repo_root().join("fixtures/expected/links.json")).unwrap())
-            .unwrap();
+    let golden: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo_root().join("fixtures/expected/links.json")).unwrap(),
+    )
+    .unwrap();
     let mut want: Vec<Value> = golden["links"].as_array().unwrap().clone();
     want.sort_by_key(key);
     let got = f.canonical();

@@ -12,22 +12,10 @@ use serde_json::{Map, Value};
 
 const FIXTURES: &[(&str, &str)] = &[
     ("fixtures/corpus/languages", "code"),
-    (
-        "fixtures/corpus/documents/simple.md",
-        "docs/simple.md",
-    ),
-    (
-        "fixtures/corpus/documents/simple.txt",
-        "docs/simple.txt",
-    ),
-    (
-        "fixtures/corpus/documents/simple.csv",
-        "docs/simple.csv",
-    ),
-    (
-        "fixtures/corpus/documents/simple.html",
-        "docs/simple.html",
-    ),
+    ("fixtures/corpus/documents/simple.md", "docs/simple.md"),
+    ("fixtures/corpus/documents/simple.txt", "docs/simple.txt"),
+    ("fixtures/corpus/documents/simple.csv", "docs/simple.csv"),
+    ("fixtures/corpus/documents/simple.html", "docs/simple.html"),
     (
         "fixtures/corpus/documents/email_with_attachments.eml",
         "docs/email_with_attachments.eml",

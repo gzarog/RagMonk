@@ -11,7 +11,7 @@ mod common;
 
 use std::collections::{BTreeMap, HashSet};
 
-use common::{repo_root, fixture_of, models_root};
+use common::{fixture_of, models_root, repo_root};
 use ragmonk_ml::embedder::Embedder;
 use ragmonk_ml::manifest::{DEFAULT_EMBEDDING_MODEL, DEFAULT_RERANKER_MODEL};
 use ragmonk_ml::reranker::{rerank, CrossEncoder};

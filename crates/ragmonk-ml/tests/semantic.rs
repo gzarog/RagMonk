@@ -5,7 +5,7 @@ mod common;
 
 use std::path::Path;
 
-use common::{repo_root, fixture, models_root, Fx};
+use common::{fixture, models_root, repo_root, Fx};
 use ragmonk_ml::ann::{self, Engine};
 use ragmonk_ml::embedder::Embedder;
 use ragmonk_ml::manifest::DEFAULT_EMBEDDING_MODEL;

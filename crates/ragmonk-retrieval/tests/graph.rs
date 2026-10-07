@@ -157,9 +157,10 @@ fn multiset(edges: &[Value]) -> Vec<String> {
 
 #[test]
 fn symbol_and_graph_queries_match_the_reference() {
-    let golden: Value =
-        serde_json::from_str(&std::fs::read_to_string(repo_root().join("fixtures/expected/graph.json")).unwrap())
-            .unwrap();
+    let golden: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo_root().join("fixtures/expected/graph.json")).unwrap(),
+    )
+    .unwrap();
     let mut failures = Vec::new();
     let mut checked = 0;
     for name in ["graph", "code", "linking"] {

@@ -152,9 +152,10 @@ fn cold_build_matches_reference_semantics_and_isolates_parse_failures() {
             }
         }
     }
-    let golden: Value =
-        serde_json::from_str(&std::fs::read_to_string(repo_root().join("fixtures/expected/code.json")).unwrap())
-            .unwrap();
+    let golden: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo_root().join("fixtures/expected/code.json")).unwrap(),
+    )
+    .unwrap();
     let mut mismatches = Vec::new();
     for file in &files {
         let want = &golden["files"][&file.rel_path]["relationships"];

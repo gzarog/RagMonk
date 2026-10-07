@@ -30,9 +30,10 @@ fn limits(name: &str) -> AttachmentSettings {
 
 #[test]
 fn emails_match_reference() {
-    let g: Value =
-        serde_json::from_str(&std::fs::read_to_string(root().join("fixtures/expected/email.json")).unwrap())
-            .unwrap();
+    let g: Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("fixtures/expected/email.json")).unwrap(),
+    )
+    .unwrap();
     let mut failures = Vec::new();
     for (name, entry) in g.as_object().unwrap() {
         let path = root().join("fixtures/documents").join(name);

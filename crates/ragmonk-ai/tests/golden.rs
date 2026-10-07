@@ -16,7 +16,10 @@ use ragmonk_config::model::{AiConfig, PrivacyConfig};
 use ragmonk_core::errors::RagMonkError;
 use serde_json::{json, Value};
 
-const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/expected/ai.json");
+const GOLDEN: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/expected/ai.json"
+);
 
 fn golden() -> Value {
     serde_json::from_str(&std::fs::read_to_string(GOLDEN).unwrap()).unwrap()

@@ -37,7 +37,8 @@ fn vectors_match_reference_within_cosine_tolerance() {
     )
     .unwrap();
     let golden: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(repo_root().join("fixtures/expected/embeddings-minilm.json")).unwrap(),
+        &std::fs::read_to_string(repo_root().join("fixtures/expected/embeddings-minilm.json"))
+            .unwrap(),
     )
     .unwrap();
     let texts: Vec<&str> = texts["texts"]
