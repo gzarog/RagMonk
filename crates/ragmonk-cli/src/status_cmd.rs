@@ -4,12 +4,13 @@
 
 use std::time::{Duration, Instant};
 
-use ragmonk_core::errors::{ErrorKind, RagMonkError};
-use ragmonk_core::paths::Home;
-use serde_json::{json, Value};
+use ragmonk_core::errors::RagMonkError;
+use serde_json::Value;
 
-use crate::workflow::{control_plane, print_table};
-use crate::{load, prepared_home, print_json};
+use ragmonk_service::status::collect;
+
+use crate::workflow::print_table;
+use crate::{prepared_home, print_json};
 
 #[derive(clap::Args)]
 pub struct StatusArgs {
@@ -28,36 +29,6 @@ pub struct StatusArgs {
     /// Lock, progress, queue and error details.
     #[arg(long, short = 'v')]
     verbose: bool,
-}
-
-/// The full status model (`status_service.collect_status`).
-pub fn collect(home: &Home) -> Result<Value, RagMonkError> {
-    let cfg = load(home)?;
-    let cp = control_plane(home)?;
-    let mut data = ragmonk_indexing::status::collect_status(
-        home,
-        &cp,
-        cfg.indexing.status_stall_threshold_seconds,
-        chrono::Utc::now(),
-    )
-    .map_err(|e| RagMonkError::new(ErrorKind::Database, e.to_string()))?;
-    use ragmonk_documents::tokenizer as t;
-    data["tokenizer"] = json!({
-        "model_id": t::EMBEDDING_MODEL_ID,
-        "revision": t::TOKENIZER_REVISION,
-        "fingerprint": t::tokenizer_fingerprint(),
-        "max_sequence_tokens": t::MAX_SEQUENCE_TOKENS,
-        "chunk_ceiling": cfg.documents.chunking.resolved_max_tokens(),
-    });
-    if cfg.storage.mode == "server" {
-        // Server-side counts need the server read path (not ported yet).
-        // Never fabricate them.
-        data["backend"] = json!({
-            "type": cfg.storage.server.engine.as_str(),
-            "error": "server-mode status counts are not available in the Rust preview",
-        });
-    }
-    Ok(data)
 }
 
 fn fmt_age(seconds: Option<f64>) -> String {

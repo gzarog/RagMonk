@@ -1,21 +1,16 @@
-//! `ragmonk` binary for the Rust rewrite.
+//! The `ragmonk` command line: argument parsing, rendering and wiring of
+//! the service, operations, MCP and Admin UI crates.
 //!
-//! Implemented so far: `version` (RUST-00) and `config show|get|set`
-//! (RUST-01), `daemon start|stop|restart|status|run` (RUST-11), `init`, `source …`,
-//! `index`, `status`, `docs` and `watch` (RUST-12). The JSON envelope matches the Python CLI's
-//! `{"schema_version": "1", "data": {...}}`; `version --json` reports
-//! `runtime: "rust"` instead of the Python interpreter version. Errors print
-//! `Error: <redacted message>` to stderr and exit with the reference's
-//! stable exit codes.
+//! `--json` output is the envelope `{"schema_version": "1", "data": {...}}`.
+//! Errors print `Error: <redacted message>` to stderr and exit with a
+//! stable per-kind exit code.
 
 mod ai_cmd;
 mod daemon_cmd;
 mod doctor_cmd;
-mod mcp;
 mod ops_cmd;
 mod query_cmd;
 mod status_cmd;
-mod ui;
 mod update_cmd;
 mod workflow;
 
@@ -23,13 +18,12 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use ragmonk_config::loader::{dump_yaml, get_path, set_path};
-use ragmonk_config::{load_config, write_user_config, LoadOptions};
+use ragmonk_config::write_user_config;
 use ragmonk_core::errors::{RagMonkError, EXIT_GENERIC_FAILURE};
-use ragmonk_core::paths::Home;
 use ragmonk_core::version;
 use ragmonk_telemetry::redact::redact_urls_in_text;
 
-/// CLI JSON schema version, identical to `ragmonk.cli._common.SCHEMA_VERSION`.
+/// The `--json` envelope schema version.
 const SCHEMA_VERSION: &str = "1";
 
 #[derive(Parser)]
@@ -227,23 +221,7 @@ fn version_payload() -> serde_json::Value {
     })
 }
 
-fn prepared_home() -> Result<Home, RagMonkError> {
-    let home = Home::discover();
-    home.ensure_layout().map_err(|e| {
-        RagMonkError::new(
-            ragmonk_core::ErrorKind::Generic,
-            format!("cannot create {}: {e}", home.root().display()),
-        )
-    })?;
-    Ok(home)
-}
-
-fn load(home: &Home) -> Result<ragmonk_config::RagMonkConfig, RagMonkError> {
-    load_config(&LoadOptions {
-        home: Some(home.root().to_path_buf()),
-        ..LoadOptions::default()
-    })
-}
+pub(crate) use ragmonk_service::{load, prepared_home};
 
 fn print_json(data: &impl serde::Serialize) -> Result<(), RagMonkError> {
     let envelope = serde_json::json!({ "schema_version": SCHEMA_VERSION, "data": data });
@@ -339,14 +317,14 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
         Command::Status(a) => status_cmd::status(&a)?,
         Command::Docs { source, json } => workflow::docs(source, json)?,
         Command::Watch => daemon_cmd::run(daemon_cmd::DaemonCommand::Run)?,
-        Command::Serve { mcp } => mcp::serve(mcp)?,
+        Command::Serve { mcp } => ragmonk_mcp::serve(mcp)?,
         Command::Ask { question, json } => ai_cmd::ask(&question, json)?,
         Command::Ai(cmd) => ai_cmd::run(cmd)?,
         Command::Ui {
             host,
             port,
             no_browser,
-        } => ui::serve(&host, port, no_browser)?,
+        } => ragmonk_ui::serve(&host, port, no_browser)?,
         Command::Search(a) => query_cmd::search(&a)?,
         Command::Symbol { name, json } => query_cmd::symbol(&name, json)?,
         Command::Callers(a) => query_cmd::calls(&a, ragmonk_retrieval::graph::Direction::Incoming)?,

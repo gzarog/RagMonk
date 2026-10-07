@@ -8,48 +8,11 @@
 use clap::Subcommand;
 use ragmonk_ai::registry::{self, ProviderCapability};
 use ragmonk_ai::runtime::resolve_runtime;
-use ragmonk_ai::AiRequest;
 use ragmonk_core::errors::RagMonkError;
-use serde_json::{json, Value};
+use serde_json::json;
 
-use crate::query_cmd::{config_budget, explore_value, open_sources};
 use crate::{load, prepared_home, print_json};
-
-fn py_bool(b: bool) -> &'static str {
-    if b {
-        "True"
-    } else {
-        "False"
-    }
-}
-
-/// `ask` data: the answer plus the evidence behind it.
-pub fn ask_value(question: &str) -> Result<Value, RagMonkError> {
-    let home = prepared_home()?;
-    let cfg = load(&home)?;
-    let question = question.trim();
-    let opened = open_sources(&home, None)?;
-    let r = explore_value(&home, &cfg, &opened, question, config_budget(&cfg))?;
-    let mut provider = ragmonk_ai::create_provider(&cfg.ai, &cfg.privacy)?;
-    let list = |k: &str| r[k].as_array().cloned().unwrap_or_default();
-    let request = AiRequest {
-        question: question.to_owned(),
-        summary: r["summary"].as_str().unwrap_or_default().to_owned(),
-        evidence: list("evidence"),
-        graph_paths: list("call_flows"),
-    };
-    let answer = provider.answer(&request)?;
-    Ok(json!({
-        "question": question,
-        "answer": answer.to_json(),
-        "intent": r["intent"],
-        "strategies": r["strategies"],
-        "evidence": r["evidence"],
-        "graph_paths": r["call_flows"],
-        "evidence_truncated": r["evidence_truncated"],
-        "evidence_truncation_reasons": r["evidence_truncation_reasons"],
-    }))
-}
+use ragmonk_service::ask::ask_value;
 
 pub fn ask(question: &str, json_output: bool) -> Result<(), RagMonkError> {
     let r = ask_value(question)?;
@@ -163,7 +126,7 @@ pub fn run(cmd: AiCommand) -> Result<(), RagMonkError> {
                 println!(
                     "  kind={kind} auth={} cloud_egress={} models={} usage={}",
                     cap.auth_modes.join("/"),
-                    py_bool(cap.cloud_egress),
+                    cap.cloud_egress,
                     cap.model_discovery,
                     cap.usage_reporting
                 );
@@ -179,7 +142,7 @@ pub fn run(cmd: AiCommand) -> Result<(), RagMonkError> {
             println!(
                 "provider={} authenticated={} account={} runtime={}",
                 state.provider_id,
-                py_bool(state.authenticated),
+                state.authenticated,
                 state.account.as_deref().unwrap_or("-"),
                 state.runtime_version.as_deref().unwrap_or("-")
             );

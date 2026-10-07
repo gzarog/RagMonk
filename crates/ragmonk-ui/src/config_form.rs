@@ -7,7 +7,7 @@ use ragmonk_config::value::{deep_merge, Value as Cfg};
 use ragmonk_core::paths::Home;
 use serde_json::{json, Value};
 
-use crate::load;
+use ragmonk_service::load;
 
 const ENV_PREFIX: &str = "RAGMONK_";
 const SENSITIVE: &[&str] = &["key", "token", "secret", "password", "credential"];

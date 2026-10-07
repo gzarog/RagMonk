@@ -12,9 +12,10 @@ use ragmonk_storage::knowledge::ProjectStore;
 use ragmonk_storage::StorageLayout;
 use serde_json::{json, Map, Value};
 
-use crate::query_cmd::{self, open_sources, Opened};
-use crate::workflow::control_plane;
-use crate::{doctor_cmd, load, status_cmd};
+use ragmonk_ops::doctor as doctor_cmd;
+use ragmonk_service::load;
+use ragmonk_service::query::{self as query_cmd, open_sources, Opened};
+use ragmonk_service::sources::control_plane;
 
 fn db(e: impl std::fmt::Display) -> RagMonkError {
     RagMonkError::new(ErrorKind::Database, e.to_string())
@@ -28,7 +29,7 @@ fn abs(root: &str, rel: &str) -> String {
 
 /// `status_service.collect_status`.
 pub fn status(home: &Home) -> Result<Value, RagMonkError> {
-    status_cmd::collect(home)
+    ragmonk_service::status::collect(home)
 }
 
 /// `status_service.daemon_snapshot`.
@@ -115,7 +116,7 @@ pub fn list_sources(home: &Home) -> Result<Vec<Value>, RagMonkError> {
 /// `source_service.source_detail`.
 pub fn source_detail(home: &Home, source_id: &str) -> Result<Value, RagMonkError> {
     let cp = control_plane(home)?;
-    let s = crate::workflow::get_source(&cp, source_id)?;
+    let s = ragmonk_service::sources::get_source(&cp, source_id)?;
     let rows = status_rows(home)?;
     let row = rows.get(&s.id).cloned().unwrap_or(Value::Null);
     let mut detail = summarize(&s, &row);
@@ -308,7 +309,7 @@ pub fn document_detail(
     document_id: &str,
 ) -> Result<Option<Value>, RagMonkError> {
     let cp = control_plane(home)?;
-    crate::workflow::get_source(&cp, source_id)?;
+    ragmonk_service::sources::get_source(&cp, source_id)?;
     let Some(o) = open_sources(home, Some(source_id))?.into_iter().next() else {
         return Ok(None);
     };
@@ -706,11 +707,11 @@ pub fn read_logs(
             };
             let comp = record
                 .get("component")
-                .map_or_else(|| "-".to_owned(), crate::ui::plain_json);
+                .map_or_else(|| "-".to_owned(), crate::plain_json);
             components.insert(comp);
             let lvl = record
                 .get("level")
-                .map_or_else(|| "INFO".to_owned(), crate::ui::plain_json)
+                .map_or_else(|| "INFO".to_owned(), crate::plain_json)
                 .to_uppercase();
             if errors_only && !matches!(lvl.as_str(), "ERROR" | "CRITICAL") {
                 continue;
@@ -721,7 +722,7 @@ pub fn read_logs(
             if component.is_some_and(|c| {
                 record
                     .get("component")
-                    .map_or_else(|| "None".to_owned(), crate::ui::plain_json)
+                    .map_or_else(|| "None".to_owned(), crate::plain_json)
                     != c
             }) {
                 continue;

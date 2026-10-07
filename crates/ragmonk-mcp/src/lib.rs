@@ -1,4 +1,4 @@
-//! `ragmonk serve --mcp` (RUST-13): the stdio MCP server.
+//! The RagMonk MCP server (`ragmonk serve --mcp`) over stdio.
 //!
 //! A JSON-RPC 2.0 loop over newline-delimited stdin/stdout exposing the
 //! read-only `ragmonk_*` tools (catalog in `mcp_tools.json`) with
@@ -22,8 +22,8 @@ use ragmonk_retrieval::graph::{self, Direction};
 use ragmonk_retrieval::lexical;
 use serde_json::{json, Map, Value};
 
-use crate::query_cmd::{self, open_sources};
-use crate::{load, prepared_home, status_cmd, workflow};
+use ragmonk_service::query::{self as query_cmd, open_sources};
+use ragmonk_service::{load, prepared_home};
 
 /// Protocol versions the server accepts; anything else gets the latest.
 const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
@@ -504,12 +504,12 @@ fn work(home: &Home, name: &str, args: &Map<String, Value>) -> Result<Value, Rag
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|s| !s.is_empty());
-            Ok(json!({"documents": workflow::docs_rows(home, source)?}))
+            Ok(json!({"documents": ragmonk_service::sources::docs_rows(home, source)?}))
         }
-        "ragmonk_status" => status_cmd::collect(home),
+        "ragmonk_status" => ragmonk_service::status::collect(home),
         "ragmonk_ask" => {
             let question = required(args, "question")?;
-            let r = crate::ai_cmd::ask_value(&question)?;
+            let r = ragmonk_service::ask::ask_value(&question)?;
             let mut warnings: Vec<Value> = Vec::new();
             if r["evidence_truncated"] == true {
                 warnings.extend(

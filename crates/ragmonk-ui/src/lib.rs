@@ -1,13 +1,12 @@
-//! `ragmonk ui` (RUST-14): the local Admin UI.
+//! The local Admin UI (`ragmonk ui`).
 //!
-//! An axum server rendering the reference's own Jinja templates
-//! (embedded, see [`templates`]) from the same data the CLI reports.
-//! Like the reference it binds to localhost by default and has no
-//! authentication; it validates the `Host` header (DNS-rebinding
-//! defense) and requires a double-submit CSRF token on every unsafe
-//! request. Database work runs on blocking threads, serialized by one
-//! lock, as the reference serializes it; daemon controls and the
-//! progress stream never take that lock.
+//! An axum server rendering embedded Jinja templates (see [`templates`])
+//! from the same services the CLI uses. It binds to localhost by default
+//! and has no authentication; it validates the `Host` header
+//! (DNS-rebinding defense) and requires a double-submit CSRF token on
+//! every unsafe request. Database work runs on blocking threads,
+//! serialized by one lock; daemon controls and the progress stream never
+//! take that lock.
 
 mod config_form;
 mod data;
@@ -51,10 +50,6 @@ const NAV_ITEMS: &[(&str, &str, &str)] = &[
     ("logs", "Logs", "/logs"),
     ("system", "System", "/system"),
 ];
-
-pub(crate) fn db_error(e: &impl std::fmt::Display) -> RagMonkError {
-    RagMonkError::new(ErrorKind::Database, e.to_string())
-}
 
 /// A JSON value as display text.
 pub(crate) fn plain_json(v: &Value) -> String {
@@ -384,8 +379,8 @@ async fn add_source(State(st): State<AppState>, Form(f): Form<Params>) -> Respon
     let include = split_patterns(f.get("include_patterns"));
     let exclude = split_patterns(f.get("exclude_patterns"));
     let r = locked(&st, move |home| {
-        let mut cp = crate::workflow::control_plane(home)?;
-        crate::workflow::add_source(&mut cp, &path, include, exclude).map(|_| ())
+        let mut cp = ragmonk_service::sources::control_plane(home)?;
+        ragmonk_service::sources::add_source(&mut cp, &path, include, exclude).map(|_| ())
     })
     .await;
     match r {
@@ -401,10 +396,10 @@ async fn source_action(
     let r = locked(&st, move |home| -> Result<(), RagMonkError> {
         match action.as_str() {
             "enable" | "disable" => {
-                let mut cp = crate::workflow::control_plane(home)?;
-                crate::workflow::set_source_enabled(&mut cp, &id, action == "enable")
+                let mut cp = ragmonk_service::sources::control_plane(home)?;
+                ragmonk_service::sources::set_source_enabled(&mut cp, &id, action == "enable")
             }
-            "remove" => crate::workflow::remove_source(home, &id).map(|_| ()),
+            "remove" => ragmonk_service::sources::remove_source(home, &id).map(|_| ()),
             _ => Err(RagMonkError::usage("unknown action")),
         }
     })
@@ -745,11 +740,11 @@ async fn daemon_status_api(State(st): State<AppState>) -> Response {
 async fn daemon_action(State(st): State<AppState>, Path(action): Path<String>) -> Response {
     let r = unlocked(&st, move |home| -> Result<(), RagMonkError> {
         match action.as_str() {
-            "start" => crate::daemon_cmd::start(home),
-            "stop" => crate::daemon_cmd::stop(home),
+            "start" => ragmonk_service::daemon::start(home).map(drop),
+            "stop" => ragmonk_service::daemon::stop(home).map(drop),
             "restart" => {
-                crate::daemon_cmd::stop(home)?;
-                crate::daemon_cmd::start(home)
+                ragmonk_service::daemon::stop(home)?;
+                ragmonk_service::daemon::start(home).map(drop)
             }
             _ => Err(RagMonkError::usage("unknown action")),
         }
@@ -797,14 +792,14 @@ async fn backups_page(
 
 async fn create_backup(State(st): State<AppState>) -> Response {
     let r = locked(&st, |home| -> Result<(), RagMonkError> {
-        let cfg = crate::load(home)?;
+        let cfg = ragmonk_service::load(home)?;
         let lock = ragmonk_indexing::lock::RunLock::acquire(
             &home.locks_dir().join("index.lock"),
             "backup",
             None,
             std::time::Duration::from_secs_f64(cfg.indexing.lock_timeout_seconds),
         )?;
-        let r = crate::ops_cmd::create_backup(home, None);
+        let r = ragmonk_ops::backup::create_backup(home, None);
         lock.release();
         r.map(|_| ())
     })
@@ -819,7 +814,7 @@ async fn restore_backup(State(st): State<AppState>, Form(f): Form<Params>) -> Re
     let name = f.get("name").cloned().unwrap_or_default();
     let r = locked(&st, move |home| -> Result<(), String> {
         let archive = data::backup_path(home, &name)?;
-        crate::ops_cmd::restore_archive(home, &archive)
+        ragmonk_ops::backup::restore_archive(home, &archive)
             .map(|_| ())
             .map_err(|e| e.message().to_owned())
     })
@@ -983,8 +978,8 @@ fn open_browser(url: &str) {
 /// `ragmonk ui [--host H] [--port P] [--no-browser]`: blocks until
 /// Ctrl+C.
 pub fn serve(host: &str, port: u16, no_browser: bool) -> Result<(), RagMonkError> {
-    let home = crate::prepared_home()?;
-    crate::load(&home)?;
+    let home = ragmonk_service::prepared_home()?;
+    ragmonk_service::load(&home)?;
     let display_host = if host.contains(':') && !host.starts_with('[') {
         format!("[{host}]")
     } else {

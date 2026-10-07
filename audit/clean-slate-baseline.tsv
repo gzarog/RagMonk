@@ -55,9 +55,6 @@ python	1	crates/ragmonk-ai/src/codex.rs
 python	1	crates/ragmonk-ai/src/copilot.rs
 python	1	crates/ragmonk-ai/src/factory.rs
 python	1	crates/ragmonk-backends/tests/live.rs
-python	2	crates/ragmonk-cli/src/main.rs
-python	3	crates/ragmonk-cli/src/ui/templates.rs
-python	1	crates/ragmonk-cli/src/workflow.rs
 python	2	crates/ragmonk-cli/tests/mcp.rs
 python	2	crates/ragmonk-cli/tests/update.rs
 python	1	crates/ragmonk-code/queries/csharp.scm
@@ -111,6 +108,7 @@ python	1	crates/ragmonk-storage/tests/knowledge_crud.rs
 python	1	crates/ragmonk-telemetry/src/lib.rs
 python	3	crates/ragmonk-telemetry/src/urlsplit.rs
 python	3	crates/ragmonk-telemetry/tests/golden.rs
+python	3	crates/ragmonk-ui/src/templates.rs
 python	2	crates/ragmonk-update/src/release.rs
 python	6	docs/adr/0001-compatibility-policy.md
 python	2	docs/adr/0003-dependency-policy.md
@@ -159,8 +157,6 @@ rewrite	1	benchmarks/rust-code-csharp-3000.json
 rewrite	1	benchmarks/rust-indexing-2000.json
 rewrite	1	benchmarks/rust-indexing-500.json
 rewrite	1	crates/ragmonk-ai/tests/golden.rs
-rewrite	1	crates/ragmonk-cli/Cargo.toml
-rewrite	1	crates/ragmonk-cli/src/main.rs
 rewrite	1	crates/ragmonk-cli/tests/ai.rs
 rewrite	1	crates/ragmonk-cli/tests/mcp.rs
 rewrite	1	crates/ragmonk-cli/tests/queries.rs

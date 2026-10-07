@@ -12,7 +12,7 @@ use minijinja::{AutoEscape, Environment, Error, Output, State};
 
 macro_rules! embedded {
     ($($name:literal),* $(,)?) => {
-        &[$(($name, include_str!(concat!("../../ui/templates/", $name)))),*]
+        &[$(($name, include_str!(concat!("../assets/templates/", $name)))),*]
     };
 }
 
@@ -44,11 +44,11 @@ pub fn static_asset(path: &str) -> Option<(&'static str, &'static [u8])> {
     match path {
         "css/app.css" => Some((
             "text/css; charset=utf-8",
-            include_bytes!("../../ui/static/css/app.css"),
+            include_bytes!("../assets/static/css/app.css"),
         )),
         "js/htmx.min.js" => Some((
             "text/javascript; charset=utf-8",
-            include_bytes!("../../ui/static/js/htmx.min.js"),
+            include_bytes!("../assets/static/js/htmx.min.js"),
         )),
         _ => None,
     }

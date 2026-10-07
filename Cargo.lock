@@ -2967,26 +2967,20 @@ dependencies = [
 name = "ragmonk-cli"
 version = "0.0.0"
 dependencies = [
- "axum",
  "chrono",
  "clap",
  "flate2",
- "futures-util",
- "getrandom 0.3.4",
- "minijinja",
- "minijinja-contrib",
  "ragmonk-ai",
  "ragmonk-backends",
  "ragmonk-config",
- "ragmonk-convert",
  "ragmonk-core",
- "ragmonk-documents",
  "ragmonk-indexing",
- "ragmonk-knowledge",
- "ragmonk-ml",
+ "ragmonk-mcp",
+ "ragmonk-ops",
  "ragmonk-retrieval",
- "ragmonk-storage",
+ "ragmonk-service",
  "ragmonk-telemetry",
+ "ragmonk-ui",
  "ragmonk-update",
  "regex",
  "reqwest",
@@ -2994,11 +2988,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "signal-hook",
  "sysinfo",
  "tar",
  "tempfile",
- "tokio",
 ]
 
 [[package]]
@@ -3126,6 +3118,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ragmonk-mcp"
+version = "0.0.0"
+dependencies = [
+ "ragmonk-core",
+ "ragmonk-retrieval",
+ "ragmonk-service",
+ "serde_json",
+]
+
+[[package]]
 name = "ragmonk-ml"
 version = "0.0.0"
 dependencies = [
@@ -3148,6 +3150,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ragmonk-ops"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "flate2",
+ "ragmonk-ai",
+ "ragmonk-backends",
+ "ragmonk-config",
+ "ragmonk-convert",
+ "ragmonk-core",
+ "ragmonk-documents",
+ "ragmonk-indexing",
+ "ragmonk-ml",
+ "ragmonk-service",
+ "ragmonk-storage",
+ "ragmonk-telemetry",
+ "serde_json",
+ "sysinfo",
+ "tar",
+]
+
+[[package]]
 name = "ragmonk-retrieval"
 version = "0.0.0"
 dependencies = [
@@ -3164,6 +3188,26 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tracing",
+]
+
+[[package]]
+name = "ragmonk-service"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "ragmonk-ai",
+ "ragmonk-config",
+ "ragmonk-convert",
+ "ragmonk-core",
+ "ragmonk-documents",
+ "ragmonk-indexing",
+ "ragmonk-knowledge",
+ "ragmonk-ml",
+ "ragmonk-retrieval",
+ "ragmonk-storage",
+ "ragmonk-telemetry",
+ "serde_json",
+ "signal-hook",
 ]
 
 [[package]]
@@ -3190,6 +3234,31 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ragmonk-ui"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "futures-util",
+ "getrandom 0.3.4",
+ "minijinja",
+ "minijinja-contrib",
+ "ragmonk-ai",
+ "ragmonk-config",
+ "ragmonk-core",
+ "ragmonk-indexing",
+ "ragmonk-ops",
+ "ragmonk-retrieval",
+ "ragmonk-service",
+ "ragmonk-storage",
+ "ragmonk-telemetry",
+ "ragmonk-update",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

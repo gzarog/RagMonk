@@ -1,43 +1,32 @@
 [package]
-name = "ragmonk-cli"
-description = "The ragmonk command line"
+name = "ragmonk-ui"
+description = "RagMonk local Admin UI: HTTP server, templates and live indexing events"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-[[bin]]
-name = "ragmonk"
-path = "src/main.rs"
-
 [dependencies]
+axum.workspace = true
 chrono.workspace = true
-clap.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+minijinja.workspace = true
+minijinja-contrib.workspace = true
 ragmonk-ai.workspace = true
-ragmonk-backends.workspace = true
 ragmonk-config.workspace = true
 ragmonk-core.workspace = true
 ragmonk-indexing.workspace = true
-ragmonk-mcp.workspace = true
 ragmonk-ops.workspace = true
 ragmonk-retrieval.workspace = true
 ragmonk-service.workspace = true
+ragmonk-storage.workspace = true
 ragmonk-telemetry.workspace = true
-ragmonk-ui.workspace = true
 ragmonk-update.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-
-[dev-dependencies]
-flate2.workspace = true
-sha2.workspace = true
-tar.workspace = true
-reqwest.workspace = true
-regex.workspace = true
-rusqlite.workspace = true
-sysinfo.workspace = true
-tempfile.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

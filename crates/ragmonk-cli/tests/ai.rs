@@ -129,10 +129,11 @@ fn words(s: &str) -> String {
 
 #[test]
 fn ask_and_ai_match_reference() {
-    let golden: Vec<Value> = serde_json::from_str(
-        &std::fs::read_to_string(repo().join("fixtures/expected/ai_cli.json")).unwrap(),
-    )
-    .unwrap();
+    let golden_path = repo().join("fixtures/expected/ai_cli.json");
+    let mut golden: Vec<Value> =
+        serde_json::from_str(&std::fs::read_to_string(&golden_path).unwrap()).unwrap();
+    // `RAGMONK_BLESS=1` rewrites the expected output from this build.
+    let bless = std::env::var_os("RAGMONK_BLESS").is_some();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let corpus = dir.path().join("source");
@@ -176,8 +177,8 @@ fn ask_and_ai_match_reference() {
     let norm = Norm { subs };
 
     let mut failures = Vec::new();
-    for case in &golden {
-        let name = case["case"].as_str().unwrap();
+    for case in golden.iter_mut() {
+        let name = case["case"].as_str().unwrap().to_owned();
         if let Some(r) = case["response"].as_object() {
             let mut s = state.lock().unwrap();
             s.0 = r["status"].as_u64().unwrap() as u16;
@@ -201,6 +202,16 @@ fn ask_and_ai_match_reference() {
         let o = c.args(&args).output().unwrap();
         let stdout = String::from_utf8_lossy(&o.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&o.stderr).into_owned();
+        if bless {
+            case["exit_code"] = o.status.code().into();
+            let json_out = serde_json::from_str::<Value>(case["stdout"].as_str().unwrap()).is_ok();
+            case["stdout"] = match serde_json::from_str::<Value>(&stdout) {
+                Ok(got) if json_out => serde_json::to_string(&norm.value(&got)).unwrap().into(),
+                _ => norm.text(&stdout).into(),
+            };
+            case["stderr"] = norm.text(&stderr).into();
+            continue;
+        }
         if o.status.code() != case["exit_code"].as_i64().map(|c| c as i32) {
             failures.push(format!(
                 "{name}: exit {:?}, expected {}\n{stderr}",
@@ -236,6 +247,18 @@ fn ask_and_ai_match_reference() {
                 case["sent"]
             ));
         }
+    }
+    if bless {
+        let mut out = Vec::new();
+        let fmt = serde_json::ser::PrettyFormatter::with_indent(b" ");
+        serde::Serialize::serialize(
+            &golden,
+            &mut serde_json::Serializer::with_formatter(&mut out, fmt),
+        )
+        .unwrap();
+        out.push(b'\n');
+        std::fs::write(&golden_path, out).unwrap();
+        return;
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }

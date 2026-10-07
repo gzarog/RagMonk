@@ -12,9 +12,13 @@ members = [
     "crates/ragmonk-indexing",
     "crates/ragmonk-knowledge",
     "crates/ragmonk-ml",
+    "crates/ragmonk-mcp",
+    "crates/ragmonk-ops",
     "crates/ragmonk-retrieval",
+    "crates/ragmonk-service",
     "crates/ragmonk-storage",
     "crates/ragmonk-telemetry",
+    "crates/ragmonk-ui",
     "crates/ragmonk-update",
     "xtask",
 ]
@@ -35,6 +39,13 @@ todo = "deny"
 
 [workspace.dependencies]
 anyhow = "1"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query", "form", "json"] }
+futures-util = { version = "0.3", default-features = false }
+getrandom = "0.3"
+minijinja = { version = "2", features = ["loader", "json"] }
+minijinja-contrib = { version = "2", features = ["pycompat"] }
+signal-hook = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "time", "sync", "signal"] }
 ragmonk-ai = { path = "crates/ragmonk-ai" }
 ragmonk-backends = { path = "crates/ragmonk-backends" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
@@ -47,6 +58,10 @@ ragmonk-core = { path = "crates/ragmonk-core" }
 ragmonk-ml = { path = "crates/ragmonk-ml" }
 ragmonk-knowledge = { path = "crates/ragmonk-knowledge" }
 ragmonk-retrieval = { path = "crates/ragmonk-retrieval" }
+ragmonk-service = { path = "crates/ragmonk-service" }
+ragmonk-ops = { path = "crates/ragmonk-ops" }
+ragmonk-mcp = { path = "crates/ragmonk-mcp" }
+ragmonk-ui = { path = "crates/ragmonk-ui" }
 ragmonk-indexing = { path = "crates/ragmonk-indexing" }
 ragmonk-storage = { path = "crates/ragmonk-storage" }
 ragmonk-telemetry = { path = "crates/ragmonk-telemetry" }

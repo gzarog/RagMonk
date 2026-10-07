@@ -1,44 +1,19 @@
-//! Operations (RUST-12 slice 3): `backup`, `restore`, `rebuild`,
-//! `uninstall` and `vectors rebuild|backfill`.
-//!
-//! Archives are a `.tar.gz` holding `manifest.json`, a consistent
-//! `VACUUM INTO` snapshot of `state/control.db` and of every indexed
-//! project's `projects/<id>/knowledge.db`, plus `config.yaml`. The
-//! manifest records the archive `format_version` and the schema
-//! fingerprints of the databases; an archive whose format or schemas
-//! differ from this build is refused, never converted. ANN index
-//! files are caches and are not archived: queries fall back to exact
-//! search until the next sync rebuilds them.
+//! Operations: `backup`, `restore`, `rebuild`, `uninstall` and
+//! `vectors rebuild|backfill`.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use clap::Subcommand;
 use ragmonk_core::errors::{ErrorKind, RagMonkError};
-use ragmonk_core::paths::{project_id_for_canonical, Home};
-use ragmonk_indexing::coordinator::{run_source, Options};
-use ragmonk_indexing::daemon::pid;
+use ragmonk_core::paths::Home;
 use ragmonk_indexing::lock::RunLock;
-use ragmonk_storage::maintenance;
-use ragmonk_storage::maintenance::SchemaState;
-use ragmonk_storage::schema::{control_fingerprint, knowledge_fingerprint};
-use ragmonk_storage::StorageLayout;
-use serde_json::{json, Value};
+use ragmonk_ops::backup::{create_backup, restore_archive};
+use ragmonk_ops::rebuild::rebuild_sources;
+use ragmonk_service::sources::control_plane;
+use serde_json::json;
 
-use crate::query_cmd::open_sources;
-use crate::workflow::control_plane;
 use crate::{load, prepared_home, print_json};
-
-pub const MANIFEST_FORMAT_VERSION: i64 = 1;
-const STOP_TIMEOUT: Duration = Duration::from_secs(15);
-
-fn generic(e: impl std::fmt::Display) -> RagMonkError {
-    RagMonkError::new(ErrorKind::Generic, e.to_string())
-}
-
-fn dberr(e: impl std::fmt::Display) -> RagMonkError {
-    RagMonkError::new(ErrorKind::Database, e.to_string())
-}
 
 fn index_lock(home: &Home, operation: &str) -> Result<RunLock, RagMonkError> {
     let cfg = load(home)?;
@@ -48,100 +23,6 @@ fn index_lock(home: &Home, operation: &str) -> Result<RunLock, RagMonkError> {
         None,
         Duration::from_secs_f64(cfg.indexing.lock_timeout_seconds),
     )
-}
-
-fn now_iso() -> String {
-    ragmonk_indexing::progress::now_iso()
-}
-
-/// A private scratch directory under `<home>/tmp`, removed on drop.
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(home: &Home, label: &str) -> Result<Self, RagMonkError> {
-        let stamp = chrono::Utc::now().format("%Y%m%d%H%M%S%f");
-        let dir = home
-            .tmp_dir()
-            .join(format!("{label}_{stamp}_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).map_err(generic)?;
-        Ok(Self(dir))
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-// ------------------------------------------------------------- backup ---
-
-/// Writes a backup archive and returns `(path, manifest)`. Reads every
-/// database through read-only snapshots.
-pub fn create_backup(home: &Home, dest: Option<&Path>) -> Result<(PathBuf, Value), RagMonkError> {
-    let layout = StorageLayout::new(home);
-    let control = layout.control_db();
-    let mut projects = serde_json::Map::new();
-    let mut sources = Vec::new();
-    for (id, path) in maintenance::registered_sources(&control) {
-        let pid = project_id_for_canonical(&path);
-        if layout.project_db(&pid).is_file() {
-            projects.insert(pid.clone(), json!(knowledge_fingerprint()));
-        }
-        sources.push(json!({"id": id, "path": path, "project_id": pid}));
-    }
-    let created_at = now_iso();
-    let manifest = json!({
-        "format_version": MANIFEST_FORMAT_VERSION,
-        "ragmonk_version": ragmonk_core::version::version(),
-        "created_at": created_at,
-        "control_schema": control_fingerprint(),
-        "projects": projects,
-        "sources": sources,
-    });
-    let archive = match dest {
-        Some(d) => d.to_path_buf(),
-        None => {
-            let stamp: String = created_at
-                .chars()
-                .filter(|c| !matches!(c, ':' | '-' | '.'))
-                .collect();
-            home.backups_dir()
-                .join(format!("ragmonk-backup-{stamp}.tar.gz"))
-        }
-    };
-    if let Some(dir) = archive.parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir).map_err(generic)?;
-    }
-    let scratch = Scratch::new(home, "backup")?;
-    let stage = &scratch.0;
-    if control.is_file() {
-        maintenance::snapshot(&control, &stage.join("state").join("control.db")).map_err(dberr)?;
-    }
-    for pid in projects.keys() {
-        maintenance::snapshot(
-            &layout.project_db(pid),
-            &stage.join("projects").join(pid).join("knowledge.db"),
-        )
-        .map_err(dberr)?;
-    }
-    if home.user_config().is_file() {
-        std::fs::copy(home.user_config(), stage.join("config.yaml")).map_err(generic)?;
-    }
-    std::fs::write(
-        stage.join("manifest.json"),
-        serde_json::to_string_pretty(&manifest).map_err(generic)?,
-    )
-    .map_err(generic)?;
-    let file = std::fs::File::create(&archive).map_err(generic)?;
-    let gz = flate2::write::GzEncoder::new(file, flate2::Compression::default());
-    let mut tar = tar::Builder::new(gz);
-    tar.follow_symlinks(false);
-    tar.append_dir_all(".", stage).map_err(generic)?;
-    tar.into_inner()
-        .and_then(flate2::write::GzEncoder::finish)
-        .map_err(generic)?;
-    Ok((archive, manifest))
 }
 
 pub fn backup(dest: Option<String>, json_output: bool) -> Result<(), RagMonkError> {
@@ -169,26 +50,6 @@ pub fn backup(dest: Option<String>, json_output: bool) -> Result<(), RagMonkErro
     Ok(())
 }
 
-// ------------------------------------------------------------ restore ---
-
-fn extract(archive: &Path, into: &Path) -> Result<(), RagMonkError> {
-    let file = std::fs::File::open(archive).map_err(generic)?;
-    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(file));
-    tar.set_preserve_permissions(false);
-    // `unpack` refuses entries that would escape `into` (`..`, absolute).
-    tar.unpack(into)
-        .map_err(|e| dberr(format!("archive is corrupt or unreadable: {e}")))
-}
-
-fn move_aside(path: &Path, holding: &Path) -> Result<Option<PathBuf>, RagMonkError> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    let target = holding.join(path.file_name().unwrap_or_default());
-    std::fs::rename(path, &target).map_err(generic)?;
-    Ok(Some(target))
-}
-
 pub fn restore(archive: &str, json_output: bool) -> Result<(), RagMonkError> {
     let home = prepared_home()?;
     let archive = PathBuf::from(archive);
@@ -212,131 +73,6 @@ pub fn restore(archive: &str, json_output: bool) -> Result<(), RagMonkError> {
     }
     Ok(())
 }
-
-/// Verifies and restores an archive into `home` (the `restore` report).
-pub fn restore_archive(home: &Home, archive: &Path) -> Result<Value, RagMonkError> {
-    let home = home.clone();
-    let archive = archive.to_path_buf();
-    if !archive.is_file() {
-        return Err(RagMonkError::usage(format!(
-            "no such archive: {}",
-            archive.display()
-        )));
-    }
-    let scratch = Scratch::new(&home, "restore_staging")?;
-    let stage = &scratch.0;
-    extract(&archive, stage)?;
-    let manifest: Value = std::fs::read_to_string(stage.join("manifest.json"))
-        .map_err(|_| dberr("archive is missing manifest.json; refusing to restore"))
-        .and_then(|t| {
-            serde_json::from_str(&t)
-                .map_err(|e| dberr(format!("archive manifest is unreadable: {e}")))
-        })?;
-    let format = manifest["format_version"].as_i64();
-    if format != Some(MANIFEST_FORMAT_VERSION) {
-        return Err(dberr(format!(
-            "unsupported backup archive format v{} (this RagMonk restores v{MANIFEST_FORMAT_VERSION}); \
-             refusing to restore, nothing was changed",
-            format.map_or_else(|| "?".to_owned(), |v| v.to_string())
-        )));
-    }
-    let incompatible = |what: &str, detail: &str| {
-        dberr(format!(
-            "{what} in this archive does not match this RagMonk's storage format ({detail}); \
-             refusing to restore, nothing was changed. Reindex your sources instead"
-        ))
-    };
-    let staged_state = stage.join("state");
-    let staged_projects = stage.join("projects");
-    let control = staged_state.join("control.db");
-    if !control.is_file() {
-        return Err(dberr(
-            "archive is missing state/control.db; refusing to restore",
-        ));
-    }
-    maintenance::integrity_check(&control).map_err(dberr)?;
-    match maintenance::control_schema_state(&control) {
-        SchemaState::Current => {}
-        SchemaState::Missing => return Err(incompatible("control.db", "empty database")),
-        SchemaState::Incompatible(d) => return Err(incompatible("control.db", &d)),
-    }
-    let mut restored = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&staged_projects) {
-        let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
-        dirs.sort();
-        for dir in dirs {
-            let db = dir.join("knowledge.db");
-            if !db.is_file() {
-                continue;
-            }
-            maintenance::integrity_check(&db).map_err(dberr)?;
-            let name = dir
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            if let SchemaState::Incompatible(d) = maintenance::knowledge_schema_state(&db) {
-                return Err(incompatible(&format!("project {name}"), &d));
-            }
-            restored.push(name);
-        }
-    }
-    // Everything verified: only now touch the live home.
-    let daemon_was_running =
-        pid::stop_and_wait(&home, STOP_TIMEOUT, "restore into a live runtime directory")
-            .map_err(dberr)?;
-    let holding = home.tmp_dir().join(format!(
-        "pre_restore_{}",
-        chrono::Utc::now().format("%Y%m%d%H%M%S%f")
-    ));
-    std::fs::create_dir_all(&holding).map_err(generic)?;
-    let staged_config = stage.join("config.yaml");
-    let mut moves = vec![
-        (staged_state, home.state_dir()),
-        (staged_projects, home.projects_dir()),
-    ];
-    if staged_config.is_file() {
-        moves.push((staged_config, home.user_config()));
-    }
-    let mut aside: Vec<(PathBuf, PathBuf)> = Vec::new();
-    for (_, live) in &moves {
-        if let Some(t) = move_aside(live, &holding)? {
-            aside.push((t, live.clone()));
-        }
-    }
-    let swap = moves
-        .iter()
-        .filter(|(staged, _)| staged.exists())
-        .try_for_each(|(staged, live)| std::fs::rename(staged, live));
-    if let Err(e) = swap {
-        for (_, live) in &moves {
-            if live.is_dir() {
-                let _ = std::fs::remove_dir_all(live);
-            } else {
-                let _ = std::fs::remove_file(live);
-            }
-        }
-        for (moved, original) in aside.into_iter().rev() {
-            let _ = std::fs::rename(&moved, &original);
-        }
-        return Err(generic(format!(
-            "restore failed; previous state put back: {e}"
-        )));
-    }
-    let _ = std::fs::remove_dir_all(&holding);
-    let mut daemon_restarted = false;
-    if daemon_was_running {
-        crate::daemon_cmd::run(crate::daemon_cmd::DaemonCommand::Start)?;
-        daemon_restarted = true;
-    }
-    Ok(json!({
-        "archive": archive.to_string_lossy(),
-        "projects_restored": restored,
-        "daemon_was_running": daemon_was_running,
-        "daemon_restarted": daemon_restarted,
-    }))
-}
-
-// ------------------------------------------------------------ rebuild ---
 
 /// Full rebuild of one or every enabled source. A V2 full build is
 /// written next to the visible one and published only on success, so a
@@ -397,77 +133,6 @@ pub fn rebuild(
     Ok(())
 }
 
-/// Rebuilds one or every enabled source under the `index` lock and
-/// returns one `{id, path, scanned, indexed, failed, linked}` per source.
-/// `each` sees every outcome as it completes.
-pub fn rebuild_sources(
-    home: &Home,
-    source_id: Option<&str>,
-    fresh: bool,
-    mut each: impl FnMut(&Value),
-) -> Result<Vec<Value>, RagMonkError> {
-    let cfg = load(home)?;
-    let mut cp = control_plane(home)?;
-    let sources = match source_id {
-        Some(id) => vec![cp
-            .get_source(id)
-            .map_err(dberr)?
-            .ok_or_else(|| RagMonkError::usage(format!("no such source: {id}")))?],
-        None => cp.list_sources(true).map_err(dberr)?,
-    };
-    if sources.is_empty() {
-        return Err(RagMonkError::usage("no sources to rebuild"));
-    }
-    if fresh {
-        let unreachable: Vec<String> = sources
-            .iter()
-            .filter(|s| !Path::new(&s.path).exists())
-            .map(|s| format!("{} ({})", s.id, s.path))
-            .collect();
-        if !unreachable.is_empty() {
-            return Err(RagMonkError::usage(format!(
-                "cannot rebuild --fresh: source root(s) not reachable: {}. Reconnect them (or remove the sources) and try again; the existing index was left untouched.",
-                unreachable.join(", ")
-            )));
-        }
-    }
-    let lock = index_lock(home, "rebuild")?;
-    let layout = StorageLayout::new(home);
-    let registry =
-        ragmonk_convert::registry_with(&cfg, &ragmonk_convert::RegistryOptions::for_home(home));
-    let opts = Options::from_config(&cfg);
-    let total = sources.len() as i64;
-    let outcomes = ragmonk_indexing::progress::track(
-        &home.index_progress(),
-        "rebuild",
-        Some(total),
-        |tracker| -> Result<Vec<Value>, RagMonkError> {
-            let mut out = Vec::new();
-            for (i, s) in sources.iter().enumerate() {
-                tracker.begin_source(&s.id, Some(i as i64 + 1));
-                cp.require_full_rebuild(&s.id, "manual rebuild")
-                    .map_err(dberr)?;
-                let r = run_source(&layout, &mut cp, s, &registry, &opts, tracker)?;
-                let o = json!({
-                    "id": s.id,
-                    "path": s.path,
-                    "scanned": r.counts.scanned,
-                    "indexed": r.indexed,
-                    "failed": r.failed,
-                    "linked": r.linked,
-                });
-                each(&o);
-                out.push(o);
-            }
-            Ok(out)
-        },
-    );
-    lock.release();
-    outcomes
-}
-
-// ---------------------------------------------------------- uninstall ---
-
 /// Purges `RAGMONK_HOME` (stopping a running daemon first) unless
 /// `--keep-data`. A standalone Rust binary is never deleted by itself
 /// (on Windows a running executable cannot be), so its removal is a
@@ -500,12 +165,7 @@ pub fn uninstall(keep_data: bool, yes: bool, json_output: bool) -> Result<(), Ra
             return Ok(());
         }
     }
-    let mut data_purged = false;
-    if !keep_data && home.root().exists() {
-        pid::stop_and_wait(&home, STOP_TIMEOUT, "delete this data").map_err(generic)?;
-        std::fs::remove_dir_all(home.root()).map_err(generic)?;
-        data_purged = true;
-    }
+    let data_purged = !keep_data && ragmonk_ops::uninstall::purge_data(&home)?;
     if json_output {
         return print_json(&json!({
             "install_method": "standalone_binary",
@@ -520,8 +180,6 @@ pub fn uninstall(keep_data: bool, yes: bool, json_output: bool) -> Result<(), Ra
     println!("\n! {manual}");
     Ok(())
 }
-
-// ------------------------------------------------------------ vectors ---
 
 #[derive(Subcommand)]
 pub enum VectorsCommand {
@@ -545,28 +203,9 @@ pub enum VectorsCommand {
 
 pub fn vectors(cmd: VectorsCommand) -> Result<(), RagMonkError> {
     let home = prepared_home()?;
-    let layout = StorageLayout::new(&home);
-    let spec = ragmonk_ml::manifest::DEFAULT_EMBEDDING_MODEL;
-    let fp = spec.fingerprint();
     match cmd {
         VectorsCommand::Rebuild { source, json: j } => {
-            let lock = index_lock(&home, "vectors-rebuild")?;
-            let mut rebuilt = Vec::new();
-            for o in open_sources(&home, source.as_deref())? {
-                let n = o.store.embedding_keys(&o.build, &fp).map_err(dberr)?.len();
-                if n == 0 {
-                    rebuilt.push(json!({"source_id": o.source.id, "backend": null, "vectors": 0}));
-                    continue;
-                }
-                let dir = layout.project_dir(&project_id_for_canonical(&o.source.path));
-                let _ = std::fs::remove_file(ragmonk_ml::ann::index_path(&dir));
-                let stats = ragmonk_ml::ann::sync(&o.store, &dir, &o.build, &fp, spec.dims)
-                    .map_err(generic)?;
-                rebuilt.push(
-                    json!({"source_id": o.source.id, "backend": "hnsw", "vectors": stats.live}),
-                );
-            }
-            lock.release();
+            let rebuilt = ragmonk_ops::vectors::rebuild(&home, source.as_deref())?;
             if j {
                 return print_json(&json!({ "rebuilt": rebuilt }));
             }
@@ -587,42 +226,7 @@ pub fn vectors(cmd: VectorsCommand) -> Result<(), RagMonkError> {
             }
         }
         VectorsCommand::Backfill { source, json: j } => {
-            let cfg = load(&home)?;
-            let lazy = ragmonk_ml::LazyEmbedder::new(
-                ragmonk_ml::embedder::models_root(Some(&home.root().join("models"))),
-                spec,
-                cfg.indexing.embedding_batch_size,
-            );
-            let embedder = lazy.get().map_err(|e| {
-                RagMonkError::usage(format!(
-                    "the embedding model is not available ({e}); install it first"
-                ))
-            })?;
-            let lock = index_lock(&home, "vectors-backfill")?;
-            let mut done = Vec::new();
-            for mut o in open_sources(&home, source.as_deref())? {
-                let stats = ragmonk_ml::embed_build(
-                    &mut o.store,
-                    &o.build,
-                    embedder,
-                    ragmonk_documents::chunker::EMBEDDING_TEXT_VERSION,
-                )
-                .map_err(|e| generic(format!("{}: {}", e.code, e.message)))?;
-                let embedded = stats.inferred + stats.cache_reused;
-                if embedded > 0 {
-                    let dir = layout.project_dir(&project_id_for_canonical(&o.source.path));
-                    ragmonk_ml::ann::sync(
-                        &o.store,
-                        &dir,
-                        &o.build,
-                        embedder.fingerprint(),
-                        embedder.spec().dims,
-                    )
-                    .map_err(generic)?;
-                }
-                done.push(json!({"source_id": o.source.id, "embedded": embedded}));
-            }
-            lock.release();
+            let done = ragmonk_ops::vectors::backfill(&home, source.as_deref())?;
             if j {
                 return print_json(&json!({ "backfilled": done }));
             }
