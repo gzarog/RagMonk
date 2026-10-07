@@ -16,6 +16,7 @@ members = [
     "crates/ragmonk-storage",
     "crates/ragmonk-telemetry",
     "crates/ragmonk-update",
+    "xtask",
 ]
 
 [workspace.package]

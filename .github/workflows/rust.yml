@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: ["main", "release/rust-rewrite-v1"]
+    branches: ["main", "release/rust-rewrite-v1", "release/ragmonk-1.0-clean-slate"]
 
 defaults:
   run:
@@ -53,6 +53,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 scripts/check_branding.py
+
+  # RagMonk 1.0 is fresh-install/fresh-index only (ADR 0032); the audit
+  # baseline only shrinks.
+  clean-slate-audit:
+    name: Clean-slate audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: cargo xtask clean-slate-audit
 
   rust-checks:
     name: Rust fmt/clippy/test (${{ matrix.os }})
