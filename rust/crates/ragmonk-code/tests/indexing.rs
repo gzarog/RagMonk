@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use ragmonk_code::graph::{traverse_symbol, Direction};
 use ragmonk_code::process::{entity_ids, prepare_source, PreparedCode};
-use ragmonk_core::ids::v2;
+use ragmonk_core::ids::record;
 use ragmonk_core::paths::project_id_for_canonical;
 use ragmonk_indexing::coordinator::{run_source, NoProgress, Options};
 use ragmonk_storage::control::{ControlPlane, SourceRecord};
@@ -146,7 +146,7 @@ fn cold_build_matches_reference_semantics_and_isolates_parse_failures() {
         let source = std::fs::read(f.root.join(&file.rel_path)).unwrap();
         if let Ok(PreparedCode::Parsed { extraction, .. }) = prepare_source(&source, &file.rel_path)
         {
-            assert_eq!(file.id, v2::file_id(&f.src.id, &file.rel_path));
+            assert_eq!(file.id, record::file_id(&f.src.id, &file.rel_path));
             for (i, id) in entity_ids(&file.id, &extraction).into_iter().enumerate() {
                 key_of.insert(id, format!("{}#{i}", file.rel_path));
             }

@@ -16,7 +16,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ragmonk_core::ids::v2;
+use ragmonk_core::ids::record;
 use ragmonk_core::models::{Confidence, EntityType, RelationshipType};
 use ragmonk_documents::table::render_table;
 use ragmonk_storage::knowledge::{EntityRow, LinkRow, LinkUnitRow, ProjectStore, RelationshipRow};
@@ -69,7 +69,7 @@ pub struct Candidate {
 impl Candidate {
     pub fn row(&self) -> LinkRow {
         LinkRow {
-            id: v2::link_id(
+            id: record::link_id(
                 &self.entity_id,
                 &self.document_id,
                 self.chunk_id.as_deref(),

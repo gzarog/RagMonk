@@ -1,11 +1,11 @@
-//! The V2 server backend: schema init, build-scoped writes, atomic
+//! The server backend: schema init, build-scoped writes, atomic
 //! publication, visible-build reads and cleanup.
 //!
 //! Publication protocol per source:
 //! 1. `begin_build` records `pending_build_id` in the source-state index
 //!    (and deletes the leftovers of any earlier abandoned pending build).
 //! 2. Records are bulk-written with `build_id = <pending>` and `_id =
-//!    "<build_id>:<record id>"` (deterministic and idempotent within V2).
+//!    "<build_id>:<record id>"` (deterministic and idempotent).
 //! 3. `publish_build` refreshes the build-scoped indexes, then switches
 //!    `active_build_id` with an optimistic-concurrency write
 //!    (`if_seq_no`/`if_primary_term`), then garbage-collects other builds.
@@ -108,7 +108,7 @@ impl ServerBackend {
         Ok(Self::with_client(
             client,
             engine,
-            &schema::v2_prefix(&cfg.index_prefix),
+            &cfg.index_prefix,
             vector,
             BulkLimits::from_config(&cfg.bulk),
         ))
@@ -117,14 +117,14 @@ impl ServerBackend {
     pub fn with_client(
         client: Client,
         engine: Engine,
-        v2_prefix: &str,
+        prefix: &str,
         vector: Option<VectorSpec>,
         limits: BulkLimits,
     ) -> Self {
         Self {
             client,
             engine,
-            prefix: v2_prefix.to_owned(),
+            prefix: prefix.to_owned(),
             vector,
             limits,
             settings: IndexSettings::default(),
@@ -170,37 +170,47 @@ impl ServerBackend {
 
     // ---- schema --------------------------------------------------------
 
-    /// Creates missing V2 indexes and verifies existing ones. Never
+    /// Creates missing RagMonk indexes and verifies existing ones. Never
     /// modifies an existing index.
     pub fn init(&self) -> Result<InitReport> {
         let mut report = InitReport {
             created: vec![],
             existing: vec![],
         };
+        // Verify every existing index before creating anything, so an
+        // incompatible prefix fails without leaving new indexes behind.
+        let mut missing = Vec::new();
         for kind in IndexKind::ALL {
             let name = self.index(kind);
             let head = self.call(Method::Head, &format!("/{name}"), None)?;
             if head.status == 404 {
-                let create =
-                    schema::create_body(kind, self.engine, self.vector.as_ref(), &self.settings);
-                let resp = self.call(Method::Put, &format!("/{name}"), Some(&create))?;
-                let raced = resp.status == 400
-                    && String::from_utf8_lossy(&resp.body)
-                        .contains("resource_already_exists_exception");
-                if !raced {
-                    ok(resp, "PUT", &format!("/{name}"))?;
-                    report.created.push(name);
-                    continue;
-                }
+                missing.push(kind);
+            } else {
+                self.verify(kind)?;
+                report.existing.push(name);
             }
-            self.verify(kind)?;
-            report.existing.push(name);
+        }
+        for kind in missing {
+            let name = self.index(kind);
+            let create =
+                schema::create_body(kind, self.engine, self.vector.as_ref(), &self.settings);
+            let resp = self.call(Method::Put, &format!("/{name}"), Some(&create))?;
+            let raced = resp.status == 400
+                && String::from_utf8_lossy(&resp.body)
+                    .contains("resource_already_exists_exception");
+            if raced {
+                self.verify(kind)?;
+                report.existing.push(name);
+            } else {
+                ok(resp, "PUT", &format!("/{name}"))?;
+                report.created.push(name);
+            }
         }
         self.wait_for_shards()?;
         Ok(report)
     }
 
-    /// Whether each V2 index exists (`HEAD`; never creates anything).
+    /// Whether each RagMonk index exists (`HEAD`; never creates anything).
     pub fn index_status(&self) -> Result<Vec<(String, bool)>> {
         let mut out = Vec::new();
         for kind in IndexKind::ALL {
@@ -211,7 +221,7 @@ impl ServerBackend {
         Ok(out)
     }
 
-    /// Waits until every V2 index has its primaries allocated (yellow), so
+    /// Waits until every RagMonk index has its primaries allocated (yellow), so
     /// the first write/read after creation does not hit an unassigned shard.
     fn wait_for_shards(&self) -> Result<()> {
         let names: Vec<String> = IndexKind::ALL.iter().map(|k| self.index(*k)).collect();
@@ -222,7 +232,7 @@ impl ServerBackend {
         let v = self.call_ok(Method::Get, &path, None)?;
         if v["timed_out"].as_bool() == Some(true) {
             return Err(BackendError::Transport(format!(
-                "V2 indexes did not become available (cluster health {}); check cluster disk/allocation",
+                "RagMonk indexes did not become available (cluster health {}); check cluster disk/allocation",
                 v["status"]
             )));
         }
@@ -583,7 +593,7 @@ impl ServerBackend {
 
     /// Disables refresh and replicas on the build-scoped indexes for a
     /// large rebuild. Restore with [`BuildMode::restore`]. Only use while
-    /// no other process serves searches from this cluster's V2 indexes.
+    /// no other process serves searches from this cluster's RagMonk indexes.
     pub fn enter_build_mode(&self) -> Result<BuildMode<'_>> {
         let mut saved = Vec::new();
         for kind in IndexKind::BUILD_SCOPED {
@@ -658,7 +668,7 @@ impl Drop for BuildMode<'_> {
     }
 }
 
-/// Typed records written into a build. Field names match the V2 mappings.
+/// Typed records written into a build. Field names match the mappings.
 #[derive(Debug, Clone, Serialize)]
 pub struct FileDoc {
     pub file_id: String,

@@ -69,8 +69,7 @@ pub struct VectorSpec {
     pub model_id: String,
 }
 
-/// Provisional vector field for V2 indexes until RUST-09 benchmarks and
-/// pins the V2 embedding model: the dimensions of the current reference
+/// Vector field for the chunk index, matching the pinned embedding model: the dimensions of the current reference
 /// model (all-MiniLM-L6-v2, 384). Changing it is a schema change: new
 /// indexes are created and every source is rebuilt; nothing is mutated.
 pub fn default_vector_spec() -> VectorSpec {

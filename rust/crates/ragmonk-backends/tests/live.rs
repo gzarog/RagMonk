@@ -1,4 +1,4 @@
-//! Real-cluster acceptance tests for the V2 schema.
+//! Real-cluster acceptance tests for the server index schema.
 //!
 //! Set `RAGMONK_TEST_OPENSEARCH_URL` / `RAGMONK_TEST_ELASTICSEARCH_URL` to a
 //! disposable test cluster. With `RAGMONK_REQUIRE_LIVE_SERVER=1` a missing
@@ -14,7 +14,7 @@ use ragmonk_backends::engine::{Engine, VectorSpec};
 use ragmonk_backends::schema::{IndexKind, IndexSettings};
 use ragmonk_backends::transport::{Auth, Client, Counting, HttpTransport, Method};
 use ragmonk_backends::{BackendError, ServerBackend};
-use ragmonk_core::ids::v2;
+use ragmonk_core::ids::record;
 use serde_json::json;
 
 fn url(var: &str) -> Option<String> {
@@ -57,14 +57,14 @@ fn vector(dims: u32) -> VectorSpec {
 fn backend(
     base: &str,
     engine: Engine,
-    v2_prefix: &str,
+    prefix: &str,
     dims: u32,
     max_actions: usize,
 ) -> ServerBackend {
     ServerBackend::with_client(
         client(base),
         engine,
-        v2_prefix,
+        prefix,
         Some(vector(dims)),
         BulkLimits {
             max_actions,
@@ -90,7 +90,7 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
     let mut chunks = 0;
     for i in 0..files {
         let rel = format!("pkg/mod_{i}.py");
-        let file_id = v2::file_id(source, &rel);
+        let file_id = record::file_id(source, &rel);
         w.file(&FileDoc {
             file_id: file_id.clone(),
             rel_path: rel.clone(),
@@ -105,8 +105,9 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
             embedding_text_version: Some("e".into()),
         })
         .unwrap();
-        let caller = v2::entity_id(&file_id, "function", &format!("pkg.mod_{i}.{marker}_fn"), 0);
-        let callee = v2::entity_id(&file_id, "function", &format!("pkg.mod_{i}.helper"), 0);
+        let caller =
+            record::entity_id(&file_id, "function", &format!("pkg.mod_{i}.{marker}_fn"), 0);
+        let callee = record::entity_id(&file_id, "function", &format!("pkg.mod_{i}.helper"), 0);
         for (id, name) in [
             (&caller, format!("{marker}_fn")),
             (&callee, "helper".to_string()),
@@ -127,7 +128,7 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
             .unwrap();
         }
         w.edge(&EdgeDoc {
-            relationship_id: v2::relationship_id(&caller, "calls", &callee, 0),
+            relationship_id: record::relationship_id(&caller, "calls", &callee, 0),
             file_id: file_id.clone(),
             rel_path: rel.clone(),
             relationship_type: "calls".into(),
@@ -143,9 +144,9 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
     }
     // An email with one attachment child document.
     let rel = "mail/budget.eml".to_string();
-    let file_id = v2::file_id(source, &rel);
-    let parent = v2::document_id(&file_id, None);
-    let child = v2::document_id(&file_id, Some(1));
+    let file_id = record::file_id(source, &rel);
+    let parent = record::document_id(&file_id, None);
+    let child = record::document_id(&file_id, Some(1));
     for (doc_id, att) in [(&parent, None), (&child, Some(1))] {
         w.document(&DocumentDoc {
             document_id: doc_id.clone(),
@@ -165,7 +166,7 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
         })
         .unwrap();
         for ord in 0..3u64 {
-            let id = v2::chunk_id(doc_id, ord);
+            let id = record::chunk_id(doc_id, ord);
             w.chunk(&ChunkDoc {
                 chunk_id: id.clone(),
                 document_id: doc_id.clone(),
@@ -192,7 +193,7 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
         }
     }
     w.link(&LinkDoc {
-        relationship_id: v2::link_id("e", &parent, None, "mentioned_in", "exact_name"),
+        relationship_id: record::link_id("e", &parent, None, "mentioned_in", "exact_name"),
         relationship_type: "mentioned_in".into(),
         entity_id: "e".into(),
         document_id: parent.clone(),
@@ -209,15 +210,46 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
 }
 
 fn scenario(base: &str, engine: Engine) {
-    let v2_prefix = unique("live");
+    let prefix = unique("live");
     let c = client(base);
 
-    // ---- empty V2 init ------------------------------------------------------
-    let b = backend(base, engine, &v2_prefix, 4, 40);
+    // ---- a foreign index under the prefix is refused, never modified -----
+    let foreign = unique("foreign");
+    let r = c
+        .send(
+            Method::Put,
+            &format!("/{foreign}-files"),
+            Some((
+                br#"{"mappings":{"properties":{"x":{"type":"keyword"}}}}"#,
+                "application/json",
+            )),
+        )
+        .unwrap();
+    assert!(r.status < 300, "{}", String::from_utf8_lossy(&r.body));
+    let err = backend(base, engine, &foreign, 4, 40).init().unwrap_err();
+    assert!(err.to_string().contains("not a RagMonk index"), "{err}");
+    let mapping = c
+        .send(Method::Get, &format!("/{foreign}-files/_mapping"), None)
+        .unwrap();
+    let body = String::from_utf8_lossy(&mapping.body);
+    assert!(!body.contains("_meta"), "foreign index untouched: {body}");
+    for kind in [
+        "files",
+        "source-state",
+        "code",
+        "documents",
+        "chunks",
+        "relationships",
+    ] {
+        delete_index(&c, &format!("{foreign}-{kind}"));
+    }
+
+    // ---- empty init -----------------------------------------------------------
+    let b = backend(base, engine, &prefix, 4, 40);
     let init = b.init().unwrap();
     assert_eq!(init.created.len(), 6);
     assert!(b.init().unwrap().existing.len() == 6, "init is idempotent");
-    let wrong = backend(base, engine, &v2_prefix, 8, 40);
+    let wrong = backend(base, engine, &prefix, 8, 40);
     assert!(matches!(wrong.init(), Err(BackendError::SchemaMismatch(_))));
 
     // ---- full rebuild, invisible until published -------------------------
@@ -241,7 +273,7 @@ fn scenario(base: &str, engine: Engine) {
         "every record write went through _bulk"
     );
     b.client()
-        .send(Method::Post, &format!("/{v2_prefix}-*/_refresh"), None)
+        .send(Method::Post, &format!("/{prefix}-*/_refresh"), None)
         .unwrap();
     assert_eq!(
         b.raw_count(IndexKind::Chunks, src, "b1").unwrap(),
@@ -270,7 +302,7 @@ fn scenario(base: &str, engine: Engine) {
     write_corpus(&b, src, "b2", 10, "beta");
     write_corpus(&b, src, "b2", 10, "beta");
     b.client()
-        .send(Method::Post, &format!("/{v2_prefix}-*/_refresh"), None)
+        .send(Method::Post, &format!("/{prefix}-*/_refresh"), None)
         .unwrap();
     assert_eq!(b.raw_count(IndexKind::Code, src, "b2").unwrap(), 20);
 
@@ -315,17 +347,15 @@ fn scenario(base: &str, engine: Engine) {
         .client()
         .send(
             Method::Get,
-            &format!("/{v2_prefix}-chunks/_settings?flat_settings=true"),
+            &format!("/{prefix}-chunks/_settings?flat_settings=true"),
             None,
         )
         .unwrap()
         .json()
         .unwrap();
     assert_eq!(
-        s.pointer(&format!(
-            "/{v2_prefix}-chunks/settings/index.refresh_interval"
-        ))
-        .unwrap(),
+        s.pointer(&format!("/{prefix}-chunks/settings/index.refresh_interval"))
+            .unwrap(),
         "-1"
     );
     mode.restore().unwrap();
@@ -333,21 +363,15 @@ fn scenario(base: &str, engine: Engine) {
         .client()
         .send(
             Method::Get,
-            &format!("/{v2_prefix}-chunks/_settings?include_defaults=true&flat_settings=true"),
+            &format!("/{prefix}-chunks/_settings?include_defaults=true&flat_settings=true"),
             None,
         )
         .unwrap()
         .json()
         .unwrap();
     let refresh = s
-        .pointer(&format!(
-            "/{v2_prefix}-chunks/settings/index.refresh_interval"
-        ))
-        .or_else(|| {
-            s.pointer(&format!(
-                "/{v2_prefix}-chunks/defaults/index.refresh_interval"
-            ))
-        })
+        .pointer(&format!("/{prefix}-chunks/settings/index.refresh_interval"))
+        .or_else(|| s.pointer(&format!("/{prefix}-chunks/defaults/index.refresh_interval")))
         .unwrap();
     assert_ne!(refresh, "-1");
 
@@ -362,14 +386,14 @@ fn scenario(base: &str, engine: Engine) {
 }
 
 #[test]
-fn opensearch_v2_lifecycle() {
+fn opensearch_lifecycle() {
     if let Some(u) = url("RAGMONK_TEST_OPENSEARCH_URL") {
         scenario(&u, Engine::OpenSearch);
     }
 }
 
 #[test]
-fn elasticsearch_v2_lifecycle() {
+fn elasticsearch_lifecycle() {
     if let Some(u) = url("RAGMONK_TEST_ELASTICSEARCH_URL") {
         scenario(&u, Engine::Elasticsearch);
     }

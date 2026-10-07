@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use ragmonk_config::RagMonkConfig;
 use ragmonk_core::errors::{ErrorKind, RagMonkError};
-use ragmonk_core::ids::v2;
+use ragmonk_core::ids::record;
 use ragmonk_core::models::FileKind;
 use ragmonk_core::paths::{project_id_for_canonical, Home};
 use ragmonk_storage::control::{plan_for, ControlPlane, IndexVersions, RebuildPlan, SourceRecord};
@@ -550,7 +550,7 @@ pub fn run_source_with(
     // COMMIT. Incomplete work is never visible either way.
     let (build_id, full) = match &plan {
         RebuildPlan::Full { .. } => (
-            v2::build_id(&source.id, &format!("{}-{}", now, std::process::id())),
+            record::build_id(&source.id, &format!("{}-{}", now, std::process::id())),
             true,
         ),
         RebuildPlan::Incremental { active_build_id } => (active_build_id.clone(), false),
@@ -686,7 +686,7 @@ fn build(
             Some(Work {
                 input: PrepareInput {
                     source_id: source_id.into(),
-                    file_id: v2::file_id(source_id, &dec.rel_path),
+                    file_id: record::file_id(source_id, &dec.rel_path),
                     rel_path: dec.rel_path.clone(),
                     path: sf.path.clone(),
                     kind: dec.kind,

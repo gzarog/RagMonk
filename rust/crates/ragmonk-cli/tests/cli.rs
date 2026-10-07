@@ -114,24 +114,24 @@ fn no_migration_command_exists() {
 }
 
 #[test]
-fn server_v2_requires_server_mode() {
+fn server_requires_server_mode() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("home");
     let out = with_home(&home)
         .current_dir(tmp.path())
-        .args(["server-v2", "init"])
+        .args(["server", "init"])
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(3), "local mode is a config error");
     let out = with_home(&home)
         .current_dir(tmp.path())
-        .args(["server-v2", "schema", "--json"])
+        .args(["server", "schema", "--json"])
         .output()
         .unwrap();
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["data"]["indexes"].as_array().unwrap().len(), 6);
-    assert_eq!(v["data"]["indexes"][0]["name"], "ragmonk-v2-source-state");
+    assert_eq!(v["data"]["indexes"][0]["name"], "ragmonk-source-state");
 }
 
 #[test]

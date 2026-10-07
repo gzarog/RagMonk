@@ -1,6 +1,6 @@
 //! `ragmonk doctor [--json]` and `ragmonk health [--json]`
 //! (`cli/doctor.py`). Same sections, check names and verdict rules as
-//! the reference, over the V2 storage. The AI-provider section is not
+//! the reference, over the current storage. The AI-provider section is not
 //! ported, because AI features are outside RUST-12.
 
 use std::path::Path;
@@ -407,7 +407,7 @@ fn server_section(cfg: &ragmonk_config::RagMonkConfig) -> Section {
                             "indices",
                             "warn",
                             format!(
-                                "{}/{n} indices present; missing: {} (run 'ragmonk server-v2 init' to create)",
+                                "{}/{n} indices present; missing: {} (run 'ragmonk server init' to create)",
                                 n - missing.len(),
                                 missing.join(", ")
                             ),

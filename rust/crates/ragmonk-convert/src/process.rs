@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use ragmonk_config::model::ChunkingConfig;
-use ragmonk_core::ids::v2;
+use ragmonk_core::ids::record;
 use ragmonk_documents::chunker::chunk_document;
 use ragmonk_documents::model::{DocumentMetadata, NormalizedDocument};
 use ragmonk_indexing::coordinator::{PrepareInput, ProcessError, Processor};
@@ -98,7 +98,7 @@ impl DocumentProcessor {
             .into_iter()
             .enumerate()
             .map(|(i, ch)| ChunkRow {
-                id: v2::chunk_id(&document_id, i as u64),
+                id: record::chunk_id(&document_id, i as u64),
                 document_id: document_id.clone(),
                 file_id: file_id.to_owned(),
                 kind: ch.kind.as_str().to_owned(),
@@ -183,7 +183,7 @@ impl DocumentProcessor {
             content_id: part.content_id.clone(),
         };
         let hash = format!("{:x}", Sha256::digest(&part.payload));
-        let id = v2::document_id(file_id, Some(part.ordinal as u64));
+        let id = record::document_id(file_id, Some(part.ordinal as u64));
         Ok(Some(self.rows(
             &converted,
             file_id,
@@ -211,7 +211,7 @@ impl DocumentProcessor {
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let meta =
             DocumentMetadata::from_normalized(&converted.normalized, format.as_str(), file_name);
-        let document_id = v2::document_id(file_id, None);
+        let document_id = record::document_id(file_id, None);
         let (doc, chunks) = self.rows(
             &converted,
             file_id,

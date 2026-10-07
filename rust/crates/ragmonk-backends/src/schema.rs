@@ -1,4 +1,4 @@
-//! The V2 server schema manifest.
+//! The server index schema manifest.
 //!
 //! Six specialized indexes (no multiplexing of unrelated record kinds),
 //! `dynamic: strict` mappings, only query/filter/sort fields indexed (bulky
@@ -10,10 +10,11 @@ use serde_json::{json, Map, Value};
 
 use crate::engine::{Engine, VectorSpec};
 
-/// Bump on any mapping change; existing indexes with another version are
-/// refused (a new schema means a new full V2 build, never in-place mutation).
+/// Mapping identity, bumped on any mapping change. Existing indexes with
+/// another identity are refused: the operator uses a fresh prefix/cluster or
+/// resets the current indexes; nothing is ever mutated in place.
 pub const SCHEMA_VERSION: u64 = 1;
-pub const SCHEMA_TAG: &str = "ragmonk-v2";
+pub const SCHEMA_TAG: &str = "ragmonk";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -57,13 +58,9 @@ impl IndexKind {
     }
 }
 
-/// `{index_prefix}-v2`, e.g. `ragmonk-v2` for the default config.
-pub fn v2_prefix(index_prefix: &str) -> String {
-    format!("{index_prefix}-v2")
-}
-
-pub fn index_name(v2_prefix: &str, kind: IndexKind) -> String {
-    format!("{v2_prefix}-{}", kind.suffix())
+/// `{prefix}-{kind}`, e.g. `ragmonk-chunks` for the default config.
+pub fn index_name(prefix: &str, kind: IndexKind) -> String {
+    format!("{prefix}-{}", kind.suffix())
 }
 
 fn kw() -> Value {
@@ -235,7 +232,7 @@ impl Default for IndexSettings {
     }
 }
 
-/// The `_meta` identity stored on every V2 index.
+/// The `_meta` identity stored on every RagMonk index.
 pub fn meta(kind: IndexKind, vector: Option<&VectorSpec>) -> Value {
     json!({
         "schema": SCHEMA_TAG,
@@ -285,22 +282,24 @@ pub fn check_meta(
     match actual {
         Some(m) if m == &expected => Ok(()),
         Some(m) => Err(format!(
-            "index {index} has V2 schema metadata {m} but this RagMonk expects {expected}; \
-             a schema change requires a new V2 index set (indexes are never mutated in place)"
+            "index {index} has schema metadata {m} but this RagMonk expects {expected}; \
+             use a fresh index_prefix (or cluster) or reset the current RagMonk indexes and \
+             reindex (indexes are never converted in place)"
         )),
         None => Err(format!(
-            "index {index} exists but is not a RagMonk V2 index; refusing to use or modify it"
+            "index {index} exists but is not a RagMonk index; refusing to use or modify it. \
+             Choose another index_prefix"
         )),
     }
 }
 
-/// Machine-readable manifest of the whole V2 schema (for docs/diagnostics).
-pub fn manifest(v2_prefix: &str, engine: Engine, vector: Option<&VectorSpec>) -> Value {
+/// Machine-readable manifest of the whole schema (for docs/diagnostics).
+pub fn manifest(prefix: &str, engine: Engine, vector: Option<&VectorSpec>) -> Value {
     let indexes: Vec<Value> = IndexKind::ALL
         .iter()
         .map(|k| {
             json!({
-                "name": index_name(v2_prefix, *k),
+                "name": index_name(prefix, *k),
                 "kind": k,
                 "body": create_body(*k, engine, vector, &IndexSettings::default()),
             })
@@ -324,11 +323,9 @@ mod tests {
 
     #[test]
     fn names_and_strictness() {
-        let p = v2_prefix("ragmonk");
-        assert_eq!(p, "ragmonk-v2");
         assert_eq!(
-            index_name(&p, IndexKind::SourceState),
-            "ragmonk-v2-source-state"
+            index_name("ragmonk", IndexKind::SourceState),
+            "ragmonk-source-state"
         );
         for kind in IndexKind::ALL {
             let body = create_body(

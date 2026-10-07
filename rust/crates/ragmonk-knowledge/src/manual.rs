@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use ragmonk_core::ids::v2;
+use ragmonk_core::ids::record;
 use ragmonk_core::models::{Confidence, RelationshipType};
 use ragmonk_storage::knowledge::{EntityRow, LinkRow, ManualLink, ProjectStore};
 use ragmonk_storage::StorageError;
@@ -106,7 +106,7 @@ pub fn add(
         }
     }
     let link = ManualLink {
-        id: v2::link_id(
+        id: record::link_id(
             &entity.qualified_name,
             &format!("{rel_path}#{}", attachment_index.unwrap_or(-1)),
             chunk_ordinal.map(|o| o.to_string()).as_deref(),
@@ -191,7 +191,7 @@ fn materialize(
         let Some(file_id) = files.get(&m.document_rel_path) else {
             continue;
         };
-        let document_id = v2::document_id(file_id, m.attachment_index.map(|i| i as u64));
+        let document_id = record::document_id(file_id, m.attachment_index.map(|i| i as u64));
         if !docs.contains_key(&document_id) {
             continue;
         }
@@ -207,7 +207,7 @@ fn materialize(
             rows.push((
                 m.id.clone(),
                 LinkRow {
-                    id: v2::link_id(
+                    id: record::link_id(
                         &e.id,
                         &document_id,
                         chunk_id.as_deref(),

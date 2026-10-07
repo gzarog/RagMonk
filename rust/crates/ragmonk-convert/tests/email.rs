@@ -113,7 +113,7 @@ fn emails_match_reference() {
                         let p = d.attachment.as_ref().unwrap();
                         assert_eq!(
                             p.parent_document_id,
-                            ragmonk_core::ids::v2::document_id("fid", None)
+                            ragmonk_core::ids::record::document_id("fid", None)
                         );
                         assert_eq!(p.name.as_deref(), Some(a.display_name().as_str()));
                     }

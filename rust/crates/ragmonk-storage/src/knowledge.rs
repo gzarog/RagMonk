@@ -1,4 +1,4 @@
-//! Per-source V2 knowledge store (`<home>/v2/projects/<id>/knowledge.db`).
+//! Per-source knowledge store (`<home>/projects/<id>/knowledge.db`).
 //!
 //! All index-derived rows belong to a build. Readers pass the source's
 //! active build id; rows of a building/aborted build are invisible. Writes
@@ -860,7 +860,7 @@ impl ProjectStore {
         rel_path: &str,
         priority: i64,
     ) -> Result<String> {
-        let id = ragmonk_core::ids::v2::build_id(build_id, &format!("job\x1f{file_id}"));
+        let id = ragmonk_core::ids::record::build_id(build_id, &format!("job\x1f{file_id}"));
         self.conn
             .execute(
                 "INSERT OR IGNORE INTO index_jobs (id, build_id, file_id, rel_path, job_type, status,
@@ -979,7 +979,7 @@ impl ProjectStore {
         message: &str,
     ) -> Result<()> {
         let now = now_iso();
-        let id = ragmonk_core::ids::v2::build_id(
+        let id = ragmonk_core::ids::record::build_id(
             &self.source_id,
             &format!("error\x1f{now}\x1f{code}\x1f{}", rel_path.unwrap_or("")),
         );

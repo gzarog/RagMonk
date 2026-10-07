@@ -18,7 +18,7 @@ pub enum BackendError {
         total: usize,
         first_error: String,
     },
-    /// An existing index does not match the V2 schema this build expects.
+    /// An existing index does not match the schema this build expects.
     #[error("{0}")]
     SchemaMismatch(String),
     #[error("{0}")]

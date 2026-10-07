@@ -1,9 +1,9 @@
-//! RagMonk V2 server backends (V3 clean-slate plan, phase RUST-03).
+//! RagMonk server backends (OpenSearch and Elasticsearch).
 //!
-//! * [`schema`]: the V2 index set `{prefix}-v2-{source-state,files,code,
+//! * [`schema`]: the index set `{prefix}-{source-state,files,code,
 //!   documents,chunks,relationships}` with strict mappings, vector/HNSW
 //!   settings fixed at creation and a `_meta.schema_version`.
-//! * [`backend::ServerBackend`]: idempotent writes with deterministic V2
+//! * [`backend::ServerBackend`]: idempotent writes with deterministic
 //!   IDs, bounded adaptive bulk batching, and atomic per-source build
 //!   publication (an unpublished build is never returned by any read).
 //!

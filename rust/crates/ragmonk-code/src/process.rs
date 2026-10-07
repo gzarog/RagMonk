@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use ragmonk_core::ids::v2;
+use ragmonk_core::ids::record;
 use ragmonk_core::models::{Confidence, RelationshipType};
 use ragmonk_indexing::coordinator::{BuildFinalizer, PrepareInput, ProcessError, Processor};
 use ragmonk_storage::knowledge::{
@@ -83,7 +83,7 @@ pub fn entity_ids(file_id: &str, extraction: &Extraction) -> Vec<String> {
             let n = seen
                 .entry((e.kind.as_str().to_owned(), e.qualified_name.clone()))
                 .or_insert(0);
-            let id = v2::entity_id(file_id, e.kind.as_str(), &e.qualified_name, *n);
+            let id = record::entity_id(file_id, e.kind.as_str(), &e.qualified_name, *n);
             *n += 1;
             id
         })
@@ -136,7 +136,7 @@ pub fn build_relationships(
         let n = ordinals
             .entry((source.to_owned(), rel_type.as_str(), key.to_owned()))
             .or_insert(0);
-        let id = v2::relationship_id(source, rel_type.as_str(), key, *n);
+        let id = record::relationship_id(source, rel_type.as_str(), key, *n);
         *n += 1;
         out.push(RelationshipRow { id, ..row });
     };

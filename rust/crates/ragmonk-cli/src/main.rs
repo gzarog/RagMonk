@@ -50,9 +50,9 @@ enum Command {
     /// Inspect and edit configuration.
     #[command(subcommand)]
     Config(ConfigCommand),
-    /// Rust V2 OpenSearch/Elasticsearch schema.
-    #[command(name = "server-v2", subcommand)]
-    ServerV2(ServerV2Command),
+    /// OpenSearch/Elasticsearch index schema.
+    #[command(subcommand)]
+    Server(ServerCommand),
     /// Manage the background indexing daemon.
     #[command(subcommand)]
     Daemon(daemon_cmd::DaemonCommand),
@@ -195,13 +195,13 @@ enum Command {
 }
 
 #[derive(Subcommand)]
-enum ServerV2Command {
-    /// Print the V2 index schema manifest for the configured engine.
+enum ServerCommand {
+    /// Print the index schema manifest for the configured engine.
     Schema {
         #[arg(long = "json")]
         json: bool,
     },
-    /// Create any missing V2 indexes and verify existing ones (never modifies them).
+    /// Create any missing indexes and verify existing ones (never modifies them).
     Init {
         #[arg(long = "json")]
         json: bool,
@@ -342,11 +342,11 @@ fn server_config() -> Result<ragmonk_config::model::ServerStorageConfig, RagMonk
     Ok(cfg.storage.server)
 }
 
-fn run_server_v2(cmd: ServerV2Command) -> Result<(), RagMonkError> {
+fn run_server(cmd: ServerCommand) -> Result<(), RagMonkError> {
     use ragmonk_backends::engine::{default_vector_spec, Engine};
     use ragmonk_backends::{schema, ServerBackend};
     match cmd {
-        ServerV2Command::Schema { json } => {
+        ServerCommand::Schema { json } => {
             let home = prepared_home()?;
             let server = load(&home)?.storage.server;
             let engine = if server.engine.as_str() == "elasticsearch" {
@@ -354,11 +354,8 @@ fn run_server_v2(cmd: ServerV2Command) -> Result<(), RagMonkError> {
             } else {
                 Engine::OpenSearch
             };
-            let manifest = schema::manifest(
-                &schema::v2_prefix(&server.index_prefix),
-                engine,
-                Some(&default_vector_spec()),
-            );
+            let manifest =
+                schema::manifest(&server.index_prefix, engine, Some(&default_vector_spec()));
             if json {
                 print_json(&manifest)?;
             } else {
@@ -367,14 +364,14 @@ fn run_server_v2(cmd: ServerV2Command) -> Result<(), RagMonkError> {
                 }
             }
         }
-        ServerV2Command::Init { json } => {
+        ServerCommand::Init { json } => {
             let backend = ServerBackend::connect(&server_config()?, Some(default_vector_spec()))?;
             let report = backend.init()?;
             if json {
                 print_json(&report)?;
             } else {
                 println!(
-                    "{} V2 index(es) created, {} already present and verified (prefix {}).",
+                    "{} index(es) created, {} already present and verified (prefix {}).",
                     report.created.len(),
                     report.existing.len(),
                     backend.prefix()
@@ -417,7 +414,7 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
                 .map_err(|e| RagMonkError::new(ragmonk_core::ErrorKind::Generic, e.to_string()))?;
             println!("Set {key} = {} in {}", py_repr(&stored), path.display());
         }
-        Command::ServerV2(cmd) => run_server_v2(cmd)?,
+        Command::Server(cmd) => run_server(cmd)?,
         Command::Daemon(cmd) => daemon_cmd::run(cmd)?,
         Command::Init(a) => workflow::init(&a)?,
         Command::Source(cmd) => workflow::source(cmd)?,

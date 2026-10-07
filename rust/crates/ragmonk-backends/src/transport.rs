@@ -222,11 +222,8 @@ mod tests {
 
     #[test]
     fn endpoints_hide_index_names() {
-        assert_eq!(
-            endpoint_of("/ragmonk-v2-chunks/_bulk?refresh=false"),
-            "_bulk"
-        );
-        assert_eq!(endpoint_of("/ragmonk-v2-files"), "<index>");
+        assert_eq!(endpoint_of("/ragmonk-chunks/_bulk?refresh=false"), "_bulk");
+        assert_eq!(endpoint_of("/ragmonk-files"), "<index>");
         assert_eq!(endpoint_of("/_cat/indices"), "_cat");
         assert_eq!(endpoint_of("/x/_doc/abc"), "_doc");
     }

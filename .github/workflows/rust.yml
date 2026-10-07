@@ -149,9 +149,11 @@ jobs:
       - name: cargo build --release
         run: cargo build --workspace --release
 
-  # RUST-03: V2 schema lifecycle against real clusters (init, invisible-until-publish, crash/abort/GC, bounded bulk, build mode).
-  server-v2-integration:
-    name: Rust V2 server integration (OpenSearch + Elasticsearch)
+  # Server index lifecycle against real, empty clusters: foreign-index
+  # refusal, init, invisible-until-publish, crash/abort/GC, bounded bulk,
+  # build mode.
+  server-integration:
+    name: Server integration (OpenSearch + Elasticsearch)
     runs-on: ubuntu-latest
     services:
       opensearch:
@@ -195,7 +197,7 @@ jobs:
               sleep 5
             done
           done
-      - name: Live V2 lifecycle tests
+      - name: Live server lifecycle tests
         run: cargo test -p ragmonk-backends --test live -- --nocapture
 
   # The native installers (RUST-15) end to end, against release archives

@@ -2,7 +2,7 @@
 //! `rust/compat/tools/gen_core_golden.py`.
 
 use ragmonk_core::errors::{LockOwner, RagMonkError};
-use ragmonk_core::ids::{self, server};
+use ragmonk_core::ids;
 use ragmonk_core::paths::{project_id_for_canonical, Home};
 use ragmonk_core::security::is_secret_filename_for;
 use serde_json::Value;
@@ -36,47 +36,6 @@ fn source_and_project_ids_match_python() {
             ids::detect_source_type(s(&case["raw"])).as_str(),
             s(&case["type"]),
             "{case}"
-        );
-    }
-}
-
-#[test]
-fn server_doc_ids_match_both_python_modules() {
-    let g = golden("core_ids.json");
-    let cases = g["server"].as_array().unwrap();
-    assert!(cases.len() >= 12);
-    for c in cases {
-        let (sid, fid) = (s(&c["source_id"]), s(&c["file_id"]));
-        let gen = c["generation"].as_str();
-        assert_eq!(server::file_doc_id(sid, fid, gen), s(&c["file_doc_id"]));
-        assert_eq!(
-            server::generation_marker_id(sid),
-            s(&c["generation_marker_id"])
-        );
-        assert_eq!(
-            server::document_doc_id(sid, fid, gen, None),
-            s(&c["document_doc_id"])
-        );
-        assert_eq!(
-            server::document_doc_id(sid, fid, gen, Some(3)),
-            s(&c["document_doc_id_att3"])
-        );
-        assert_eq!(
-            server::entity_doc_id(sid, fid, "e1"),
-            s(&c["entity_doc_id"])
-        );
-        assert_eq!(server::chunk_doc_id(sid, fid, "c1"), s(&c["chunk_doc_id"]));
-        assert_eq!(
-            server::relationship_doc_id(sid, fid, "r1"),
-            s(&c["relationship_doc_id"])
-        );
-        assert_eq!(
-            server::link_doc_id(sid, "e1", "d1", None, "documented_by", "exact_name", gen),
-            s(&c["link_doc_id"])
-        );
-        assert_eq!(
-            server::link_doc_id(sid, "e1", "d1", Some("s9"), "mentioned_in", "alias", gen),
-            s(&c["link_doc_id_section"])
         );
     }
 }

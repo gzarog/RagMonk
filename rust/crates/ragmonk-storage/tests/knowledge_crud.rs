@@ -1,6 +1,6 @@
 //! Local-mode CRUD/FTS and build visibility on the V2 knowledge store.
 
-use ragmonk_core::ids::v2;
+use ragmonk_core::ids::record;
 use ragmonk_core::models::SourceType;
 use ragmonk_core::paths::Home;
 use ragmonk_storage::control::{plan_for, ControlPlane, IndexVersions, NewSource, RebuildPlan};
@@ -22,7 +22,7 @@ fn versions() -> IndexVersions {
 
 fn file(source: &str, rel: &str, hash: &str) -> FileRow {
     FileRow {
-        id: v2::file_id(source, rel),
+        id: record::file_id(source, rel),
         rel_path: rel.into(),
         kind: if rel.ends_with(".py") {
             "code"
@@ -45,8 +45,8 @@ fn file(source: &str, rel: &str, hash: &str) -> FileRow {
 }
 
 fn code_knowledge(f: &FileRow, name: &str) -> FileKnowledge {
-    let caller = v2::entity_id(&f.id, "function", &format!("mod.{name}"), 0);
-    let callee = v2::entity_id(&f.id, "function", "mod.helper", 0);
+    let caller = record::entity_id(&f.id, "function", &format!("mod.{name}"), 0);
+    let callee = record::entity_id(&f.id, "function", "mod.helper", 0);
     let entity = |id: &str, n: &str, line: i64| EntityRow {
         id: id.into(),
         file_id: f.id.clone(),
@@ -63,7 +63,7 @@ fn code_knowledge(f: &FileRow, name: &str) -> FileKnowledge {
     FileKnowledge {
         entities: vec![entity(&caller, name, 1), entity(&callee, "helper", 5)],
         relationships: vec![RelationshipRow {
-            id: v2::relationship_id(&caller, "calls", &callee, 0),
+            id: record::relationship_id(&caller, "calls", &callee, 0),
             file_id: f.id.clone(),
             relationship_type: "calls".into(),
             source_entity_id: caller.clone(),
@@ -80,8 +80,8 @@ fn code_knowledge(f: &FileRow, name: &str) -> FileKnowledge {
 }
 
 fn email_knowledge(f: &FileRow) -> FileKnowledge {
-    let parent = v2::document_id(&f.id, None);
-    let child = v2::document_id(&f.id, Some(1));
+    let parent = record::document_id(&f.id, None);
+    let child = record::document_id(&f.id, Some(1));
     let doc = |id: &str, title: &str, attachment: Option<AttachmentProvenance>| DocumentRow {
         id: id.into(),
         file_id: f.id.clone(),
@@ -94,7 +94,7 @@ fn email_knowledge(f: &FileRow) -> FileKnowledge {
         attachment,
     };
     let chunk = |doc_id: &str, ord: i64, text: &str| ChunkRow {
-        id: v2::chunk_id(doc_id, ord as u64),
+        id: record::chunk_id(doc_id, ord as u64),
         document_id: doc_id.into(),
         file_id: f.id.clone(),
         kind: "paragraph".into(),
@@ -190,7 +190,7 @@ fn builds_are_invisible_until_published_and_incremental_carry_forward_works() {
     );
     assert_eq!(
         child.attachment.as_ref().unwrap().parent_document_id,
-        v2::document_id(&mail.id, None)
+        record::document_id(&mail.id, None)
     );
     // Hostile FTS input is quoted, not interpreted.
     assert!(store
@@ -199,7 +199,7 @@ fn builds_are_invisible_until_published_and_incremental_carry_forward_works() {
         .is_empty());
 
     let links = vec![LinkRow {
-        id: v2::link_id(
+        id: record::link_id(
             &code_knowledge(&a, "alpha").entities[0].id,
             &docs[0].id,
             None,
