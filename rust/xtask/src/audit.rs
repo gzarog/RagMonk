@@ -50,7 +50,7 @@ const RULES: &[(&str, &str, &str)] = &[
     (
         "legacy",
         "legacy format/index/home handling",
-        r"(?i)legacy|ragpilot|preflight",
+        r"(?i)legacy|preflight",
     ),
     (
         "rewrite",

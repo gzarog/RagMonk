@@ -25,7 +25,6 @@ legacy	1	rust/crates/ragmonk-update/src/verify.rs
 legacy	2	rust/docs/adr/0006-v3-clean-slate-v2-storage.md
 legacy	3	rust/docs/adr/0007-v2-server-schema.md
 legacy	5	rust/docs/adr/0028-migrate-execute.md
-legacy	6	scripts/check_branding.py
 migration	2	.github/workflows/rust.yml
 migration	1	install.ps1
 migration	1	install.sh
