@@ -154,16 +154,13 @@ jobs:
         with:
           python-version: "3.12"
       - name: Toolchain
-        working-directory: rust
         run: rustup show active-toolchain || rustup toolchain install; rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
           key: release-${{ matrix.target }}
       - name: Fetch the bundled models
-        run: sh rust/scripts/fetch_models.sh "$RUNNER_TEMP/models"
+        run: sh scripts/fetch_models.sh "$RUNNER_TEMP/models"
       - name: Build
-        working-directory: rust
         env:
           RAGMONK_BUILD_VERSION: ${{ needs.validate.outputs.version }}
           RAGMONK_BUILD_COMMIT: ${{ needs.validate.outputs.sha }}
@@ -171,7 +168,7 @@ jobs:
         run: cargo build --release --locked -p ragmonk-cli --target ${{ matrix.target }}
       - name: Smoke test
         run: |
-          EXE=rust/target/${{ matrix.target }}/release/ragmonk
+          EXE=target/${{ matrix.target }}/release/ragmonk
           [ -f "$EXE.exe" ] && EXE="$EXE.exe"
           # No `tee /dev/stderr`: Git Bash on Windows has no /dev/stderr.
           out="$("$EXE" version --json)"
@@ -180,7 +177,7 @@ jobs:
           echo "EXE=$EXE" >> "$GITHUB_ENV"
       - name: Package
         run: |
-          python rust/scripts/package_release.py --binary "$EXE" --version "$VERSION" \
+          python scripts/package_release.py --binary "$EXE" --version "$VERSION" \
             --target ${{ matrix.target }} --models "$RUNNER_TEMP/models" --out dist
           mv dist/SHA256SUMS "dist/SHA256SUMS.${{ matrix.target }}"
       - uses: actions/upload-artifact@v4
@@ -291,7 +288,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: rust/Dockerfile
+          file: Dockerfile
           platforms: ${{ matrix.platform }}
           build-args: |
             RAGMONK_VERSION=${{ needs.validate.outputs.version }}

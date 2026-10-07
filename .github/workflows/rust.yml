@@ -5,10 +5,6 @@ on:
   push:
     branches: ["main", "release/rust-rewrite-v1", "release/ragmonk-1.0-clean-slate"]
 
-defaults:
-  run:
-    working-directory: rust
-
 jobs:
   # Mechanical check of the rewrite's branch policy (see
   # rust/docs/adr/0004-release-branch-flow.md): every rewrite feature branch
@@ -17,9 +13,6 @@ jobs:
     name: Rewrite PR base guard
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
       - name: Check PR base branch
         env:
@@ -47,9 +40,6 @@ jobs:
   branding-audit:
     name: Branding audit
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
       - uses: actions/checkout@v4
       - run: python3 scripts/check_branding.py
@@ -62,8 +52,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - run: cargo xtask clean-slate-audit
 
   rust-checks:
@@ -79,8 +67,6 @@ jobs:
       - name: Show toolchain
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - name: cargo fmt
         run: cargo fmt --all --check
       - name: cargo clippy
@@ -186,10 +172,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - name: Wait for clusters
-        working-directory: .
         run: |
           for url in "$RAGMONK_TEST_OPENSEARCH_URL" "$RAGMONK_TEST_ELASTICSEARCH_URL"; do
             for i in $(seq 1 60); do
@@ -215,9 +198,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: .
     steps:
       # runner.temp is not available in job-level env.
       - name: Paths
@@ -228,13 +208,11 @@ jobs:
           done
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - name: Build and package two versions
         run: |
-          cargo build --manifest-path rust/Cargo.toml -p ragmonk-cli
+          cargo build -p ragmonk-cli
           for v in 0.9.0 0.9.1; do
-            python3 rust/scripts/package_release.py --binary rust/target/debug/ragmonk \
+            python3 scripts/package_release.py --binary target/debug/ragmonk \
               --version "$v" --target "${{ matrix.target }}" --out "$DIST"
           done
           cat "$DIST/SHA256SUMS"
@@ -261,9 +239,6 @@ jobs:
   install-script-tests-windows:
     name: Install script (windows-latest)
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
       # runner.temp is not available in job-level env.
       - name: Paths
@@ -274,14 +249,12 @@ jobs:
             Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - name: Build and package two versions
         run: |
-          cargo build --manifest-path rust/Cargo.toml -p ragmonk-cli
+          cargo build -p ragmonk-cli
           if ($LASTEXITCODE -ne 0) { throw "build failed" }
           foreach ($v in "0.9.0", "0.9.1") {
-            python rust/scripts/package_release.py --binary rust/target/debug/ragmonk.exe `
+            python scripts/package_release.py --binary target/debug/ragmonk.exe `
               --version $v --target x86_64-pc-windows-msvc --out $env:DIST
             if ($LASTEXITCODE -ne 0) { throw "packaging failed" }
           }
@@ -321,16 +294,13 @@ jobs:
   container-image:
     name: Container image (linux/amd64)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: rust/Dockerfile
+          file: Dockerfile
           build-args: RAGMONK_VERSION=0.9.0
           tags: ragmonk:ci
           load: true
