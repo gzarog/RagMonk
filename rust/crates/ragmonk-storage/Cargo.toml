@@ -1,6 +1,6 @@
 [package]
 name = "ragmonk-storage"
-description = "RagMonk V2 SQLite control plane, project knowledge schema, migrations and V1 preflight"
+description = "RagMonk SQLite control plane and project knowledge store"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

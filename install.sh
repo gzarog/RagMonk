@@ -137,11 +137,6 @@ cat > "$RAGMONK_HOME/install_info.json" <<JSON
 }
 JSON
 
-if [ -d "$INSTALL_DIR/venv" ]; then
-    echo "note: the old Python install in $INSTALL_DIR/venv and $INSTALL_DIR/app is no longer used;"
-    echo "      run 'ragmonk migrate-to-rust-v2 --check' and remove them once you are happy."
-fi
-
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *)

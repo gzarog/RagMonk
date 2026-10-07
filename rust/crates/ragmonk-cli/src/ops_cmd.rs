@@ -6,7 +6,7 @@
 //! `v2/control.db` and of every indexed project's
 //! `v2/projects/<id>/knowledge.db`, plus `config.yaml`. Manifest keys
 //! follow the reference. `format_version` 2 and `storage: "v2"` mark the
-//! layout. Python V1 archives are refused with directions. ANN index
+//! layout; any other archive format is refused. ANN index
 //! files are caches and are not archived: queries fall back to exact
 //! search until the next sync rebuilds them.
 
@@ -237,21 +237,12 @@ pub fn restore_archive(home: &Home, archive: &Path) -> Result<Value, RagMonkErro
                 .map_err(|e| dberr(format!("archive manifest is unreadable: {e}")))
         })?;
     let format = manifest["format_version"].as_i64();
-    if manifest["storage"] != "v2" && format.is_some_and(|v| v < MANIFEST_FORMAT_VERSION) {
-        return Err(dberr(
-            "this is a Python (V1) RagMonk backup; Rust V2 cannot restore it. Restore it with \
-             the Python RagMonk, then run 'ragmonk migrate-to-rust-v2 --import-sources'; \
-             nothing was changed",
-        ));
-    }
-    match format {
-        Some(v) if v <= MANIFEST_FORMAT_VERSION && manifest["storage"] == "v2" => {}
-        other => {
-            return Err(dberr(format!(
-                "backup archive format v{} is newer than this RagMonk understands (v{MANIFEST_FORMAT_VERSION}); refusing to restore",
-                other.map_or_else(|| "?".to_owned(), |v| v.to_string())
-            )))
-        }
+    if format != Some(MANIFEST_FORMAT_VERSION) || manifest["storage"] != "v2" {
+        return Err(dberr(format!(
+            "unsupported backup archive format v{} (this RagMonk restores v{MANIFEST_FORMAT_VERSION}); \
+             refusing to restore, nothing was changed",
+            format.map_or_else(|| "?".to_owned(), |v| v.to_string())
+        )));
     }
     let staged_v2 = stage.join("v2");
     let control = staged_v2.join("control.db");

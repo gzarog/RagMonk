@@ -101,66 +101,20 @@ fn config_errors_use_python_exit_codes() {
     assert!(!stderr.contains("hunter2"), "credential leaked: {stderr}");
 }
 
-fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
-    std::fs::create_dir_all(to).unwrap();
-    for e in std::fs::read_dir(from).unwrap() {
-        let e = e.unwrap();
-        let dest = to.join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            copy_tree(&e.path(), &dest);
-        } else {
-            std::fs::copy(e.path(), dest).unwrap();
-        }
-    }
-}
-
 #[test]
-fn migrate_check_then_import_on_python_home() {
+fn no_migration_command_exists() {
     let tmp = tempfile::tempdir().unwrap();
-    let home = tmp.path().join("home");
-    copy_tree(
-        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compat/fixtures/v1_home"),
-        &home,
-    );
-    let out = with_home(&home)
-        .current_dir(tmp.path())
-        .args(["migrate-to-rust-v2", "--check", "--json"])
+    let out = with_home(&tmp.path().join("home"))
+        .args(["--help"])
         .output()
         .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["data"]["sources"].as_array().unwrap().len(), 2);
-    assert!(!home.join("v2").exists(), "--check is read-only");
-
-    let out = with_home(&home)
-        .current_dir(tmp.path())
-        .args(["migrate-to-rust-v2", "--import-sources", "--json"])
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["data"]["imported"].as_array().unwrap().len(), 2);
-    assert_eq!(v["data"]["needs_full_rebuild"].as_array().unwrap().len(), 2);
-    assert!(home.join("v2").join("control.db").is_file());
-
-    // Exactly one action is required.
-    let out = with_home(&home)
-        .args(["migrate-to-rust-v2"])
-        .output()
-        .unwrap();
-    assert_eq!(out.status.code(), Some(2));
+    let help = String::from_utf8_lossy(&out.stdout).to_lowercase();
+    assert!(out.status.success());
+    assert!(!help.contains("migrate"), "{help}");
 }
 
 #[test]
-fn server_v2_requires_server_mode_and_confirmation() {
+fn server_v2_requires_server_mode() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("home");
     let out = with_home(&home)
@@ -169,16 +123,6 @@ fn server_v2_requires_server_mode_and_confirmation() {
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(3), "local mode is a config error");
-    let out = with_home(&home)
-        .current_dir(tmp.path())
-        .args(["server-v2", "legacy", "--delete"])
-        .output()
-        .unwrap();
-    assert_eq!(
-        out.status.code(),
-        Some(2),
-        "--delete without --confirm is a usage error"
-    );
     let out = with_home(&home)
         .current_dir(tmp.path())
         .args(["server-v2", "schema", "--json"])

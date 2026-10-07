@@ -144,11 +144,6 @@ $info = [ordered]@{
 } | ConvertTo-Json
 [IO.File]::WriteAllText((Join-Path $RagMonkHome "install_info.json"), $info)
 
-if (Test-Path (Join-Path $InstallDir "venv")) {
-    Write-Host "note: the old Python install in $InstallDir\venv and $InstallDir\app is no longer used;"
-    Write-Host "      run 'ragmonk migrate-to-rust-v2 --check' and remove them once you are happy."
-}
-
 $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 if (-not (($UserPath -split ';') -contains $BinDir)) {
     $NewPath = if ($UserPath) { "$UserPath;$BinDir" } else { $BinDir }

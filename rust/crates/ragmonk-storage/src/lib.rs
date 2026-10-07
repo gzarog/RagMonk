@@ -1,19 +1,13 @@
-//! RagMonk V2 local storage (V3 clean-slate plan, phase RUST-02).
+//! RagMonk local storage.
 //!
 //! Layout inside a RagMonk home:
 //!
 //! ```text
-//! <home>/sources.db, <home>/projects/<id>/knowledge.db   Python V1 (read-only here)
-//! <home>/v2/control.db                                   V2 control plane
-//! <home>/v2/projects/<project_id>/knowledge.db           V2 per-source knowledge
+//! <home>/v2/control.db                                   control plane
+//! <home>/v2/projects/<project_id>/knowledge.db           per-source knowledge
 //! ```
 //!
-//! V2 state is self-contained: nothing index-derived is imported from V1.
-//! Source *definitions* (paths, include/exclude patterns, enabled flag) are
-//! imported, and every imported or newly added source starts in
-//! [`control::BuildState::NeedsFullRebuild`]. Python-era databases are only
-//! ever opened read-only, so the Python reference keeps working until the
-//! final cutover.
+//! Every new source starts in [`control::BuildState::NeedsFullRebuild`].
 
 pub mod control;
 pub mod db;
@@ -21,11 +15,9 @@ pub mod error;
 pub mod knowledge;
 pub mod maintenance;
 pub mod migrate;
-pub mod preflight;
 pub mod schema;
 pub mod search;
 pub mod status;
-pub mod v1;
 pub mod vectors;
 
 pub use error::StorageError;

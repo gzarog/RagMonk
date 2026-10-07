@@ -2,9 +2,9 @@
 //!
 //! Set `RAGMONK_TEST_OPENSEARCH_URL` / `RAGMONK_TEST_ELASTICSEARCH_URL` to a
 //! disposable test cluster. With `RAGMONK_REQUIRE_LIVE_SERVER=1` a missing
-//! URL is a failure instead of a skip (CI). WARNING: the legacy-cleanup
-//! scenario deletes V1 index names of the historical prefixes it finds, so
-//! never point these variables at a real deployment.
+//! URL is a failure instead of a skip (CI). The scenario creates and deletes
+//! uniquely named indexes, so never point these variables at a real
+//! deployment.
 
 use std::time::Duration;
 
@@ -13,7 +13,7 @@ use ragmonk_backends::bulk::BulkLimits;
 use ragmonk_backends::engine::{Engine, VectorSpec};
 use ragmonk_backends::schema::{IndexKind, IndexSettings};
 use ragmonk_backends::transport::{Auth, Client, Counting, HttpTransport, Method};
-use ragmonk_backends::{legacy, BackendError, ServerBackend};
+use ragmonk_backends::{BackendError, ServerBackend};
 use ragmonk_core::ids::v2;
 use serde_json::json;
 
@@ -209,54 +209,8 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
 }
 
 fn scenario(base: &str, engine: Engine) {
-    let legacy_prefix = unique("legacy");
-    let v2_prefix = format!("{legacy_prefix}-v2");
+    let v2_prefix = unique("live");
     let c = client(base);
-
-    // ---- legacy cleanup ----------------------------------------------------
-    for suffix in ["files", "content", "relationships", "unrelated"] {
-        let name = format!("{legacy_prefix}-{suffix}");
-        let r = c
-            .send(
-                Method::Put,
-                &format!("/{name}"),
-                Some((b"{}", "application/json")),
-            )
-            .unwrap();
-        assert!(r.status < 300, "{}", String::from_utf8_lossy(&r.body));
-    }
-    let report = legacy::discover(&c, &legacy_prefix).unwrap();
-    let mine: Vec<_> = report
-        .indexes
-        .iter()
-        .filter(|i| i.name.starts_with(&legacy_prefix))
-        .map(|i| i.name.clone())
-        .collect();
-    assert_eq!(mine.len(), 3, "exact V1 names only: {mine:?}");
-    assert!(!mine.iter().any(|n| n.ends_with("unrelated")));
-    // A stale confirmation is refused.
-    assert!(matches!(
-        legacy::delete_legacy(&c, &legacy_prefix, "0000000000000000"),
-        Err(BackendError::Conflict(_))
-    ));
-    let deleted = legacy::delete_legacy(&c, &legacy_prefix, &report.fingerprint).unwrap();
-    assert!(
-        deleted
-            .iter()
-            .filter(|n| n.starts_with(&legacy_prefix))
-            .count()
-            == 3
-    );
-    assert!(legacy::discover(&c, &legacy_prefix)
-        .unwrap()
-        .indexes
-        .iter()
-        .all(|i| !i.name.starts_with(&legacy_prefix)));
-    let still = c
-        .send(Method::Head, &format!("/{legacy_prefix}-unrelated"), None)
-        .unwrap();
-    assert_eq!(still.status, 200, "unrelated index must survive");
-    delete_index(&c, &format!("{legacy_prefix}-unrelated"));
 
     // ---- empty V2 init ------------------------------------------------------
     let b = backend(base, engine, &v2_prefix, 4, 40);

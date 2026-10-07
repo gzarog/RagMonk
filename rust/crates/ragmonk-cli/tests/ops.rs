@@ -100,9 +100,9 @@ fn backup_restore_round_trip_and_v1_refusal() {
     assert_eq!(s["matches"].as_array().unwrap().len(), 1);
     assert!(src.join("app.py").exists());
 
-    // A Python V1 archive is refused and nothing changes.
-    let v1 = dir.path().join("v1.tar.gz");
-    let stage = dir.path().join("v1stage");
+    // An archive in any other format is refused and nothing changes.
+    let foreign = dir.path().join("foreign.tar.gz");
+    let stage = dir.path().join("foreignstage");
     std::fs::create_dir_all(&stage).unwrap();
     std::fs::write(
         stage.join("manifest.json"),
@@ -110,17 +110,17 @@ fn backup_restore_round_trip_and_v1_refusal() {
     )
     .unwrap();
     std::fs::write(stage.join("sources.db"), b"").unwrap();
-    let f = std::fs::File::create(&v1).unwrap();
+    let f = std::fs::File::create(&foreign).unwrap();
     let mut t = tar::Builder::new(flate2::write::GzEncoder::new(
         f,
         flate2::Compression::default(),
     ));
     t.append_dir_all(".", &stage).unwrap();
     t.into_inner().unwrap().finish().unwrap();
-    let o = ragmonk(&home, &["restore", v1.to_str().unwrap()]);
+    let o = ragmonk(&home, &["restore", foreign.to_str().unwrap()]);
     assert!(!o.status.success());
     assert!(
-        String::from_utf8_lossy(&o.stderr).contains("Python (V1)"),
+        String::from_utf8_lossy(&o.stderr).contains("unsupported backup archive format"),
         "{o:?}"
     );
     assert_eq!(

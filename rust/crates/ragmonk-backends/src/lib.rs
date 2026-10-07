@@ -6,8 +6,6 @@
 //! * [`backend::ServerBackend`]: idempotent writes with deterministic V2
 //!   IDs, bounded adaptive bulk batching, and atomic per-source build
 //!   publication (an unpublished build is never returned by any read).
-//! * [`legacy`]: discovery and explicitly confirmed deletion of Python-era
-//!   RagMonk indexes. Normal V2 operation never reads them.
 //!
 //! OpenSearch and Elasticsearch share one adapter; [`engine::Engine`]
 //! isolates the few mapping/query differences (vector field types).
@@ -16,7 +14,6 @@ pub mod backend;
 pub mod bulk;
 pub mod engine;
 pub mod error;
-pub mod legacy;
 pub mod schema;
 pub mod transport;
 

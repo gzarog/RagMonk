@@ -12,7 +12,6 @@ mod ai_cmd;
 mod daemon_cmd;
 mod doctor_cmd;
 mod mcp;
-mod migrate_cmd;
 mod ops_cmd;
 mod query_cmd;
 mod status_cmd;
@@ -51,12 +50,9 @@ enum Command {
     /// Inspect and edit configuration.
     #[command(subcommand)]
     Config(ConfigCommand),
-    /// Rust V2 OpenSearch/Elasticsearch schema and legacy-index cleanup.
+    /// Rust V2 OpenSearch/Elasticsearch schema.
     #[command(name = "server-v2", subcommand)]
     ServerV2(ServerV2Command),
-    /// Prepare the Rust V2 control plane from a Python-era home.
-    #[command(name = "migrate-to-rust-v2")]
-    MigrateToRustV2(migrate_cmd::MigrateArgs),
     /// Manage the background indexing daemon.
     #[command(subcommand)]
     Daemon(daemon_cmd::DaemonCommand),
@@ -215,20 +211,6 @@ enum ServerV2Command {
         #[arg(long = "json")]
         json: bool,
     },
-    /// Find (and, with --delete --confirm, remove) Python-era RagMonk indexes.
-    Legacy(LegacyArgs),
-}
-
-#[derive(clap::Args)]
-struct LegacyArgs {
-    /// Delete the legacy indexes reported by the check. Requires --confirm.
-    #[arg(long, requires = "confirm")]
-    delete: bool,
-    /// Fingerprint printed by the check; deletion is refused if the set changed.
-    #[arg(long)]
-    confirm: Option<String>,
-    #[arg(long = "json")]
-    json: bool,
 }
 
 #[derive(Subcommand)]
@@ -354,53 +336,6 @@ fn print_json(data: &impl serde::Serialize) -> Result<(), RagMonkError> {
     Ok(())
 }
 
-pub(crate) fn print_preflight(r: &ragmonk_storage::preflight::PreflightReport) {
-    println!("RagMonk home: {}", r.home);
-    println!(
-        "Python V1 sources.db: {}",
-        if r.v1_sources_db_present {
-            "present"
-        } else {
-            "absent"
-        }
-    );
-    println!(
-        "Rust V2 control plane: {} ({})",
-        r.v2_control_db,
-        if r.v2_control_present {
-            "present"
-        } else {
-            "will be created"
-        }
-    );
-    println!("Sources ({}):", r.sources.len());
-    for s in &r.sources {
-        let ignored: i64 = s.ignored_v1_state.tables.iter().map(|(_, n)| n).sum();
-        println!(
-            "  {} {} [{}{}] -> {}; ignoring {} V1 index row(s)",
-            s.id,
-            s.path,
-            if s.enabled { "enabled" } else { "disabled" },
-            if s.path_exists { "" } else { ", path missing" },
-            s.v2_action,
-            ignored
-        );
-    }
-    println!("Preserved:");
-    for p in &r.preserved {
-        println!("  - {p}");
-    }
-    println!("Ignored (never read by Rust V2):");
-    for p in &r.ignored {
-        println!("  - {p}");
-    }
-    println!("An import would write:");
-    for w in &r.writes {
-        println!("  - {w}");
-    }
-    println!("Nothing is deleted; Python V1 files are left untouched.");
-}
-
 fn server_config() -> Result<ragmonk_config::model::ServerStorageConfig, RagMonkError> {
     let home = prepared_home()?;
     let cfg = load(&home)?;
@@ -414,7 +349,7 @@ fn server_config() -> Result<ragmonk_config::model::ServerStorageConfig, RagMonk
 
 fn run_server_v2(cmd: ServerV2Command) -> Result<(), RagMonkError> {
     use ragmonk_backends::engine::{default_vector_spec, Engine};
-    use ragmonk_backends::{legacy, schema, ServerBackend};
+    use ragmonk_backends::{schema, ServerBackend};
     match cmd {
         ServerV2Command::Schema { json } => {
             let home = prepared_home()?;
@@ -449,44 +384,6 @@ fn run_server_v2(cmd: ServerV2Command) -> Result<(), RagMonkError> {
                     report.existing.len(),
                     backend.prefix()
                 );
-            }
-        }
-        ServerV2Command::Legacy(args) => {
-            let server = server_config()?;
-            let backend = ServerBackend::connect(&server, None)?;
-            if args.delete {
-                let confirm = args.confirm.unwrap_or_default();
-                let deleted =
-                    legacy::delete_legacy(backend.client(), &server.index_prefix, &confirm)?;
-                if args.json {
-                    print_json(&serde_json::json!({ "deleted": deleted }))?;
-                } else {
-                    println!("Deleted {} legacy index(es).", deleted.len());
-                    for d in &deleted {
-                        println!("  - {d}");
-                    }
-                }
-            } else {
-                let report = legacy::discover(backend.client(), &server.index_prefix)?;
-                if args.json {
-                    print_json(&report)?;
-                } else if report.indexes.is_empty() {
-                    println!("No legacy RagMonk indexes found.");
-                } else {
-                    println!("Legacy (Python V1) RagMonk indexes that would be DELETED:");
-                    for i in &report.indexes {
-                        println!(
-                            "  - {} ({} docs, {})",
-                            i.name,
-                            i.docs.map_or("?".into(), |d| d.to_string()),
-                            i.store_size.as_deref().unwrap_or("?")
-                        );
-                    }
-                    println!(
-                        "Rust V2 never reads them. After review, delete with:\n  ragmonk server-v2 legacy --delete --confirm {}",
-                        report.fingerprint
-                    );
-                }
             }
         }
     }
@@ -567,7 +464,6 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
             json,
         } => ops_cmd::uninstall(keep_data, yes, json)?,
         Command::Vectors(cmd) => ops_cmd::vectors(cmd)?,
-        Command::MigrateToRustV2(args) => migrate_cmd::run(&args)?,
     }
     Ok(())
 }

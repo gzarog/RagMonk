@@ -5,7 +5,7 @@
 //!   intact.
 //! * Before migrating a database that already holds data, a consistent copy
 //!   is written (`VACUUM INTO`) into the V2 migration
-//!   backup directory (preflight + backup rule for destructive changes).
+//!   backup directory (backup rule for destructive changes).
 //! * A database whose recorded version is newer than this build knows is
 //!   refused rather than downgraded.
 
