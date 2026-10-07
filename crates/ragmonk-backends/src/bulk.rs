@@ -139,7 +139,7 @@ impl<'a> BulkWriter<'a> {
             let rest = batch.split_off(take);
             let body: Vec<u8> = batch.iter().flat_map(|e| e.bytes.iter().copied()).collect();
             self.report.requests += 1;
-            self.client.record_bulk(batch.len());
+            self.client.record_bulk(batch.len(), body.len());
             let resp = self.client.send(
                 Method::Post,
                 "/_bulk",
@@ -312,6 +312,14 @@ mod tests {
             w.push(&idx(i)).unwrap();
         }
         assert_eq!(w.finish().unwrap().requests, 3);
+        let st = c.stats();
+        assert!(
+            st.max_bulk_bytes <= 100,
+            "byte bound: {}",
+            st.max_bulk_bytes
+        );
+        assert!(st.max_bulk_actions <= 2);
+        assert_eq!(st.bulk_actions, 6);
     }
 
     #[test]

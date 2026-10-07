@@ -67,6 +67,11 @@ const RULES: &[(&str, &str, &str)] = &[
         "Python file outside source-language fixtures",
         r"\.pyi?$",
     ),
+    (
+        "unbounded-channel",
+        "unbounded channel in production code (every queue must be bounded)",
+        r"mpsc::channel\s*\(|unbounded_channel\s*\(|channel::unbounded|\bunbounded\s*\(",
+    ),
 ];
 
 /// Substrings that look like a forbidden term but name something current.
@@ -89,6 +94,13 @@ const ALLOWED_PATHS: &[(&str, &str)] = &[
     ("python", "fixtures/corpus/languages/python/"),
     ("python-file", "fixtures/"),
 ];
+
+/// Rules that apply only to production sources (`crates/*/src/`).
+const PRODUCTION_ONLY: &[&str] = &["unbounded-channel"];
+
+fn applies(rule: &str, path: &str) -> bool {
+    !PRODUCTION_ONLY.contains(&rule) || (path.starts_with("crates/") && path.contains("/src/"))
+}
 
 /// Files exempt as a whole: this audit's own pattern definitions.
 fn self_exempt(path: &str) -> bool {
@@ -118,7 +130,7 @@ pub fn run(opts: &Options) -> Result<()> {
             continue;
         }
         let mut hit = |rule: &str, line: String| {
-            if allowed(rule, &path) {
+            if allowed(rule, &path) || !applies(rule, &path) {
                 return;
             }
             let key = (rule.to_owned(), path.clone());
@@ -327,6 +339,30 @@ mod tests {
         ));
         assert!(!matches("version-naming", "release v1.0.0"));
         assert!(!matches("version-naming", "uses: actions/checkout@v4"));
+    }
+
+    #[test]
+    fn unbounded_channels_are_flagged_in_production_sources_only() {
+        assert!(matches(
+            "unbounded-channel",
+            "let (tx, rx) = mpsc::channel();"
+        ));
+        assert!(matches(
+            "unbounded-channel",
+            "let (tx, rx) = tokio::sync::mpsc::unbounded_channel();"
+        ));
+        assert!(!matches(
+            "unbounded-channel",
+            "let (tx, rx) = mpsc::sync_channel(8);"
+        ));
+        assert!(applies(
+            "unbounded-channel",
+            "crates/ragmonk-ai/src/transport.rs"
+        ));
+        assert!(!applies(
+            "unbounded-channel",
+            "crates/ragmonk-ai/tests/golden.rs"
+        ));
     }
 
     #[test]

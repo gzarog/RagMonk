@@ -561,3 +561,169 @@ fn readers_see_only_committed_state_during_a_build() {
     assert_eq!(after.len(), 4);
     assert!(!after.contains(&old_hash));
 }
+
+/// Counts the files handed to the processor, by relative path.
+#[derive(Default)]
+struct Counting(std::sync::Mutex<Vec<String>>);
+
+impl Processor for Counting {
+    fn prepare(&self, input: &PrepareInput) -> Result<FileKnowledge, ProcessError> {
+        self.0.lock().unwrap().push(input.rel_path.clone());
+        Ok(FileKnowledge::default())
+    }
+}
+
+fn counting_registry() -> (Registry, Arc<Counting>) {
+    let c = Arc::new(Counting::default());
+    let mut reg = Registry::raw();
+    reg.code = c.clone();
+    reg.document = c.clone();
+    reg.unknown = c.clone();
+    (reg, c)
+}
+
+#[test]
+fn incremental_passes_process_only_changed_new_and_moved_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("r");
+    for i in 0..200 {
+        common::write(&root, &format!("pkg/m{i:03}.py"), &format!("x = {i}\n"));
+    }
+    let home = common::home(tmp.path());
+    let layout = StorageLayout::new(&home);
+    let mut cp = common::control(&home);
+    let src = common::add_source(&mut cp, &root, &[], &[]);
+    let (reg, seen) = counting_registry();
+    run_source(&layout, &mut cp, &src, &reg, &opts(), &mut NoProgress).unwrap();
+    assert_eq!(
+        seen.0.lock().unwrap().len(),
+        200,
+        "cold build processes everything"
+    );
+
+    // A 1% change set: one edit, one rename, one delete, one new file.
+    seen.0.lock().unwrap().clear();
+    common::write(&root, "pkg/m010.py", "x = 'edited'\n");
+    std::fs::rename(root.join("pkg/m020.py"), root.join("pkg/renamed.py")).unwrap();
+    std::fs::remove_file(root.join("pkg/m030.py")).unwrap();
+    common::write(&root, "pkg/new.py", "y = 1\n");
+    let r = run_source(&layout, &mut cp, &src, &reg, &opts(), &mut NoProgress).unwrap();
+    let mut processed = seen.0.lock().unwrap().clone();
+    processed.sort();
+    assert_eq!(processed, ["pkg/m010.py", "pkg/new.py", "pkg/renamed.py"]);
+    assert_eq!(
+        (
+            r.counts.changed,
+            r.counts.new,
+            r.counts.moved,
+            r.counts.deleted
+        ),
+        (1, 1, 1, 1)
+    );
+    // Hashing is metadata-driven: only paths whose size/mtime changed or
+    // that are new are hashed (the new and renamed paths for move
+    // detection), never the 197 untouched files.
+    assert_eq!(r.timings.hash_calls, 3);
+    let files = visible_files(&layout, &cp, &src);
+    assert_eq!(files.len(), 200);
+    assert!(files
+        .iter()
+        .all(|(p, _)| p != "pkg/m030.py" && p != "pkg/m020.py"));
+
+    // A touched-but-identical file is re-statted, not reprocessed.
+    seen.0.lock().unwrap().clear();
+    common::write(&root, "pkg/m050.py", "x = 50\n");
+    let r = run_source(&layout, &mut cp, &src, &reg, &opts(), &mut NoProgress).unwrap();
+    assert!(
+        seen.0.lock().unwrap().is_empty(),
+        "identical content is never reprocessed"
+    );
+    assert!(!r.published);
+}
+
+#[test]
+fn a_build_left_unpublished_by_a_crash_is_discarded_on_restart() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("r");
+    for i in 0..10 {
+        common::write(&root, &format!("m{i}.py"), &format!("x = {i}\n"));
+    }
+    let home = common::home(tmp.path());
+    let layout = StorageLayout::new(&home);
+    let mut cp = common::control(&home);
+    let src = common::add_source(&mut cp, &root, &[], &[]);
+    let reg = Registry::raw();
+    let first = run_source(&layout, &mut cp, &src, &reg, &opts(), &mut NoProgress).unwrap();
+    let published = first.build_id.unwrap();
+
+    // Simulate a process that committed a full build's rows and died before
+    // publishing it: the control plane still names it as pending.
+    let orphan = "orphan-build";
+    {
+        let mut store =
+            ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
+        store.create_build(orphan, true, &reg.versions).unwrap();
+    }
+    cp.require_full_rebuild(&src.id, "test").unwrap();
+    cp.begin_build(&src.id, orphan).unwrap();
+    assert_eq!(
+        visible_files(&layout, &cp, &src).len(),
+        10,
+        "orphan is invisible"
+    );
+
+    let r = run_source(&layout, &mut cp, &src, &reg, &opts(), &mut NoProgress).unwrap();
+    assert_eq!(r.recovered_build.as_deref(), Some(orphan));
+    assert!(r.published);
+    let state = cp.state(&src.id).unwrap();
+    assert_eq!(state.pending_build_id, None);
+    assert_ne!(state.active_build_id.as_deref(), Some(published.as_str()));
+    let store =
+        ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
+    let builds: Vec<(String, String)> = {
+        let mut stmt = store
+            .connection()
+            .prepare("SELECT id, status FROM builds ORDER BY id")
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert_eq!(builds.len(), 1, "exactly one build remains: {builds:?}");
+    assert_eq!(builds[0].1, "published");
+    assert_eq!(visible_files(&layout, &cp, &src).len(), 10);
+}
+
+#[test]
+fn pipeline_concurrency_stays_within_its_bounds() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("r");
+    for i in 0..300 {
+        common::write(&root, &format!("f{i}.py"), &format!("x = {i}\n"));
+    }
+    let home = common::home(tmp.path());
+    let layout = StorageLayout::new(&home);
+    let mut cp = common::control(&home);
+    let src = common::add_source(&mut cp, &root, &[], &[]);
+    let o = opts();
+    let r = run_source(
+        &layout,
+        &mut cp,
+        &src,
+        &Registry::raw(),
+        &o,
+        &mut NoProgress,
+    )
+    .unwrap();
+    let p = r.pipeline;
+    assert_eq!((p.workers, p.items), (o.workers, 300));
+    assert!(p.active_workers_high_water >= 1 && p.active_workers_high_water <= o.workers);
+    assert!(
+        p.in_flight_high_water <= 2 * p.queue_capacity + p.workers + 2,
+        "in-flight {} exceeds the channel bounds ({} x2 + {} workers + 2)",
+        p.in_flight_high_water,
+        p.queue_capacity,
+        p.workers
+    );
+}

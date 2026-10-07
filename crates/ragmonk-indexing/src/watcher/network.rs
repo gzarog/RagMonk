@@ -187,19 +187,31 @@ mod tests {
         assert!(seen.lock().unwrap().is_empty(), "no change, no trigger");
         std::fs::write(root.join("a.txt"), "aaaa").unwrap();
         std::fs::remove_file(root.join("b.txt")).unwrap();
+        // A tick may land between the two changes, so they can arrive in
+        // one callback or two; together they must be exactly these paths.
+        let names = || -> BTreeSet<String> {
+            seen.lock()
+                .unwrap()
+                .iter()
+                .flatten()
+                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+                .collect()
+        };
         for _ in 0..100 {
-            if !seen.lock().unwrap().is_empty() {
+            if names().len() == 2 {
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
         w.stop();
-        let got = seen.lock().unwrap()[0].clone();
-        let names: Vec<_> = got
-            .iter()
-            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(names, ["a.txt", "b.txt"]);
+        assert_eq!(
+            names(),
+            BTreeSet::from(["a.txt".to_owned(), "b.txt".to_owned()])
+        );
+        assert!(
+            seen.lock().unwrap().len() <= 2,
+            "at most one callback per tick"
+        );
         assert!(!w.is_alive());
     }
 

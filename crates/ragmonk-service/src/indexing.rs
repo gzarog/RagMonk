@@ -36,12 +36,19 @@ pub enum SourceEvent<'a> {
     },
 }
 
-/// The outcome of a whole run.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// The outcome of a whole run, with its concurrency metrics.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct RunSummary {
     pub attempted: usize,
     pub failed_sources: usize,
     pub failed_files: usize,
+    /// Files left for a later retry (transient failures).
+    pub retrying_files: usize,
+    /// Longest wait for a source's `index` lock.
+    pub max_lock_wait_seconds: f64,
+    /// Highest pipeline in-flight count and active-worker count seen.
+    pub in_flight_high_water: usize,
+    pub active_workers_high_water: usize,
 }
 
 impl RunSummary {
@@ -98,12 +105,17 @@ pub fn index_sources(
         for (i, source) in sources.iter().enumerate() {
             tracker.begin_source(&source.id, Some(i as i64 + 1));
             on_event(SourceEvent::Started { source });
-            let lock = match RunLock::acquire(
+            let waiting = std::time::Instant::now();
+            let lock = RunLock::acquire(
                 &home.locks_dir().join("index.lock"),
                 operation,
                 Some(&source.id),
                 opts.lock_timeout,
-            ) {
+            );
+            summary.max_lock_wait_seconds = summary
+                .max_lock_wait_seconds
+                .max(waiting.elapsed().as_secs_f64());
+            let lock = match lock {
                 Ok(l) => l,
                 Err(error) => {
                     summary.failed_sources += 1;
@@ -120,7 +132,14 @@ pub fn index_sources(
                 Ok(run) => {
                     if run.offline.is_none() {
                         summary.failed_files += run.failed;
+                        summary.retrying_files += run.retrying;
                     }
+                    summary.in_flight_high_water = summary
+                        .in_flight_high_water
+                        .max(run.pipeline.in_flight_high_water);
+                    summary.active_workers_high_water = summary
+                        .active_workers_high_water
+                        .max(run.pipeline.active_workers_high_water);
                     on_event(SourceEvent::Completed { source, run: &run });
                 }
                 Err(error) => {

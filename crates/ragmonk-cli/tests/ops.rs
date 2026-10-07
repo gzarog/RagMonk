@@ -161,3 +161,39 @@ fn rebuild_vectors_uninstall() {
     assert_eq!(u["data_purged"], true);
     assert!(!home.exists());
 }
+
+#[test]
+fn rebuild_continues_past_a_failing_source() {
+    let (dir, home, _src) = setup();
+    let other = dir.path().join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("lib.py"), "def helper():\n    return 2\n").unwrap();
+    out(&ragmonk(&home, &["source", "add", other.to_str().unwrap()]));
+    out(&ragmonk(&home, &["index"]));
+    // Break the first source's knowledge database: its rebuild must fail
+    // on its own while the other source still rebuilds.
+    let mut dbs: Vec<_> = std::fs::read_dir(home.join("projects"))
+        .unwrap()
+        .map(|e| e.unwrap().path().join("knowledge.db"))
+        .filter(|p| p.is_file())
+        .collect();
+    dbs.sort();
+    assert_eq!(dbs.len(), 2);
+    for sidecar in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{sidecar}", dbs[0].display()));
+    }
+    std::fs::write(&dbs[0], b"not a database").unwrap();
+    let o = ragmonk(&home, &["rebuild", "--json"]);
+    assert!(!o.status.success(), "a failed source makes the run partial");
+    let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    let sources = v["data"]["sources"].as_array().unwrap();
+    assert_eq!(sources.len(), 2, "both sources were attempted: {v}");
+    assert_eq!(
+        sources.iter().filter(|s| s.get("error").is_some()).count(),
+        1,
+        "{v}"
+    );
+    assert!(sources
+        .iter()
+        .any(|s| s.get("error").is_none() && s["indexed"].as_u64() > Some(0)));
+}

@@ -370,7 +370,8 @@ fn run_tool(name: &str, args: Map<String, Value>) -> Value {
         Ok(cfg) => cfg.mcp.request_timeout_seconds,
         Err(e) => return failure(error_type(&e), e.message()),
     };
-    let (tx, rx) = mpsc::channel();
+    // One result per call; an abandoned worker's send never blocks.
+    let (tx, rx) = mpsc::sync_channel(1);
     let name = name.to_owned();
     // An abandoned worker runs to completion in the background; the
     // timeout only stops waiting for it.

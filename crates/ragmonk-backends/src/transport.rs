@@ -56,6 +56,11 @@ pub struct RequestStats {
     pub by_endpoint: BTreeMap<String, u64>,
     pub bulk_requests: u64,
     pub bulk_actions: u64,
+    /// NDJSON payload bytes over all bulk requests.
+    pub bulk_bytes: u64,
+    /// The largest single bulk request, in actions and in bytes.
+    pub max_bulk_actions: u64,
+    pub max_bulk_bytes: u64,
 }
 
 /// Something that can send one HTTP request.
@@ -81,10 +86,13 @@ impl<T: Transport> Counting<T> {
         self.stats.lock().map(|s| s.clone()).unwrap_or_default()
     }
 
-    pub fn record_bulk(&self, actions: usize) {
+    pub fn record_bulk(&self, actions: usize, bytes: usize) {
         if let Ok(mut s) = self.stats.lock() {
             s.bulk_requests += 1;
             s.bulk_actions += actions as u64;
+            s.bulk_bytes += bytes as u64;
+            s.max_bulk_actions = s.max_bulk_actions.max(actions as u64);
+            s.max_bulk_bytes = s.max_bulk_bytes.max(bytes as u64);
         }
     }
 

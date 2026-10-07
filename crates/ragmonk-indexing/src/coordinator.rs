@@ -206,6 +206,25 @@ pub struct StageTimings {
     pub publish_seconds: f64,
 }
 
+/// Concurrency observed in one pass's processing pipeline.
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+pub struct PipelineStats {
+    /// Worker threads.
+    pub workers: usize,
+    /// Capacity of each bounded channel (work and results).
+    pub queue_capacity: usize,
+    /// Most files in flight at once (handed to the work queue, result not
+    /// yet taken by the writer). Bounded by `2 * queue_capacity + workers +
+    /// 2`: both channels full, every worker holding one file, the feeder
+    /// waiting with one more, and one result between the channel and the
+    /// writer's count.
+    pub in_flight_high_water: usize,
+    /// Most workers processing a file at the same time.
+    pub active_workers_high_water: usize,
+    /// Files that went through the pipeline.
+    pub items: usize,
+}
+
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct SourceResult {
     pub source_id: String,
@@ -228,6 +247,9 @@ pub struct SourceResult {
     /// The source was offline before this pass and is reachable again.
     pub became_online: bool,
     pub timings: StageTimings,
+    pub pipeline: PipelineStats,
+    /// A build an earlier run left unpublished, discarded by this pass.
+    pub recovered_build: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -316,8 +338,14 @@ fn run_workers(
     workers: usize,
     registry: &Registry,
     mut on_done: impl FnMut(Vec<Done>) -> Result<(), RagMonkError>,
-) -> Result<(), RagMonkError> {
+) -> Result<PipelineStats, RagMonkError> {
+    use std::sync::atomic::AtomicUsize;
     let bound = workers.saturating_mul(2).max(1);
+    let in_flight = AtomicUsize::new(0);
+    let in_flight_high = AtomicUsize::new(0);
+    let active = AtomicUsize::new(0);
+    let active_high = AtomicUsize::new(0);
+    let items_len = items.len();
     let (work_tx, work_rx) = sync_channel::<Work>(bound);
     let (done_tx, done_rx) = sync_channel::<Done>(bound);
     let work_rx: Arc<Mutex<Receiver<Work>>> = Arc::new(Mutex::new(work_rx));
@@ -328,12 +356,15 @@ fn run_workers(
             let rx = Arc::clone(&work_rx);
             let tx = done_tx.clone();
             let cancel = &cancel;
+            let (active, active_high) = (&active, &active_high);
             s.spawn(move || loop {
                 let next = rx.lock().ok().and_then(|r| r.recv().ok());
                 let Some(work) = next else { break };
                 if cancel.load(Ordering::Relaxed) {
                     continue;
                 }
+                let now = active.fetch_add(1, Ordering::Relaxed) + 1;
+                active_high.fetch_max(now, Ordering::Relaxed);
                 let outcome = if work.skip_limit {
                     Ok(FileKnowledge::default())
                 } else {
@@ -347,6 +378,7 @@ fn run_workers(
                             })
                         })
                 };
+                active.fetch_sub(1, Ordering::Relaxed);
                 if tx.send(Done { work, outcome }).is_err() {
                     break;
                 }
@@ -354,9 +386,16 @@ fn run_workers(
         }
         drop(done_tx);
         let cancel_ref = &cancel;
+        let (in_flight_ref, in_flight_high_ref) = (&in_flight, &in_flight_high);
         s.spawn(move || {
             for item in items {
-                if cancel_ref.load(Ordering::Relaxed) || work_tx.send(item).is_err() {
+                if cancel_ref.load(Ordering::Relaxed) {
+                    break;
+                }
+                // Counted before the send so the writer never sees it negative.
+                let now = in_flight_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                in_flight_high_ref.fetch_max(now, Ordering::Relaxed);
+                if work_tx.send(item).is_err() {
                     break;
                 }
             }
@@ -364,10 +403,14 @@ fn run_workers(
         // The writer takes whatever results are already waiting (bounded by
         // the channel and WRITE_BATCH) and commits them in one transaction.
         while let Ok(first) = done_rx.recv() {
+            in_flight.fetch_sub(1, Ordering::Relaxed);
             let mut batch = vec![first];
             while batch.len() < WRITE_BATCH {
                 match done_rx.try_recv() {
-                    Ok(d) => batch.push(d),
+                    Ok(d) => {
+                        in_flight.fetch_sub(1, Ordering::Relaxed);
+                        batch.push(d);
+                    }
                     Err(_) => break,
                 }
             }
@@ -380,7 +423,16 @@ fn run_workers(
             }
         }
     });
-    first_err.map_or(Ok(()), Err)
+    match first_err {
+        Some(e) => Err(e),
+        None => Ok(PipelineStats {
+            workers,
+            queue_capacity: bound,
+            in_flight_high_water: in_flight_high.into_inner(),
+            active_workers_high_water: active_high.into_inner(),
+            items: items_len,
+        }),
+    }
 }
 
 /// Indexes one source. Errors abort only this source's pending build.
@@ -430,15 +482,39 @@ pub fn run_source_with(
         .eq_ignore_ascii_case("offline");
     control.set_online(&source.id, true, None).map_err(db_err)?;
     result.became_online = was_offline;
-    let state = control.state(&source.id).map_err(db_err)?;
+    let project_id = project_id_for_canonical(&source.path);
+    let mut store =
+        ProjectStore::open(layout, &project_id, &source.id, opts.cache_size_mb).map_err(db_err)?;
+    let mut state = control.state(&source.id).map_err(db_err)?;
+    if let Some(pending) = state.pending_build_id.clone() {
+        // A previous run died mid-build. Callers hold the `index` lock, so
+        // nothing is in flight: drop its invisible rows and its claim, then
+        // plan from the last published build.
+        result.recovered_build = Some(pending.clone());
+        store
+            .gc_builds(state.active_build_id.as_deref())
+            .map_err(db_err)?;
+        control
+            .abort_build(
+                &source.id,
+                &pending,
+                "the previous run stopped before publishing; its build was discarded",
+            )
+            .map_err(db_err)?;
+        if state.active_build_id.as_deref() != Some(pending.as_str()) {
+            // It was a separate full build: redo it rather than fall back
+            // to an incremental pass over the old one.
+            control
+                .require_full_rebuild(&source.id, "the previous full build did not finish")
+                .map_err(db_err)?;
+        }
+        state = control.state(&source.id).map_err(db_err)?;
+    }
     let plan = plan_for(&state, &registry.versions);
     result.plan = match &plan {
         RebuildPlan::Full { reason } => format!("full ({reason})"),
         RebuildPlan::Incremental { .. } => "incremental".into(),
     };
-    let project_id = project_id_for_canonical(&source.path);
-    let mut store =
-        ProjectStore::open(layout, &project_id, &source.id, opts.cache_size_mb).map_err(db_err)?;
 
     progress.event(&ProgressEvent::Stage {
         source_id: source.id.clone(),
@@ -701,7 +777,7 @@ fn build(
         .collect();
     let mut done = 0usize;
     let mut touched: Vec<String> = Vec::new();
-    run_workers(items, opts.workers, registry, |batch| {
+    let pipeline = run_workers(items, opts.workers, registry, |batch| {
         let mut rows = Vec::with_capacity(batch.len());
         let mut outcomes = Vec::with_capacity(batch.len());
         for d in batch {
@@ -779,6 +855,7 @@ fn build(
         }
         Ok(())
     })?;
+    result.pipeline = pipeline;
     for finalizer in &registry.finalizers {
         let report = finalizer.finalize(store, build_id, &touched).map_err(|e| {
             RagMonkError::new(

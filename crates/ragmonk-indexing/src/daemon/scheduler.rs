@@ -40,14 +40,19 @@ pub struct Scheduler {
 impl Scheduler {
     /// Records a trigger. True when it put a new entry on the queue.
     pub fn enqueue(&mut self, source_id: &str, reason: &str, paths: &[PathBuf]) -> bool {
-        if !paths.is_empty() {
-            self.touched
-                .entry(source_id.into())
-                .or_default()
-                .extend(paths.iter().cloned());
-        }
         if FORCE_FULL_REASONS.contains(&reason) {
             self.force_full.insert(source_id.into(), true);
+        }
+        // Memory stays bounded however many events a burst delivers: past
+        // MAX_TARGETED_PATHS the next pass is a full one anyway, so the
+        // paths are dropped instead of accumulated.
+        if !paths.is_empty() && !self.force_full.get(source_id).copied().unwrap_or(false) {
+            let set = self.touched.entry(source_id.into()).or_default();
+            set.extend(paths.iter().cloned());
+            if set.len() > MAX_TARGETED_PATHS {
+                self.touched.remove(source_id);
+                self.force_full.insert(source_id.into(), true);
+            }
         }
         self.reasons
             .entry(source_id.into())
@@ -122,5 +127,41 @@ impl Scheduler {
     /// Drops everything queued (shutdown).
     pub fn clear_queue(&mut self) {
         self.queue.clear();
+    }
+}
+
+#[cfg(test)]
+mod bound_tests {
+    use super::*;
+
+    #[test]
+    fn a_huge_burst_becomes_one_full_pass_without_keeping_paths() {
+        let mut s = Scheduler::default();
+        for i in 0..(MAX_TARGETED_PATHS * 3) {
+            s.enqueue("src", "local_watcher", &[PathBuf::from(format!("f{i}"))]);
+        }
+        assert!(
+            !s.touched.contains_key("src"),
+            "paths are not retained past the cap"
+        );
+        assert_eq!(s.queue(), ["src"]);
+        assert_eq!(s.start_next().as_deref(), Some("src"));
+        let req = s.take_request("src");
+        assert!(req.full);
+        assert!(req.changed_paths.is_empty());
+    }
+
+    #[test]
+    fn small_bursts_stay_targeted_and_each_source_is_queued_once() {
+        let mut s = Scheduler::default();
+        for i in 0..10 {
+            s.enqueue("a", "local_watcher", &[PathBuf::from(format!("f{i}"))]);
+            s.enqueue("b", "local_watcher", &[PathBuf::from(format!("g{i}"))]);
+        }
+        assert_eq!(s.queue(), ["a", "b"], "FIFO, one entry per source");
+        s.start_next();
+        let req = s.take_request("a");
+        assert!(!req.full);
+        assert_eq!(req.changed_paths.len(), 10);
     }
 }

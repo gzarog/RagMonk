@@ -10,6 +10,9 @@
 
 use std::io::{Read, Write};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+
+/// Parsed runtime messages buffered between the reader thread and the client.
+const EVENT_BUFFER: usize = 256;
 use std::time::{Duration, Instant};
 
 use ragmonk_core::errors::RagMonkError;
@@ -58,7 +61,9 @@ pub struct JsonRpcClient {
 impl JsonRpcClient {
     /// Starts reading `reader` on a background thread.
     pub fn new(reader: Box<dyn Read + Send>, writer: Box<dyn Write + Send>) -> Self {
-        let (tx, rx) = mpsc::channel();
+        // Bounded: a runtime that floods output makes the reader wait for
+        // the client instead of buffering without limit.
+        let (tx, rx) = mpsc::sync_channel(EVENT_BUFFER);
         std::thread::spawn(move || {
             let mut reader = reader;
             let mut buffer: Vec<u8> = Vec::new();

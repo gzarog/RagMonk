@@ -272,6 +272,16 @@ fn scenario(base: &str, engine: Engine) {
         bulk_requests,
         "every record write went through _bulk"
     );
+    assert!(
+        after.max_bulk_actions <= 40,
+        "action bound: {}",
+        after.max_bulk_actions
+    );
+    assert!(
+        after.max_bulk_bytes <= 5_000_000,
+        "byte bound: {}",
+        after.max_bulk_bytes
+    );
     b.client()
         .send(Method::Post, &format!("/{prefix}-*/_refresh"), None)
         .unwrap();

@@ -107,27 +107,35 @@ pub fn rebuild(
         .iter()
         .map(|o| o["failed"].as_i64().unwrap_or(0))
         .sum();
+    let failed_sources = outcomes.iter().filter(|o| o.get("error").is_some()).count();
     if json_output {
         print_json(&json!({ "sources": outcomes }))?;
     } else {
         for o in &outcomes {
-            println!(
-                "{} {}: rebuilt scanned={} indexed={} failed={} linked={}",
+            let (id, path) = (
                 o["id"].as_str().unwrap_or_default(),
                 o["path"].as_str().unwrap_or_default(),
-                o["scanned"],
-                o["indexed"],
-                o["failed"],
-                o["linked"]
             );
+            match o["error"].as_str() {
+                Some(e) => println!("{id} {path}: rebuild failed: {e}"),
+                None => println!(
+                    "{id} {path}: rebuilt scanned={} indexed={} failed={} linked={}",
+                    o["scanned"], o["indexed"], o["failed"], o["linked"]
+                ),
+            }
         }
     }
-    if failed > 0 {
+    if failed > 0 || failed_sources > 0 {
+        let mut parts = Vec::new();
+        if failed_sources > 0 {
+            parts.push(format!("{failed_sources} source(s) failed to rebuild"));
+        }
+        if failed > 0 {
+            parts.push(format!("{failed} file(s) failed to (re)index"));
+        }
         return Err(RagMonkError::new(
             ErrorKind::IndexingPartialFailure,
-            format!(
-                "{failed} file(s) failed to (re)index during rebuild; see 'ragmonk doctor' for details"
-            ),
+            format!("{}; see 'ragmonk doctor' for details", parts.join("; ")),
         ));
     }
     Ok(())

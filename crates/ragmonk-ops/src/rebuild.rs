@@ -13,7 +13,8 @@ use serde_json::{json, Value};
 use crate::{dberr, index_lock};
 
 /// Rebuilds one or every enabled source under the `index` lock and
-/// returns one `{id, path, scanned, indexed, failed, linked}` per source.
+/// returns one `{id, path, scanned, indexed, failed, linked[, error]}` per
+/// source; a source whose pass fails carries `error` and the run moves on.
 /// `each` sees every outcome as it completes.
 pub fn rebuild_sources(
     home: &Home,
@@ -60,17 +61,31 @@ pub fn rebuild_sources(
             let mut out = Vec::new();
             for (i, s) in sources.iter().enumerate() {
                 tracker.begin_source(&s.id, Some(i as i64 + 1));
-                cp.require_full_rebuild(&s.id, "manual rebuild")
-                    .map_err(dberr)?;
-                let r = run_source(&layout, &mut cp, s, &registry, &opts, tracker)?;
-                let o = json!({
-                    "id": s.id,
-                    "path": s.path,
-                    "scanned": r.counts.scanned,
-                    "indexed": r.indexed,
-                    "failed": r.failed,
-                    "linked": r.linked,
-                });
+                // One source failing must not stop the others: its error is
+                // reported in its outcome and the run continues.
+                let outcome = cp
+                    .require_full_rebuild(&s.id, "manual rebuild")
+                    .map_err(dberr)
+                    .and_then(|()| run_source(&layout, &mut cp, s, &registry, &opts, tracker));
+                let o = match outcome {
+                    Ok(r) => json!({
+                        "id": s.id,
+                        "path": s.path,
+                        "scanned": r.counts.scanned,
+                        "indexed": r.indexed,
+                        "failed": r.failed,
+                        "linked": r.linked,
+                    }),
+                    Err(e) => json!({
+                        "id": s.id,
+                        "path": s.path,
+                        "scanned": 0,
+                        "indexed": 0,
+                        "failed": 0,
+                        "linked": 0,
+                        "error": ragmonk_telemetry::redact::redact_urls_in_text(e.message()),
+                    }),
+                };
                 each(&o);
                 out.push(o);
             }
