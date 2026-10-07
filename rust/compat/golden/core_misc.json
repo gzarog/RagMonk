@@ -1,0 +1,303 @@
+{
+ "secrets": [
+  {
+   "name": ".env",
+   "secret": true
+  },
+  {
+   "name": ".env.local",
+   "secret": true
+  },
+  {
+   "name": "env",
+   "secret": false
+  },
+  {
+   "name": "a.pem",
+   "secret": true
+  },
+  {
+   "name": "A.PEM",
+   "secret": false
+  },
+  {
+   "name": "server.key",
+   "secret": true
+  },
+  {
+   "name": "key",
+   "secret": false
+  },
+  {
+   "name": "id_rsa",
+   "secret": true
+  },
+  {
+   "name": "id_rsa.pub",
+   "secret": false
+  },
+  {
+   "name": "id_ed25519",
+   "secret": true
+  },
+  {
+   "name": "credentials",
+   "secret": true
+  },
+  {
+   "name": "credentials.json",
+   "secret": true
+  },
+  {
+   "name": "Credentials.json",
+   "secret": false
+  },
+  {
+   "name": "secrets.yaml",
+   "secret": true
+  },
+  {
+   "name": "my_secrets",
+   "secret": false
+  },
+  {
+   "name": "readme.md",
+   "secret": false
+  },
+  {
+   "name": "x.keys",
+   "secret": false
+  },
+  {
+   "name": "[a].pem",
+   "secret": true
+  },
+  {
+   "name": ".envrc",
+   "secret": false
+  }
+ ],
+ "lock_timeouts": [
+  {
+   "owner": null,
+   "timeout": 30.0,
+   "message": "Another RagMonk process holds index.lock (owner unknown); timed out after 30s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": null,
+   "timeout": 0.5,
+   "message": "Another RagMonk process holds index.lock (owner unknown); timed out after 0.5s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": null,
+   "timeout": 1e-07,
+   "message": "Another RagMonk process holds index.lock (owner unknown); timed out after 1e-07s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": null,
+   "timeout": 3600.0,
+   "message": "Another RagMonk process holds index.lock (owner unknown); timed out after 3600s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": null,
+   "timeout": 2.25,
+   "message": "Another RagMonk process holds index.lock (owner unknown); timed out after 2.25s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {},
+   "timeout": 30.0,
+   "message": "Another RagMonk process holds index.lock (owner unknown); timed out after 30s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {},
+   "timeout": 0.5,
+   "message": "Another RagMonk process holds index.lock (owner unknown); timed out after 0.5s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {},
+   "timeout": 1e-07,
+   "message": "Another RagMonk process holds index.lock (owner unknown); timed out after 1e-07s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {},
+   "timeout": 3600.0,
+   "message": "Another RagMonk process holds index.lock (owner unknown); timed out after 3600s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {},
+   "timeout": 2.25,
+   "message": "Another RagMonk process holds index.lock (owner unknown); timed out after 2.25s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": 42,
+    "operation": "index",
+    "source_id": "src_1",
+    "hostname": "box"
+   },
+   "timeout": 30.0,
+   "message": "Another RagMonk process holds index.lock (PID 42, operation=index, source=src_1, host=box); timed out after 30s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": 42,
+    "operation": "index",
+    "source_id": "src_1",
+    "hostname": "box"
+   },
+   "timeout": 0.5,
+   "message": "Another RagMonk process holds index.lock (PID 42, operation=index, source=src_1, host=box); timed out after 0.5s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": 42,
+    "operation": "index",
+    "source_id": "src_1",
+    "hostname": "box"
+   },
+   "timeout": 1e-07,
+   "message": "Another RagMonk process holds index.lock (PID 42, operation=index, source=src_1, host=box); timed out after 1e-07s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": 42,
+    "operation": "index",
+    "source_id": "src_1",
+    "hostname": "box"
+   },
+   "timeout": 3600.0,
+   "message": "Another RagMonk process holds index.lock (PID 42, operation=index, source=src_1, host=box); timed out after 3600s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": 42,
+    "operation": "index",
+    "source_id": "src_1",
+    "hostname": "box"
+   },
+   "timeout": 2.25,
+   "message": "Another RagMonk process holds index.lock (PID 42, operation=index, source=src_1, host=box); timed out after 2.25s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": null,
+    "operation": "rebuild"
+   },
+   "timeout": 30.0,
+   "message": "Another RagMonk process holds index.lock (operation=rebuild); timed out after 30s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": null,
+    "operation": "rebuild"
+   },
+   "timeout": 0.5,
+   "message": "Another RagMonk process holds index.lock (operation=rebuild); timed out after 0.5s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": null,
+    "operation": "rebuild"
+   },
+   "timeout": 1e-07,
+   "message": "Another RagMonk process holds index.lock (operation=rebuild); timed out after 1e-07s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": null,
+    "operation": "rebuild"
+   },
+   "timeout": 3600.0,
+   "message": "Another RagMonk process holds index.lock (operation=rebuild); timed out after 3600s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": null,
+    "operation": "rebuild"
+   },
+   "timeout": 2.25,
+   "message": "Another RagMonk process holds index.lock (operation=rebuild); timed out after 2.25s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": 7
+   },
+   "timeout": 30.0,
+   "message": "Another RagMonk process holds index.lock (PID 7); timed out after 30s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": 7
+   },
+   "timeout": 0.5,
+   "message": "Another RagMonk process holds index.lock (PID 7); timed out after 0.5s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": 7
+   },
+   "timeout": 1e-07,
+   "message": "Another RagMonk process holds index.lock (PID 7); timed out after 1e-07s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": 7
+   },
+   "timeout": 3600.0,
+   "message": "Another RagMonk process holds index.lock (PID 7); timed out after 3600s waiting for it.",
+   "exit_code": 1
+  },
+  {
+   "owner": {
+    "pid": 7
+   },
+   "timeout": 2.25,
+   "message": "Another RagMonk process holds index.lock (PID 7); timed out after 2.25s waiting for it.",
+   "exit_code": 1
+  }
+ ],
+ "home_paths": {
+  "sources_db": "sources.db",
+  "user_config": "config.yaml",
+  "logs": "logs",
+  "backups": "backups",
+  "locks": "locks",
+  "tmp": "tmp",
+  "daemon_pid": "daemon.pid",
+  "daemon_health": "daemon_health.json",
+  "index_progress": "index_progress.json",
+  "install_info": "install_info.json",
+  "update_cache": "update.json",
+  "projects": "projects"
+ },
+ "project_paths": {
+  "project_db": "projects/abc/knowledge.db",
+  "project_cache": "projects/abc/cache",
+  "project_state": "projects/abc/state",
+  "vector_index": "projects/abc/vectors.usearch",
+  "vector_meta": "projects/abc/vectors.meta.json"
+ }
+}

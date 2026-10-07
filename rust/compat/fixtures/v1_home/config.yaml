@@ -1,0 +1,110 @@
+version: 1
+runtime:
+  log_level: info
+  max_workers: 3
+  max_memory_mb: 4096
+  temp_directory: auto
+  sqlite_cache_size_mb: 64
+indexing:
+  watch: true
+  debounce_ms: 2000
+  max_file_size_mb: 100
+  follow_symlinks: false
+  hash_algorithm: sha256
+  network_poll_seconds: 30
+  reconciliation_interval_seconds: 900
+  code_extraction_workers: 1
+  document_extraction_workers: 1
+  embedding_batch_size: 16
+  lock_timeout_seconds: 30.0
+  status_stall_threshold_seconds: 120.0
+documents:
+  enabled: true
+  ocr: auto
+  max_pages: 1000
+  chunking:
+    strategy: hybrid
+    max_tokens: auto
+    min_tokens: 60
+    overlap_tokens: 40
+    safety_tokens: 4
+    merge_peers: true
+  image_ocr: false
+  pdf_mode: accurate
+  pdf_table_structure: true
+  pdf_process_workers: 1
+  email_attachments: true
+  email_attachment_max_bytes: 26214400
+  email_attachment_max_count: 50
+  email_attachment_total_max_bytes: 104857600
+code:
+  enabled: true
+search:
+  lexical: true
+  graph: true
+  semantic: false
+  lazy_semantic: false
+  semantic_top_k: 30
+  vector:
+    engine: auto
+    rebuild_deleted_ratio: 0.15
+  cache:
+    enabled: true
+    max_queries: 256
+    max_query_embeddings: 256
+  output:
+    fallback:
+    - snippets
+    - json
+    - files
+    snippet_max_tokens: 32
+  context:
+    parent_heading: true
+    previous_chunks: 1
+    next_chunks: 1
+    max_tokens: 1200
+  reranker:
+    enabled: false
+    top_n: 20
+context:
+  max_chars: 30000
+  max_files: 20
+  max_graph_nodes: 100
+mcp:
+  enabled: true
+  request_timeout_seconds: 30.0
+api:
+  enabled: false
+  bind: 127.0.0.1
+  port: 8765
+privacy:
+  external_ai_allowed: false
+telemetry:
+  anonymous_usage: false
+ai:
+  provider: none
+  model: ''
+  base_url: null
+  timeout_seconds: 60.0
+  codex:
+    auth_mode: chatgpt
+  github_copilot:
+    auth_mode: signed_in_user
+updates:
+  enabled: false
+  check_interval_hours: 24
+  notify: true
+  channel: stable
+storage:
+  mode: local
+  server:
+    engine: opensearch
+    url: ''
+    index_prefix: ragmonk
+    verify_tls: true
+    request_timeout_seconds: 30.0
+    bulk:
+      max_actions: 500
+      max_bytes: 5000000
+      concurrency: 2
+      max_retries: 3

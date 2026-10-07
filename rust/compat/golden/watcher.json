@@ -1,0 +1,383 @@
+{
+ "network_diff": [
+  {
+   "changed": [],
+   "current": {},
+   "previous": {}
+  },
+  {
+   "changed": [
+    "a"
+   ],
+   "current": {
+    "a": [
+     1,
+     1.0
+    ]
+   },
+   "previous": {}
+  },
+  {
+   "changed": [
+    "a"
+   ],
+   "current": {},
+   "previous": {
+    "a": [
+     1,
+     1.0
+    ]
+   }
+  },
+  {
+   "changed": [
+    "b"
+   ],
+   "current": {
+    "a": [
+     1,
+     1.0
+    ],
+    "b": [
+     2,
+     2.5
+    ]
+   },
+   "previous": {
+    "a": [
+     1,
+     1.0
+    ],
+    "b": [
+     2,
+     2.0
+    ]
+   }
+  },
+  {
+   "changed": [
+    "a",
+    "b",
+    "c"
+   ],
+   "current": {
+    "a": [
+     3,
+     1.0
+    ],
+    "c": [
+     1,
+     1.0
+    ]
+   },
+   "previous": {
+    "a": [
+     1,
+     1.0
+    ],
+    "b": [
+     2,
+     2.0
+    ]
+   }
+  }
+ ],
+ "targeted": [
+  {
+   "counts": {
+    "changed": 1,
+    "deleted": 0,
+    "moved": 0,
+    "new": 1,
+    "scanned": 2,
+    "unchanged": 0
+   },
+   "files": [
+    [
+     ".gitignore",
+     "indexed"
+    ],
+    [
+     "docs/guide.md",
+     "indexed"
+    ],
+    [
+     "lib/a.py",
+     "indexed"
+    ],
+    [
+     "lib/b.py",
+     "indexed"
+    ],
+    [
+     "src/app.py",
+     "indexed"
+    ],
+    [
+     "src/new.py",
+     "indexed"
+    ],
+    [
+     "src/util/helpers.ts",
+     "indexed"
+    ]
+   ],
+   "name": "edit_add_ignored_dir",
+   "targeted": true,
+   "targets": [
+    "src/app.py",
+    "src/new.py",
+    "src/x.log",
+    "src"
+   ],
+   "write": {
+    "src/app.py": "def main():\n    return 2\n",
+    "src/new.py": "N = 3\n",
+    "src/x.log": "noise\n"
+   }
+  },
+  {
+   "counts": {
+    "changed": 0,
+    "deleted": 0,
+    "moved": 1,
+    "new": 0,
+    "scanned": 2,
+    "unchanged": 1
+   },
+   "files": [
+    [
+     ".gitignore",
+     "indexed"
+    ],
+    [
+     "docs/guide2.md",
+     "indexed"
+    ],
+    [
+     "lib/a.py",
+     "indexed"
+    ],
+    [
+     "lib/b.py",
+     "indexed"
+    ],
+    [
+     "src/app.py",
+     "indexed"
+    ],
+    [
+     "src/new.py",
+     "indexed"
+    ],
+    [
+     "src/util/helpers.ts",
+     "indexed"
+    ]
+   ],
+   "move": [
+    [
+     "docs/guide.md",
+     "docs/guide2.md"
+    ]
+   ],
+   "name": "rename_same_batch",
+   "targeted": true,
+   "targets": [
+    "docs/guide.md",
+    "docs/guide2.md"
+   ]
+  },
+  {
+   "counts": {
+    "changed": 0,
+    "deleted": 1,
+    "moved": 0,
+    "new": 0,
+    "scanned": 2,
+    "unchanged": 0
+   },
+   "delete": [
+    "src/util/helpers.ts"
+   ],
+   "files": [
+    [
+     ".gitignore",
+     "indexed"
+    ],
+    [
+     "docs/guide2.md",
+     "indexed"
+    ],
+    [
+     "lib/a.py",
+     "indexed"
+    ],
+    [
+     "lib/b.py",
+     "indexed"
+    ],
+    [
+     "src/app.py",
+     "indexed"
+    ],
+    [
+     "src/new.py",
+     "indexed"
+    ]
+   ],
+   "name": "delete_and_unknown",
+   "targeted": true,
+   "targets": [
+    "src/util/helpers.ts",
+    "src/never_existed.py"
+   ]
+  },
+  {
+   "counts": {
+    "changed": 0,
+    "deleted": 0,
+    "moved": 0,
+    "new": 1,
+    "scanned": 1,
+    "unchanged": 0
+   },
+   "files": [
+    [
+     ".gitignore",
+     "indexed"
+    ],
+    [
+     "docs/guide2.md",
+     "indexed"
+    ],
+    [
+     "lib/a.py",
+     "indexed"
+    ],
+    [
+     "lib/a2.py",
+     "indexed"
+    ],
+    [
+     "lib/b.py",
+     "indexed"
+    ],
+    [
+     "src/app.py",
+     "indexed"
+    ],
+    [
+     "src/new.py",
+     "indexed"
+    ]
+   ],
+   "move": [
+    [
+     "lib/a.py",
+     "lib/a2.py"
+    ]
+   ],
+   "name": "rename_split_new_half_only",
+   "targeted": true,
+   "targets": [
+    "lib/a2.py"
+   ]
+  },
+  {
+   "counts": {
+    "changed": 0,
+    "deleted": 0,
+    "moved": 0,
+    "new": 0,
+    "scanned": 1,
+    "unchanged": 1
+   },
+   "files": [
+    [
+     ".gitignore",
+     "indexed"
+    ],
+    [
+     "docs/guide2.md",
+     "indexed"
+    ],
+    [
+     "lib/a.py",
+     "indexed"
+    ],
+    [
+     "lib/a2.py",
+     "indexed"
+    ],
+    [
+     "lib/b.py",
+     "indexed"
+    ],
+    [
+     "src/app.py",
+     "indexed"
+    ],
+    [
+     "src/new.py",
+     "indexed"
+    ]
+   ],
+   "name": "unchanged_and_outside",
+   "targeted": true,
+   "targets": [
+    "lib/b.py",
+    "@outside"
+   ]
+  },
+  {
+   "counts": {
+    "changed": 0,
+    "deleted": 1,
+    "moved": 0,
+    "new": 0,
+    "scanned": 1,
+    "unchanged": 0
+   },
+   "files": [
+    [
+     ".gitignore",
+     "indexed"
+    ],
+    [
+     "docs/guide2.md",
+     "indexed"
+    ],
+    [
+     "lib/a2.py",
+     "indexed"
+    ],
+    [
+     "lib/b.py",
+     "indexed"
+    ],
+    [
+     "src/app.py",
+     "indexed"
+    ],
+    [
+     "src/new.py",
+     "indexed"
+    ]
+   ],
+   "name": "split_old_half_later",
+   "targeted": true,
+   "targets": [
+    "lib/a.py"
+   ]
+  }
+ ],
+ "tree": {
+  ".gitignore": "*.log\n",
+  "docs/guide.md": "# Guide\n\nUse it.\n",
+  "lib/a.py": "A = 1\n",
+  "lib/b.py": "B = 2\n",
+  "src/app.py": "def main():\n    return 1\n",
+  "src/util/helpers.ts": "export const x = 1;\n"
+ }
+}

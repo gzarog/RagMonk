@@ -1,212 +1,160 @@
-# Installs the RagMonk CLI: downloads the source for $env:RAGMONK_REF
-# (default: main), creates an isolated virtual environment, installs the
-# package into it, and puts a `ragmonk` launcher on a per-user bin
-# directory added to the user's PATH.
+# Installs the native RagMonk CLI (RUST-15) on Windows: downloads the
+# release archive, verifies it against the release's SHA256SUMS (and the
+# minisign signature over it, when a key is configured below and
+# minisign.exe is on PATH), unpacks it under
+# $env:RAGMONK_INSTALL_DIR\versions, and puts ragmonk.exe on a per-user
+# bin directory added to the user's PATH. No Python needed.
 #
-# Requires Python 3.12+ already on PATH -- this script does not install
-# Python itself. See README.md's Installation section for details.
+#   RAGMONK_VERSION        version to install (default: the latest release)
+#   RAGMONK_INSTALL_DIR    default: %LOCALAPPDATA%\RagMonk
+#   RAGMONK_BIN_DIR        default: <install dir>\bin
+#   RAGMONK_HOME           default: %LOCALAPPDATA%\RagMonk
+#   RAGMONK_DOWNLOAD_BASE  a URL or local directory holding the release
+#                          assets (testing and mirrors)
 
 $ErrorActionPreference = "Stop"
 
 $Repo = "gzarog/RagMonk"
-$Ref = if ($env:RAGMONK_REF) { $env:RAGMONK_REF } else { "main" }
+# The release-signing public key (minisign). Empty: checksums only.
+$MinisignPubkey = ""
+$Target = "x86_64-pc-windows-msvc"
 $InstallDir = if ($env:RAGMONK_INSTALL_DIR) { $env:RAGMONK_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "RagMonk" }
-$AppDir = Join-Path $InstallDir "app"
-$VenvDir = Join-Path $InstallDir "venv"
-$BinDir = if ($env:RAGMONK_BIN_DIR) { $env:RAGMONK_BIN_DIR } else { Join-Path $InstallDir "bin" }
-# Same default as ragmonk's own core/paths.py::runtime_dir() on Windows --
-# RAGMONK_INSTALL_DIR/RAGMONK_HOME happen to share a default today, but
-# are independent overrides, so this is computed the same way rather than
-# assumed equal to InstallDir above.
+$LayoutBin = Join-Path $InstallDir "bin"
+$BinDir = if ($env:RAGMONK_BIN_DIR) { $env:RAGMONK_BIN_DIR } else { $LayoutBin }
 $RagMonkHome = if ($env:RAGMONK_HOME) { $env:RAGMONK_HOME } else { Join-Path $env:LOCALAPPDATA "RagMonk" }
 
-function Find-Python {
-    # Each candidate is a hashtable { Exe; Args } rather than a flat array --
-    # PowerShell's `1..0` range operator returns @(1, 0), not an empty array,
-    # which would break slicing off "the rest" of a single-element array.
-    $candidates = @()
-    if (Get-Command py -ErrorAction SilentlyContinue) {
-        $candidates += , @{ Exe = "py"; Args = @("-3.12") }
-        $candidates += , @{ Exe = "py"; Args = @("-3") }
-    }
-    foreach ($name in @("python3.12", "python3", "python")) {
-        if (Get-Command $name -ErrorAction SilentlyContinue) {
-            $candidates += , @{ Exe = $name; Args = @() }
+if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
+    throw "No RagMonk release for $($env:PROCESSOR_ARCHITECTURE) Windows; build from source (see README.md)."
+}
+
+function Get-Asset([string]$From, [string]$Dest) {
+    if ($From -match '^https?://') {
+        for ($i = 1; $i -le 4; $i++) {
+            try { Invoke-WebRequest -UseBasicParsing -Uri $From -OutFile $Dest; return }
+            catch { if ($i -eq 4) { throw "failed to download ${From}: $_" }; Start-Sleep -Seconds $i }
         }
-    }
-    foreach ($c in $candidates) {
-        try {
-            $ver = & $c.Exe @($c.Args) -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
-            if ($LASTEXITCODE -eq 0 -and $ver) {
-                $parts = $ver.Trim().Split(".")
-                if ([int]$parts[0] -eq 3 -and [int]$parts[1] -ge 12) {
-                    return $c
-                }
-            }
-        } catch {}
-    }
-    return $null
-}
-
-$Python = Find-Python
-if (-not $Python) {
-    Write-Error "RagMonk requires Python 3.12+, but no suitable interpreter was found on PATH.`nInstall Python 3.12 or newer (https://www.python.org/downloads/) and re-run this script."
-    exit 1
-}
-$pythonVersion = & $Python.Exe @($Python.Args) --version
-Write-Host "Using $pythonVersion at $($Python.Exe) $($Python.Args -join ' ')"
-
-Write-Host "Downloading RagMonk ($Ref)..."
-$ZipPath = Join-Path ([System.IO.Path]::GetTempPath()) "ragmonk-$([guid]::NewGuid()).zip"
-$DownloadUrl = "https://github.com/$Repo/archive/refs/heads/$Ref.zip"
-# GitHub's archive/codeload endpoint can briefly 404 a branch that was just
-# pushed (its zipball cache lags the push by a few seconds) -- retry a
-# handful of times with linear backoff before giving up, rather than
-# failing outright on what is usually a transient race.
-$maxAttempts = 5
-for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-    try {
-        Invoke-WebRequest -Uri $DownloadUrl -OutFile $ZipPath -UseBasicParsing
-        break
-    } catch {
-        if ($attempt -ge $maxAttempts) {
-            Write-Error "Failed to download $DownloadUrl after $attempt attempts: $_"
-            exit 1
-        }
-        Write-Host "Download attempt $attempt failed, retrying in ${attempt}s..."
-        Start-Sleep -Seconds $attempt
+    } else {
+        if (-not (Test-Path $From)) { throw "missing $From" }
+        Copy-Item $From $Dest
     }
 }
 
-$ExtractRoot = Join-Path ([System.IO.Path]::GetTempPath()) "ragmonk-extract-$([guid]::NewGuid())"
-Expand-Archive -Path $ZipPath -DestinationPath $ExtractRoot -Force
-Remove-Item -Force $ZipPath
-
-$ExtractedDir = Get-ChildItem -Path $ExtractRoot -Directory | Select-Object -First 1
-if (Test-Path $AppDir) { Remove-Item -Recurse -Force $AppDir }
-New-Item -ItemType Directory -Force -Path (Split-Path $AppDir -Parent) | Out-Null
-Move-Item -Path $ExtractedDir.FullName -Destination $AppDir
-Remove-Item -Recurse -Force $ExtractRoot
-
-# Resolve a version to report via SETUPTOOLS_SCM_PRETEND_VERSION: the
-# downloaded zipball above has no .git for hatch-vcs to derive one from,
-# so it would otherwise always fall back to the hardcoded "0.0.0"
-# placeholder (see pyproject.toml's [tool.hatch.version]
-# fallback-version). $Ref is used directly when it already looks like
-# this project's own release-tag shape (an upgrade -- update/installer.py
-# always passes an exact, already-validated tag here); the default
-# "main" instead queries GitHub for the latest actual release, since
-# "main" itself isn't a version. Any other custom/branch $Ref is left
-# unresolved -- reporting an unrelated release's version for arbitrary
-# branch content would be actively misleading. A failed or missing
-# lookup (offline, no releases yet) just skips the override, same as
-# before this existed.
-$PretendVersion = $null
-if ($Ref -match '^[vV]?\d+\.\d+\.\d+$') {
-    $PretendVersion = $Ref -replace '^[vV]', ''
-} elseif ($Ref -eq "main") {
-    try {
-        $LatestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" `
-            -Headers @{ Accept = "application/vnd.github+json" }
-        if ($LatestRelease.tag_name -match '^[vV]?\d+\.\d+\.\d+$') {
-            $PretendVersion = $LatestRelease.tag_name -replace '^[vV]', ''
-        }
-    } catch {
-        Write-Host "Could not determine the latest release version (continuing without it): $_"
-    }
+$Version = $env:RAGMONK_VERSION
+if (-not $Version) {
+    $latest = Invoke-RestMethod -UseBasicParsing -Headers @{ Accept = "application/vnd.github+json" } `
+        -Uri "https://api.github.com/repos/$Repo/releases/latest"
+    $Version = "$($latest.tag_name)" -replace '^v', ''
+    if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "latest release tag '$($latest.tag_name)' is not a MAJOR.MINOR.PATCH version" }
 }
+$Version = $Version -replace '^v', ''
+if ($Version -notmatch '^[0-9][0-9A-Za-z.+-]*$') { throw "invalid version '$Version'" }
+$Base = if ($env:RAGMONK_DOWNLOAD_BASE) { $env:RAGMONK_DOWNLOAD_BASE.TrimEnd('/', '\') } else { "https://github.com/$Repo/releases/download/v$Version" }
+$Asset = "ragmonk-$Version-$Target.zip"
+$Sep = if ($Base -match '^https?://') { "/" } else { "\" }
 
-Write-Host "Creating virtual environment at $VenvDir..."
-# Any existing venv is renamed out of the way first, rather than deleted,
-# and the new one is then built fresh directly at $VenvDir -- never at a
-# temporary path later swapped in. Two Windows constraints rule out the
-# alternatives: `ragmonk update install` re-runs this exact script from
-# inside the currently-running $VenvDir\Scripts\ragmonk.exe, and deleting
-# or overwriting that file while its own process is executing fails with
-# a sharing violation ("[WinError 32] ... being used by another
-# process") -- but pip's own generated console-script launchers (like
-# that ragmonk.exe) embed the venv's exact interpreter *path* at install
-# time, so a venv built elsewhere and then renamed into place afterward
-# ends up with launchers pointing at a path that no longer exists --
-# renaming the *old* venv out from under the running process, before
-# building the new one straight at the real path, avoids both problems
-# at once. A directory rename (unlike an in-place delete/overwrite)
-# succeeds even while a file inside it is open, so this works even mid
-# self-upgrade; a stale "${VenvDir}.old" left behind because it was still
-# in use is cleaned up automatically at the top of the next run, once
-# nothing has it open anymore. (${VenvDir}, not bare $VenvDir, immediately
-# before the literal ".old" text below: PowerShell parses a bare
-# "$VenvDir.old" in a double-quoted string as member access --
-# $VenvDir.old -- not concatenation, and since strings have no such
-# property it silently evaluates to empty rather than erroring.)
-$VenvDirOld = "${VenvDir}.old"
-if (Test-Path $VenvDirOld) { Remove-Item -Recurse -Force $VenvDirOld -ErrorAction SilentlyContinue }
-if (Test-Path $VenvDir) { Rename-Item -Path $VenvDir -NewName (Split-Path $VenvDirOld -Leaf) }
-& $Python.Exe @($Python.Args) -m venv $VenvDir
-
-$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
-Write-Host "Installing RagMonk (this downloads its dependencies, including torch -- may take a few minutes)..."
-& $VenvPython -m pip install --quiet --upgrade pip
-# Purge pip's cache before the real install: an entry written by whatever
-# pip version was previously on this machine can fail to deserialize under
-# the version just upgraded to above ("WARNING: Cache entry deserialization
-# failed, entry ignored") -- pip already degrades safely from that (just
-# re-downloads), but starting from a clean cache means it shouldn't happen
-# at all. A cache that doesn't exist yet, or isn't writable, is not a
-# reason to abort the install.
-try { & $VenvPython -m pip cache purge *> $null } catch {}
-# Still explained below in case some other/newer cache mismatch shows up
-# despite the purge above: harmless either way, pip just re-downloads that
-# entry instead of using a stale cache.
-Write-Host "(you may see `"Cache entry deserialization failed`" warnings below -- harmless, pip just re-downloads that entry)"
-# Deliberately not --quiet here: pip's normal download/build progress output
-# is the only feedback during a multi-minute, multi-hundred-MB install (torch
-# chief among the dependencies) -- silencing it makes a slow-but-working
-# install indistinguishable from a hung one.
-if ($PretendVersion) { $env:SETUPTOOLS_SCM_PRETEND_VERSION = $PretendVersion }
+$Tmp = Join-Path ([IO.Path]::GetTempPath()) ("ragmonk-" + [Guid]::NewGuid())
+New-Item -ItemType Directory -Path $Tmp | Out-Null
 try {
-    # "[server]" = the OpenSearch (opensearch-py) and Elasticsearch
-    # (elasticsearch + elastic-transport) clients, so storage.mode=server
-    # works out of the box -- without them `ragmonk init`/`index` in server
-    # mode fails with "opensearch-py is not installed".
-    & $VenvPython -m pip install "$AppDir[server]"
+    Write-Host "Downloading RagMonk $Version ($Target)..."
+    Get-Asset "$Base$Sep$Asset" (Join-Path $Tmp $Asset)
+    Get-Asset "$Base${Sep}SHA256SUMS" (Join-Path $Tmp "SHA256SUMS")
+
+    if ($MinisignPubkey) {
+        if (Get-Command minisign -ErrorAction SilentlyContinue) {
+            Get-Asset "$Base${Sep}SHA256SUMS.minisig" (Join-Path $Tmp "SHA256SUMS.minisig")
+            & minisign -Vqm (Join-Path $Tmp "SHA256SUMS") -P $MinisignPubkey
+            if ($LASTEXITCODE -ne 0) { throw "SHA256SUMS signature does not verify; refusing to install" }
+            Write-Host "Signature verified."
+        } else {
+            Write-Warning "install minisign to also verify the release signature"
+        }
+    }
+
+    $expected = $null
+    foreach ($line in Get-Content (Join-Path $Tmp "SHA256SUMS")) {
+        $parts = $line.Trim() -split '\s+', 2
+        if ($parts.Count -eq 2 -and $parts[1].TrimStart('*') -eq $Asset) { $expected = $parts[0].ToLower() }
+    }
+    if (-not $expected) { throw "$Asset is not listed in SHA256SUMS" }
+    $actual = (Get-FileHash -Algorithm SHA256 (Join-Path $Tmp $Asset)).Hash.ToLower()
+    if ($actual -ne $expected) { throw "checksum mismatch for ${Asset}: expected $expected, got $actual; refusing to install" }
+    Write-Host "Checksum verified."
+
+    $Versions = Join-Path $InstallDir "versions"
+    $Partial = Join-Path $Versions "$Version.partial"
+    $Unpack = Join-Path $Tmp "unpack"
+    New-Item -ItemType Directory -Force -Path $Versions | Out-Null
+    if (Test-Path $Partial) { Remove-Item -Recurse -Force $Partial }
+    Expand-Archive -Path (Join-Path $Tmp $Asset) -DestinationPath $Unpack
+    $top = Get-ChildItem $Unpack -Directory | Select-Object -First 1
+    Move-Item $top.FullName $Partial
+    $exe = Join-Path $Partial "ragmonk.exe"
+    if (-not (Test-Path $exe)) { throw "$Asset does not contain ragmonk.exe" }
+    & $exe version | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "the downloaded binary does not run on this machine" }
+    $VersionDir = Join-Path $Versions $Version
+    if (Test-Path $VersionDir) { Remove-Item -Recurse -Force $VersionDir }
+    Move-Item $Partial $VersionDir
 } finally {
-    if ($PretendVersion) { Remove-Item Env:\SETUPTOOLS_SCM_PRETEND_VERSION -ErrorAction SilentlyContinue }
+    Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue
 }
 
-# Best-effort: if the old venv above is still in use (a self-upgrade, the
-# running process's own files), this silently leaves it behind for the
-# next run's cleanup at the top of this section instead of failing here.
-Remove-Item -Recurse -Force $VenvDirOld -ErrorAction SilentlyContinue
+$Models = Join-Path $VersionDir "models"
+if (Test-Path $Models) {
+    $dest = Join-Path $RagMonkHome "models"
+    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $Models "*") $dest
+}
 
-New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-$LauncherPath = Join-Path $BinDir "ragmonk.cmd"
-$VenvRagMonk = Join-Path $VenvDir "Scripts\ragmonk.exe"
-"@echo off`r`n`"$VenvRagMonk`" %*" | Set-Content -Path $LauncherPath -Encoding ASCII
-Write-Host "RagMonk installed: $LauncherPath"
+# Windows cannot replace a running executable but can rename it: the
+# previous ragmonk.exe becomes ragmonk.exe.old (the same swap
+# `ragmonk update install` does).
+New-Item -ItemType Directory -Force -Path $LayoutBin | Out-Null
+$Exe = Join-Path $LayoutBin "ragmonk.exe"
+$OldExe = "$Exe.old"
+if (Test-Path $OldExe) { Remove-Item -Force $OldExe -ErrorAction SilentlyContinue }
+# Still there: an older exe is still running; park this one elsewhere.
+if (Test-Path $OldExe) { $OldExe = "$Exe.old-$PID" }
+if (Test-Path $Exe) { Move-Item -Force $Exe $OldExe }
+Copy-Item (Join-Path $VersionDir "ragmonk.exe") $Exe
+Set-Content -NoNewline -Path (Join-Path $InstallDir "current") -Value $Version
+
+$StatePath = Join-Path $InstallDir "install_state.json"
+$previous = $null
+if (Test-Path $StatePath) {
+    $old = Get-Content $StatePath -Raw | ConvertFrom-Json
+    $previous = if ($old.current -and $old.current -ne $Version) { $old.current } else { $old.previous }
+}
+# WriteAllText: UTF-8 without the BOM Windows PowerShell 5 would add.
+[IO.File]::WriteAllText($StatePath, ([ordered]@{ current = $Version; previous = $previous } | ConvertTo-Json))
+
+if ($BinDir -ne $LayoutBin) {
+    New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+    Set-Content -Encoding ASCII -Path (Join-Path $BinDir "ragmonk.cmd") -Value "@`"$Exe`" %*"
+}
+Write-Host "RagMonk $Version installed: $Exe"
+
+# `ragmonk update` reads this to find the install it manages.
+New-Item -ItemType Directory -Force -Path $RagMonkHome | Out-Null
+$info = [ordered]@{
+    install_method = "native"
+    repository = $Repo
+    install_dir = $InstallDir
+    bin_dir = $BinDir
+} | ConvertTo-Json
+[IO.File]::WriteAllText((Join-Path $RagMonkHome "install_info.json"), $info)
+
+if (Test-Path (Join-Path $InstallDir "venv")) {
+    Write-Host "note: the old Python install in $InstallDir\venv and $InstallDir\app is no longer used;"
+    Write-Host "      run 'ragmonk migrate-to-rust-v2 --check' and remove them once you are happy."
+}
 
 $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-if (";$UserPath;" -notlike "*;$BinDir;*") {
+if (-not (($UserPath -split ';') -contains $BinDir)) {
     $NewPath = if ($UserPath) { "$UserPath;$BinDir" } else { $BinDir }
     [Environment]::SetEnvironmentVariable("PATH", $NewPath, "User")
-    Write-Host ""
     Write-Host "Added $BinDir to your user PATH. Open a new terminal for this to take effect."
 }
-
-
-# Lets `ragmonk update install` (update/installer.py) detect that this is
-# an install-script install and where to re-run this same script, rather
-# than guessing from the running interpreter's own path -- see this
-# file's own record of itself as the one thing that can't guess itself.
-New-Item -ItemType Directory -Force -Path $RagMonkHome | Out-Null
-$InstallInfo = [ordered]@{
-    install_method = "install-script"
-    repository     = $Repo
-    install_dir    = $InstallDir
-    venv_dir       = $VenvDir
-    bin_dir        = $BinDir
-}
-$InstallInfo | ConvertTo-Json | Set-Content -Path (Join-Path $RagMonkHome "install_info.json") -Encoding UTF8
 
 Write-Host ""
 Write-Host "Run 'ragmonk version' to verify, then 'ragmonk init' to get started."

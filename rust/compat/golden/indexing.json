@@ -1,0 +1,187 @@
+{
+ "tree": {
+  ".gitignore": "# comment\n*.log\nbuild-out/\n/docs/private/*\n",
+  ".ragmonkignore": "*.tmp\n",
+  "src/app.py": "def main():\n    return 1\n",
+  "src/util/helpers.ts": "export const x = 1;\n",
+  "src/util/README.md": "# Helpers\n",
+  "src/util/data.CSV": "a,b\n1,2\n",
+  "src/node_modules/pkg/index.js": "module.exports = 1;\n",
+  "src/.env": "SECRET=1\n",
+  "src/server.key": "k\n",
+  "src/notes.log": "log\n",
+  "src/keep.log": "kept by include\n",
+  "src/scratch.tmp": "tmp\n",
+  "build-out/gen.py": "x = 1\n",
+  "docs/guide.md": "# Guide\n",
+  "docs/private/secret.md": "# private\n",
+  "docs/private.md": "# not private\n",
+  "docs/archive.tar.gz": "bin\n",
+  "Makefile": "all:\n",
+  "lib/Code.CS": "class A {}\n",
+  "lib/script.SH": "echo hi\n",
+  "target/debug/out.rs": "fn main() {}\n",
+  "credentials.json": "{}\n"
+ },
+ "include": [
+  "keep.log"
+ ],
+ "exclude": [
+  "Makefile"
+ ],
+ "scan": [
+  {
+   "rel_path": ".gitignore",
+   "kind": "unknown"
+  },
+  {
+   "rel_path": ".ragmonkignore",
+   "kind": "unknown"
+  },
+  {
+   "rel_path": "docs/archive.tar.gz",
+   "kind": "unknown"
+  },
+  {
+   "rel_path": "docs/guide.md",
+   "kind": "document"
+  },
+  {
+   "rel_path": "docs/private.md",
+   "kind": "document"
+  },
+  {
+   "rel_path": "lib/Code.CS",
+   "kind": "code"
+  },
+  {
+   "rel_path": "lib/script.SH",
+   "kind": "code"
+  },
+  {
+   "rel_path": "src/app.py",
+   "kind": "code"
+  },
+  {
+   "rel_path": "src/keep.log",
+   "kind": "unknown"
+  },
+  {
+   "rel_path": "src/util/README.md",
+   "kind": "document"
+  },
+  {
+   "rel_path": "src/util/data.CSV",
+   "kind": "document"
+  },
+  {
+   "rel_path": "src/util/helpers.ts",
+   "kind": "code"
+  }
+ ],
+ "steps": [
+  {
+   "name": "cold",
+   "counts": {
+    "scanned": 12,
+    "new": 12,
+    "changed": 0,
+    "unchanged": 0,
+    "moved": 0,
+    "deleted": 0
+   }
+  },
+  {
+   "name": "warm",
+   "counts": {
+    "scanned": 12,
+    "new": 0,
+    "changed": 0,
+    "unchanged": 12,
+    "moved": 0,
+    "deleted": 0
+   }
+  },
+  {
+   "name": "edit",
+   "write": {
+    "src/app.py": "def main():\n    return 2\n"
+   },
+   "counts": {
+    "scanned": 12,
+    "new": 0,
+    "changed": 1,
+    "unchanged": 11,
+    "moved": 0,
+    "deleted": 0
+   }
+  },
+  {
+   "name": "touch",
+   "touch": [
+    "docs/guide.md"
+   ],
+   "counts": {
+    "scanned": 12,
+    "new": 0,
+    "changed": 0,
+    "unchanged": 12,
+    "moved": 0,
+    "deleted": 0
+   }
+  },
+  {
+   "name": "rename",
+   "rename": {
+    "src/util/helpers.ts": "src/util/helpers2.ts"
+   },
+   "counts": {
+    "scanned": 12,
+    "new": 0,
+    "changed": 0,
+    "unchanged": 12,
+    "moved": 1,
+    "deleted": 0
+   }
+  },
+  {
+   "name": "delete",
+   "delete": [
+    "lib/script.SH"
+   ],
+   "counts": {
+    "scanned": 11,
+    "new": 0,
+    "changed": 0,
+    "unchanged": 11,
+    "moved": 0,
+    "deleted": 1
+   }
+  },
+  {
+   "name": "add",
+   "write": {
+    "src/new_mod.py": "y = 2\n"
+   },
+   "counts": {
+    "scanned": 12,
+    "new": 1,
+    "changed": 0,
+    "unchanged": 11,
+    "moved": 0,
+    "deleted": 0
+   }
+  },
+  {
+   "name": "warm_again",
+   "counts": {
+    "scanned": 12,
+    "new": 0,
+    "changed": 0,
+    "unchanged": 12,
+    "moved": 0,
+    "deleted": 0
+   }
+  }
+ ]
+}

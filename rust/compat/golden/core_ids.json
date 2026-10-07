@@ -1,0 +1,278 @@
+{
+ "source_ids": [
+  {
+   "canonical_path": "/home/user/repo",
+   "id": "src_c26848463f"
+  },
+  {
+   "canonical_path": "/tmp/claude-0/sb/src",
+   "id": "src_c6f8289e57"
+  },
+  {
+   "canonical_path": "C:\\Users\\me\\repo",
+   "id": "src_0276a9fde8"
+  },
+  {
+   "canonical_path": "\\\\server\\share\\repo",
+   "id": "src_3bf6ff065a"
+  },
+  {
+   "canonical_path": "/ünïcödé/路径",
+   "id": "src_b6f91fdea1"
+  },
+  {
+   "canonical_path": "",
+   "id": "src_e3b0c44298"
+  }
+ ],
+ "project_ids": [
+  {
+   "canonical_path": "/home/user/repo",
+   "id": "c26848463faf"
+  },
+  {
+   "canonical_path": "/tmp/claude-0/sb/src",
+   "id": "c6f8289e57c6"
+  },
+  {
+   "canonical_path": "C:\\Users\\me\\repo",
+   "id": "0276a9fde839"
+  },
+  {
+   "canonical_path": "\\\\server\\share\\repo",
+   "id": "3bf6ff065a3f"
+  },
+  {
+   "canonical_path": "/ünïcödé/路径",
+   "id": "b6f91fdea183"
+  },
+  {
+   "canonical_path": "",
+   "id": "e3b0c44298fc"
+  }
+ ],
+ "server": [
+  {
+   "module": "opensearch",
+   "source_id": "src_c6f8289e57",
+   "file_id": "8e00d378b30d42729c88a87e142406b6",
+   "generation": null,
+   "file_doc_id": "faba00a6b4219bdd048fbe8522a200017de933d5",
+   "generation_marker_id": "1939eef3db4e96278c2a3b9c5cf3d29f49f82caf",
+   "document_doc_id": "b1da48abb1c07056b3cc5cfbe3ef32b14b324d5a",
+   "document_doc_id_att3": "fa3566da550abb28837abcfe3e8a9d77959d8abb",
+   "entity_doc_id": "7303577ab8b2a761482c3adc4ea8f8a6d6dcef74",
+   "chunk_doc_id": "255dafd87271408a76d08eabaa6e2e7a57e344bf",
+   "relationship_doc_id": "bfc33d980d6eadbe595af2c76753189edea00bcc",
+   "link_doc_id": "a0b898a0dc466b1d6a64722e42e98a91cb956201",
+   "link_doc_id_section": "f58fc26ac112872ea15f9e83f351a3bd203be85d"
+  },
+  {
+   "module": "opensearch",
+   "source_id": "src_c6f8289e57",
+   "file_id": "8e00d378b30d42729c88a87e142406b6",
+   "generation": "g1",
+   "file_doc_id": "625194fd862b58d0d489e4436ff40a3a82a0a5b5",
+   "generation_marker_id": "1939eef3db4e96278c2a3b9c5cf3d29f49f82caf",
+   "document_doc_id": "05d8233ff45b0e80902899394387691204544f28",
+   "document_doc_id_att3": "5ba6e9fb9da9d776994e720c15ed76e09dc809d3",
+   "entity_doc_id": "7303577ab8b2a761482c3adc4ea8f8a6d6dcef74",
+   "chunk_doc_id": "255dafd87271408a76d08eabaa6e2e7a57e344bf",
+   "relationship_doc_id": "bfc33d980d6eadbe595af2c76753189edea00bcc",
+   "link_doc_id": "93d559c23cf5732b2f87174b4e020bfd478f5646",
+   "link_doc_id_section": "ff8ff60d8aa20e9937711e28a2a80d67ab3b127f"
+  },
+  {
+   "module": "opensearch",
+   "source_id": "src_0000000000",
+   "file_id": "a",
+   "generation": null,
+   "file_doc_id": "019a63fa48f8f6379c89b0c69773debc3a62753e",
+   "generation_marker_id": "cd38ded6270d4df9541e2389f33fd886d1e8940b",
+   "document_doc_id": "87bf322b0e8861cf3a6c27a67439172ccf6bf703",
+   "document_doc_id_att3": "8c7451e3e33d46d24328fe317f7eeafd42c9c979",
+   "entity_doc_id": "5ba833843a54089d2f4d3df51c686f4103ab66a2",
+   "chunk_doc_id": "8c96d2692d0c0d7db595392b351a926b7910e1c7",
+   "relationship_doc_id": "47a549c6e0959f345a6840ace3bd317ee4016203",
+   "link_doc_id": "2275f1ac008486c2b7e6f6d32f0e935ce610bdd5",
+   "link_doc_id_section": "c0fa9780e315589574cf46d5f534fc0059c8d592"
+  },
+  {
+   "module": "opensearch",
+   "source_id": "src_0000000000",
+   "file_id": "a",
+   "generation": "g1",
+   "file_doc_id": "2fa46e86e968f1a60d1aafd7089509c725ceef67",
+   "generation_marker_id": "cd38ded6270d4df9541e2389f33fd886d1e8940b",
+   "document_doc_id": "3bbe67cfa5bce431eecd374af64dd8396327db95",
+   "document_doc_id_att3": "0eb709a8c0dd7459d660abc64881fe0c7470d75d",
+   "entity_doc_id": "5ba833843a54089d2f4d3df51c686f4103ab66a2",
+   "chunk_doc_id": "8c96d2692d0c0d7db595392b351a926b7910e1c7",
+   "relationship_doc_id": "47a549c6e0959f345a6840ace3bd317ee4016203",
+   "link_doc_id": "be8ba9e968a122aea03c63cc48fc17b1c91bd92d",
+   "link_doc_id_section": "0c35e0efc55b4f3df0ac9103d855aff42432e089"
+  },
+  {
+   "module": "opensearch",
+   "source_id": "src_x",
+   "file_id": "f\u001fid",
+   "generation": null,
+   "file_doc_id": "b6583606b4f4bbf3b70a0ab29d5f16e96c8dafcf",
+   "generation_marker_id": "94e7d675cc73467972f28ef78a730af2b2681d48",
+   "document_doc_id": "8dd9a147a2a705f32fd36fb8e8faa88faea23fe1",
+   "document_doc_id_att3": "14e31268b4127ac85a4ac1dadb024620f245bba0",
+   "entity_doc_id": "f895e7d1fa6dd5cfc2a1b1f79794b9ffc6445a28",
+   "chunk_doc_id": "30938db64ff2a9bed49f98cf5a35baa93268b74d",
+   "relationship_doc_id": "9ae1b2c59b1cec6f2bb14183a4bce6c986621e93",
+   "link_doc_id": "e674e43e637e5f068b7bd275b31a36d19f79a402",
+   "link_doc_id_section": "53162560854fb5a197a06bdf96c1175155c26aef"
+  },
+  {
+   "module": "opensearch",
+   "source_id": "src_x",
+   "file_id": "f\u001fid",
+   "generation": "g1",
+   "file_doc_id": "bdd0317afd4bd0b8c18247a0084aa7d290be8c23",
+   "generation_marker_id": "94e7d675cc73467972f28ef78a730af2b2681d48",
+   "document_doc_id": "13a6a9526ec00e1b7ee3c6325dae569f9c1ab558",
+   "document_doc_id_att3": "656a4c991deb384646e86c4e19921938bac228b0",
+   "entity_doc_id": "f895e7d1fa6dd5cfc2a1b1f79794b9ffc6445a28",
+   "chunk_doc_id": "30938db64ff2a9bed49f98cf5a35baa93268b74d",
+   "relationship_doc_id": "9ae1b2c59b1cec6f2bb14183a4bce6c986621e93",
+   "link_doc_id": "7bbf07a39971cb1a2b73a534bdff5362a4da75d7",
+   "link_doc_id_section": "8d7dd200cd9209aaac48d90458e1e5732b4f4fe9"
+  },
+  {
+   "module": "elasticsearch",
+   "source_id": "src_c6f8289e57",
+   "file_id": "8e00d378b30d42729c88a87e142406b6",
+   "generation": null,
+   "file_doc_id": "faba00a6b4219bdd048fbe8522a200017de933d5",
+   "generation_marker_id": "1939eef3db4e96278c2a3b9c5cf3d29f49f82caf",
+   "document_doc_id": "b1da48abb1c07056b3cc5cfbe3ef32b14b324d5a",
+   "document_doc_id_att3": "fa3566da550abb28837abcfe3e8a9d77959d8abb",
+   "entity_doc_id": "7303577ab8b2a761482c3adc4ea8f8a6d6dcef74",
+   "chunk_doc_id": "255dafd87271408a76d08eabaa6e2e7a57e344bf",
+   "relationship_doc_id": "bfc33d980d6eadbe595af2c76753189edea00bcc",
+   "link_doc_id": "a0b898a0dc466b1d6a64722e42e98a91cb956201",
+   "link_doc_id_section": "f58fc26ac112872ea15f9e83f351a3bd203be85d"
+  },
+  {
+   "module": "elasticsearch",
+   "source_id": "src_c6f8289e57",
+   "file_id": "8e00d378b30d42729c88a87e142406b6",
+   "generation": "g1",
+   "file_doc_id": "625194fd862b58d0d489e4436ff40a3a82a0a5b5",
+   "generation_marker_id": "1939eef3db4e96278c2a3b9c5cf3d29f49f82caf",
+   "document_doc_id": "05d8233ff45b0e80902899394387691204544f28",
+   "document_doc_id_att3": "5ba6e9fb9da9d776994e720c15ed76e09dc809d3",
+   "entity_doc_id": "7303577ab8b2a761482c3adc4ea8f8a6d6dcef74",
+   "chunk_doc_id": "255dafd87271408a76d08eabaa6e2e7a57e344bf",
+   "relationship_doc_id": "bfc33d980d6eadbe595af2c76753189edea00bcc",
+   "link_doc_id": "93d559c23cf5732b2f87174b4e020bfd478f5646",
+   "link_doc_id_section": "ff8ff60d8aa20e9937711e28a2a80d67ab3b127f"
+  },
+  {
+   "module": "elasticsearch",
+   "source_id": "src_0000000000",
+   "file_id": "a",
+   "generation": null,
+   "file_doc_id": "019a63fa48f8f6379c89b0c69773debc3a62753e",
+   "generation_marker_id": "cd38ded6270d4df9541e2389f33fd886d1e8940b",
+   "document_doc_id": "87bf322b0e8861cf3a6c27a67439172ccf6bf703",
+   "document_doc_id_att3": "8c7451e3e33d46d24328fe317f7eeafd42c9c979",
+   "entity_doc_id": "5ba833843a54089d2f4d3df51c686f4103ab66a2",
+   "chunk_doc_id": "8c96d2692d0c0d7db595392b351a926b7910e1c7",
+   "relationship_doc_id": "47a549c6e0959f345a6840ace3bd317ee4016203",
+   "link_doc_id": "2275f1ac008486c2b7e6f6d32f0e935ce610bdd5",
+   "link_doc_id_section": "c0fa9780e315589574cf46d5f534fc0059c8d592"
+  },
+  {
+   "module": "elasticsearch",
+   "source_id": "src_0000000000",
+   "file_id": "a",
+   "generation": "g1",
+   "file_doc_id": "2fa46e86e968f1a60d1aafd7089509c725ceef67",
+   "generation_marker_id": "cd38ded6270d4df9541e2389f33fd886d1e8940b",
+   "document_doc_id": "3bbe67cfa5bce431eecd374af64dd8396327db95",
+   "document_doc_id_att3": "0eb709a8c0dd7459d660abc64881fe0c7470d75d",
+   "entity_doc_id": "5ba833843a54089d2f4d3df51c686f4103ab66a2",
+   "chunk_doc_id": "8c96d2692d0c0d7db595392b351a926b7910e1c7",
+   "relationship_doc_id": "47a549c6e0959f345a6840ace3bd317ee4016203",
+   "link_doc_id": "be8ba9e968a122aea03c63cc48fc17b1c91bd92d",
+   "link_doc_id_section": "0c35e0efc55b4f3df0ac9103d855aff42432e089"
+  },
+  {
+   "module": "elasticsearch",
+   "source_id": "src_x",
+   "file_id": "f\u001fid",
+   "generation": null,
+   "file_doc_id": "b6583606b4f4bbf3b70a0ab29d5f16e96c8dafcf",
+   "generation_marker_id": "94e7d675cc73467972f28ef78a730af2b2681d48",
+   "document_doc_id": "8dd9a147a2a705f32fd36fb8e8faa88faea23fe1",
+   "document_doc_id_att3": "14e31268b4127ac85a4ac1dadb024620f245bba0",
+   "entity_doc_id": "f895e7d1fa6dd5cfc2a1b1f79794b9ffc6445a28",
+   "chunk_doc_id": "30938db64ff2a9bed49f98cf5a35baa93268b74d",
+   "relationship_doc_id": "9ae1b2c59b1cec6f2bb14183a4bce6c986621e93",
+   "link_doc_id": "e674e43e637e5f068b7bd275b31a36d19f79a402",
+   "link_doc_id_section": "53162560854fb5a197a06bdf96c1175155c26aef"
+  },
+  {
+   "module": "elasticsearch",
+   "source_id": "src_x",
+   "file_id": "f\u001fid",
+   "generation": "g1",
+   "file_doc_id": "bdd0317afd4bd0b8c18247a0084aa7d290be8c23",
+   "generation_marker_id": "94e7d675cc73467972f28ef78a730af2b2681d48",
+   "document_doc_id": "13a6a9526ec00e1b7ee3c6325dae569f9c1ab558",
+   "document_doc_id_att3": "656a4c991deb384646e86c4e19921938bac228b0",
+   "entity_doc_id": "f895e7d1fa6dd5cfc2a1b1f79794b9ffc6445a28",
+   "chunk_doc_id": "30938db64ff2a9bed49f98cf5a35baa93268b74d",
+   "relationship_doc_id": "9ae1b2c59b1cec6f2bb14183a4bce6c986621e93",
+   "link_doc_id": "7bbf07a39971cb1a2b73a534bdff5362a4da75d7",
+   "link_doc_id_section": "8d7dd200cd9209aaac48d90458e1e5732b4f4fe9"
+  }
+ ],
+ "source_types": [
+  {
+   "raw": "/a/b",
+   "type": "local"
+  },
+  {
+   "raw": "//server/share",
+   "type": "network"
+  },
+  {
+   "raw": "///triple",
+   "type": "local"
+  },
+  {
+   "raw": "\\\\host\\s",
+   "type": "network"
+  },
+  {
+   "raw": "smb://h/s",
+   "type": "network"
+  },
+  {
+   "raw": "nfs://h",
+   "type": "network"
+  },
+  {
+   "raw": "afp://h",
+   "type": "network"
+  },
+  {
+   "raw": "C:\\x",
+   "type": "local"
+  },
+  {
+   "raw": "relative",
+   "type": "local"
+  },
+  {
+   "raw": "http://h",
+   "type": "local"
+  }
+ ]
+}

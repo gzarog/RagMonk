@@ -1,5 +1,12 @@
 # Subscription AI providers — Phase 0 integration note
 
+> **Historical record.** This page was written against the Python
+> implementation. File paths such as `ai/codex.py` or `tests/unit/...` refer
+> to that tree, which was removed at the Rust cutover (RUST-16,
+> [ADR 0031](../../rust/docs/adr/0031-cutover.md)) and is still available in
+> git history. The native port of these providers is the `ragmonk-ai` crate
+> ([ADR 0026](../../rust/docs/adr/0026-ai-providers-and-ask.md)).
+
 Status: **planning / feasibility record**. This document is the Phase 0
 deliverable of the subscription AI provider plan. It records the
 integration contract each proposed subscription adapter must satisfy

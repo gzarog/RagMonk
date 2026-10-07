@@ -1,0 +1,326 @@
+{
+ "links": [
+  {
+   "confidence": "heuristic",
+   "document": "docs/billing.md",
+   "entity": [
+    "src/billing/invoice_service.py",
+    "src.billing.invoice_service.void_endpoint",
+    "function",
+    17
+   ],
+   "evidence": "POST /api/invoices/{id}/void",
+   "resolver": "linker:route_heuristic",
+   "section": 5,
+   "type": "related_to"
+  },
+  {
+   "confidence": "heuristic",
+   "document": "docs/billing.md",
+   "entity": [
+    "web/Payments.cs",
+    "Shop.Payments.PaymentGateway.Charge",
+    "method",
+    5
+   ],
+   "evidence": "POST api/payments/charge",
+   "resolver": "linker:route_heuristic",
+   "section": 5,
+   "type": "related_to"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/billing.md",
+   "entity": [
+    "src/billing/invoice_service.py",
+    "src.billing.invoice_service.InvoiceService",
+    "class",
+    4
+   ],
+   "evidence": "InvoiceService",
+   "resolver": "linker:exact_identifier",
+   "section": 1,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/billing.md",
+   "entity": [
+    "src/billing/invoice_service.py",
+    "src.billing.invoice_service.InvoiceService.create_invoice",
+    "method",
+    5
+   ],
+   "evidence": "create_invoice",
+   "resolver": "linker:exact_identifier",
+   "section": 1,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/billing.md",
+   "entity": [
+    "src/billing/invoice_service.py",
+    "src.billing.invoice_service.InvoiceService.create_invoice",
+    "method",
+    5
+   ],
+   "evidence": "src.billing.invoice_service.InvoiceService.create_invoice",
+   "resolver": "linker:qualified_identifier",
+   "section": 1,
+   "type": "documented_by"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/billing.md",
+   "entity": [
+    "src/billing/invoice_service.py",
+    "src.billing.invoice_service.calculate_tax",
+    "function",
+    12
+   ],
+   "evidence": "calculate_tax",
+   "resolver": "linker:exact_identifier",
+   "section": 3,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/billing.md",
+   "entity": [
+    "src/billing/ledger.py",
+    "src.billing.ledger",
+    "namespace",
+    1
+   ],
+   "evidence": "ledger",
+   "resolver": "linker:exact_identifier",
+   "section": 3,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/billing.md",
+   "entity": [
+    "src/billing/ledger.py",
+    "src.billing.ledger.Ledger",
+    "class",
+    1
+   ],
+   "evidence": "Ledger",
+   "resolver": "linker:exact_identifier",
+   "section": 6,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/billing.md",
+   "entity": [
+    "src/billing/my-helpers.v2.py",
+    "src.billing.my-helpers.v2.helper",
+    "function",
+    1
+   ],
+   "evidence": "helper",
+   "resolver": "linker:exact_identifier",
+   "section": 3,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/billing.md",
+   "entity": [
+    "web/Payments.cs",
+    "Shop.Payments.PaymentGateway",
+    "class",
+    3
+   ],
+   "evidence": "PaymentGateway",
+   "resolver": "linker:exact_identifier",
+   "section": 6,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/orders.html",
+   "entity": [
+    "web/Payments.cs",
+    "Shop.Payments.PaymentGateway",
+    "class",
+    3
+   ],
+   "evidence": "Shop.Payments.PaymentGateway",
+   "resolver": "linker:qualified_identifier",
+   "section": 1,
+   "type": "documented_by"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/orders.html",
+   "entity": [
+    "web/Payments.cs",
+    "Shop.Payments.PaymentGateway.Charge",
+    "method",
+    5
+   ],
+   "evidence": "Charge",
+   "resolver": "linker:exact_identifier",
+   "section": 1,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/orders.html",
+   "entity": [
+    "web/orders.ts",
+    "web.orders.OrderController",
+    "class",
+    1
+   ],
+   "evidence": "OrderController",
+   "resolver": "linker:exact_identifier",
+   "section": 1,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/orders.html",
+   "entity": [
+    "web/orders.ts",
+    "web.orders.OrderController.placeOrder",
+    "method",
+    2
+   ],
+   "evidence": "placeOrder",
+   "resolver": "linker:exact_identifier",
+   "section": 1,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/orders.html",
+   "entity": [
+    "web/orders.ts",
+    "web.orders.formatCurrency",
+    "function",
+    6
+   ],
+   "evidence": "formatCurrency",
+   "resolver": "linker:exact_identifier",
+   "section": 1,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/unicode.txt",
+   "entity": [
+    "src/billing/ledger.py",
+    "src.billing.ledger.Ledger",
+    "class",
+    1
+   ],
+   "evidence": "Ledger",
+   "resolver": "linker:exact_identifier",
+   "section": 0,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/unicode.txt",
+   "entity": [
+    "src/billing/ledger.py",
+    "src.billing.ledger.Ledger.post_entry",
+    "method",
+    2
+   ],
+   "evidence": "post_entry",
+   "resolver": "linker:exact_identifier",
+   "section": 0,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/unicode.txt",
+   "entity": [
+    "src/billing/ledger.py",
+    "src.billing.ledger.café_total",
+    "function",
+    6
+   ],
+   "evidence": "café_total",
+   "resolver": "linker:exact_identifier",
+   "section": 0,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "high",
+   "document": "docs/unicode.txt",
+   "entity": [
+    "src/billing/my-helpers.v2.py",
+    "src.billing.my-helpers.v2.helper",
+    "function",
+    1
+   ],
+   "evidence": "helper",
+   "resolver": "linker:exact_identifier",
+   "section": 0,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "medium",
+   "document": "docs/billing.md",
+   "entity": [
+    "src/billing/invoice_service.py",
+    "src.billing.invoice_service",
+    "namespace",
+    1
+   ],
+   "evidence": "invoice_service.py",
+   "resolver": "linker:filename",
+   "section": 3,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "medium",
+   "document": "docs/billing.md",
+   "entity": [
+    "src/billing/invoice_service.py",
+    "src.billing.invoice_service.InvoiceService.void_invoice",
+    "method",
+    8
+   ],
+   "evidence": "InvoiceService.void_invoice",
+   "resolver": "linker:alias",
+   "section": 1,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "medium",
+   "document": "docs/billing.md",
+   "entity": [
+    "src/billing/ledger.py",
+    "src.billing.ledger",
+    "namespace",
+    1
+   ],
+   "evidence": "ledger",
+   "resolver": "linker:filename",
+   "section": 3,
+   "type": "mentioned_in"
+  },
+  {
+   "confidence": "medium",
+   "document": "docs/billing.md",
+   "entity": [
+    "web/Payments.cs",
+    "Shop.Payments",
+    "namespace",
+    1
+   ],
+   "evidence": "Payments",
+   "resolver": "linker:filename",
+   "section": 5,
+   "type": "mentioned_in"
+  }
+ ]
+}

@@ -1,10 +1,10 @@
 # Storage backend abstraction plan, Phase 9 (packaging/docs).
 #
 # OPTIONAL, dev-only convenience for exercising RagMonk's OpenSearch
-# `KnowledgeBackend` adapter (src/ragmonk/backends/opensearch.py) and its
-# integration tests (tests/unit/test_backends_opensearch_integration.py)
+# server backend (rust/crates/ragmonk-backends) and its live integration
+# tests (RAGMONK_TEST_OPENSEARCH_URL, see CONTRIBUTING.md)
 # against a REAL cluster. This file is NEVER required to run RagMonk --
-# the default `storage.mode="local"` (SQLite/FTS5/USearch) needs no server
+# the default `storage.mode="local"` (SQLite/FTS5 + HNSW vectors) needs no server
 # at all, and even `storage.mode="server"` only needs *some* reachable
 # OpenSearch cluster, not specifically this compose file.
 #

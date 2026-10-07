@@ -1,0 +1,10 @@
+{
+  "phase": "RUST-08",
+  "implementation": "python",
+  "code_files": 2000,
+  "documents": 100,
+  "links": 12000,
+  "cold_index_wall_s": 78.81,
+  "link_wall_s": 47.09,
+  "notes": "Python reference CLI, corpus from ragmonk-link-bench --emit-only; link_touched_files timed via wrapper"
+}

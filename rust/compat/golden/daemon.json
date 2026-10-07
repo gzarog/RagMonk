@@ -1,0 +1,1274 @@
+{
+ "health_files": [
+  {
+   "parsed": {
+    "last_reconciliation_at": null,
+    "sources": [],
+    "started_at": "a",
+    "updated_at": "b"
+   },
+   "text": "{\"started_at\": \"a\", \"updated_at\": \"b\"}"
+  },
+  {
+   "parsed": {
+    "last_reconciliation_at": "c",
+    "sources": [
+     {
+      "last_pass_at": null,
+      "online": true,
+      "path": "/p",
+      "source_id": "s",
+      "source_type": "local"
+     },
+     {
+      "last_pass_at": "d",
+      "online": false,
+      "path": "/p",
+      "source_id": "t",
+      "source_type": "local"
+     }
+    ],
+    "started_at": "a",
+    "updated_at": "b"
+   },
+   "text": "{\"started_at\": \"a\", \"updated_at\": \"b\", \"last_reconciliation_at\": \"c\", \"sources\": [{\"source_id\": \"s\", \"path\": \"/p\", \"source_type\": \"local\", \"online\": true}, {\"source_id\": \"t\", \"path\": \"/p\", \"source_type\": \"local\", \"online\": false, \"last_pass_at\": \"d\"}]}"
+  },
+  {
+   "parsed": {
+    "last_reconciliation_at": null,
+    "sources": [],
+    "started_at": "a",
+    "updated_at": "b"
+   },
+   "text": "{\"started_at\": \"a\", \"updated_at\": \"b\", \"extra\": 1}"
+  },
+  {
+   "parsed": null,
+   "text": "{\"started_at\": \"a\", \"updated_at\": \"b\", \"sources\": [{\"source_id\": \"s\", \"path\": \"/p\", \"source_type\": \"local\", \"online\": true, \"bogus\": 1}]}"
+  },
+  {
+   "parsed": null,
+   "text": "{\"started_at\": \"a\", \"updated_at\": \"b\", \"sources\": [{\"source_id\": \"s\"}]}"
+  },
+  {
+   "parsed": null,
+   "text": "{\"started_at\": \"a\"}"
+  },
+  {
+   "parsed": null,
+   "text": "{"
+  }
+ ],
+ "pid_files": [
+  {
+   "parsed": {
+    "pid": 4242,
+    "started_at": "2026-10-04T10:00:00.000001+00:00"
+   },
+   "text": "{\"pid\": 4242, \"started_at\": \"2026-10-04T10:00:00.000001+00:00\"}"
+  },
+  {
+   "parsed": {
+    "pid": 17,
+    "started_at": "x"
+   },
+   "text": "{\"pid\": \"17\", \"started_at\": \"x\"}"
+  },
+  {
+   "parsed": {
+    "pid": 9,
+    "started_at": "3"
+   },
+   "text": "{\"pid\": 9, \"started_at\": 3}"
+  },
+  {
+   "parsed": {
+    "pid": 9,
+    "started_at": "x"
+   },
+   "text": "{\"pid\": 9.7, \"started_at\": \"x\"}"
+  },
+  {
+   "parsed": null,
+   "text": "{\"pid\": 9}"
+  },
+  {
+   "parsed": null,
+   "text": "{\"started_at\": \"x\"}"
+  },
+  {
+   "parsed": null,
+   "text": "{\"pid\": \"nope\", \"started_at\": \"x\"}"
+  },
+  {
+   "parsed": null,
+   "text": "{\"pid\": 1"
+  },
+  {
+   "parsed": null,
+   "text": ""
+  },
+  {
+   "parsed": null,
+   "text": "[]"
+  }
+ ],
+ "scheduler": [
+  {
+   "name": "burst_coalesces",
+   "steps": [
+    {
+     "op": [
+      "trigger",
+      "a",
+      "local_watcher"
+     ],
+     "paths": [
+      "x.py"
+     ],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "trigger",
+      "a",
+      "local_watcher"
+     ],
+     "paths": [
+      "y.py"
+     ],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "trigger",
+      "a",
+      "reconciliation"
+     ],
+     "paths": [],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "start"
+     ],
+     "queue": [],
+     "request": {
+      "changed_paths": [],
+      "full": true,
+      "reason": "local_watcher",
+      "source_id": "a"
+     },
+     "started": "a",
+     "states": {
+      "a": "running"
+     }
+    },
+    {
+     "op": [
+      "finish",
+      "a"
+     ],
+     "queue": [],
+     "states": {}
+    }
+   ]
+  },
+  {
+   "name": "followup_goes_to_back",
+   "steps": [
+    {
+     "op": [
+      "trigger",
+      "a",
+      "startup"
+     ],
+     "paths": [],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "trigger",
+      "b",
+      "startup"
+     ],
+     "paths": [],
+     "queue": [
+      "a",
+      "b"
+     ],
+     "states": {
+      "a": "queued",
+      "b": "queued"
+     }
+    },
+    {
+     "op": [
+      "start"
+     ],
+     "queue": [
+      "b"
+     ],
+     "request": {
+      "changed_paths": [],
+      "full": true,
+      "reason": "startup",
+      "source_id": "a"
+     },
+     "started": "a",
+     "states": {
+      "a": "running",
+      "b": "queued"
+     }
+    },
+    {
+     "op": [
+      "trigger",
+      "a",
+      "local_watcher"
+     ],
+     "paths": [
+      "x.py"
+     ],
+     "queue": [
+      "b"
+     ],
+     "states": {
+      "a": "running_followup",
+      "b": "queued"
+     }
+    },
+    {
+     "op": [
+      "trigger",
+      "a",
+      "local_watcher"
+     ],
+     "paths": [
+      "z.py"
+     ],
+     "queue": [
+      "b"
+     ],
+     "states": {
+      "a": "running_followup",
+      "b": "queued"
+     }
+    },
+    {
+     "op": [
+      "finish",
+      "a"
+     ],
+     "queue": [
+      "b",
+      "a"
+     ],
+     "states": {
+      "a": "queued",
+      "b": "queued"
+     }
+    },
+    {
+     "op": [
+      "start"
+     ],
+     "queue": [
+      "a"
+     ],
+     "request": {
+      "changed_paths": [],
+      "full": true,
+      "reason": "startup",
+      "source_id": "b"
+     },
+     "started": "b",
+     "states": {
+      "a": "queued",
+      "b": "running"
+     }
+    },
+    {
+     "op": [
+      "finish",
+      "b"
+     ],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "start"
+     ],
+     "queue": [],
+     "request": {
+      "changed_paths": [
+       "x.py",
+       "z.py"
+      ],
+      "full": false,
+      "reason": "local_watcher",
+      "source_id": "a"
+     },
+     "started": "a",
+     "states": {
+      "a": "running"
+     }
+    },
+    {
+     "op": [
+      "finish",
+      "a"
+     ],
+     "queue": [],
+     "states": {}
+    }
+   ]
+  },
+  {
+   "name": "too_many_paths_is_full",
+   "steps": [
+    {
+     "op": [
+      "trigger",
+      "a",
+      "network_watcher"
+     ],
+     "paths": [
+      "f0.py",
+      "f1.py",
+      "f2.py",
+      "f3.py",
+      "f4.py",
+      "f5.py",
+      "f6.py",
+      "f7.py",
+      "f8.py",
+      "f9.py",
+      "f10.py",
+      "f11.py",
+      "f12.py",
+      "f13.py",
+      "f14.py",
+      "f15.py",
+      "f16.py",
+      "f17.py",
+      "f18.py",
+      "f19.py",
+      "f20.py",
+      "f21.py",
+      "f22.py",
+      "f23.py",
+      "f24.py",
+      "f25.py",
+      "f26.py",
+      "f27.py",
+      "f28.py",
+      "f29.py",
+      "f30.py",
+      "f31.py",
+      "f32.py",
+      "f33.py",
+      "f34.py",
+      "f35.py",
+      "f36.py",
+      "f37.py",
+      "f38.py",
+      "f39.py",
+      "f40.py",
+      "f41.py",
+      "f42.py",
+      "f43.py",
+      "f44.py",
+      "f45.py",
+      "f46.py",
+      "f47.py",
+      "f48.py",
+      "f49.py",
+      "f50.py",
+      "f51.py",
+      "f52.py",
+      "f53.py",
+      "f54.py",
+      "f55.py",
+      "f56.py",
+      "f57.py",
+      "f58.py",
+      "f59.py",
+      "f60.py",
+      "f61.py",
+      "f62.py",
+      "f63.py",
+      "f64.py",
+      "f65.py",
+      "f66.py",
+      "f67.py",
+      "f68.py",
+      "f69.py",
+      "f70.py",
+      "f71.py",
+      "f72.py",
+      "f73.py",
+      "f74.py",
+      "f75.py",
+      "f76.py",
+      "f77.py",
+      "f78.py",
+      "f79.py",
+      "f80.py",
+      "f81.py",
+      "f82.py",
+      "f83.py",
+      "f84.py",
+      "f85.py",
+      "f86.py",
+      "f87.py",
+      "f88.py",
+      "f89.py",
+      "f90.py",
+      "f91.py",
+      "f92.py",
+      "f93.py",
+      "f94.py",
+      "f95.py",
+      "f96.py",
+      "f97.py",
+      "f98.py",
+      "f99.py",
+      "f100.py",
+      "f101.py",
+      "f102.py",
+      "f103.py",
+      "f104.py",
+      "f105.py",
+      "f106.py",
+      "f107.py",
+      "f108.py",
+      "f109.py",
+      "f110.py",
+      "f111.py",
+      "f112.py",
+      "f113.py",
+      "f114.py",
+      "f115.py",
+      "f116.py",
+      "f117.py",
+      "f118.py",
+      "f119.py",
+      "f120.py",
+      "f121.py",
+      "f122.py",
+      "f123.py",
+      "f124.py",
+      "f125.py",
+      "f126.py",
+      "f127.py",
+      "f128.py",
+      "f129.py",
+      "f130.py",
+      "f131.py",
+      "f132.py",
+      "f133.py",
+      "f134.py",
+      "f135.py",
+      "f136.py",
+      "f137.py",
+      "f138.py",
+      "f139.py",
+      "f140.py",
+      "f141.py",
+      "f142.py",
+      "f143.py",
+      "f144.py",
+      "f145.py",
+      "f146.py",
+      "f147.py",
+      "f148.py",
+      "f149.py",
+      "f150.py",
+      "f151.py",
+      "f152.py",
+      "f153.py",
+      "f154.py",
+      "f155.py",
+      "f156.py",
+      "f157.py",
+      "f158.py",
+      "f159.py",
+      "f160.py",
+      "f161.py",
+      "f162.py",
+      "f163.py",
+      "f164.py",
+      "f165.py",
+      "f166.py",
+      "f167.py",
+      "f168.py",
+      "f169.py",
+      "f170.py",
+      "f171.py",
+      "f172.py",
+      "f173.py",
+      "f174.py",
+      "f175.py",
+      "f176.py",
+      "f177.py",
+      "f178.py",
+      "f179.py",
+      "f180.py",
+      "f181.py",
+      "f182.py",
+      "f183.py",
+      "f184.py",
+      "f185.py",
+      "f186.py",
+      "f187.py",
+      "f188.py",
+      "f189.py",
+      "f190.py",
+      "f191.py",
+      "f192.py",
+      "f193.py",
+      "f194.py",
+      "f195.py",
+      "f196.py",
+      "f197.py",
+      "f198.py",
+      "f199.py",
+      "f200.py"
+     ],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "start"
+     ],
+     "queue": [],
+     "request": {
+      "changed_paths": [],
+      "full": true,
+      "reason": "network_watcher",
+      "source_id": "a"
+     },
+     "started": "a",
+     "states": {
+      "a": "running"
+     }
+    },
+    {
+     "op": [
+      "finish",
+      "a"
+     ],
+     "queue": [],
+     "states": {}
+    },
+    {
+     "op": [
+      "trigger",
+      "a",
+      "network_watcher"
+     ],
+     "paths": [
+      "f0.py",
+      "f1.py",
+      "f2.py",
+      "f3.py",
+      "f4.py",
+      "f5.py",
+      "f6.py",
+      "f7.py",
+      "f8.py",
+      "f9.py",
+      "f10.py",
+      "f11.py",
+      "f12.py",
+      "f13.py",
+      "f14.py",
+      "f15.py",
+      "f16.py",
+      "f17.py",
+      "f18.py",
+      "f19.py",
+      "f20.py",
+      "f21.py",
+      "f22.py",
+      "f23.py",
+      "f24.py",
+      "f25.py",
+      "f26.py",
+      "f27.py",
+      "f28.py",
+      "f29.py",
+      "f30.py",
+      "f31.py",
+      "f32.py",
+      "f33.py",
+      "f34.py",
+      "f35.py",
+      "f36.py",
+      "f37.py",
+      "f38.py",
+      "f39.py",
+      "f40.py",
+      "f41.py",
+      "f42.py",
+      "f43.py",
+      "f44.py",
+      "f45.py",
+      "f46.py",
+      "f47.py",
+      "f48.py",
+      "f49.py",
+      "f50.py",
+      "f51.py",
+      "f52.py",
+      "f53.py",
+      "f54.py",
+      "f55.py",
+      "f56.py",
+      "f57.py",
+      "f58.py",
+      "f59.py",
+      "f60.py",
+      "f61.py",
+      "f62.py",
+      "f63.py",
+      "f64.py",
+      "f65.py",
+      "f66.py",
+      "f67.py",
+      "f68.py",
+      "f69.py",
+      "f70.py",
+      "f71.py",
+      "f72.py",
+      "f73.py",
+      "f74.py",
+      "f75.py",
+      "f76.py",
+      "f77.py",
+      "f78.py",
+      "f79.py",
+      "f80.py",
+      "f81.py",
+      "f82.py",
+      "f83.py",
+      "f84.py",
+      "f85.py",
+      "f86.py",
+      "f87.py",
+      "f88.py",
+      "f89.py",
+      "f90.py",
+      "f91.py",
+      "f92.py",
+      "f93.py",
+      "f94.py",
+      "f95.py",
+      "f96.py",
+      "f97.py",
+      "f98.py",
+      "f99.py",
+      "f100.py",
+      "f101.py",
+      "f102.py",
+      "f103.py",
+      "f104.py",
+      "f105.py",
+      "f106.py",
+      "f107.py",
+      "f108.py",
+      "f109.py",
+      "f110.py",
+      "f111.py",
+      "f112.py",
+      "f113.py",
+      "f114.py",
+      "f115.py",
+      "f116.py",
+      "f117.py",
+      "f118.py",
+      "f119.py",
+      "f120.py",
+      "f121.py",
+      "f122.py",
+      "f123.py",
+      "f124.py",
+      "f125.py",
+      "f126.py",
+      "f127.py",
+      "f128.py",
+      "f129.py",
+      "f130.py",
+      "f131.py",
+      "f132.py",
+      "f133.py",
+      "f134.py",
+      "f135.py",
+      "f136.py",
+      "f137.py",
+      "f138.py",
+      "f139.py",
+      "f140.py",
+      "f141.py",
+      "f142.py",
+      "f143.py",
+      "f144.py",
+      "f145.py",
+      "f146.py",
+      "f147.py",
+      "f148.py",
+      "f149.py",
+      "f150.py",
+      "f151.py",
+      "f152.py",
+      "f153.py",
+      "f154.py",
+      "f155.py",
+      "f156.py",
+      "f157.py",
+      "f158.py",
+      "f159.py",
+      "f160.py",
+      "f161.py",
+      "f162.py",
+      "f163.py",
+      "f164.py",
+      "f165.py",
+      "f166.py",
+      "f167.py",
+      "f168.py",
+      "f169.py",
+      "f170.py",
+      "f171.py",
+      "f172.py",
+      "f173.py",
+      "f174.py",
+      "f175.py",
+      "f176.py",
+      "f177.py",
+      "f178.py",
+      "f179.py",
+      "f180.py",
+      "f181.py",
+      "f182.py",
+      "f183.py",
+      "f184.py",
+      "f185.py",
+      "f186.py",
+      "f187.py",
+      "f188.py",
+      "f189.py",
+      "f190.py",
+      "f191.py",
+      "f192.py",
+      "f193.py",
+      "f194.py",
+      "f195.py",
+      "f196.py",
+      "f197.py",
+      "f198.py",
+      "f199.py"
+     ],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "start"
+     ],
+     "queue": [],
+     "request": {
+      "changed_paths": [
+       "f0.py",
+       "f1.py",
+       "f10.py",
+       "f100.py",
+       "f101.py",
+       "f102.py",
+       "f103.py",
+       "f104.py",
+       "f105.py",
+       "f106.py",
+       "f107.py",
+       "f108.py",
+       "f109.py",
+       "f11.py",
+       "f110.py",
+       "f111.py",
+       "f112.py",
+       "f113.py",
+       "f114.py",
+       "f115.py",
+       "f116.py",
+       "f117.py",
+       "f118.py",
+       "f119.py",
+       "f12.py",
+       "f120.py",
+       "f121.py",
+       "f122.py",
+       "f123.py",
+       "f124.py",
+       "f125.py",
+       "f126.py",
+       "f127.py",
+       "f128.py",
+       "f129.py",
+       "f13.py",
+       "f130.py",
+       "f131.py",
+       "f132.py",
+       "f133.py",
+       "f134.py",
+       "f135.py",
+       "f136.py",
+       "f137.py",
+       "f138.py",
+       "f139.py",
+       "f14.py",
+       "f140.py",
+       "f141.py",
+       "f142.py",
+       "f143.py",
+       "f144.py",
+       "f145.py",
+       "f146.py",
+       "f147.py",
+       "f148.py",
+       "f149.py",
+       "f15.py",
+       "f150.py",
+       "f151.py",
+       "f152.py",
+       "f153.py",
+       "f154.py",
+       "f155.py",
+       "f156.py",
+       "f157.py",
+       "f158.py",
+       "f159.py",
+       "f16.py",
+       "f160.py",
+       "f161.py",
+       "f162.py",
+       "f163.py",
+       "f164.py",
+       "f165.py",
+       "f166.py",
+       "f167.py",
+       "f168.py",
+       "f169.py",
+       "f17.py",
+       "f170.py",
+       "f171.py",
+       "f172.py",
+       "f173.py",
+       "f174.py",
+       "f175.py",
+       "f176.py",
+       "f177.py",
+       "f178.py",
+       "f179.py",
+       "f18.py",
+       "f180.py",
+       "f181.py",
+       "f182.py",
+       "f183.py",
+       "f184.py",
+       "f185.py",
+       "f186.py",
+       "f187.py",
+       "f188.py",
+       "f189.py",
+       "f19.py",
+       "f190.py",
+       "f191.py",
+       "f192.py",
+       "f193.py",
+       "f194.py",
+       "f195.py",
+       "f196.py",
+       "f197.py",
+       "f198.py",
+       "f199.py",
+       "f2.py",
+       "f20.py",
+       "f21.py",
+       "f22.py",
+       "f23.py",
+       "f24.py",
+       "f25.py",
+       "f26.py",
+       "f27.py",
+       "f28.py",
+       "f29.py",
+       "f3.py",
+       "f30.py",
+       "f31.py",
+       "f32.py",
+       "f33.py",
+       "f34.py",
+       "f35.py",
+       "f36.py",
+       "f37.py",
+       "f38.py",
+       "f39.py",
+       "f4.py",
+       "f40.py",
+       "f41.py",
+       "f42.py",
+       "f43.py",
+       "f44.py",
+       "f45.py",
+       "f46.py",
+       "f47.py",
+       "f48.py",
+       "f49.py",
+       "f5.py",
+       "f50.py",
+       "f51.py",
+       "f52.py",
+       "f53.py",
+       "f54.py",
+       "f55.py",
+       "f56.py",
+       "f57.py",
+       "f58.py",
+       "f59.py",
+       "f6.py",
+       "f60.py",
+       "f61.py",
+       "f62.py",
+       "f63.py",
+       "f64.py",
+       "f65.py",
+       "f66.py",
+       "f67.py",
+       "f68.py",
+       "f69.py",
+       "f7.py",
+       "f70.py",
+       "f71.py",
+       "f72.py",
+       "f73.py",
+       "f74.py",
+       "f75.py",
+       "f76.py",
+       "f77.py",
+       "f78.py",
+       "f79.py",
+       "f8.py",
+       "f80.py",
+       "f81.py",
+       "f82.py",
+       "f83.py",
+       "f84.py",
+       "f85.py",
+       "f86.py",
+       "f87.py",
+       "f88.py",
+       "f89.py",
+       "f9.py",
+       "f90.py",
+       "f91.py",
+       "f92.py",
+       "f93.py",
+       "f94.py",
+       "f95.py",
+       "f96.py",
+       "f97.py",
+       "f98.py",
+       "f99.py"
+      ],
+      "full": false,
+      "reason": "network_watcher",
+      "source_id": "a"
+     },
+     "started": "a",
+     "states": {
+      "a": "running"
+     }
+    },
+    {
+     "op": [
+      "finish",
+      "a"
+     ],
+     "queue": [],
+     "states": {}
+    }
+   ]
+  },
+  {
+   "name": "contention_requeue",
+   "steps": [
+    {
+     "op": [
+      "trigger",
+      "a",
+      "local_watcher"
+     ],
+     "paths": [
+      "x.py"
+     ],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "start_no_request"
+     ],
+     "queue": [],
+     "started": "a",
+     "states": {
+      "a": "running"
+     }
+    },
+    {
+     "op": [
+      "trigger",
+      "a",
+      "lock_contention"
+     ],
+     "paths": [],
+     "queue": [],
+     "states": {
+      "a": "running_followup"
+     }
+    },
+    {
+     "op": [
+      "finish",
+      "a"
+     ],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "start"
+     ],
+     "queue": [],
+     "request": {
+      "changed_paths": [
+       "x.py"
+      ],
+      "full": false,
+      "reason": "local_watcher",
+      "source_id": "a"
+     },
+     "started": "a",
+     "states": {
+      "a": "running"
+     }
+    },
+    {
+     "op": [
+      "finish",
+      "a"
+     ],
+     "queue": [],
+     "states": {}
+    }
+   ]
+  },
+  {
+   "name": "first_reason_wins",
+   "steps": [
+    {
+     "op": [
+      "trigger",
+      "a",
+      "network_watcher"
+     ],
+     "paths": [
+      "n.txt"
+     ],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "trigger",
+      "a",
+      "startup"
+     ],
+     "paths": [],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "start"
+     ],
+     "queue": [],
+     "request": {
+      "changed_paths": [],
+      "full": true,
+      "reason": "network_watcher",
+      "source_id": "a"
+     },
+     "started": "a",
+     "states": {
+      "a": "running"
+     }
+    },
+    {
+     "op": [
+      "finish",
+      "a"
+     ],
+     "queue": [],
+     "states": {}
+    },
+    {
+     "op": [
+      "trigger",
+      "a",
+      "manual"
+     ],
+     "paths": [],
+     "queue": [
+      "a"
+     ],
+     "states": {
+      "a": "queued"
+     }
+    },
+    {
+     "op": [
+      "start"
+     ],
+     "queue": [],
+     "request": {
+      "changed_paths": [],
+      "full": true,
+      "reason": "manual",
+      "source_id": "a"
+     },
+     "started": "a",
+     "states": {
+      "a": "running"
+     }
+    },
+    {
+     "op": [
+      "finish",
+      "a"
+     ],
+     "queue": [],
+     "states": {}
+    }
+   ]
+  }
+ ],
+ "uptime": [
+  {
+   "seconds": 0,
+   "text": "0s"
+  },
+  {
+   "seconds": 0.9,
+   "text": "0s"
+  },
+  {
+   "seconds": 1,
+   "text": "1s"
+  },
+  {
+   "seconds": 59,
+   "text": "59s"
+  },
+  {
+   "seconds": 59.99,
+   "text": "59s"
+  },
+  {
+   "seconds": 60,
+   "text": "1m 0s"
+  },
+  {
+   "seconds": 61,
+   "text": "1m 1s"
+  },
+  {
+   "seconds": 3599,
+   "text": "59m 59s"
+  },
+  {
+   "seconds": 3600,
+   "text": "1h 0m"
+  },
+  {
+   "seconds": 3661,
+   "text": "1h 1m"
+  },
+  {
+   "seconds": 86399,
+   "text": "23h 59m"
+  },
+  {
+   "seconds": 86400,
+   "text": "1d 0h"
+  },
+  {
+   "seconds": 90061,
+   "text": "1d 1h"
+  },
+  {
+   "seconds": 1000000,
+   "text": "11d 13h"
+  }
+ ]
+}

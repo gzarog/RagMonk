@@ -1,0 +1,12 @@
+{
+  "phase": "RUST-07",
+  "implementation": "python-reference",
+  "files": 600,
+  "corpus": "ragmonk-doc-bench compat/fixtures/documents --copies 100 --emit-only DIR (identical input)",
+  "method": "wall time of `ragmonk index` CLI invocations (includes interpreter start-up), local mode",
+  "scenarios": [
+    {"scenario": "cold_index", "wall_time_s": 37.28},
+    {"scenario": "warm_unchanged", "wall_time_s": 1.84},
+    {"scenario": "single_edit", "wall_time_s": 9.02}
+  ]
+}

@@ -1,0 +1,3 @@
+/target
+# Python-generated fixture databases are test inputs (root .gitignore ignores *.db).
+!/compat/fixtures/**/*.db

@@ -1,0 +1,11 @@
+{
+  "phase": "RUST-09",
+  "implementation": "python",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "texts": 1000,
+  "batch_size": 16,
+  "model_load_s": 8.15499637899984,
+  "embed_wall_s": 22.123826706000273,
+  "texts_per_s": 45.200137086988974,
+  "threads": 4
+}

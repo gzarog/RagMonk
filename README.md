@@ -6,7 +6,7 @@
 ### Answers with exact sources. Entirely on your machine.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![Native binary](https://img.shields.io/badge/native-Rust-orange)](rust/)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-green)](https://modelcontextprotocol.io)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](https://github.com/gzarog/RagMonk)
 
@@ -65,9 +65,9 @@ RagMonk is a **local-first knowledge engine**. Point it at folders and you get a
 |---|---|
 | **macOS / Linux** | `curl -fsSL https://raw.githubusercontent.com/gzarog/RagMonk/main/install.sh \| sh` |
 | **Windows (PowerShell)** | `irm https://raw.githubusercontent.com/gzarog/RagMonk/main/install.ps1 \| iex` |
-| **pip** | `pip install ragmonk` (add `[server]` for OpenSearch / Elasticsearch) |
+| **Docker** | `docker pull ghcr.io/gzarog/ragmonk` (see [Container](rust/docs/adr/0030-release-and-container.md)) |
 
-**Requirements:** Python 3.12+. After the first model download everything runs offline.
+**Requirements:** none. A single native binary for Linux x86_64, macOS (Apple silicon and Intel) and Windows x86_64, with the embedding, reranker and OCR models bundled, so everything runs offline from the first start. Update in place with `ragmonk update install`.
 
 Check the install with `ragmonk version` and `ragmonk doctor`.
 
@@ -342,7 +342,7 @@ Run `ragmonk doctor`. It checks the runtime folder, sources, databases, the inde
 
 **📄 Documents** · **💻 Code** · **🔗 Linked** · **🔒 Local**
 
-📘 [Full reference](docs/reference.md) · 🖥️ [Admin UI guide](docs/ui.md) · 📝 [Changelog](CHANGELOG.md) · 🤝 [Contributing](CONTRIBUTING.md) · 🔐 [Security](SECURITY.md)
+📘 [Full reference](docs/reference.md) · 🖥️ [Admin UI guide](docs/ui.md) · 📝 [Releases](https://github.com/gzarog/RagMonk/releases) · 🤝 [Contributing](CONTRIBUTING.md) · 🔐 [Security](SECURITY.md)
 
 MIT licensed
 

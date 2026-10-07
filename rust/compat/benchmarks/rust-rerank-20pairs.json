@@ -1,0 +1,10 @@
+{
+  "calls": 24,
+  "implementation": "rust",
+  "load_s": 0.761280511,
+  "model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+  "p50_ms": 757.504143,
+  "p95_ms": 864.381681,
+  "pairs_per_call": 20,
+  "phase": "RUST-09"
+}

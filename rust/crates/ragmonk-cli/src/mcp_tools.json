@@ -1,0 +1,2247 @@
+[
+ {
+  "name": "ragmonk_explore",
+  "description": "Primary retrieval tool: plan + run the best deterministic strategies for a query and assemble a budgeted evidence package.",
+  "inputSchema": {
+   "properties": {
+    "query": {
+     "title": "Query",
+     "type": "string"
+    },
+    "max_chars": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max Chars"
+    },
+    "max_files": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max Files"
+    },
+    "max_graph_nodes": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max Graph Nodes"
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "title": "ragmonk_exploreArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "EvidenceRef": {
+     "description": "An ``EvidenceFact`` plus the source snippet that lets a reader\ninterpret it -- ``retrieval/context_builder.py``'s budgeted\n``EvidenceItem.to_dict()`` shape, used by ``ragmonk_explore``.",
+     "properties": {
+      "source": {
+       "title": "Source",
+       "type": "string"
+      },
+      "path": {
+       "title": "Path",
+       "type": "string"
+      },
+      "location": {
+       "additionalProperties": true,
+       "title": "Location",
+       "type": "object"
+      },
+      "entity": {
+       "title": "Entity",
+       "type": "string"
+      },
+      "relationship": {
+       "title": "Relationship",
+       "type": "string"
+      },
+      "confidence": {
+       "title": "Confidence",
+       "type": "string"
+      },
+      "snippet": {
+       "title": "Snippet",
+       "type": "string"
+      }
+     },
+     "required": [
+      "source",
+      "path",
+      "location",
+      "entity",
+      "relationship",
+      "confidence",
+      "snippet"
+     ],
+     "title": "EvidenceRef",
+     "type": "object"
+    },
+    "ExploreEntity": {
+     "description": "A resolved symbol as ``explore``'s query planner sees it -- fewer\nfields than a full ``EntityMatch`` (no file/line/signature detail;\nthat lives in ``evidence`` instead).",
+     "properties": {
+      "entity_id": {
+       "title": "Entity Id",
+       "type": "string"
+      },
+      "qualified_name": {
+       "title": "Qualified Name",
+       "type": "string"
+      },
+      "kind": {
+       "title": "Kind",
+       "type": "string"
+      },
+      "source_id": {
+       "title": "Source Id",
+       "type": "string"
+      }
+     },
+     "required": [
+      "entity_id",
+      "qualified_name",
+      "kind",
+      "source_id"
+     ],
+     "title": "ExploreEntity",
+     "type": "object"
+    },
+    "LexicalHit": {
+     "description": "One ranked lexical result -- ``retrieval/lexical.py``'s\n``SearchResult.to_dict()`` shape, shared by ``ragmonk_search`` and\n``ragmonk_explore``'s ``documents`` list.",
+     "properties": {
+      "kind": {
+       "title": "Kind",
+       "type": "string"
+      },
+      "tier": {
+       "title": "Tier",
+       "type": "string"
+      },
+      "id": {
+       "title": "Id",
+       "type": "string"
+      },
+      "title": {
+       "title": "Title",
+       "type": "string"
+      },
+      "path": {
+       "title": "Path",
+       "type": "string"
+      },
+      "source_id": {
+       "title": "Source Id",
+       "type": "string"
+      },
+      "snippet": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Snippet"
+      },
+      "location": {
+       "anyOf": [
+        {
+         "additionalProperties": true,
+         "type": "object"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Location"
+      }
+     },
+     "required": [
+      "kind",
+      "tier",
+      "id",
+      "title",
+      "path",
+      "source_id"
+     ],
+     "title": "LexicalHit",
+     "type": "object"
+    },
+    "RelationshipEdge": {
+     "properties": {
+      "source": {
+       "title": "Source",
+       "type": "string"
+      },
+      "relationship": {
+       "title": "Relationship",
+       "type": "string"
+      },
+      "target": {
+       "title": "Target",
+       "type": "string"
+      },
+      "confidence": {
+       "title": "Confidence",
+       "type": "string"
+      }
+     },
+     "required": [
+      "source",
+      "relationship",
+      "target",
+      "confidence"
+     ],
+     "title": "RelationshipEdge",
+     "type": "object"
+    },
+    "ToolError": {
+     "description": "A clear, typed error -- never a raw traceback. ``type`` is the\nRagMonk exception class name (``\"UsageError\"``, ``\"ConfigError\"``,\n...) or one of this module's own boundary types (``\"timeout\"``,\n``\"internal_error\"``), so a client can branch on it without parsing\nprose.",
+     "properties": {
+      "type": {
+       "title": "Type",
+       "type": "string"
+      },
+      "message": {
+       "title": "Message",
+       "type": "string"
+      }
+     },
+     "required": [
+      "type",
+      "message"
+     ],
+     "title": "ToolError",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "schema_version": {
+     "default": "1",
+     "title": "Schema Version",
+     "type": "string"
+    },
+    "ok": {
+     "title": "Ok",
+     "type": "boolean"
+    },
+    "error": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ToolError"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "query": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Query"
+    },
+    "intent": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Intent"
+    },
+    "strategies": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Strategies",
+     "type": "array"
+    },
+    "answer_context": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Answer Context"
+    },
+    "entities": {
+     "items": {
+      "$ref": "#/$defs/ExploreEntity"
+     },
+     "title": "Entities",
+     "type": "array"
+    },
+    "relationships": {
+     "items": {
+      "$ref": "#/$defs/RelationshipEdge"
+     },
+     "title": "Relationships",
+     "type": "array"
+    },
+    "documents": {
+     "items": {
+      "$ref": "#/$defs/LexicalHit"
+     },
+     "title": "Documents",
+     "type": "array"
+    },
+    "tests": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Tests",
+     "type": "array"
+    },
+    "evidence": {
+     "items": {
+      "$ref": "#/$defs/EvidenceRef"
+     },
+     "title": "Evidence",
+     "type": "array"
+    },
+    "warnings": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Warnings",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ok"
+   ],
+   "title": "ExploreOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "ragmonk_search",
+  "description": "Lexical search across indexed code and documents.",
+  "inputSchema": {
+   "properties": {
+    "query": {
+     "title": "Query",
+     "type": "string"
+    },
+    "limit": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Limit"
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "title": "ragmonk_searchArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "LexicalHit": {
+     "description": "One ranked lexical result -- ``retrieval/lexical.py``'s\n``SearchResult.to_dict()`` shape, shared by ``ragmonk_search`` and\n``ragmonk_explore``'s ``documents`` list.",
+     "properties": {
+      "kind": {
+       "title": "Kind",
+       "type": "string"
+      },
+      "tier": {
+       "title": "Tier",
+       "type": "string"
+      },
+      "id": {
+       "title": "Id",
+       "type": "string"
+      },
+      "title": {
+       "title": "Title",
+       "type": "string"
+      },
+      "path": {
+       "title": "Path",
+       "type": "string"
+      },
+      "source_id": {
+       "title": "Source Id",
+       "type": "string"
+      },
+      "snippet": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Snippet"
+      },
+      "location": {
+       "anyOf": [
+        {
+         "additionalProperties": true,
+         "type": "object"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Location"
+      }
+     },
+     "required": [
+      "kind",
+      "tier",
+      "id",
+      "title",
+      "path",
+      "source_id"
+     ],
+     "title": "LexicalHit",
+     "type": "object"
+    },
+    "ToolError": {
+     "description": "A clear, typed error -- never a raw traceback. ``type`` is the\nRagMonk exception class name (``\"UsageError\"``, ``\"ConfigError\"``,\n...) or one of this module's own boundary types (``\"timeout\"``,\n``\"internal_error\"``), so a client can branch on it without parsing\nprose.",
+     "properties": {
+      "type": {
+       "title": "Type",
+       "type": "string"
+      },
+      "message": {
+       "title": "Message",
+       "type": "string"
+      }
+     },
+     "required": [
+      "type",
+      "message"
+     ],
+     "title": "ToolError",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "schema_version": {
+     "default": "1",
+     "title": "Schema Version",
+     "type": "string"
+    },
+    "ok": {
+     "title": "Ok",
+     "type": "boolean"
+    },
+    "error": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ToolError"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "query": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Query"
+    },
+    "results": {
+     "items": {
+      "$ref": "#/$defs/LexicalHit"
+     },
+     "title": "Results",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ok"
+   ],
+   "title": "SearchOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "ragmonk_symbol",
+  "description": "Look up a code symbol by name or fully qualified name.",
+  "inputSchema": {
+   "properties": {
+    "name": {
+     "title": "Name",
+     "type": "string"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "title": "ragmonk_symbolArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "EntityMatch": {
+     "description": "One resolved code entity -- the same shape ``cli/_code_common.py``'s\n``match_to_dict`` produces for ``ragmonk symbol --json`` etc.",
+     "properties": {
+      "entity_id": {
+       "title": "Entity Id",
+       "type": "string"
+      },
+      "kind": {
+       "title": "Kind",
+       "type": "string"
+      },
+      "name": {
+       "title": "Name",
+       "type": "string"
+      },
+      "qualified_name": {
+       "title": "Qualified Name",
+       "type": "string"
+      },
+      "language": {
+       "title": "Language",
+       "type": "string"
+      },
+      "file_id": {
+       "title": "File Id",
+       "type": "string"
+      },
+      "start_line": {
+       "title": "Start Line",
+       "type": "integer"
+      },
+      "end_line": {
+       "title": "End Line",
+       "type": "integer"
+      },
+      "signature": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Signature"
+      },
+      "source_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Source Id"
+      },
+      "source_path": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Source Path"
+      }
+     },
+     "required": [
+      "entity_id",
+      "kind",
+      "name",
+      "qualified_name",
+      "language",
+      "file_id",
+      "start_line",
+      "end_line"
+     ],
+     "title": "EntityMatch",
+     "type": "object"
+    },
+    "ToolError": {
+     "description": "A clear, typed error -- never a raw traceback. ``type`` is the\nRagMonk exception class name (``\"UsageError\"``, ``\"ConfigError\"``,\n...) or one of this module's own boundary types (``\"timeout\"``,\n``\"internal_error\"``), so a client can branch on it without parsing\nprose.",
+     "properties": {
+      "type": {
+       "title": "Type",
+       "type": "string"
+      },
+      "message": {
+       "title": "Message",
+       "type": "string"
+      }
+     },
+     "required": [
+      "type",
+      "message"
+     ],
+     "title": "ToolError",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "schema_version": {
+     "default": "1",
+     "title": "Schema Version",
+     "type": "string"
+    },
+    "ok": {
+     "title": "Ok",
+     "type": "boolean"
+    },
+    "error": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ToolError"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "query": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Query"
+    },
+    "matches": {
+     "items": {
+      "$ref": "#/$defs/EntityMatch"
+     },
+     "title": "Matches",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ok"
+   ],
+   "title": "SymbolOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "ragmonk_callers",
+  "description": "List entities that call the given symbol (incoming CALLS edges).",
+  "inputSchema": {
+   "properties": {
+    "name": {
+     "title": "Name",
+     "type": "string"
+    },
+    "max_depth": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max Depth"
+    },
+    "limit": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Limit"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "title": "ragmonk_callersArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "EntityMatch": {
+     "description": "One resolved code entity -- the same shape ``cli/_code_common.py``'s\n``match_to_dict`` produces for ``ragmonk symbol --json`` etc.",
+     "properties": {
+      "entity_id": {
+       "title": "Entity Id",
+       "type": "string"
+      },
+      "kind": {
+       "title": "Kind",
+       "type": "string"
+      },
+      "name": {
+       "title": "Name",
+       "type": "string"
+      },
+      "qualified_name": {
+       "title": "Qualified Name",
+       "type": "string"
+      },
+      "language": {
+       "title": "Language",
+       "type": "string"
+      },
+      "file_id": {
+       "title": "File Id",
+       "type": "string"
+      },
+      "start_line": {
+       "title": "Start Line",
+       "type": "integer"
+      },
+      "end_line": {
+       "title": "End Line",
+       "type": "integer"
+      },
+      "signature": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Signature"
+      },
+      "source_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Source Id"
+      },
+      "source_path": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Source Path"
+      }
+     },
+     "required": [
+      "entity_id",
+      "kind",
+      "name",
+      "qualified_name",
+      "language",
+      "file_id",
+      "start_line",
+      "end_line"
+     ],
+     "title": "EntityMatch",
+     "type": "object"
+    },
+    "GraphEdge": {
+     "description": "One traversal hop -- the same shape ``edge_to_dict`` produces for\n``ragmonk callers/callees --json``.",
+     "properties": {
+      "depth": {
+       "title": "Depth",
+       "type": "integer"
+      },
+      "relationship_type": {
+       "title": "Relationship Type",
+       "type": "string"
+      },
+      "source_entity_id": {
+       "title": "Source Entity Id",
+       "type": "string"
+      },
+      "target_entity_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Target Entity Id"
+      },
+      "target_symbol": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Target Symbol"
+      },
+      "confidence": {
+       "title": "Confidence",
+       "type": "string"
+      },
+      "resolver": {
+       "title": "Resolver",
+       "type": "string"
+      },
+      "source_location": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Source Location"
+      },
+      "evidence": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Evidence"
+      }
+     },
+     "required": [
+      "depth",
+      "relationship_type",
+      "source_entity_id",
+      "confidence",
+      "resolver"
+     ],
+     "title": "GraphEdge",
+     "type": "object"
+    },
+    "ToolError": {
+     "description": "A clear, typed error -- never a raw traceback. ``type`` is the\nRagMonk exception class name (``\"UsageError\"``, ``\"ConfigError\"``,\n...) or one of this module's own boundary types (``\"timeout\"``,\n``\"internal_error\"``), so a client can branch on it without parsing\nprose.",
+     "properties": {
+      "type": {
+       "title": "Type",
+       "type": "string"
+      },
+      "message": {
+       "title": "Message",
+       "type": "string"
+      }
+     },
+     "required": [
+      "type",
+      "message"
+     ],
+     "title": "ToolError",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "schema_version": {
+     "default": "1",
+     "title": "Schema Version",
+     "type": "string"
+    },
+    "ok": {
+     "title": "Ok",
+     "type": "boolean"
+    },
+    "error": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ToolError"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "query": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Query"
+    },
+    "matches": {
+     "items": {
+      "$ref": "#/$defs/EntityMatch"
+     },
+     "title": "Matches",
+     "type": "array"
+    },
+    "edges": {
+     "items": {
+      "$ref": "#/$defs/GraphEdge"
+     },
+     "title": "Edges",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ok"
+   ],
+   "title": "GraphTraversalOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "ragmonk_callees",
+  "description": "List entities the given symbol calls (outgoing CALLS edges).",
+  "inputSchema": {
+   "properties": {
+    "name": {
+     "title": "Name",
+     "type": "string"
+    },
+    "max_depth": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max Depth"
+    },
+    "limit": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Limit"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "title": "ragmonk_calleesArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "EntityMatch": {
+     "description": "One resolved code entity -- the same shape ``cli/_code_common.py``'s\n``match_to_dict`` produces for ``ragmonk symbol --json`` etc.",
+     "properties": {
+      "entity_id": {
+       "title": "Entity Id",
+       "type": "string"
+      },
+      "kind": {
+       "title": "Kind",
+       "type": "string"
+      },
+      "name": {
+       "title": "Name",
+       "type": "string"
+      },
+      "qualified_name": {
+       "title": "Qualified Name",
+       "type": "string"
+      },
+      "language": {
+       "title": "Language",
+       "type": "string"
+      },
+      "file_id": {
+       "title": "File Id",
+       "type": "string"
+      },
+      "start_line": {
+       "title": "Start Line",
+       "type": "integer"
+      },
+      "end_line": {
+       "title": "End Line",
+       "type": "integer"
+      },
+      "signature": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Signature"
+      },
+      "source_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Source Id"
+      },
+      "source_path": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Source Path"
+      }
+     },
+     "required": [
+      "entity_id",
+      "kind",
+      "name",
+      "qualified_name",
+      "language",
+      "file_id",
+      "start_line",
+      "end_line"
+     ],
+     "title": "EntityMatch",
+     "type": "object"
+    },
+    "GraphEdge": {
+     "description": "One traversal hop -- the same shape ``edge_to_dict`` produces for\n``ragmonk callers/callees --json``.",
+     "properties": {
+      "depth": {
+       "title": "Depth",
+       "type": "integer"
+      },
+      "relationship_type": {
+       "title": "Relationship Type",
+       "type": "string"
+      },
+      "source_entity_id": {
+       "title": "Source Entity Id",
+       "type": "string"
+      },
+      "target_entity_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Target Entity Id"
+      },
+      "target_symbol": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Target Symbol"
+      },
+      "confidence": {
+       "title": "Confidence",
+       "type": "string"
+      },
+      "resolver": {
+       "title": "Resolver",
+       "type": "string"
+      },
+      "source_location": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Source Location"
+      },
+      "evidence": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Evidence"
+      }
+     },
+     "required": [
+      "depth",
+      "relationship_type",
+      "source_entity_id",
+      "confidence",
+      "resolver"
+     ],
+     "title": "GraphEdge",
+     "type": "object"
+    },
+    "ToolError": {
+     "description": "A clear, typed error -- never a raw traceback. ``type`` is the\nRagMonk exception class name (``\"UsageError\"``, ``\"ConfigError\"``,\n...) or one of this module's own boundary types (``\"timeout\"``,\n``\"internal_error\"``), so a client can branch on it without parsing\nprose.",
+     "properties": {
+      "type": {
+       "title": "Type",
+       "type": "string"
+      },
+      "message": {
+       "title": "Message",
+       "type": "string"
+      }
+     },
+     "required": [
+      "type",
+      "message"
+     ],
+     "title": "ToolError",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "schema_version": {
+     "default": "1",
+     "title": "Schema Version",
+     "type": "string"
+    },
+    "ok": {
+     "title": "Ok",
+     "type": "boolean"
+    },
+    "error": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ToolError"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "query": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Query"
+    },
+    "matches": {
+     "items": {
+      "$ref": "#/$defs/EntityMatch"
+     },
+     "title": "Matches",
+     "type": "array"
+    },
+    "edges": {
+     "items": {
+      "$ref": "#/$defs/GraphEdge"
+     },
+     "title": "Edges",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ok"
+   ],
+   "title": "GraphTraversalOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "ragmonk_impact",
+  "description": "Blast-radius impact analysis for a symbol: callers, callees, tests, documentation.",
+  "inputSchema": {
+   "properties": {
+    "name": {
+     "title": "Name",
+     "type": "string"
+    },
+    "max_depth": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max Depth"
+    },
+    "limit": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Limit"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "title": "ragmonk_impactArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "ConfidenceSummary": {
+     "properties": {
+      "code_references": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Code References"
+      },
+      "document_links": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Document Links"
+      }
+     },
+     "title": "ConfidenceSummary",
+     "type": "object"
+    },
+    "DefinedLocation": {
+     "properties": {
+      "entity_id": {
+       "title": "Entity Id",
+       "type": "string"
+      },
+      "qualified_name": {
+       "title": "Qualified Name",
+       "type": "string"
+      },
+      "path": {
+       "title": "Path",
+       "type": "string"
+      },
+      "start_line": {
+       "title": "Start Line",
+       "type": "integer"
+      },
+      "end_line": {
+       "title": "End Line",
+       "type": "integer"
+      },
+      "source_id": {
+       "title": "Source Id",
+       "type": "string"
+      }
+     },
+     "required": [
+      "entity_id",
+      "qualified_name",
+      "path",
+      "start_line",
+      "end_line",
+      "source_id"
+     ],
+     "title": "DefinedLocation",
+     "type": "object"
+    },
+    "EvidenceFact": {
+     "description": "``knowledge/evidence.py``'s ``Evidence.to_dict()`` shape: a bare\nrelationship-shaped fact with no source snippet attached -- what\n``ragmonk_impact``'s ``documentation`` list carries.",
+     "properties": {
+      "source": {
+       "title": "Source",
+       "type": "string"
+      },
+      "path": {
+       "title": "Path",
+       "type": "string"
+      },
+      "location": {
+       "additionalProperties": true,
+       "title": "Location",
+       "type": "object"
+      },
+      "entity": {
+       "title": "Entity",
+       "type": "string"
+      },
+      "relationship": {
+       "title": "Relationship",
+       "type": "string"
+      },
+      "confidence": {
+       "title": "Confidence",
+       "type": "string"
+      }
+     },
+     "required": [
+      "source",
+      "path",
+      "location",
+      "entity",
+      "relationship",
+      "confidence"
+     ],
+     "title": "EvidenceFact",
+     "type": "object"
+    },
+    "ToolError": {
+     "description": "A clear, typed error -- never a raw traceback. ``type`` is the\nRagMonk exception class name (``\"UsageError\"``, ``\"ConfigError\"``,\n...) or one of this module's own boundary types (``\"timeout\"``,\n``\"internal_error\"``), so a client can branch on it without parsing\nprose.",
+     "properties": {
+      "type": {
+       "title": "Type",
+       "type": "string"
+      },
+      "message": {
+       "title": "Message",
+       "type": "string"
+      }
+     },
+     "required": [
+      "type",
+      "message"
+     ],
+     "title": "ToolError",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "schema_version": {
+     "default": "1",
+     "title": "Schema Version",
+     "type": "string"
+    },
+    "ok": {
+     "title": "Ok",
+     "type": "boolean"
+    },
+    "error": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ToolError"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "query": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Query"
+    },
+    "found": {
+     "default": false,
+     "title": "Found",
+     "type": "boolean"
+    },
+    "defined": {
+     "items": {
+      "$ref": "#/$defs/DefinedLocation"
+     },
+     "title": "Defined",
+     "type": "array"
+    },
+    "callers": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Callers",
+     "type": "array"
+    },
+    "callees": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Callees",
+     "type": "array"
+    },
+    "tests": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Tests",
+     "type": "array"
+    },
+    "documentation": {
+     "items": {
+      "$ref": "#/$defs/EvidenceFact"
+     },
+     "title": "Documentation",
+     "type": "array"
+    },
+    "confidence": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ConfidenceSummary"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "blast_radius": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Blast Radius"
+    },
+    "blast_radius_score": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Blast Radius Score"
+    }
+   },
+   "required": [
+    "ok"
+   ],
+   "title": "ImpactOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "ragmonk_documents",
+  "description": "List indexed documents, optionally filtered to one source.",
+  "inputSchema": {
+   "properties": {
+    "source_id": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Source Id"
+    }
+   },
+   "title": "ragmonk_documentsArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "DocumentRow": {
+     "properties": {
+      "source_id": {
+       "title": "Source Id",
+       "type": "string"
+      },
+      "file_id": {
+       "title": "File Id",
+       "type": "string"
+      },
+      "path": {
+       "title": "Path",
+       "type": "string"
+      },
+      "status": {
+       "title": "Status",
+       "type": "string"
+      },
+      "format": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Format"
+      },
+      "title": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Title"
+      },
+      "page_count": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Page Count"
+      },
+      "section_count": {
+       "title": "Section Count",
+       "type": "integer"
+      },
+      "paragraph_count": {
+       "title": "Paragraph Count",
+       "type": "integer"
+      },
+      "table_count": {
+       "title": "Table Count",
+       "type": "integer"
+      },
+      "is_scanned": {
+       "title": "Is Scanned",
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "source_id",
+      "file_id",
+      "path",
+      "status",
+      "section_count",
+      "paragraph_count",
+      "table_count",
+      "is_scanned"
+     ],
+     "title": "DocumentRow",
+     "type": "object"
+    },
+    "ToolError": {
+     "description": "A clear, typed error -- never a raw traceback. ``type`` is the\nRagMonk exception class name (``\"UsageError\"``, ``\"ConfigError\"``,\n...) or one of this module's own boundary types (``\"timeout\"``,\n``\"internal_error\"``), so a client can branch on it without parsing\nprose.",
+     "properties": {
+      "type": {
+       "title": "Type",
+       "type": "string"
+      },
+      "message": {
+       "title": "Message",
+       "type": "string"
+      }
+     },
+     "required": [
+      "type",
+      "message"
+     ],
+     "title": "ToolError",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "schema_version": {
+     "default": "1",
+     "title": "Schema Version",
+     "type": "string"
+    },
+    "ok": {
+     "title": "Ok",
+     "type": "boolean"
+    },
+    "error": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ToolError"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "documents": {
+     "items": {
+      "$ref": "#/$defs/DocumentRow"
+     },
+     "title": "Documents",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ok"
+   ],
+   "title": "DocumentsOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "ragmonk_status",
+  "description": "Indexing status: sources, per-status file counts, queue depth.",
+  "inputSchema": {
+   "properties": {},
+   "title": "ragmonk_statusArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "SourceStatus": {
+     "properties": {
+      "id": {
+       "title": "Id",
+       "type": "string"
+      },
+      "path": {
+       "title": "Path",
+       "type": "string"
+      },
+      "enabled": {
+       "title": "Enabled",
+       "type": "boolean"
+      },
+      "status": {
+       "default": "active",
+       "title": "Status",
+       "type": "string"
+      },
+      "counts": {
+       "additionalProperties": {
+        "type": "integer"
+       },
+       "title": "Counts",
+       "type": "object"
+      },
+      "queue_depth": {
+       "title": "Queue Depth",
+       "type": "integer"
+      },
+      "last_scan_at": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Last Scan At"
+      },
+      "last_error": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Last Error"
+      },
+      "access_state": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Access State"
+      },
+      "index_state": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Index State"
+      },
+      "queue": {
+       "anyOf": [
+        {
+         "additionalProperties": true,
+         "type": "object"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Queue"
+      },
+      "last_activity_at": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Last Activity At"
+      },
+      "last_error_detail": {
+       "anyOf": [
+        {
+         "additionalProperties": true,
+         "type": "object"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Last Error Detail"
+      }
+     },
+     "required": [
+      "id",
+      "path",
+      "enabled",
+      "counts",
+      "queue_depth"
+     ],
+     "title": "SourceStatus",
+     "type": "object"
+    },
+    "ToolError": {
+     "description": "A clear, typed error -- never a raw traceback. ``type`` is the\nRagMonk exception class name (``\"UsageError\"``, ``\"ConfigError\"``,\n...) or one of this module's own boundary types (``\"timeout\"``,\n``\"internal_error\"``), so a client can branch on it without parsing\nprose.",
+     "properties": {
+      "type": {
+       "title": "Type",
+       "type": "string"
+      },
+      "message": {
+       "title": "Message",
+       "type": "string"
+      }
+     },
+     "required": [
+      "type",
+      "message"
+     ],
+     "title": "ToolError",
+     "type": "object"
+    },
+    "TotalsSummary": {
+     "properties": {
+      "by_status": {
+       "additionalProperties": {
+        "type": "integer"
+       },
+       "title": "By Status",
+       "type": "object"
+      },
+      "queue_depth": {
+       "title": "Queue Depth",
+       "type": "integer"
+      }
+     },
+     "required": [
+      "by_status",
+      "queue_depth"
+     ],
+     "title": "TotalsSummary",
+     "type": "object"
+    }
+   },
+   "properties": {
+    "schema_version": {
+     "default": "1",
+     "title": "Schema Version",
+     "type": "string"
+    },
+    "ok": {
+     "title": "Ok",
+     "type": "boolean"
+    },
+    "error": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ToolError"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "sources": {
+     "items": {
+      "$ref": "#/$defs/SourceStatus"
+     },
+     "title": "Sources",
+     "type": "array"
+    },
+    "totals": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/TotalsSummary"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "health": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Health"
+    },
+    "indexer": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Indexer"
+    },
+    "queue": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Queue"
+    },
+    "recent_errors": {
+     "items": {
+      "additionalProperties": true,
+      "type": "object"
+     },
+     "title": "Recent Errors",
+     "type": "array"
+    },
+    "problems": {
+     "items": {
+      "additionalProperties": true,
+      "type": "object"
+     },
+     "title": "Problems",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ok"
+   ],
+   "title": "StatusOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "ragmonk_ask",
+  "description": "Ask a natural-language question, answered by the configured AI provider grounded in the same evidence ragmonk_explore would return. Calls out to a real (possibly cloud) AI provider -- unlike every other tool here.",
+  "inputSchema": {
+   "properties": {
+    "question": {
+     "title": "Question",
+     "type": "string"
+    }
+   },
+   "required": [
+    "question"
+   ],
+   "title": "ragmonk_askArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "AiAnswerOut": {
+     "properties": {
+      "text": {
+       "title": "Text",
+       "type": "string"
+      },
+      "provider": {
+       "title": "Provider",
+       "type": "string"
+      },
+      "model": {
+       "title": "Model",
+       "type": "string"
+      },
+      "usage": {
+       "$ref": "#/$defs/AiUsageOut"
+      }
+     },
+     "required": [
+      "text",
+      "provider",
+      "model",
+      "usage"
+     ],
+     "title": "AiAnswerOut",
+     "type": "object"
+    },
+    "AiUsageOut": {
+     "properties": {
+      "input_tokens": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Input Tokens"
+      },
+      "output_tokens": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Output Tokens"
+      }
+     },
+     "title": "AiUsageOut",
+     "type": "object"
+    },
+    "EvidenceRef": {
+     "description": "An ``EvidenceFact`` plus the source snippet that lets a reader\ninterpret it -- ``retrieval/context_builder.py``'s budgeted\n``EvidenceItem.to_dict()`` shape, used by ``ragmonk_explore``.",
+     "properties": {
+      "source": {
+       "title": "Source",
+       "type": "string"
+      },
+      "path": {
+       "title": "Path",
+       "type": "string"
+      },
+      "location": {
+       "additionalProperties": true,
+       "title": "Location",
+       "type": "object"
+      },
+      "entity": {
+       "title": "Entity",
+       "type": "string"
+      },
+      "relationship": {
+       "title": "Relationship",
+       "type": "string"
+      },
+      "confidence": {
+       "title": "Confidence",
+       "type": "string"
+      },
+      "snippet": {
+       "title": "Snippet",
+       "type": "string"
+      }
+     },
+     "required": [
+      "source",
+      "path",
+      "location",
+      "entity",
+      "relationship",
+      "confidence",
+      "snippet"
+     ],
+     "title": "EvidenceRef",
+     "type": "object"
+    },
+    "ToolError": {
+     "description": "A clear, typed error -- never a raw traceback. ``type`` is the\nRagMonk exception class name (``\"UsageError\"``, ``\"ConfigError\"``,\n...) or one of this module's own boundary types (``\"timeout\"``,\n``\"internal_error\"``), so a client can branch on it without parsing\nprose.",
+     "properties": {
+      "type": {
+       "title": "Type",
+       "type": "string"
+      },
+      "message": {
+       "title": "Message",
+       "type": "string"
+      }
+     },
+     "required": [
+      "type",
+      "message"
+     ],
+     "title": "ToolError",
+     "type": "object"
+    }
+   },
+   "description": "Not read-only and not network-free like the other 8 tools (see\n``mcp/server.py``'s per-tool annotations/instructions) -- calling this\ntool reaches the configured ``ai:`` provider, which may be a real\ncloud/network endpoint gated by ``privacy.external_ai_allowed``\nexactly like ``ragmonk ask`` itself.",
+   "properties": {
+    "schema_version": {
+     "default": "1",
+     "title": "Schema Version",
+     "type": "string"
+    },
+    "ok": {
+     "title": "Ok",
+     "type": "boolean"
+    },
+    "error": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/ToolError"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "question": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Question"
+    },
+    "answer": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/AiAnswerOut"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "evidence": {
+     "items": {
+      "$ref": "#/$defs/EvidenceRef"
+     },
+     "title": "Evidence",
+     "type": "array"
+    },
+    "warnings": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Warnings",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ok"
+   ],
+   "title": "AskOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ }
+]
