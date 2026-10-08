@@ -163,7 +163,8 @@ fn hard_filters_hold_across_every_stage() {
             .as_array()
             .unwrap()
             .iter()
-            .all(|e| !e["path"].as_str().unwrap().contains("private")),
+            // macOS temp dirs live under /private, so check the relative path.
+            .all(|e| !e["path"].as_str().unwrap().contains("docs/private")),
         "{v}"
     );
     // Kind filter.
