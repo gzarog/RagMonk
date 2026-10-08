@@ -250,6 +250,9 @@ pub struct SourceResult {
     pub pipeline: PipelineStats,
     /// A build an earlier run left unpublished, discarded by this pass.
     pub recovered_build: Option<String>,
+    /// Server mode: what the publication to the server did (copy-forward
+    /// and written record counts, timings).
+    pub server_publish: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -266,13 +269,17 @@ pub struct Options {
 impl Options {
     pub fn from_config(cfg: &RagMonkConfig) -> Self {
         let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+        // Worker threads per pass may exceed the CPU budget: actual CPU use
+        // is bounded process-wide by the resource governor's `cpu` permits
+        // (shared by every concurrently running source), not per pass.
         let wanted = cfg
             .indexing
             .code_extraction_workers
             .max(cfg.indexing.document_extraction_workers)
+            .max(cfg.indexing.resolved_cpu_workers() as i64)
             .max(1) as usize;
         Self {
-            workers: wanted.min(cpus).max(1),
+            workers: wanted.min(cpus.max(1) * 2).max(1),
             max_file_size_bytes: cfg.indexing.max_file_size_mb.max(0) * 1024 * 1024,
             follow_symlinks: cfg.indexing.follow_symlinks,
             cache_size_mb: cfg.runtime.sqlite_cache_size_mb,
@@ -296,6 +303,9 @@ struct Work {
     size: i64,
     mtime: f64,
     skip_limit: bool,
+    /// Share of the process-wide in-flight byte budget, held from queueing
+    /// until the writer has applied the result.
+    budget: Option<crate::governor::Permit<'static>>,
 }
 
 struct Done {
@@ -363,22 +373,29 @@ fn run_workers(
                 if cancel.load(Ordering::Relaxed) {
                     continue;
                 }
-                let now = active.fetch_add(1, Ordering::Relaxed) + 1;
-                active_high.fetch_max(now, Ordering::Relaxed);
                 let outcome = if work.skip_limit {
                     Ok(FileKnowledge::default())
                 } else {
+                    // Governor order: bytes (held by the item) < ocr < cpu.
+                    let gov = crate::governor::global();
+                    let _ocr = (work.input.kind == FileKind::Document
+                        && crate::governor::heavy_document(&work.input.rel_path))
+                    .then(|| gov.acquire(crate::governor::Class::Ocr, 1));
+                    let _cpu = gov.acquire(crate::governor::Class::Cpu, 1);
+                    let now = active.fetch_add(1, Ordering::Relaxed) + 1;
+                    active_high.fetch_max(now, Ordering::Relaxed);
                     let processor = registry.for_kind(work.input.kind);
-                    catch_unwind(AssertUnwindSafe(|| processor.prepare(&work.input)))
+                    let r = catch_unwind(AssertUnwindSafe(|| processor.prepare(&work.input)))
                         .unwrap_or_else(|_| {
                             Err(ProcessError {
                                 code: "processor_panic".into(),
                                 message: "processor panicked".into(),
                                 transient: false,
                             })
-                        })
+                        });
+                    active.fetch_sub(1, Ordering::Relaxed);
+                    r
                 };
-                active.fetch_sub(1, Ordering::Relaxed);
                 if tx.send(Done { work, outcome }).is_err() {
                     break;
                 }
@@ -388,10 +405,16 @@ fn run_workers(
         let cancel_ref = &cancel;
         let (in_flight_ref, in_flight_high_ref) = (&in_flight, &in_flight_high);
         s.spawn(move || {
-            for item in items {
+            for mut item in items {
                 if cancel_ref.load(Ordering::Relaxed) {
                     break;
                 }
+                // Backpressure on estimated bytes across every running
+                // source, not just item count.
+                item.budget = Some(
+                    crate::governor::global()
+                        .acquire(crate::governor::Class::Bytes, item.size.max(1) as usize),
+                );
                 // Counted before the send so the writer never sees it negative.
                 let now = in_flight_ref.fetch_add(1, Ordering::Relaxed) + 1;
                 in_flight_high_ref.fetch_max(now, Ordering::Relaxed);
@@ -772,6 +795,7 @@ fn build(
                 size: sf.size,
                 mtime: sf.mtime,
                 skip_limit: opts.max_file_size_bytes > 0 && sf.size > opts.max_file_size_bytes,
+                budget: None,
             })
         })
         .collect();

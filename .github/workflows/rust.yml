@@ -101,7 +101,8 @@ jobs:
 
   # Server index lifecycle against real, empty clusters: foreign-index
   # refusal, init, invisible-until-publish, crash/abort/GC, bounded bulk,
-  # build mode.
+  # build mode, catalog paging past 10000 sources, lease fencing and k-NN;
+  # then server mode end to end through the service layer.
   server-integration:
     name: Server integration (OpenSearch + Elasticsearch)
     runs-on: ubuntu-latest
@@ -146,6 +147,11 @@ jobs:
           done
       - name: Live server lifecycle tests
         run: cargo test -p ragmonk-backends --test live -- --nocapture
+      # Server mode end to end (ADR 0033): catalog, staged indexing with
+      # copy-forward, queries, status, links, leases, offline safety and
+      # the no-local-fallback guarantee, on both engines.
+      - name: Server mode end-to-end tests
+        run: cargo test -p ragmonk-service --test server_live -- --nocapture
 
   # The native installers end to end, against release archives
   # packaged from this commit's build and served from a local directory

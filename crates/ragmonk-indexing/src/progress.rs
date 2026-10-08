@@ -45,6 +45,24 @@ pub struct IndexProgress {
     pub indexed: i64,
     pub failed: i64,
     pub error: Option<String>,
+    // Additive P0 fields (ADR 0033), written only when set so the
+    // documented key set of a plain run stays unchanged.
+    /// The run this snapshot belongs to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    /// Sources whose pass is running right now (parallel runs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub active_sources: Vec<String>,
+    /// Most sources this run may process at once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_parallel_sources: Option<i64>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sources_completed: i64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sources_failed: i64,
+    /// Resource-governor counters per permit class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<Value>,
 }
 
 impl Default for IndexProgress {
@@ -69,8 +87,18 @@ impl Default for IndexProgress {
             indexed: 0,
             failed: 0,
             error: None,
+            run_id: None,
+            active_sources: Vec::new(),
+            max_parallel_sources: None,
+            sources_completed: 0,
+            sources_failed: 0,
+            resources: None,
         }
     }
+}
+
+fn is_zero(v: &i64) -> bool {
+    *v == 0
 }
 
 /// ISO-8601 UTC with microseconds and `+00:00`.
@@ -140,6 +168,21 @@ pub fn progress_from_value(data: &Value) -> Option<IndexProgress> {
         indexed: int("indexed", 0),
         failed: int("failed", 0),
         error: opt_str("error"),
+        run_id: opt_str("run_id"),
+        active_sources: obj
+            .get("active_sources")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        max_parallel_sources: opt_int("max_parallel_sources"),
+        sources_completed: int("sources_completed", 0),
+        sources_failed: int("sources_failed", 0),
+        resources: obj.get("resources").filter(|v| v.is_object()).cloned(),
     })
 }
 
@@ -159,6 +202,7 @@ impl Inner {
             return;
         }
         self.progress.updated_at = Some(now_iso());
+        self.progress.resources = Some(crate::governor::global().snapshot());
         self.last_write = Some(Instant::now());
         if let Err(e) = write_progress(&self.path, &self.progress) {
             tracing::debug!(component = "progress", event = "write_failed", error = %e);
@@ -223,6 +267,50 @@ impl ProgressTracker {
             p.queued = 0;
             p.processing = 0;
             i.flush(true);
+        });
+    }
+
+    /// Records the run id and its parallelism cap.
+    pub fn set_run(&self, run_id: &str, max_parallel_sources: usize) {
+        self.with(|i| {
+            i.progress.run_id = Some(run_id.into());
+            i.progress.max_parallel_sources = Some(max_parallel_sources as i64);
+            i.flush(true);
+        });
+    }
+
+    /// A source pass started (parallel runs track every active source).
+    pub fn source_started(&self, source_id: &str) {
+        self.with(|i| {
+            let p = &mut i.progress;
+            if !p.active_sources.iter().any(|s| s == source_id) {
+                p.active_sources.push(source_id.into());
+                p.active_sources.sort();
+            }
+            p.source_id = Some(source_id.into());
+            p.source_position = Some(p.sources_completed + p.sources_failed + 1);
+            i.flush(true);
+        });
+    }
+
+    /// A source pass ended.
+    pub fn source_finished(&self, source_id: &str, ok: bool) {
+        self.with(|i| {
+            let p = &mut i.progress;
+            p.active_sources.retain(|s| s != source_id);
+            if ok {
+                p.sources_completed += 1;
+            } else {
+                p.sources_failed += 1;
+            }
+            i.flush(true);
+        });
+    }
+
+    /// Stores a final resource snapshot.
+    pub fn set_resources(&self, resources: &Value) {
+        self.with(|i| {
+            i.progress.resources = Some(resources.clone());
         });
     }
 

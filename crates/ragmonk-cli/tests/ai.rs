@@ -113,9 +113,21 @@ impl Norm {
         match v {
             Value::String(s) => Value::String(self.text(s)),
             Value::Array(a) => Value::Array(a.iter().map(|x| self.value(x)).collect()),
-            Value::Object(o) => {
-                Value::Object(o.iter().map(|(k, v)| (k.clone(), self.value(v))).collect())
-            }
+            Value::Object(o) => Value::Object(
+                o.iter()
+                    .map(|(k, v)| {
+                        // Ids derived from the temporary corpus path and
+                        // the indexing time vary between runs.
+                        if matches!(k.as_str(), "build_id" | "source_id" | "record_id")
+                            && v.is_string()
+                        {
+                            (k.clone(), Value::String(format!("<{}>", k.to_uppercase())))
+                        } else {
+                            (k.clone(), self.value(v))
+                        }
+                    })
+                    .collect(),
+            ),
             other => other.clone(),
         }
     }
@@ -208,6 +220,7 @@ fn ask_and_ai_commands_are_as_expected() {
                 _ => norm.text(&stdout).into(),
             };
             case["stderr"] = norm.text(&stderr).into();
+            case["sent"] = norm.value(&Value::Array(state.lock().unwrap().2.clone()));
             continue;
         }
         if o.status.code() != case["exit_code"].as_i64().map(|c| c as i32) {

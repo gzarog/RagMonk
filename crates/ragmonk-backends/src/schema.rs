@@ -13,7 +13,7 @@ use crate::engine::{Engine, VectorSpec};
 /// Mapping identity, bumped on any mapping change. Existing indexes with
 /// another identity are refused: the operator uses a fresh prefix/cluster or
 /// resets the current indexes; nothing is ever mutated in place.
-pub const SCHEMA_VERSION: u64 = 1;
+pub const SCHEMA_VERSION: u64 = 2;
 pub const SCHEMA_TAG: &str = "ragmonk";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
@@ -84,6 +84,12 @@ fn long() -> Value {
 fn date() -> Value {
     json!({ "type": "date" })
 }
+fn double() -> Value {
+    json!({ "type": "double" })
+}
+fn boolean() -> Value {
+    json!({ "type": "boolean" })
+}
 fn opaque() -> Value {
     json!({ "type": "object", "enabled": false })
 }
@@ -107,14 +113,32 @@ fn scoped() -> Vec<(&'static str, Value)> {
 
 fn properties(kind: IndexKind, engine: Engine, vector: Option<&VectorSpec>) -> Map<String, Value> {
     let mut fields: Vec<(&str, Value)> = match kind {
+        // The authoritative source catalog and build lifecycle in server
+        // mode: registration, filters, online state, the active/pending
+        // build, the writer lease (fencing token) and retired builds kept
+        // readable for a grace period after publication.
         IndexKind::SourceState => vec![
             ("source_id", kw()),
-            ("path", stored()),
+            ("path", kw()),
+            ("source_type", kw()),
+            ("enabled", boolean()),
+            ("include_patterns", kw()),
+            ("exclude_patterns", kw()),
+            ("created_at", date()),
             ("state", kw()),
+            ("rebuild_reason", stored_text()),
+            ("online_status", kw()),
             ("active_build_id", kw()),
             ("pending_build_id", kw()),
             ("versions", opaque()),
             ("last_full_build_at", date()),
+            ("last_scan_at", date()),
+            ("last_error", stored_text()),
+            ("lease_owner", kw()),
+            ("lease_token", long()),
+            ("lease_expires_at", date()),
+            ("retired_builds", opaque()),
+            ("content_digest", kw()),
             ("updated_at", date()),
         ],
         IndexKind::Files => {
@@ -130,6 +154,11 @@ fn properties(kind: IndexKind, engine: Engine, vector: Option<&VectorSpec>) -> M
                 ("converter_version", kw()),
                 ("embedding_model_id", kw()),
                 ("embedding_text_version", kw()),
+                ("status", kw()),
+                ("attempt_count", int()),
+                ("last_error", stored_text()),
+                ("next_attempt_at", kw()),
+                ("knowledge_digest", kw()),
                 ("indexed_at", date()),
             ]);
             f
@@ -146,7 +175,14 @@ fn properties(kind: IndexKind, engine: Engine, vector: Option<&VectorSpec>) -> M
                 ("signature", json!({ "type": "text" })),
                 ("start_line", int()),
                 ("end_line", int()),
+                ("start_col", int()),
+                ("end_col", int()),
+                ("mtime", double()),
+                ("embedding_fingerprint", kw()),
             ]);
+            if let Some(spec) = vector {
+                f.push(("embedding", engine.vector_field(spec)));
+            }
             f
         }
         IndexKind::Documents => {
@@ -164,6 +200,8 @@ fn properties(kind: IndexKind, engine: Engine, vector: Option<&VectorSpec>) -> M
                 ("attachment_content_type", kw()),
                 ("attachment_index", int()),
                 ("attachment_content_id", stored()),
+                ("parent_title", stored_text()),
+                ("mtime", double()),
             ]);
             f
         }
@@ -186,6 +224,15 @@ fn properties(kind: IndexKind, engine: Engine, vector: Option<&VectorSpec>) -> M
                 ("page_end", int()),
                 ("table_rows", opaque()),
                 ("caption", json!({ "type": "text" })),
+                ("parent_ordinal", int()),
+                ("fts_heading", text_kw()),
+                ("document_format", kw()),
+                ("attachment_name", stored()),
+                ("attachment_content_type", stored()),
+                ("attachment_index", int()),
+                ("parent_title", stored_text()),
+                ("mtime", double()),
+                ("embedding_fingerprint", kw()),
             ]);
             if let Some(spec) = vector {
                 f.push(("embedding", engine.vector_field(spec)));
@@ -208,6 +255,11 @@ fn properties(kind: IndexKind, engine: Engine, vector: Option<&VectorSpec>) -> M
                 ("entity_id", kw()),
                 ("document_id", kw()),
                 ("chunk_id", kw()),
+                ("reference_text", stored_text()),
+                ("link_type", kw()),
+                ("manual_link_id", kw()),
+                ("chunk_ordinal", int()),
+                ("created_at", date()),
             ]);
             f
         }
@@ -238,7 +290,7 @@ pub fn meta(kind: IndexKind, vector: Option<&VectorSpec>) -> Value {
         "schema": SCHEMA_TAG,
         "schema_version": SCHEMA_VERSION,
         "index_kind": kind,
-        "vector": if kind == IndexKind::Chunks { json!(vector) } else { Value::Null },
+        "vector": if matches!(kind, IndexKind::Chunks | IndexKind::Code) { json!(vector) } else { Value::Null },
     })
 }
 
@@ -253,7 +305,7 @@ pub fn create_body(
         "number_of_shards": settings.shards,
         "number_of_replicas": settings.replicas,
     });
-    if kind == IndexKind::Chunks && vector.is_some() {
+    if matches!(kind, IndexKind::Chunks | IndexKind::Code) && vector.is_some() {
         if let (Some(dst), Some(extra)) = (
             index_settings.as_object_mut(),
             engine.vector_index_settings().as_object().cloned(),
@@ -340,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn vector_only_on_chunks_and_engine_specific() {
+    fn vectors_on_chunks_and_code_and_engine_specific() {
         let os = create_body(
             IndexKind::Chunks,
             Engine::OpenSearch,
@@ -369,8 +421,89 @@ mod tests {
             Some(&spec()),
             &IndexSettings::default(),
         );
-        assert!(code["mappings"]["properties"].get("embedding").is_none());
-        assert!(code["settings"]["index"].get("knn").is_none());
+        assert_eq!(
+            code["mappings"]["properties"]["embedding"]["type"],
+            "knn_vector"
+        );
+        let files = create_body(
+            IndexKind::Files,
+            Engine::OpenSearch,
+            Some(&spec()),
+            &IndexSettings::default(),
+        );
+        assert!(files["mappings"]["properties"].get("embedding").is_none());
+        assert!(files["settings"]["index"].get("knn").is_none());
+    }
+
+    /// Every field the server read and write paths rely on is mapped
+    /// (strict mappings reject anything else at write time).
+    #[test]
+    fn mappings_carry_server_mode_fields() {
+        let has = |kind: IndexKind, fields: &[&str]| {
+            let body = create_body(
+                kind,
+                Engine::Elasticsearch,
+                Some(&spec()),
+                &IndexSettings::default(),
+            );
+            for f in fields {
+                assert!(
+                    body["mappings"]["properties"].get(*f).is_some(),
+                    "{kind:?} lacks {f}"
+                );
+            }
+        };
+        has(
+            IndexKind::SourceState,
+            &[
+                "path",
+                "source_type",
+                "enabled",
+                "include_patterns",
+                "exclude_patterns",
+                "online_status",
+                "lease_owner",
+                "lease_token",
+                "lease_expires_at",
+                "retired_builds",
+                "last_error",
+            ],
+        );
+        has(
+            IndexKind::Files,
+            &["status", "attempt_count", "last_error", "next_attempt_at"],
+        );
+        has(
+            IndexKind::Code,
+            &[
+                "start_col",
+                "end_col",
+                "mtime",
+                "embedding",
+                "embedding_fingerprint",
+            ],
+        );
+        has(
+            IndexKind::Chunks,
+            &[
+                "parent_ordinal",
+                "fts_heading",
+                "document_format",
+                "attachment_index",
+                "parent_title",
+                "mtime",
+                "embedding_fingerprint",
+            ],
+        );
+        has(
+            IndexKind::Relationships,
+            &[
+                "reference_text",
+                "link_type",
+                "manual_link_id",
+                "chunk_ordinal",
+            ],
+        );
     }
 
     #[test]

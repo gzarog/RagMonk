@@ -70,6 +70,9 @@ fn free_gb(path: &Path) -> Option<f64> {
 
 pub fn run_checks(home: &Home) -> Result<Vec<Section>, RagMonkError> {
     let cfg = load(home)?;
+    if cfg.storage.mode == "server" {
+        return server_checks(home);
+    }
     let cp = control_plane(home)?;
     let layout = StorageLayout::new(home);
     let db =
@@ -441,6 +444,102 @@ pub fn verdict(result: &str) -> Result<(), RagMonkError> {
         return Err(RagMonkError::new(ErrorKind::HealthCheck, ""));
     }
     Ok(())
+}
+
+/// Server-mode checks: the cluster is the authoritative store, so its
+/// reachability, schema and per-source state are what is checked; no
+/// local database is opened.
+fn server_checks(home: &Home) -> Result<Vec<Section>, RagMonkError> {
+    let mut sections = vec![Section {
+        name: "Core",
+        checks: vec![check(
+            "version",
+            "ok",
+            format!("version {}", ragmonk_core::version::version()),
+        )],
+    }];
+    let cfg = load(home)?;
+    let backend = match ragmonk_service::backend::connect(&cfg) {
+        Ok(b) => b,
+        Err(e) => {
+            sections.push(Section {
+                name: "Server backend",
+                checks: vec![check("reachable", "fail", e.message().to_owned())],
+            });
+            return Ok(sections);
+        }
+    };
+    let mut checks = vec![check(
+        "reachable",
+        "ok",
+        format!("{} at the configured URL", backend.engine().as_str()),
+    )];
+    let health = backend
+        .cluster_health()
+        .unwrap_or_else(|_| "unknown".into());
+    checks.push(check(
+        "cluster_health",
+        match health.as_str() {
+            "green" | "yellow" => "ok",
+            _ => "fail",
+        },
+        health,
+    ));
+    let missing: Vec<String> = backend
+        .index_status()
+        .map(|v| v.into_iter().filter(|(_, e)| !e).map(|(n, _)| n).collect())
+        .unwrap_or_default();
+    checks.push(match (missing.is_empty(), backend.verify_schema()) {
+        (false, _) => check(
+            "schema",
+            "fail",
+            format!(
+                "missing indexes: {}; run `ragmonk server init`",
+                missing.join(", ")
+            ),
+        ),
+        (true, Ok(())) => check(
+            "schema",
+            "ok",
+            format!(
+                "schema version {}",
+                ragmonk_backends::schema::SCHEMA_VERSION
+            ),
+        ),
+        (true, Err(e)) => check("schema", "fail", e.to_string()),
+    });
+    sections.push(Section {
+        name: "Server backend",
+        checks,
+    });
+    if missing.is_empty() {
+        let sources = backend.list_catalog(true).unwrap_or_default();
+        let mut unreachable = 0;
+        for s in &sources {
+            let offline = backend
+                .source_state(&s.source_id)
+                .ok()
+                .flatten()
+                .and_then(|st| st.field("online_status").map(|v| v == "offline"))
+                .unwrap_or(false);
+            if offline || check_root_accessible(Path::new(&s.path)).is_some() {
+                unreachable += 1;
+            }
+        }
+        sections.push(Section {
+            name: "Sources",
+            checks: vec![check(
+                "reachability",
+                if unreachable > 0 { "warn" } else { "ok" },
+                format!(
+                    "{}/{} reachable",
+                    sources.len() - unreachable,
+                    sources.len()
+                ),
+            )],
+        });
+    }
+    Ok(sections)
 }
 
 #[cfg(test)]

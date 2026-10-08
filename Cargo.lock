@@ -2955,6 +2955,7 @@ version = "0.0.0"
 dependencies = [
  "ragmonk-config",
  "ragmonk-core",
+ "ragmonk-storage",
  "ragmonk-telemetry",
  "reqwest",
  "serde",
@@ -3196,6 +3197,7 @@ version = "0.0.0"
 dependencies = [
  "chrono",
  "ragmonk-ai",
+ "ragmonk-backends",
  "ragmonk-config",
  "ragmonk-convert",
  "ragmonk-core",
@@ -3206,8 +3208,11 @@ dependencies = [
  "ragmonk-retrieval",
  "ragmonk-storage",
  "ragmonk-telemetry",
+ "reqwest",
  "serde_json",
  "signal-hook",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

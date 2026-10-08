@@ -13,18 +13,22 @@
 
 pub mod classify;
 pub mod context;
+pub mod decompose;
+pub mod diversify;
 pub mod explore;
 pub mod graph;
+pub mod grounding;
 pub mod hybrid;
 pub mod lexical;
+pub mod route;
 
-use ragmonk_storage::knowledge::ProjectStore;
+use ragmonk_storage::read::KnowledgeRead;
 
-/// One searchable source: its store and the build to read (normally the
-/// active build).
+/// One searchable source: its knowledge reader (local SQLite store or a
+/// server snapshot) and the build to read (normally the active build).
 #[derive(Clone, Copy)]
 pub struct Corpus<'a> {
-    pub store: &'a ProjectStore,
+    pub store: &'a dyn KnowledgeRead,
     pub build_id: &'a str,
 }
 

@@ -319,6 +319,8 @@ pub type AnnHit = (String, String, f32);
 pub enum Engine {
     Hnsw,
     Exact,
+    /// The server backend's own k-NN (OpenSearch/Elasticsearch).
+    Server,
 }
 
 /// Top-`k` `(subject_type, subject_id, similarity)` for `query` in

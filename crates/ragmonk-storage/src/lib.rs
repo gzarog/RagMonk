@@ -17,6 +17,7 @@ pub mod db;
 pub mod error;
 pub mod knowledge;
 pub mod maintenance;
+pub mod read;
 pub mod schema;
 pub mod search;
 pub mod status;
@@ -38,6 +39,14 @@ impl StorageLayout {
         Self {
             state: home.state_dir(),
             projects: home.projects_dir(),
+        }
+    }
+
+    /// A layout rooted elsewhere (server mode's disposable staging area).
+    pub fn at(root: &Path) -> Self {
+        Self {
+            state: root.join("state"),
+            projects: root.join("projects"),
         }
     }
 
