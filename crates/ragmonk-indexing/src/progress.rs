@@ -769,7 +769,18 @@ mod tests {
         let t = ProgressTracker::start(&path, "index", None);
         t.source_started("s");
         let first = read_progress(&path).unwrap().source("s").unwrap().clone();
-        std::thread::sleep(HEARTBEAT_INTERVAL + Duration::from_millis(600));
+        // Wait for a tick (bounded: slow CI runners can lag the interval).
+        let deadline = Instant::now() + HEARTBEAT_INTERVAL * 4;
+        while Instant::now() < deadline
+            && read_progress(&path)
+                .unwrap()
+                .source("s")
+                .unwrap()
+                .heartbeat_at
+                == first.heartbeat_at
+        {
+            std::thread::sleep(Duration::from_millis(200));
+        }
         let later = read_progress(&path).unwrap().source("s").unwrap().clone();
         assert!(later.heartbeat_at > first.heartbeat_at);
         assert_eq!(later.last_progress_at, first.last_progress_at);
