@@ -255,7 +255,7 @@ fn staged_pass(
     .map_err(db)?;
     progress.event(&ProgressEvent::Stage {
         source_id: source.id.clone(),
-        stage: "publish",
+        stage: "publishing",
     });
     let build_id = record::build_id(
         &source.id,

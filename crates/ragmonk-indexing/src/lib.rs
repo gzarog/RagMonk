@@ -24,6 +24,7 @@ pub mod ignore;
 pub mod lock;
 pub mod progress;
 pub mod retry;
+pub mod runtime;
 pub mod scan;
 pub mod status;
 pub mod watcher;

@@ -109,18 +109,11 @@ pub fn source_lock_path(home: &Home, source_id: &str) -> PathBuf {
 
 /// The server writer-lease owner of this process (`host:pid`).
 pub fn lease_owner() -> String {
-    let host = std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .ok()
-        .or_else(|| {
-            std::fs::read_to_string("/etc/hostname")
-                .ok()
-                .map(|s| s.trim().to_owned())
-        })
-        .filter(|h| !h.is_empty())
-        .unwrap_or_else(|| "host".into());
-    let host = ragmonk_indexing::lock::sanitize_token(&host, 64).unwrap_or_else(|| "host".into());
-    format!("{host}:{}", std::process::id())
+    format!(
+        "{}:{}",
+        ragmonk_indexing::runtime::host_name(),
+        std::process::id()
+    )
 }
 
 /// A new run id: `run-<utc>-<pid>`.

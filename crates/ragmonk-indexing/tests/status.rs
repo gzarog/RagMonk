@@ -57,12 +57,10 @@ fn tracked_run_feeds_progress_and_status_report() {
 
     let p = read_progress(&home.index_progress()).unwrap();
     assert!(!p.running);
-    assert_eq!(
-        (p.outcome.as_str(), p.stage.as_deref()),
-        ("completed", Some("done"))
-    );
-    assert_eq!((p.indexed, p.retry, p.failed, p.scanned), (1, 1, 1, 3));
-    assert_eq!(p.source_id.as_deref(), Some(src.id.as_str()));
+    assert_eq!((p.outcome.as_str(), p.sources.len()), ("completed", 1));
+    let sp = p.source(&src.id).unwrap();
+    assert_eq!(sp.stage.as_deref(), Some("done"));
+    assert_eq!((sp.indexed, sp.retry, sp.failed, sp.scanned), (1, 1, 1, 3));
 
     let s = collect_status(&home, &cp, 120.0, Utc::now()).unwrap();
     assert_eq!(s["indexer"]["state"], "idle");
@@ -119,7 +117,6 @@ fn indexer_verdicts_from_real_lock_and_snapshot() {
         pid: Some(i64::from(std::process::id())),
         operation: Some("index".into()),
         updated_at: Some(iso(now)),
-        stage: Some("process".into()),
         ..IndexProgress::default()
     };
     write_progress(&path, &p).unwrap();

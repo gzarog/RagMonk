@@ -123,11 +123,16 @@ pub fn indexer_state_from(
     }
     let mut live = false;
     if let Some(s) = snapshot {
+        let sum = |f: fn(&crate::progress::SourceProgress) -> i64| -> i64 {
+            s.sources.iter().map(f).sum()
+        };
         let mut run = json!({
             "operation": s.operation, "outcome": s.outcome, "pid": s.pid,
             "started_at": s.started_at, "updated_at": s.updated_at,
-            "completed_at": s.completed_at, "scanned": s.scanned, "queued": s.queued,
-            "retry": s.retry, "indexed": s.indexed, "failed": s.failed, "error": s.error,
+            "completed_at": s.completed_at, "scanned": sum(|x| x.scanned),
+            "queued": sum(|x| x.planned.unwrap_or(0) - x.processed),
+            "retry": sum(|x| x.retry), "indexed": sum(|x| x.indexed),
+            "failed": sum(|x| x.failed), "error": s.error,
         });
         if s.running {
             let pid_alive = s.pid.is_some_and(&alive);
@@ -150,16 +155,20 @@ pub fn indexer_state_from(
         if info["operation"].is_null() {
             info["operation"] = json!(s.operation);
         }
-        info["current_source_id"] = json!(s.source_id);
-        info["source_position"] = json!(s.source_position);
+        let current = s.active_sources().next();
+        info["current_source_id"] = json!(current.map(|c| c.source_id.clone()));
+        info["source_position"] = Value::Null;
         info["source_total"] = json!(s.source_total);
-        info["stage"] = json!(s.stage);
+        info["stage"] = json!(current.and_then(|c| c.stage.clone()));
         info["started_at"] = json!(s.started_at);
         info["last_activity_at"] = json!(s.updated_at);
         // Parallel-run details (ADR 0033), only when the run reports them.
         if s.run_id.is_some() {
             info["run_id"] = json!(s.run_id);
-            info["active_sources"] = json!(s.active_sources);
+            info["active_sources"] = json!(s
+                .active_sources()
+                .map(|a| a.source_id.clone())
+                .collect::<Vec<_>>());
             info["max_parallel_sources"] = json!(s.max_parallel_sources);
             info["resources"] = json!(s.resources);
         }
@@ -187,21 +196,7 @@ pub fn indexer_state_from(
     info
 }
 
-/// Whether process `pid` exists (safe, cross-platform).
-pub fn is_process_alive(pid: i64) -> bool {
-    let Ok(pid) = u32::try_from(pid) else {
-        return false;
-    };
-    if pid == std::process::id() {
-        return true;
-    }
-    let pid = sysinfo::Pid::from_u32(pid);
-    let mut sys = sysinfo::System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
-    // An exited-but-unreaped child is a zombie: not running.
-    sys.process(pid)
-        .is_some_and(|p| p.status() != sysinfo::ProcessStatus::Zombie)
-}
+pub use crate::runtime::is_process_alive;
 
 /// [`indexer_state_from`] over the real lock file and progress snapshot.
 pub fn indexer_state(
