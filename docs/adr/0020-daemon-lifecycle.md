@@ -44,9 +44,9 @@ watchers and targeted passes are ADR 0021.
   - The daemon's own reads (which sources exist, the health snapshot) go
     through a separate `Catalog` connection.
   - Neither connection is shared across threads.
-- **Progress.** Each pass runs under `progress::track(operation="daemon",
-  source_total=1)`, so `index_progress.json` and the status verdicts from
-  ADR 0019 cover daemon passes.
+- **Progress.** Passes share one tracker (`operation="daemon"`) with one
+  entry per source pass, so `index_progress.json` (ADR 0019) and
+  `ragmonk status` (ADR 0034) cover daemon passes.
 - **Graceful stop.**
   - New triggers are refused, and queued passes are dropped.
   - A pass already running finishes. It commits per file anyway.

@@ -19,17 +19,6 @@ pub struct ErrorRecord {
 /// A file's `(last_indexed_at, updated_at)`.
 pub type FileTimes = (Option<String>, Option<String>);
 
-/// Retry/failure state of a build's files: the job-queue stats, kept as
-/// retry state on file rows.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
-pub struct RetryStats {
-    pub retry: i64,
-    pub failed: i64,
-    pub completed: i64,
-    pub next_retry_at: Option<String>,
-    pub max_attempt_count: i64,
-}
-
 /// Every counter `ragmonk status` shows for one build, read by a single
 /// SQL statement (one consistent read snapshot under WAL).
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
@@ -105,58 +94,6 @@ impl ProjectStore {
             )?
             .into_iter()
             .collect())
-    }
-
-    /// File counts per status in `build_id`.
-    pub fn file_counts_by_status(&self, build_id: &str) -> Result<BTreeMap<String, i64>> {
-        Ok(self
-            .query_rows(
-                "file counts",
-                "SELECT status, COUNT(*) FROM files WHERE build_id = ?1 GROUP BY status",
-                &[&build_id],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )?
-            .into_iter()
-            .collect())
-    }
-
-    pub fn retry_stats(&self, build_id: &str) -> Result<RetryStats> {
-        Ok(self
-            .query_rows(
-                "retry stats",
-                "SELECT COALESCE(SUM(status = 'retry'), 0), COALESCE(SUM(status = 'failed'), 0),
-                        COALESCE(SUM(status = 'indexed'), 0),
-                        MIN(CASE WHEN status = 'retry' THEN next_attempt_at END),
-                        COALESCE(MAX(attempt_count), 0)
-                 FROM files WHERE build_id = ?1",
-                &[&build_id],
-                |r| {
-                    Ok(RetryStats {
-                        retry: r.get(0)?,
-                        failed: r.get(1)?,
-                        completed: r.get(2)?,
-                        next_retry_at: r.get(3)?,
-                        max_attempt_count: r.get(4)?,
-                    })
-                },
-            )?
-            .pop()
-            .unwrap_or_default())
-    }
-
-    /// The latest error of a file currently waiting for a retry.
-    pub fn latest_retry_error(&self, build_id: &str) -> Result<Option<ErrorRecord>> {
-        Ok(self
-            .query_rows(
-                "latest retry error",
-                "SELECT e.rel_path, e.error_code, e.error_message, e.occurred_at
-                 FROM index_errors e
-                 JOIN files f ON f.build_id = ?1 AND f.id = e.file_id AND f.status = 'retry'
-                 ORDER BY e.occurred_at DESC, e.id DESC LIMIT 1",
-                &[&build_id],
-                error_row,
-            )?
-            .pop())
     }
 
     /// `(last_indexed_at, updated_at)` of every file in `build_id`.

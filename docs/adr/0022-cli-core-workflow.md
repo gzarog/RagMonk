@@ -79,5 +79,6 @@ Status: accepted
 
 CLI tests run `init`, `source add`, `index`, a re-index, `status` (before
 and after indexing), `docs` and the config commands against the expected
-outputs in `fixtures/expected/`. `database_size_bytes` is volatile and
-excluded from comparisons; every other metric is compared.
+outputs in `fixtures/expected/`. Snapshot ids, run ids, hosts, timestamps
+and request counts of the status report are volatile and excluded from
+comparisons; every counter is compared.

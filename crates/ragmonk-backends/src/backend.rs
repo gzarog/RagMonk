@@ -51,29 +51,6 @@ impl SourceState {
     }
 }
 
-/// One file's recorded processing error.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct FileError {
-    pub rel_path: String,
-    pub status: String,
-    pub error: String,
-    pub attempt_count: i64,
-}
-
-/// Visible counters of one source's published build.
-#[derive(Debug, Clone, Default, Serialize, PartialEq)]
-pub struct SourceStats {
-    pub files_by_status: BTreeMap<String, u64>,
-    pub max_attempt_count: i64,
-    pub next_retry_at: Option<String>,
-    pub entities: u64,
-    pub documents: u64,
-    pub chunks: u64,
-    pub relationships: u64,
-    pub links: u64,
-    pub errors: Vec<FileError>,
-}
-
 /// A source registration in the server catalog.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct CatalogEntry {
@@ -1119,105 +1096,6 @@ impl ServerBackend {
             Some(&json!({ "query": { "bool": { "filter": filter } } })),
         )?;
         Ok(v["count"].as_u64().unwrap_or(0))
-    }
-
-    /// Status counters of one source's build: files by status, retry
-    /// queue, record counts and the most recent per-file errors. Read from
-    /// the build's own records (an unpublished build is never passed here).
-    pub fn source_stats(
-        &self,
-        source_id: &str,
-        build_id: &str,
-        error_limit: usize,
-    ) -> Result<SourceStats> {
-        let scope = json!([
-            { "term": { "source_id": source_id } },
-            { "term": { "build_id": build_id } },
-        ]);
-        let files = self.call_ok(
-            Method::Post,
-            &format!("/{}/_search", self.index(IndexKind::Files)),
-            Some(&json!({
-                "size": error_limit,
-                "_source": ["rel_path", "status", "last_error", "attempt_count", "next_attempt_at"],
-                "query": { "bool": { "filter": scope, "must": [ { "exists": { "field": "last_error" } } ] } },
-                "sort": [ { "rel_path": "asc" } ],
-            })),
-        )?;
-        let all = self.call_ok(
-            Method::Post,
-            &format!("/{}/_search", self.index(IndexKind::Files)),
-            Some(&json!({
-                "size": 0,
-                "query": { "bool": { "filter": scope } },
-                "aggs": {
-                    "by_status": { "terms": { "field": "status", "size": 32, "missing": "indexed" } },
-                    "max_attempt": { "max": { "field": "attempt_count" } },
-                    "retry": { "filter": { "term": { "status": "retry" } }, "aggs": {
-                        "next": { "terms": { "field": "next_attempt_at", "size": 1, "order": { "_key": "asc" } } },
-                    } },
-                },
-            })),
-        )?;
-        let mut by_status = BTreeMap::new();
-        for b in all
-            .pointer("/aggregations/by_status/buckets")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            if let (Some(k), Some(n)) = (b["key"].as_str(), b["doc_count"].as_u64()) {
-                by_status.insert(k.to_owned(), n);
-            }
-        }
-        let count = |kind: IndexKind, extra: Option<Value>| -> Result<u64> {
-            let mut filter = scope.as_array().cloned().unwrap_or_default();
-            filter.extend(extra);
-            let v = self.call_ok(
-                Method::Post,
-                &format!("/{}/_count", self.index(kind)),
-                Some(&json!({ "query": { "bool": { "filter": filter } } })),
-            )?;
-            Ok(v["count"].as_u64().unwrap_or(0))
-        };
-        let errors = files
-            .pointer("/hits/hits")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .map(|h| {
-                let s = &h["_source"];
-                FileError {
-                    rel_path: s["rel_path"].as_str().unwrap_or_default().to_owned(),
-                    status: s["status"].as_str().unwrap_or_default().to_owned(),
-                    error: s["last_error"].as_str().unwrap_or_default().to_owned(),
-                    attempt_count: s["attempt_count"].as_i64().unwrap_or(0),
-                }
-            })
-            .collect();
-        Ok(SourceStats {
-            files_by_status: by_status,
-            max_attempt_count: all
-                .pointer("/aggregations/max_attempt/value")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0) as i64,
-            next_retry_at: all
-                .pointer("/aggregations/retry/next/buckets/0/key")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            entities: count(IndexKind::Code, None)?,
-            documents: count(IndexKind::Documents, None)?,
-            chunks: count(IndexKind::Chunks, None)?,
-            relationships: count(
-                IndexKind::Relationships,
-                Some(json!({ "term": { "record_kind": "edge" } })),
-            )?,
-            links: count(
-                IndexKind::Relationships,
-                Some(json!({ "term": { "record_kind": "link" } })),
-            )?,
-            errors,
-        })
     }
 
     /// `GET /_cluster/health` status (`green`/`yellow`/`red`).

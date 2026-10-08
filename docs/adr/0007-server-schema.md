@@ -5,18 +5,24 @@ Status: accepted
 ## Decision
 * **Names.** Indexes are named `{storage.server.index_prefix}-{kind}`
   (default prefix `ragmonk`, e.g. `ragmonk-chunks`).
-* **Six specialized indexes**: `-source-state`, `-files`, `-code`,
+* **Seven specialized indexes**: `-source-state`, `-files`, `-code`,
   `-documents` (top-level documents and EML attachment children with
   `parent_document_id`/`attachment_*` provenance), `-chunks` (retrieval
-  text and vectors) and `-relationships` (code edges and cross-domain
-  links, distinguished by `record_kind`). Mappings are `dynamic: strict`;
+  text and vectors), `-relationships` (code edges and cross-domain
+  links, distinguished by `record_kind`) and `-runtime` (one heartbeat
+  document per source written by the host holding its writer lease,
+  fenced by the lease token; never build-scoped, never garbage-collected
+  by publication; ADR 0034). Files carry `last_error_at` (when the
+  file's latest error happened) and source-state carries `published_at`. Mappings are `dynamic: strict`;
   bulky text (`text`, `embedding_text`, `evidence`, `table_rows`) is stored
   but not indexed.
 * **Schema identity** is stored in each index's `_meta` (`schema`,
   `schema_version`, vector spec). `ragmonk server init` creates missing
   indexes, waits for primaries, and verifies existing ones; any mismatch is
   refused — indexes are never mutated in place. A schema change means a
-  fresh index set (or prefix) and a full rebuild.
+  fresh index set (or prefix) and a full rebuild. The current identity is
+  `schema_version` 3; `ragmonk status` and every other command verify all
+  seven identities with one `_mapping` request.
 * **Vectors** are defined at creation (`knn_vector`+HNSW/lucene/cosine on
   OpenSearch, `dense_vector`+HNSW/cosine on Elasticsearch), 384 dims for the
   pinned embedding model, m=16, ef_construction=128.

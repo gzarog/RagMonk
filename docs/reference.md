@@ -113,28 +113,39 @@ Cross-domain linking (code identifiers mentioned in documents) uses a word index
 
 ## Status and observability
 
-`ragmonk status` answers: is indexing running, progressing, stalled or failing, and what failed.
+`ragmonk status` answers: is indexing running, progressing, stalled or failing, where, and what failed. It is built by one crate (`ragmonk-status`, ADR 0034); the CLI, the MCP `ragmonk_status` tool and the Admin UI (`/`, `/api/status`, `/ready`) all show the same report.
 
 | Flag | Effect |
 | --- | --- |
-| *(none)* | Indexer panel, health summary, per-source table, top problems |
-| `--watch [--interval 2]` | Redraws in place with deltas and files/s throughput; Ctrl+C exits |
-| `--errors` | Only problematic sources, problems and recent errors |
-| `--verbose` / `-v` | Lock owner, progress timestamps, oldest pending job, next retry, per-source last file error, backend counts |
-| `--json` | Full structured model (not combinable with `--watch`) |
+| *(none)* | Backend and health, totals, every active pass, one row per source (past 25 sources, completed ones fold into one line), problems, newest errors |
+| `--watch [--interval 2]` | Redraws in place; throughput only between comparable samples; Ctrl+C exits cleanly |
+| `--errors` | Only sources that need attention, problems and recent errors. Never says "No problems found" when part of the status could not be read |
+| `--verbose` / `-v` | Full ids and paths, builds, run ids, permits, home lock, last run and diagnostics (request count, cache age, consistency) |
+| `--json` | The canonical report (`schema_version` 1) in the CLI envelope; not combinable with `--watch` |
 
-Terms:
+Exit code: `0` when a report was produced (its health is in the report), `4` when the authoritative backend cannot be inspected (an unreachable server is never shown as an empty or stale report).
 
-- **Access** (`access_state`): whether the source root is reachable: `online`, `offline`, `disabled`. It says nothing about indexing activity.
-- **Index State** (`index_state`): first match wins: `offline` > `stalled` > `indexing` > `retrying` > `errors` > `waiting` > `completed` > `idle`.
-- **Last Scan** (`last_scan_at`): last completed filesystem scan, not end-to-end indexing completion.
-- **Last Activity**: the live progress heartbeat for the source being indexed, otherwise its last scan.
-- **Indexer state**: `running` (index lock held or a live process reports progress), `stalled` (as running, but no progress heartbeat for `indexing.status_stall_threshold_seconds`, default `120`), `crashed` (progress says running but the lock is free and the process is gone; historical, not active), `idle`. A non-empty queue alone never means stalled. Long stages without per-file progress (linking, embeddings) send heartbeats too; a single very large PDF conversion does not, so on huge PDFs raise the threshold.
-- **Health**: `failed` if any `error` problem (backend unreachable, stalled or crashed run, fatal run failure, all sources offline), `degraded` if any `warning` (failed files, retries, an offline source, a source-level last error), else `healthy`. Every verdict is explained by `problems`.
+**Where the numbers come from.** Local mode reads only the home's SQLite catalog and project stores, plus this home's progress file and locks. Server mode reads only the configured OpenSearch/Elasticsearch prefix: the catalog, the active builds, published counts, file errors and the `{prefix}-runtime` heartbeats of every indexing host. Server mode never opens local SQLite for status.
 
-Live progress is written by every indexing entry point (CLI, rebuild, daemon, Admin UI) to `<RAGMONK_HOME>/index_progress.json` (atomic write-then-rename, coalesced to at most about one counter write per second).
+**Meaning of the counters**
 
-JSON additions (existing `sources`, `backend`, `totals`, `tokenizer` keys are unchanged): top-level `health`, `indexer`, `queue` (`queued`/`processing`/`retry`/`failed`/`depth`, `oldest_pending_created_at`, `next_retry_at`, `latest_job_error`, ...), `recent_errors` (bounded, 10), `recent_error_count`, `sources_with_errors`, `problems`; per source `access_state`, `index_state`, `queue`, `last_activity_at`, `last_error_detail`. The MCP `ragmonk_status` tool returns the same fields.
+- `sources[].published`: the source's **published** (active) build only: files by status (`indexed`, `failed`, `retrying`), code entities, documents, chunks, relationships, links, the highest attempt count and the next retry time. A pending build is never counted. `null` when nothing is published or the section could not be read.
+- `sources[].live` and `indexer.workers`: passes **in progress**: run id, host, stage (`starting`, `scanning`, `processing`, `finalizing`, `publishing`), `scanned`, `planned` (files to process, known once the scan finished), `processed`/`indexed`/`failed`/`retry`, `percentage` (`null` without a planned total) and the heartbeat age. Several sources show several passes; nothing overwrites another pass.
+- `summary.files.pending_in_current_runs`: planned minus processed over live passes; `null` when a live pass does not know its planned total yet.
+- `last_scan_at`: a filesystem scan finished. It does not mean the source was indexed; a source is `completed` once a build is published and no pass is running.
+- `recent_errors`: newest first by the time the error happened (`occurred_at`; server: the file's `last_error_at`), ties by source id and path, selected across all sources before truncating (25 by default, at most 200).
+- Values that cannot be observed (pre-scan totals, remote PIDs, server disk usage, in-memory queues, ETAs) are `null` / `N/A`, never `0`. A section that failed to load is listed in `diagnostics.missing_sections` and the report is `partial`.
+
+**States**
+
+- **Access** (`access`): `online`, `offline`, `disabled`, `unknown`: whether the root is reachable, independent of indexing.
+- **Index state** (`index_state`), first match wins: `disabled` > `offline` > a live pass (`queued`, `scanning`, `indexing`, `finalizing`, `publishing`) > `stalled` (a pass stopped heartbeating, or its server lease expired) > `unknown` (counters unreadable) > `retrying` > `failed` (the build failed and nothing is published) > `completed` > `not_indexed`. A failed pending build whose previous build still serves stays `completed` with a warning.
+- **Liveness of a pass**: `live` (local: its process exists and its heartbeat is fresh; server: its lease token is still the source's live lease and its heartbeat is fresh), `stalled` (heartbeat older than `indexing.status_stall_threshold_seconds`, default `120`), `expired` (process gone, or lease expired/superseded: not running), `finished`. Heartbeats come from an independent ticker every 5 s, so a long OCR, embedding or linking stage stays alive without counting files; raise the threshold only if a host is overloaded.
+- **Health**: `failed` on any error problem (backend unreachable, cluster `red`, stalled pass, crashed or failed run, a build failure with nothing published, all sources offline); `unknown` when the report is partial; `degraded` on any warning (cluster `yellow`, failed or retrying files, an offline source, an expired pass, a failed build that still has a previous build); else `healthy`. Every problem has a stable `code`, `severity`, `scope`, optional `source_id`/`host`, a hint and its observation time.
+
+**Server mode cost.** One full snapshot reads the catalog once (paged by 1000), then per 1000 sources one file aggregation, one record aggregation and one error query, plus run heartbeats, cluster health and one consistency re-check: 7 HTTP requests for 150 idle sources (measured, see `benchmarks/status-150-sources.json`). `--watch` keeps one connection and re-reads only the catalog, heartbeats and cluster health (3 requests) while no build is published; published counts are re-read on publication or after 30 s (the age is shown).
+
+**Server schema.** Status adds `{prefix}-runtime`, `files.last_error_at` and `source-state.published_at` (schema identity 3). An existing prefix created by an earlier build is refused, never converted: use a fresh `storage.server.index_prefix`, or delete the RagMonk indexes of the old prefix yourself (`DELETE /<prefix>-*` on the cluster) and run `ragmonk server init` and `ragmonk rebuild`. RagMonk never deletes indexes automatically.
 
 ## Index locking
 
@@ -160,7 +171,7 @@ JSON additions (existing `sources`, `backend`, `totals`, `tokenizer` keys are un
 | `indexing.fairness_max_wait_seconds` | `120` | daemon: longest a queued source waits behind small watcher-triggered passes |
 | `indexing.max_targeted_paths` | `512` | daemon: touched paths kept per source before the pass becomes a full scan |
 
-A small code edit keeps making progress during bulk OCR (OCR holds its own permit). A failing, offline or panicking source never blocks the others; permits and locks are returned on every error path. `ragmonk status --json` reports the run id, the active sources and per-class permit counters (`indexer.resources`: capacity, in use, peak, waits) while a run is in progress.
+A small code edit keeps making progress during bulk OCR (OCR holds its own permit). A failing, offline or panicking source never blocks the others; permits and locks are returned on every error path. `ragmonk status` shows every active source pass and, for local runs, per-class permit counters (`indexer.resources`: capacity, in use, peak, waits).
 
 The daemon runs one worker per `max_parallel_sources`. A source has at most one queued follow-up while its pass runs; small watcher-targeted passes go first, but a source that has waited `fairness_max_wait_seconds` is started before anything else, so no source starves.
 
