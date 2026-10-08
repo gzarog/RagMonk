@@ -1,21 +1,16 @@
-# ADR 0013: Pure-Rust embeddings, model manifest and embedding storage (RUST-09, slice 1)
+# ADR 0013: Pure-Rust embeddings, model manifest and embedding storage
 
 Status: accepted
 
-## Decisions (user)
+## Decisions
 
 1. **Runtime.** Embeddings run on Candle (`candle-core`/`candle-nn`
    `=0.9.1`). It is pure Rust, with no native ONNX Runtime library, and it
    uses one build path on Windows, Linux and macOS. Version 0.11 needs NEON
    f16 intrinsics that are unstable on the pinned Rust 1.90 for aarch64
    (macOS CI); 0.9.1 builds there.
-2. **Model selection.** The candidates are a small set: all-MiniLM-L6-v2 (the
-   baseline), bge-small-en-v1.5 and one code-aware model. The selection is
-   measured on RagMonk golden queries in slice 3.
-3. **Delivery.** RUST-09 is split into three slices:
-   1. inference, manifest, storage, cache and parity (this slice);
-   2. the persistent ANN index;
-   3. the reranker and the model-selection benchmark.
+2. **Model.** `all-MiniLM-L6-v2` is the pinned embedding model; the
+   measured comparison with the other candidates is recorded in ADR 0015.
 
 ## Model assets
 
@@ -24,15 +19,15 @@ Status: accepted
   `config.json`, `model.safetensors` and `tokenizer.json`.
 - **Verification.** Files are read and verified before loading. A tampered
   or missing asset is a typed error.
-- **Location.** Assets are not bundled. They live in `RAGMONK_MODELS_DIR`
-  (default `<home>/models`) under `<slug>/`.
+- **Location.** Assets are not compiled into the binary. They are loaded
+  from `RAGMONK_MODELS_DIR` (default `<home>/models`) under `<slug>/`;
+  release archives and the container image ship them (ADR 0030).
 - **No `unsafe`.** Weights load through
   `VarBuilder::from_buffered_safetensors`, not mmap, so the project keeps
   `unsafe_code = "forbid"`.
 - **Fingerprint.** The fingerprint is sha256 over the model id, revision,
   file digests and preprocessing contract. It is stamped on every vector.
-- **Preprocessing contract (`PREPROCESSING_VERSION` 1).** It matches the
-  reference embedder:
+- **Preprocessing contract (`PREPROCESSING_VERSION` 1):**
   - cap each text at 4000 characters;
   - truncate at 256 tokens;
   - pad to the longest text in the batch;
@@ -43,7 +38,7 @@ Status: accepted
 
 - `candle-transformers`' generic BERT ran at 5.2 texts/s here; its batched
   3-D linear layers reached only about a third of plain GEMM throughput.
-- `ragmonk_ml::bert` is a lean encoder that keeps the reference math:
+- `ragmonk_ml::bert` is a lean encoder that keeps the standard BERT math:
   post-norm layers, exact-erf GELU and an `f32::MIN` padding bias.
 - Restructured for the CPU:
   - activations stay 2-D, so each projection is one contiguous GEMM against
@@ -62,7 +57,7 @@ Status: accepted
 - The finalizer processes `EMBED_WINDOW` = 256 texts per window, so memory
   does not grow with build size.
 
-## Storage (migration v5, additive)
+## Storage
 
 - **`embeddings` table.** Keyed by build, subject type and subject id. Each
   row stores the model fingerprint, text hash, dimensions and a
@@ -70,9 +65,7 @@ Status: accepted
 - **Build scoping.** Vectors are deleted with their file and carried forward
   with their rows, like all other derived data.
 - **`embedding_cache` table.** Keyed by `(text_hash, model_fingerprint,
-  embedding_text_version)`. Text versions are code `1` and document `2`, as
-  in the reference.
-- **No V1 vectors.** V1 vectors are never imported.
+  embedding_text_version)`. Text versions are code `1` and document `2`.
 
 ## Rebuild semantics
 
@@ -84,7 +77,7 @@ every pending subject after linking. This one rule covers four cases:
 |---|---|
 | Touched files | Their rows were replaced, so their subjects are pending. |
 | Model change | Stale-fingerprint vectors are counted, logged (`model_changed_rebuild`), dropped and rebuilt explicitly. |
-| Crash or missing model | Repaired on the next run, including warm passes through the new `BuildFinalizer::on_warm_pass` hook. |
+| Crash or missing model | Repaired on the next run, including warm passes through the `BuildFinalizer::on_warm_pass` hook. |
 | Identical texts | Embedded once per window. Unchanged texts come from the cache. |
 
 A missing model never fails indexing. Vectors stay pending and a warning is
@@ -92,11 +85,10 @@ logged.
 
 ## Evidence
 
-- `compat/golden/embeddings-minilm.json` holds 20 reference vectors, from
-  `compat/tools/gen_embedding_golden.py`. The texts include multilingual,
-  emoji, SQL, over-length and over-character-cap inputs.
-- Rust vectors match the reference with a worst cosine of 1.0 at 6-decimal
-  rounding. The test asserts a cosine of at least 0.9999 and a unit norm.
+- `fixtures/expected/embeddings-minilm.json` holds 20 expected vectors.
+  The texts include multilingual, emoji, SQL, over-length and
+  over-character-cap inputs. The test asserts a cosine of at least 0.9999
+  against each and a unit norm.
 - The finalizer tests cover:
   - completeness;
   - cache reuse on an incremental run;
@@ -108,26 +100,17 @@ logged.
 
 ## Benchmark
 
-1,000 mixed code and document texts, batch 16, 4 threads, on an Intel Xeon
-at 2.8 GHz with AVX-512:
+`benchmarks/embedding-1000.json`: 1,000 mixed code and document texts,
+batch 16, 4 threads, on an Intel Xeon at 2.8 GHz with AVX-512: model load
+about 0.7 s, throughput about 28 texts/s.
 
-| | Python (PyTorch + MKL) | Rust (Candle) |
-|---|---|---|
-| Model load | 8.15 s | 0.73 s |
-| Throughput | 45.2 texts/s | 28.3 texts/s |
-
-- Rust is about 0.6× the reference on this host. PyTorch uses MKL with
-  AVX-512, while the pure-Rust `gemm` crate uses AVX2 on stable Rust. The
-  encoder's GEMMs already run at the crate's measured peak (about
-  130 GFLOPS).
-- The gap is expected to narrow on AVX2-only and ARM hosts.
+- The pure-Rust `gemm` crate uses AVX2 on stable Rust; the encoder's GEMMs
+  run at the crate's measured peak (about 130 GFLOPS).
 - Indexing embeds only pending subjects, with cache reuse, so steady-state
   cost is proportional to change.
-- Slice 3 revisits throughput together with the model choice.
 
 ## Limitations
 
-- There is no ANN index yet; semantic search and the ANN index arrive in
-  slice 2. The reranker and the measured model choice arrive in slice 3.
-- There is no in-product model download (a CLI phase concern). CI and
-  developers fetch assets from the pinned URLs.
+- There is no in-product model download. Release archives and the
+  container ship the assets; developers fetch them with
+  `scripts/fetch_models.sh`.

@@ -1,9 +1,9 @@
 # ADR 0002 — `unsafe` policy
 
-Status: accepted (RUST-00)
+Status: accepted
 
 * Workspace lint `unsafe_code = "forbid"` applies to every project crate.
-* If a later phase truly needs `unsafe` (e.g. an FFI shim not covered by a
+* If a change truly needs `unsafe` (e.g. an FFI shim not covered by a
   maintained crate), it must: relax the lint for that one module only, document
   the invariants in a `// SAFETY:` comment at each block, add focused tests,
   and record the exception in a new ADR.

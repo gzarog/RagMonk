@@ -60,7 +60,7 @@ ragmonk ui --no-browser
   provider catalog, and test a provider's connectivity. Credentials are never
   shown — only "configured / not configured".
 - **Configuration** — a typed form generated from `RagMonkConfig`, validated
-  through Pydantic before writing (exactly like the CLI). Environment-overridden
+  with the same validation as the CLI before writing. Environment-overridden
   values are shown read-only with their variable name; sensitive fields show
   only whether they are configured.
 - **Daemon** — start, stop and restart the background daemon and see watched

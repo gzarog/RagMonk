@@ -1,10 +1,10 @@
-# ADR 0007 — V2 OpenSearch/Elasticsearch schema and legacy cleanup
+# ADR 0007 — OpenSearch/Elasticsearch schema
 
-Status: accepted (RUST-03)
+Status: accepted
 
 ## Decision
-* **Prefix.** V2 indexes live under `{storage.server.index_prefix}-v2`
-  (default `ragmonk-v2`), so they can never collide with V1 names.
+* **Names.** Indexes are named `{storage.server.index_prefix}-{kind}`
+  (default prefix `ragmonk`, e.g. `ragmonk-chunks`).
 * **Six specialized indexes**: `-source-state`, `-files`, `-code`,
   `-documents` (top-level documents and EML attachment children with
   `parent_document_id`/`attachment_*` provenance), `-chunks` (retrieval
@@ -13,17 +13,16 @@ Status: accepted (RUST-03)
   bulky text (`text`, `embedding_text`, `evidence`, `table_rows`) is stored
   but not indexed.
 * **Schema identity** is stored in each index's `_meta` (`schema`,
-  `schema_version`, vector spec). `init` creates missing indexes, waits for
-  primaries, and verifies existing ones; any mismatch is refused — indexes
-  are never mutated in place. A schema change means a new V2 index set and a
-  full rebuild.
+  `schema_version`, vector spec). `ragmonk server init` creates missing
+  indexes, waits for primaries, and verifies existing ones; any mismatch is
+  refused — indexes are never mutated in place. A schema change means a
+  fresh index set (or prefix) and a full rebuild.
 * **Vectors** are defined at creation (`knn_vector`+HNSW/lucene/cosine on
-  OpenSearch, `dense_vector`+HNSW/cosine on Elasticsearch). Until RUST-09
-  pins the V2 model, the provisional spec is 384 dims (current reference
-  model), m=16, ef_construction=128.
-* **IDs.** Records use `ragmonk_core::ids::v2` IDs; the document `_id` is
-  `<build_id>:<record id>` — deterministic and idempotent within V2, and
-  builds never overwrite each other.
+  OpenSearch, `dense_vector`+HNSW/cosine on Elasticsearch), 384 dims for the
+  pinned embedding model, m=16, ef_construction=128.
+* **IDs.** Records use `ragmonk_core::ids::record` IDs; the document `_id`
+  is `<build_id>:<record id>`, deterministic and idempotent, and builds
+  never overwrite each other.
 * **Atomic publication.** A source-state document holds `active_build_id`
   and `pending_build_id`. Publishing refreshes the build-scoped indexes and
   switches the active build with an optimistic-concurrency write
@@ -41,15 +40,8 @@ Status: accepted (RUST-03)
 * **Build mode** (`enter_build_mode`) sets `refresh_interval: -1` and zero
   replicas on build-scoped indexes for a large rebuild and restores the
   saved serving settings explicitly or on drop.
-* **Legacy cleanup.** `ragmonk server-v2 legacy` lists the exact V1 names
-  (`{p}-files|content|relationships` for the configured prefix and the
-  historical prefixes in `legacy::LEGACY_PREFIXES`) with doc counts and a
-  fingerprint. `--delete --confirm <fingerprint>` deletes those exact names
-  only if the set is unchanged. Pattern deletes are never used and nothing
-  else is touched. Per the project decision (ADR 0006) no index-level
-  rollback is kept; RUST-15 folds this into `migrate-to-rust-v2 --execute`.
 
 ## Evidence
 `crates/ragmonk-backends/tests/live.rs` runs the full lifecycle against real
-OpenSearch 2.15 and Elasticsearch 8.15 (CI job "Rust V2 server
-integration"), including injected crashes/aborts and visibility checks.
+OpenSearch and Elasticsearch (CI job "Server integration"), including
+injected crashes/aborts and visibility checks.

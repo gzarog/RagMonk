@@ -1,11 +1,11 @@
-# ADR 0012: Cross-domain knowledge linker and manual links (RUST-08)
+# ADR 0012: Cross-domain knowledge linker and manual links
 
 Status: accepted
 
 ## Context
 
-This ports `src/ragmonk/knowledge/linker.py` from Python. The linker connects
-code entities to document chunks. Manual links are persisted.
+The linker connects code entities to document chunks. Manual links are
+persisted.
 
 ## Decisions
 
@@ -14,20 +14,20 @@ code entities to document chunks. Manual links are persisted.
 - **Crate.** `ragmonk-knowledge` provides the `KnowledgeLinker`, which
   implements `BuildFinalizer`. It is registered after the code finalizers in
   `ragmonk_convert::registry`.
-- **Finalizer interface.** `BuildFinalizer::finalize` now receives the ids of
+- **Finalizer interface.** `BuildFinalizer::finalize` receives the ids of
   the files written in the build. This allows incremental (touched-only)
-  linking, as in Python.
-- **Matchers.** The five Python matchers are ported: exact identifier,
-  qualified name, alias, filename and route heuristic. Each one sets the same
-  resolver and confidence values as Python.
+  linking.
+- **Matchers.** Five matchers: exact identifier, qualified name, alias,
+  filename and route heuristic. Each one sets its own resolver and
+  confidence values.
 - **Matching index.** An inverted word index over document units narrows the
   candidates before the boundary check.
 - **Boundary rule.** The rule is `(?<![\w.])needle(?![\w.])`, where `\w` means
   Unicode categories L* and N* plus `_`.
-- **Deliberate Python quirk.** A mention followed by `.` (for example
-  `cancelOrder.` at the end of a sentence) does **not** match. This is kept on
-  purpose so that the link set stays identical to Python's. Changing it would
-  be a behavior change for a later phase.
+- **Trailing dot.** A mention followed by `.` (for example `cancelOrder.` at
+  the end of a sentence) does **not** match, because the boundary rule
+  treats `.` as part of a dotted name. Relaxing this would change the link
+  set and needs updated expectations.
 - **Deduplication.** Links are deduplicated on (entity, document, chunk,
   resolver), and the first link wins. Rows are written in batches of 5000
   with `INSERT OR IGNORE`.
@@ -39,40 +39,31 @@ code entities to document chunks. Manual links are persisted.
 - A test checks that incremental relinking produces exactly the same link set
   as a cold build.
 
-### Manual links (behavior change from V1)
+### Manual links
 
 - **Storage.** Manual links live in `manual_links`, keyed by:
   - entity qualified name;
   - document relative path;
   - attachment index;
   - chunk ordinal.
-- **Migration v4.** Migration v4 (`manual_link_sections`) adds the attachment
-  and chunk columns, with a default of -1, and makes the full key UNIQUE. The
-  migration is versioned and additive.
+- **Key.** Attachment index and chunk ordinal default to -1 (whole
+  document); the full key is UNIQUE.
 - **Behavior.** Every build re-applies manual links as resolver `user`, with
-  confidence `exact` and relation `documented_by`. Python V1 dropped manual
-  links when a file was reprocessed; V2 keeps them across rebuilds until they
-  are removed explicitly.
+  confidence `exact` and relation `documented_by`. Manual links survive
+  reprocessing and rebuilds until they are removed explicitly.
 
-## Compatibility evidence
+## Evidence
 
-- `compat/golden/links.json` holds 23 links, generated from the Python CLI by
-  `compat/tools/gen_link_golden.py` on `compat/fixtures/linking`.
-- The Rust link set is identical to it.
+- `fixtures/expected/links.json` holds the 23 expected links for
+  `fixtures/linking`; the linker's link set must equal it.
 
 ## Benchmark
 
-The corpus has 2,000 code modules and 100 markdown documents, which gives
-14,000 entities, 4,100 units and 12,000 links.
+`benchmarks/linking-2100.json`: 2,000 code modules and 100 markdown
+documents (14,000 entities, 4,100 units, 12,000 links). Linking with every
+file touched takes about 2.7 s; a cold index end to end about 6.6 s.
 
-| | Python | Rust |
-|---|---|---|
-| Linking (all files touched) | 47.09 s | 2.66 s |
-| Cold index (end to end) | 78.81 s | 6.60 s |
+## Interfaces
 
-## Limitations
-
-- Server backends (OpenSearch/Elasticsearch) linking reads arrive with
-  RUST-12.
-- The CLI `link` commands arrive with the CLI phase. This phase provides the
-  library API: `ragmonk_knowledge::manual::{add, remove}`.
+- The CLI exposes manual links as `ragmonk link add/remove/list`, on top
+  of the library API `ragmonk_knowledge::manual::{add, remove}`.

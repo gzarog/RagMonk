@@ -6,7 +6,7 @@
 ### Answers with exact sources. Entirely on your machine.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Native binary](https://img.shields.io/badge/native-Rust-orange)](rust/)
+[![Native binary](https://img.shields.io/badge/native-Rust-orange)](docs/architecture.md)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-green)](https://modelcontextprotocol.io)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](https://github.com/gzarog/RagMonk)
 
@@ -65,7 +65,7 @@ RagMonk is a **local-first knowledge engine**. Point it at folders and you get a
 |---|---|
 | **macOS / Linux** | `curl -fsSL https://raw.githubusercontent.com/gzarog/RagMonk/main/install.sh \| sh` |
 | **Windows (PowerShell)** | `irm https://raw.githubusercontent.com/gzarog/RagMonk/main/install.ps1 \| iex` |
-| **Docker** | `docker pull ghcr.io/gzarog/ragmonk` (see [Container](rust/docs/adr/0030-release-and-container.md)) |
+| **Docker** | `docker pull ghcr.io/gzarog/ragmonk` (see [Container](docs/adr/0030-release-and-container.md)) |
 
 **Requirements:** none. A single native binary for Linux x86_64, macOS (Apple silicon and Intel) and Windows x86_64, with the embedding, reranker and OCR models bundled, so everything runs offline from the first start. Update in place with `ragmonk update install`.
 
@@ -112,7 +112,7 @@ src/payments/settlement.py  →  line 88 · SettlementService.retry()
 | **PNG / JPG / TIFF** | Opt-in OCR (`documents.image_ocr: true`) |
 
 - A corrupt file is isolated and marked as failed. The rest of the run continues.
-- Legacy `.doc`, `.ppt`, `.xls` and `.rtf` files are detected but not converted.
+- Older binary `.doc`, `.ppt`, `.xls` files and `.rtf` files are detected but not converted.
 - Incremental: only changed files are reprocessed, and PDF conversions are cached by content.
 
 </details>
@@ -156,8 +156,7 @@ Manage sources, run indexing with live progress, browse document chunks, test se
 <summary><b>🤖 AI agents (MCP)</b></summary>
 
 ```bash
-ragmonk install-agent --client claude-code   # or: codex · cursor · vscode · all
-ragmonk serve --mcp
+ragmonk serve --mcp   # register this command as a stdio MCP server in your client
 ```
 
 Tools exposed: `ragmonk_explore`, `ragmonk_search`, `ragmonk_documents`, `ragmonk_symbol`, `ragmonk_callers`, `ragmonk_callees`, `ragmonk_impact`, `ragmonk_status`, `ragmonk_ask`.

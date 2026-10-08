@@ -1,15 +1,13 @@
-# ADR 0020: Daemon lifecycle, PID ownership and reconciliation (RUST-11, slice 2)
+# ADR 0020: Daemon lifecycle, PID ownership and reconciliation
 
 Status: accepted
 
 ## Context
 
-The reference daemon (`service/daemon.py`, `service/pid.py`,
-`service/health.py`, `cli/daemon.py`) runs indexing passes on one worker
-thread. A second thread re-checks every source on a timer. A separate CLI
-process finds the daemon through `daemon.pid` and reports on it from
-`daemon_health.json`. This slice ports all of that except the watchers,
-which are slice 3.
+The daemon runs indexing passes on one worker thread. A second thread
+re-checks every source on a timer. A separate CLI process finds the daemon
+through `daemon.pid` and reports on it from `daemon_health.json`. The
+watchers and targeted passes are ADR 0021.
 
 ## Decisions
 
@@ -18,10 +16,9 @@ which are slice 3.
 - **Threads.** One worker thread runs passes from a FIFO queue. A
   reconciliation thread enqueues every enabled source every
   `indexing.reconciliation_interval_seconds` (default 900). One mutex and
-  one condvar replace the reference's queue, `Event` and locks. Every
-  wait wakes at once on stop.
-- **Coalescing (`daemon::scheduler::Scheduler`).** This is the reference's
-  state machine, with no threads, so it can be replayed against Python:
+  one condvar guard the queue. Every wait wakes at once on stop.
+- **Coalescing (`daemon::scheduler::Scheduler`).** A state machine with no
+  threads, so it can be replayed deterministically in tests:
   - Each source has no entry, or is `queued`, `running` or
     `running_followup`.
   - A burst of triggers becomes at most one queued pass plus one
@@ -49,27 +46,23 @@ which are slice 3.
   - Neither connection is shared across threads.
 - **Progress.** Each pass runs under `progress::track(operation="daemon",
   source_total=1)`, so `index_progress.json` and the status verdicts from
-  slice 1 cover daemon passes.
+  ADR 0019 cover daemon passes.
 - **Graceful stop.**
   - New triggers are refused, and queued passes are dropped.
   - A pass already running finishes. It commits per file anyway.
   - Both threads are joined, and a final health snapshot is written.
-  - The reference's worker drains its queue after stop. That behavior is
-    incidental: its docstring describes the in-flight-only behavior that
-    Rust implements.
 
 ### Files
 
 - **`daemon.pid`.** The file is `{"pid", "started_at"}`. The reader is
-  tolerant, like the reference's `int()`/`str()` coercions: a string pid
+  tolerant: a string pid
   is accepted, a float is truncated, and a non-string `started_at` is
   stringified. Anything else reads as "no daemon".
 - **Stale PID files.** A dead PID counts as "not running". Liveness comes
   from `sysinfo`: no `unsafe` code, and a zombie counts as dead.
-- **`daemon_health.json`.** The fields are the same as the reference's.
-  Writes are atomic, with a per-process and per-thread temp name. A
-  source entry with unknown keys makes the snapshot unreadable, as
-  `SourceWatchStatus(**s)` does.
+- **`daemon_health.json`.** Writes are atomic, with a per-process and
+  per-thread temp name. A source entry with unknown keys makes the
+  snapshot unreadable.
 
 ### CLI (`ragmonk daemon …`)
 
@@ -80,11 +73,11 @@ which are slice 3.
   - Records the child's PID, then waits up to 30 s for its first health
     snapshot.
   - On failure it removes the PID file and names the log.
-  - Unlike the reference, it deletes any old health file first, so a
+  - It deletes any old health file first, so a
     snapshot left by a previous run cannot pass as "healthy".
 - **`stop`.** On POSIX it sends SIGTERM, through `sysinfo`. On Windows it
-  hard-terminates the process, as the reference does. It waits up to 15 s
-  and removes the PID file. Messages and exit codes match the reference.
+  hard-terminates the process. It waits up to 15 s and removes the PID
+  file.
 - **`run`.**
   - Runs in the foreground.
   - Refuses to start if another live daemon owns the home.
@@ -93,30 +86,25 @@ which are slice 3.
   - SIGTERM and SIGINT are caught through `signal-hook` on Unix, which
     triggers a graceful stop.
 - **`status [--json]`.**
-  - The JSON payload is the reference's, with the same keys in the same
-    order.
-  - The text output is the reference's without Rich markup.
-  - The web-dashboard hint is left out, because the UI is not ported.
+  - `--json` prints a payload with a fixed key order.
+  - The text output is plain text.
 - **`restart`.** Runs `stop`, then `start`.
 - **Windows caveat.** The spawned daemon inherits the CLI's inheritable
   handles. If the caller pipes `daemon start`'s output, the pipe stays
-  open while the daemon runs. Python's `close_fds=True` avoids this; Rust's
-  std has no stable equivalent. The process test redirects output to
-  files for this reason.
-- **Not ported.** The `--ui` option waits for the UI port.
+  open while the daemon runs; Rust's std has no stable way to close
+  inherited handles. The process test redirects output to files for this
+  reason.
 
-## Parity and tests
+## Tests
 
-- **Golden fixtures.** `compat/tools/gen_daemon_golden.py` writes
-  `compat/golden/daemon.json`, covering:
+- **Expected results.** `fixtures/expected/daemon.json` covers:
   - uptime text, 14 cases;
   - `read_pid_file`, 10 raw files;
   - `read_health`, 7 raw files;
-  - 5 trigger scripts replayed on the reference `Daemon`'s own
-    coalescing methods, recording the queue, the per-source states and
-    each pass's request after every step.
-- **Parity results.** Rust matches all of them, in
-  `tests/daemon_golden.rs`.
+  - 5 trigger scripts replayed on the scheduler, recording the queue, the
+    per-source states and each pass's request after every step.
+
+  `tests/daemon_golden.rs` checks them.
 - **Behavior tests (`tests/daemon.rs`).** These use a scripted runner and
   cover:
   - bursts coalescing;
@@ -131,9 +119,7 @@ which are slice 3.
   `status --json`, a second `start`, `run` while another daemon is
   running, `stop`, and `stop` again.
 
-## Deferred
+## Related
 
-- **Slice 3.** Targeted passes, the local watcher, network polling and
-  debounce: done in slice 3 ([ADR 0021](0021-watcher-and-targeted-passes.md)).
-- **Server mode.** The daemon's startup health check for server mode
-  waits until the server backends are wired into the indexing path.
+- Targeted passes, the local watcher, network polling and debounce:
+  [ADR 0021](0021-watcher-and-targeted-passes.md).

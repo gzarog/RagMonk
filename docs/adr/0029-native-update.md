@@ -1,8 +1,8 @@
-# ADR 0029: Native `update` and installers (RUST-15, slice 2)
+# ADR 0029: Native `update` and installers
 
 Status: accepted
 
-## Decisions (user)
+## Decisions
 
 - **Layout:** versioned directories plus a `current` pointer. `update rollback`
   switches back to the previous version.
@@ -12,8 +12,8 @@ Status: accepted
 - **Signatures:** minisign. The public key is compiled in through
   `RAGMONK_MINISIGN_PUBKEY` at build time, and the installers carry the same
   key.
-- **Background check:** the Python background check and startup notice are
-  ported.
+- **Background check:** a periodic background check and a once-per-version
+  startup notice.
 
 ## Layout
 
@@ -42,10 +42,10 @@ Status: accepted
 
 | Command | Behaviour |
 |---------|-----------|
-| `check` (also bare `update`) | Python parity: queries GitHub, writes `update.json`, prints the same text and JSON. |
-| `status` | Python parity: reads the cache only. |
-| `install` | Fetches the latest release (the tag must be strict `MAJOR.MINOR.PATCH`) and stops if it is not newer. Downloads the archive and `SHA256SUMS` from that tag's assets. When a key is compiled in, it verifies the minisign signature over `SHA256SUMS` first. Then it checks the archive digest, unpacks to `versions/<ver>.partial` (refusing absolute, `..`, link and device entries) and renames it into place. It runs the self-check, copies the models, switches, and runs the new binary's `upgrade` and `doctor`. Output and exit 7 match Python. |
-| `rollback` | New: switches `current` and the models back to `previous`. |
+| `check` (also bare `update`) | Queries GitHub, writes `update.json`, prints the result as text or JSON. |
+| `status` | Reads the cache only. |
+| `install` | Fetches the latest release (the tag must be strict `MAJOR.MINOR.PATCH`) and stops if it is not newer. Downloads the archive and `SHA256SUMS` from that tag's assets. When a key is compiled in, it verifies the minisign signature over `SHA256SUMS` first. Then it checks the archive digest, unpacks to `versions/<ver>.partial` (refusing absolute, `..`, link and device entries) and renames it into place. It runs the self-check, copies the models, switches, and runs the new binary's `doctor`. A failure exits with code 7. |
+| `rollback` | Switches `current` and the models back to `previous`. |
 
 **Self-check:** the new binary's `version --json` must report the version it
 was published as. If it does not, the install is refused and its directory
@@ -60,8 +60,8 @@ download host. Only debug builds honour it.
 
 ## Background check and notice
 
-Every command except `update`, `version`, `serve`, `daemon`, `watch`,
-`upgrade` and `doctor` runs the startup step. Setting
+Every command except `update`, `version`, `serve`, `daemon`, `watch` and
+`doctor` runs the startup step. Setting
 `RAGMONK_NO_UPDATE_CHECK` turns it off entirely. The step does two things:
 
 - **Notice:** it reads `update.json` and prints the "newer version" notice
@@ -69,15 +69,14 @@ Every command except `update`, `version`, `serve`, `daemon`, `watch`,
 - **Background check:** when the cache is older than
   `updates.check_interval_hours`, it spawns a detached
   `ragmonk update background-check`. The marker carries over only while the
-  latest version is unchanged, as in Python.
+  latest version is unchanged.
 
 Debug builds only run the background check against the test host, so
 development and test runs never contact GitHub.
 
 ## Installers
 
-`install.sh` and `install.ps1` are rewritten to install native binaries and
-no longer need Python. Each one:
+`install.sh` and `install.ps1` install the native binary. Each one:
 
 1. detects the target and refuses any target outside the four release
    targets;
@@ -95,10 +94,11 @@ is compiled in.
 
 ## Release assets
 
-`rust/scripts/package_release.py` builds the archives. Each archive is
-reproducible: entries are sorted and use fixed mtimes. The script also
-maintains `SHA256SUMS`. Tags are `v<MAJOR.MINOR.PATCH>`. Slice 3's release
-workflow calls this script for each target.
+`cargo xtask package` builds the archives. Each archive is reproducible:
+entries are sorted and use fixed mtimes. It also maintains `SHA256SUMS`
+(`cargo xtask release-manifest` rewrites it over a whole directory). Tags
+are `v<MAJOR.MINOR.PATCH>`. The release workflow (ADR 0030) calls it for
+each target.
 
 ## Tests
 
@@ -111,38 +111,32 @@ workflow calls this script for each target.
   install refusal on a bad checksum, install refusal when the binary reports
   the wrong version, a successful install with models copied, rollback, and
   refusal for a non-native install.
-- **CI (`ci.yml`)** packages two versions from this commit's build. It
+- **CI (`rust.yml`)** packages two versions from this commit's build. It
   installs them with `install.sh` on Linux and macOS and `install.ps1` on
   Windows, then rolls back. It also checks that a tampered archive is
   refused. On Windows the second install runs while the daemon holds the
-  current exe. These jobs replace the old Python install-script jobs and are
-  blocking.
+  current exe. These jobs are blocking.
 
-## Divergences from Python
+## Install method
 
-- `install_method` is `native`. A Python-era `install_info.json`
-  (`install-script`, `pip`, ...) does not belong to a native install, so
-  `update install` refuses it and says to reinstall. The installers leave an
-  old `venv/` and `app/` in place and point to `migrate-to-rust-v2 --check`.
-- `update rollback` and the `background-check` subcommand are new.
+- `install_method` is `native`. An `install_info.json` with any other
+  method does not belong to a native install, so `update install` refuses
+  it and says to reinstall.
 
-## Addendum (RUST-16): `updates.channel`
+## `updates.channel`
 
 - **`stable`** (the default): follows GitHub's `releases/latest`, which
   skips pre-releases.
 - **`prerelease`**: reads the release list (`releases?per_page=30`) and
   picks the newest strict-`MAJOR.MINOR.PATCH` release that ships the
   archive for this platform. Drafts are skipped, and pre-releases are
-  included. Releases without a native archive, such as the Python-era
-  `v0.3.x` releases, are skipped.
-- **Any other value**: stays stable. The Python era accepted free text,
-  and the config golden keeps `beta` loadable, so values are not
-  validated.
+  included. Releases without an archive for this platform are skipped.
+- **Any other value**: stays stable; values are not validated.
 
 This channel lets a published pre-release be tested end to end with
 `update install` and `rollback`.
 
-## Addendum (RUST-16): TLS trust roots
+## TLS trust roots
 
 reqwest is built with `rustls-tls` plus `rustls-tls-native-roots`, so every
 HTTPS client trusts the operating system's trust store, including
@@ -150,6 +144,4 @@ HTTPS client trusts the operating system's trust store, including
 are update, AI providers, and the OpenSearch/Elasticsearch server backend.
 
 With only the bundled roots, `ragmonk update` and the cloud providers
-failed behind TLS-inspecting corporate proxies and with private CAs. The
-Python version honoured the system and `SSL_CERT_FILE` bundles. A live
-update test inside such a proxy found the gap.
+would fail behind TLS-inspecting corporate proxies and with private CAs.

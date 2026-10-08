@@ -1,42 +1,35 @@
-# ADR 0026: AI providers, `ask` and `ai` (RUST-14, slice 1)
+# ADR 0026: AI providers, `ask` and `ai`
 
 Status: accepted
 
-## Decisions (user)
+## Decisions
 
-1. RUST-14 ships in two slices: AI providers first (this ADR), the Admin
-   UI second.
-2. Subscription providers:
-   - **Codex** is driven over its stdio JSON-RPC app server, as in the
-     reference.
+1. Subscription providers:
+   - **Codex** is driven over its stdio JSON-RPC app server.
    - **GitHub Copilot** is driven through the signed-in `copilot` CLI.
-     The reference's Python SDK has no Rust counterpart.
-3. Parity is proven with golden HTTP and JSON-RPC exchanges recorded
-   from the reference against local mocks.
-4. The Admin UI (slice 2) will use axum, tokio and minijinja.
+2. Provider behavior is pinned with recorded HTTP and JSON-RPC exchanges
+   against local mocks.
+3. The Admin UI uses axum, tokio and minijinja.
 
 ## Crate `ragmonk-ai`
 
-- **`prompt`:** the reference's system prompt and evidence prompt, byte
-  for byte.
-  - Values are interpolated with Python `str()` semantics (`None`,
-    `True`, dict reprs).
-  - Evidence locations keep the reference's key order.
+- **`prompt`:** the system prompt and evidence prompt.
+  - Evidence locations keep a fixed key order.
 - **`http`:** blocking `reqwest` clients for OpenAI, OpenAI-compatible
   endpoints, Anthropic and Ollama.
-  - The request bodies, paths and auth headers are the reference's.
-  - Responses map the same way, including fallbacks to the configured
-    model and null usage.
+  - Each provider's native request body, path and auth header.
+  - Responses map to one answer shape, including fallbacks to the
+    configured model and null usage.
   - There are no retries.
-  - Failure messages match what the reference's SDKs produce:
+  - Failure messages:
     - `Connection error.`
     - `Request timed out.`
     - `Error code: <status> - <repr of the JSON body>`, with key order
       kept.
     - The raw text for a non-JSON error body.
-    - Python's `json` messages for a 2xx body that is not JSON.
+    - A JSON decode message for a 2xx body that is not JSON.
 - **`factory`:**
-  - Provider selection, with the reference's configuration errors.
+  - Provider selection, with configuration errors for missing settings.
   - The `privacy.external_ai_allowed` gate runs before anything is
     constructed.
   - Ollama is exempt only when its host is loopback.
@@ -49,7 +42,7 @@ Status: accepted
   - Malformed JSON, EOF and unframed messages over 8 MiB fail as invalid
     responses.
   - Each request has a deadline.
-- **`codex`:** the reference's `codex app-server` protocol.
+- **`codex`:** the `codex app-server` protocol.
   - Messages: `initialize` with isolation, then `account/*`,
     `model/list`, `thread/create` and `thread/runTurn`.
   - Errors map to quota, sign-in and policy errors.
@@ -62,32 +55,26 @@ Status: accepted
     and the API keys) are removed from the child's environment, so only
     the CLI's own sign-in is used.
   - No tool is approved.
-  - Failures map with the reference's text rules.
+  - Failures map to typed errors by their output text.
   - Sign-in and sign-out are left to the CLI (`/login`, `/logout`). The
     CLI reports no usage and no model list.
-  - **Divergence:** the reference's SDK adapter was a placeholder that
-    always reported the runtime unavailable; this one answers.
 
-Errors carry the reference's class names through a new
-`RagMonkError::with_class` (for example `AiNotConfiguredError`). Their
+Errors carry class names through `RagMonkError::with_class` (for example `AiNotConfiguredError`). Their
 exit codes are those of the base classes: config 3, policy 8, runtime 1.
 
 ## CLI and MCP
 
 - **`ragmonk ask QUESTION [--json]`:**
   - Runs `explore`'s retrieval, then builds the provider, then asks it.
-  - The JSON payload and text rendering are the reference's.
+  - Prints the answer as text, or a JSON payload with `--json`.
 - **`ragmonk ai providers|status|login|logout|models`:**
-  - Same validation, privacy gate (not on `logout`), output and errors
-    as the reference.
-- **MCP:** `ragmonk_ask` is now served, reversing ADR 0025's omission.
-  - The tool catalog and `initialize` instructions are the reference's,
-    unmodified.
+  - The privacy gate applies to every command except `logout`.
+- **MCP:** `ragmonk_ask` is served (ADR 0025).
   - Errors are typed by class name (for example `AiNotConfiguredError`).
 
 ## Verification
 
-- **`compat/tools/gen_ai_golden.py` → `compat/golden/ai.json`:**
+- **`fixtures/expected/ai.json`:**
   - The prompt.
   - 34 provider cases: success, empty evidence, 401 JSON, 500 text,
     non-JSON, bare responses and connection refused, for each provider.
@@ -100,11 +87,10 @@ exit codes are those of the base classes: config 3, policy 8, runtime 1.
     and an OS-pipe fake runtime.
   - The OS text behind a refused Ollama connection is platform-specific,
     so only its prefix is compared.
-- **`compat/tools/gen_ai_cli_golden.py` → `compat/golden/ai_cli.json`:**
+- **`fixtures/expected/ai_cli.json`:**
   - `ask` (JSON, text, no evidence, HTTP 500, not configured, privacy)
-    and the `ai` lifecycle commands, on the compat corpus with a mock
+    and the `ai` lifecycle commands, on the fixture corpus with a mock
     Ollama and no `codex` on `PATH`.
   - Replayed by `crates/ragmonk-cli/tests/ai.rs`: exit codes, stdout and
-    the provider request match; stderr matches up to the reference's line
-    wrapping.
-- **MCP:** the session golden now includes `ragmonk_ask` calls.
+    the provider request match; stderr matches up to line wrapping.
+- **MCP:** the recorded session includes `ragmonk_ask` calls.

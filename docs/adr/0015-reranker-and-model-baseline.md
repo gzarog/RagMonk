@@ -1,34 +1,32 @@
-# ADR 0015: Cross-encoder reranker and embedding-model baseline (RUST-09, slice 3)
+# ADR 0015: Cross-encoder reranker and embedding-model baseline
 
 Status: accepted
 
-## Decisions (user)
+## Decisions
 
-1. **Reranker.** Port the reference cross-encoder,
-   `cross-encoder/ms-marco-MiniLM-L-6-v2`, to pure Rust (Candle), with
-   score parity against Python.
+1. **Reranker.** The `cross-encoder/ms-marco-MiniLM-L-6-v2` cross-encoder
+   runs in pure Rust (Candle).
 2. **Embedding model.** Keep `sentence-transformers/all-MiniLM-L6-v2` and
-   record its measured search quality as the V2 baseline. No model change.
+   record its measured search quality as the baseline.
 
 ## Reranker (`ragmonk_ml::reranker`)
 
 - **Pinned assets.** The model is pinned in the manifest by revision
   `233902d2` plus sha256 of `config.json`, `model.safetensors` and
   `tokenizer.json`. Every file is verified on load, like the embedder.
-- **Shared encoder.** It reuses the slice-1 BERT encoder, which gains
+- **Shared encoder.** It reuses the embedding BERT encoder (ADR 0013) via
   `forward_typed`. Sentence pairs need segment ids: 0 for the query, 1 for
   the passage.
 - **Scoring.** The pooler (dense + tanh on `[CLS]`) feeds a one-logit
-  classifier. As in the reference, the raw logit is the score, with no
-  activation applied.
-- **Preprocessing** matches the reference:
+  classifier. The raw logit is the score, with no activation applied.
+- **Preprocessing:**
   - each passage is capped at 4,000 characters;
   - the pair is truncated longest-first at 256 tokens;
   - batches hold 16 pairs.
   
-  Unlike the reference, batches are formed in order of length. Padding is
-  masked, so scores do not change; a test asserts this.
-- **`rerank()`** ports `rerank_hits`:
+  Batches are formed in order of length. Padding is masked, so scores do
+  not depend on batching; a test asserts this.
+- **`rerank()`:**
   - it reorders only the first `top_n` items, sorting stably by descending
     score, and leaves the remainder in its original order;
   - with `top_n = 0` or fewer than two items, it returns the input
@@ -36,30 +34,24 @@ Status: accepted
   - if scoring fails (no model, or a score-count mismatch), it logs at
     info level and returns the input unchanged. An optional rerank never
     fails a search.
-- **Hit metadata now matches the reference's vector metadata**, because the
-  reranker scores the snippet (else the title):
+- **Hit metadata.** The reranker scores the snippet (else the title):
   - a chunk's title is the document title, else its path;
   - the snippet is the first 280 characters of the text, with a table's
     cells joined by spaces;
   - the heading path moves to `section`.
-- **Hybrid search wiring is RUST-10.** That means lexical + semantic → RRF
-  → exact-match pinning → rerank, plus the config switch. This slice
-  delivers and verifies the stage itself.
+- **Hybrid search** runs lexical + semantic → RRF → exact-match pinning →
+  rerank, behind a config switch (ADR 0016).
 
 ## Evidence
 
-- **Logits.** `compat/golden/reranker-ms-marco.json` comes from the
-  reference (`compat/tools/gen_reranker_golden.py`): 8 queries × 20
-  passages, including over-length, Greek, Japanese and emoji text.
-  - Rust's worst logit difference is **4.5e-4**; the assertion allows 2e-3.
-  - The reranked orders are identical, apart from swaps between near-ties
-    under 4e-3.
-- **Quality baseline.** The reference's 72 golden queries over its
-  search-quality fixture project are copied to
-  `compat/fixtures/search_quality` by `compat/tools/gen_quality_golden.py`.
-  Two arms are scored: semantic top 10, and the top 20 reranked by the
-  cross-encoder, then top 10. Rust's numbers are **identical** to the
-  reference on all 12 metrics:
+- **Logits.** `fixtures/expected/reranker-ms-marco.json`: 8 queries × 20
+  passages, including over-length, Greek, Japanese and emoji text. The
+  assertion allows a logit difference of 2e-3, and the reranked orders must
+  be identical apart from swaps between near-ties under 4e-3.
+- **Quality baseline.** 72 labelled queries over the search-quality
+  fixture project (`fixtures/search_quality`). Two arms are scored:
+  semantic top 10, and the top 20 reranked by the cross-encoder, then
+  top 10 (`benchmarks/semantic-quality.json`):
 
 | | Recall@1 | Recall@3 | Recall@5 | Recall@10 | MRR | NDCG@10 |
 |---|---|---|---|---|---|---|
@@ -67,30 +59,19 @@ Status: accepted
 | semantic + rerank | 0.678 | 0.891 | 0.919 | 0.924 | 0.855 | 0.859 |
 
   The reranker lifts Recall@3–10 and NDCG@10 but costs a little Recall@1.
-  The reference's own hybrid evaluation (`benchmarks/search_quality/
-  reranker_evaluation.json`) shows the same pattern. The test fails if any
-  metric drifts by more than 0.03 from the reference record.
+  The test fails if any metric drifts by more than 0.03 from this record.
 
 ## Benchmark
 
-Same machine (4 threads). Each call scores 20 pairs, the 8 fixture queries
-against all 20 test passages, which include texts of 3,000–5,000
-characters:
-
-| | Python (torch) | Rust (Candle) |
-|---|---|---|
-| p50 per call | 503 ms | 758 ms |
-| Model load | — | 0.76 s |
-
-- Rust is about 1.5× slower, the same CPU gap slice 1 measured for
-  embeddings. Batching in length order brought Rust from 2.3 s to 0.76 s.
-- On the realistic workload, the top 20 snippets of 280 characters or
-  fewer, the rerank stage takes 246 ms p50 (303 ms p95) in Rust.
+`benchmarks/rerank-20pairs.json` (4 threads): each call scores 20 pairs,
+including texts of 3,000–5,000 characters; p50 is about 758 ms per call
+and the model loads in 0.76 s. Batching in length order brought this from
+2.3 s to 0.76 s. On the realistic workload, the top 20 snippets of 280
+characters or fewer, the rerank stage takes 246 ms p50 (303 ms p95).
 
 ## Limitations
 
 - Inference is CPU-only at f32.
-- The stage is not yet called from search; RUST-10 does that.
 - The quality fixture is small (6 files, 72 queries). It is a regression
   baseline, not a model-selection study. Revisit the model only with a
   larger labelled corpus.

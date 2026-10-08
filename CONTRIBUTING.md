@@ -23,7 +23,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo xtask branding-audit       # the former product name must not come back
-cargo xtask clean-slate-audit    # no migration/legacy/version-naming concepts (ADR 0032)
+cargo xtask clean-slate-audit    # forbidden-reference check (ADR 0032)
 ```
 
 Some test groups only run fully when their external inputs are present.

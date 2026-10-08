@@ -1,22 +1,17 @@
-# ADR 0019: Indexing progress and status observability (RUST-11, slice 1)
+# ADR 0019: Indexing progress and status observability
 
 Status: accepted
 
-## Decisions (user)
+## Scope
 
-1. RUST-11 ships in three slices:
-   1. progress and status observability (this slice);
-   2. daemon lifecycle, PID ownership and reconciliation;
-   3. filesystem watcher and debounce.
-2. The watcher will use the `notify` crate with a polling fallback.
-3. `ragmonk daemon start/stop/status/run` lands in slice 2. The rest of the
-   CLI comes in RUST-12.
+Indexing progress and status observability. The daemon lifecycle is
+ADR 0020; the filesystem watcher (`notify` with a polling fallback) is
+ADR 0021.
 
 ## Progress snapshot (`ragmonk_indexing::progress`)
 
-- **Format.** `<home>/index_progress.json` uses the reference format:
-  schema version 1, the same 19 keys, ISO-8601 UTC timestamps. Either
-  implementation reads the other's snapshot.
+- **Format.** `<home>/index_progress.json`: schema version 1, 19 keys,
+  ISO-8601 UTC timestamps.
 - **Writes.** Writes are atomic: a per-process/thread temp file, then
   rename. Counter updates are coalesced to at most one write per second.
   Source and stage changes and the final snapshot are always written.
@@ -27,7 +22,7 @@ Status: accepted
   - `ProgressTracker` implements the coordinator's `Progress` sink.
   - `track()` writes the final snapshot on both success (`completed`) and
     error (`failed: …`, truncated to 500 characters).
-  - `ProgressEvent::FileDone` now carries the file's outcome (indexed,
+  - `ProgressEvent::FileDone` carries the file's outcome (indexed,
     failed, retry or skipped).
 - **Heartbeats.** A process-wide `heartbeat()` keeps a working run from
   reading as stalled. The embedding and linking loops call it, so a long
@@ -35,7 +30,7 @@ Status: accepted
 
 ## Status (`ragmonk_indexing::status`)
 
-Pure verdict functions build the reference's JSON shapes:
+Pure verdict functions build the status JSON:
 
 - **`indexer_state_from`.** It combines the lock view, the snapshot, a
   process-liveness probe, the threshold and the clock into one state:
@@ -51,7 +46,7 @@ Pure verdict functions build the reference's JSON shapes:
 - **`derive_index_state`.** Per-source precedence: offline > stalled >
   indexing > retrying > errors > waiting > completed > idle.
 - **Problems, health and queues.** `derive_problems`, `derive_health` and
-  `merge_queue_stats` are the reference's problem list, health verdict and
+  `merge_queue_stats` build the problem list, the health verdict and the
   queue-statistics merge.
 
 I/O wrappers:
@@ -59,12 +54,12 @@ I/O wrappers:
 - **`indexer_state`** reads the real lock file and snapshot.
   `is_process_alive` uses `sysinfo`, a safe cross-platform API: the
   workspace forbids `unsafe`, and `kill(pid, 0)` would need it.
-- **`collect_status`** builds the reference payload from the V2 stores:
+- **`collect_status`** builds the status payload from the stores:
   health, indexer, merged queue, recent errors, problems, per-source rows
   and totals. The CLI adds the tokenizer and server-backend sections it
-  renders (RUST-12).
+  renders.
 
-**Retry state.** V2 keeps it on file rows (`status = 'retry'`,
+**Retry state.** Retry state lives on file rows (`status = 'retry'`,
 `attempt_count`, `next_attempt_at`), not in a job queue. The per-source
 "queue" is derived from those rows:
 
@@ -85,10 +80,9 @@ syscall wrapper.
 
 ## Evidence
 
-- **`compat/golden/status.json`** (`compat/tools/gen_status_golden.py`)
-  runs the reference's own functions over fixed scenarios. Lock, snapshot
-  and liveness inputs are substituted; nothing is mocked inside the
-  verdicts:
+- **`fixtures/expected/status.json`** runs the verdict functions over
+  fixed scenarios. Lock, snapshot and liveness inputs are substituted;
+  nothing is mocked inside the verdicts:
   - 12 indexer scenarios: free, held, fresh, stale, between sources,
     crashed, held by another pid, owner without pid, completed, failed,
     unknown lock, naive timestamp;
@@ -96,7 +90,7 @@ syscall wrapper.
   - 6 problem/health cases;
   - 2 queue merges.
 
-  Rust's output equals the reference JSON exactly.
+  The output must equal the expected JSON exactly.
 - **Integration tests:**
   - A tracked run over a source with an indexed, a retrying and a
     permanently failing file writes the right final snapshot. The status

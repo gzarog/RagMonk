@@ -16,7 +16,7 @@ Detail behind the [README](../README.md) pitch deck.
 | **EML** | Subject, headers and body · supported attachments indexed as child documents (see below) |
 
 - A corrupt or unsupported file is isolated and recorded as failed; the run continues.
-- Legacy `.doc` / `.ppt` / `.xls` / `.rtf` are detected but not converted.
+- Older binary `.doc` / `.ppt` / `.xls` files and `.rtf` are detected but not converted.
 - PDF conversions are cached by content hash; unchanged PDFs skip the layout model.
 - Chunk sizes follow the embedding model's real tokenizer (`documents.chunking.max_tokens: auto`); tables split at row boundaries.
 
@@ -112,8 +112,7 @@ JSON additions (existing `sources`, `backend`, `totals`, `tokenizer` keys are un
 ## MCP (AI agents)
 
 ```bash
-ragmonk install-agent --client claude-code   # or codex · cursor · vscode · all
-ragmonk serve --mcp
+ragmonk serve --mcp   # register this command as a stdio MCP server in your client
 ```
 
 Tools: `ragmonk_explore`, `ragmonk_search`, `ragmonk_documents`, `ragmonk_symbol`, `ragmonk_callers`, `ragmonk_callees`, `ragmonk_impact`, `ragmonk_status`, `ragmonk_ask`.

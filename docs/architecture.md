@@ -1,47 +1,48 @@
-# RagMonk (Rust workspace)
+# RagMonk architecture
 
-RagMonk is a native Rust application, and this workspace is the whole
-product. The rewrite plan (`RagMonk_Full_Rust_Rewrite_V1`, RUST-00 to
-RUST-16) ported the former Python implementation, and the cutover in
-[ADR 0031](docs/adr/0031-cutover.md) removed that implementation from the
-repository.
+RagMonk is a native Rust application. This Cargo workspace is the whole
+product: one `ragmonk` binary built from the crates below, plus the `xtask`
+helper for packaging and repository audits.
 
-| Crate | Status |
-|-------|--------|
-| `ragmonk-cli` | `ragmonk` binary: `version`, `config show/get/set`, `server schema/init`, `daemon start/stop/restart/status/run`, `init`, `source add/list/info/enable/disable/remove`, `index`, `status`, `docs`, `watch`, `search`, `symbol`, `callers`, `callees`, `references`, `impact`, `explore`, `link add/remove/list`, `doctor`, `health`, `backup`, `restore`, `rebuild`, `upgrade`, `uninstall`, `vectors rebuild/backfill` (RUST-12); `serve --mcp`, the stdio MCP server with the `ragmonk_*` tools (RUST-13); `ask` and `ai providers/status/login/logout/models`, and `ui`, the local Admin UI (RUST-14); `update check/status/install/rollback`, the background check and startup notice (RUST-15) |
-| `ragmonk-ai` | AI providers for `ask`: OpenAI, Anthropic, Ollama, OpenAI-compatible, Codex (stdio JSON-RPC) and Copilot (CLI) (RUST-14) |
-| `ragmonk-backends` | V2 OpenSearch/Elasticsearch schema, bounded bulk, atomic build publication, legacy cleanup (RUST-03) |
-| `ragmonk-code` | Tree-sitter code intelligence: reference `.scm` queries, extraction, resolution, framework rules, code graph, whole-build cross-file resolution (RUST-05) |
-| `ragmonk-documents` | canonical normalized-document model, exact pinned tokenizer, token-budget splitting, row-aware tables, payload-aware chunker (RUST-06) |
-| `ragmonk-convert` | Rust-native document conversion (docling.rs, no ML/network), Docling-JSON normalizer, V2 document processor and full registry (RUST-07) |
-| `ragmonk-knowledge` | Cross-domain linker (code entities <-> document chunks, five matchers, Python-parity boundaries) and persistent manual links (RUST-08) |
-| `ragmonk-ml` | Pinned model assets, pure-Rust (Candle) embeddings, embedding cache, persistent HNSW index, semantic search, RRF and the cross-encoder reranker (RUST-09) |
-| `ragmonk-retrieval` | Lexical search, hybrid RRF fusion with exact-match pinning, the optional cross-encoder pass, symbol search, graph queries, explore and impact (RUST-10); search context expansion and query classification (RUST-12) |
-| `ragmonk-core` | errors/exit codes, domain models, home layout, stable IDs, secret filter, path guard, version (RUST-01) |
-| `ragmonk-config` | `config.yaml` + env layering with PyYAML/pydantic-exact semantics (RUST-01) |
-| `ragmonk-indexing` | scanner, ignore rules, incremental diff, retries, run lock, bounded transactional V2 coordinator (RUST-04); progress snapshot and status verdicts, daemon worker, reconciliation, PID and health files, filesystem watcher, network polling, targeted passes (RUST-11) |
-| `ragmonk-storage` | V2 SQLite control plane + per-source knowledge store (RUST-02) |
-| `ragmonk-update` | Native self-update: strict release tags, `update.json` cache, SHA-256 + optional minisign verification, `versions/<ver>` + `current` layout with rollback (RUST-15); see ADR 0029 and `scripts/package_release.py`; releases (`rust-release.yml`) and the `rust/Dockerfile` image: ADR 0030 |
-| `ragmonk-telemetry` | JSON-lines logging, URL/credential redaction (RUST-01) |
+| Crate | Responsibility |
+|-------|----------------|
+| `ragmonk-cli` | `ragmonk` binary: `version`, `config`, `server schema/init`, `daemon`, `init`, `source`, `index`, `status`, `docs`, `watch`, `search`, `symbol`, `callers`, `callees`, `references`, `impact`, `explore`, `link`, `doctor`, `health`, `backup`, `restore`, `rebuild`, `update`, `uninstall`, `vectors`, `ask`, `ai`, `ui` and `serve --mcp` |
+| `ragmonk-service` | application services shared by the CLI, Admin UI and MCP server: sources, indexing runs, queries, status, `ask`, daemon control |
+| `ragmonk-ops` | operations: `doctor`, backup/restore, full rebuilds, vector maintenance, uninstall |
+| `ragmonk-mcp` | stdio MCP server (`ragmonk serve --mcp`) exposing the read-only `ragmonk_*` tools |
+| `ragmonk-ui` | local Admin UI (`ragmonk ui`), an axum server with embedded templates |
+| `ragmonk-ai` | AI providers for `ask`: OpenAI, Anthropic, Ollama, OpenAI-compatible, Codex (stdio JSON-RPC) and Copilot (CLI) |
+| `ragmonk-backends` | OpenSearch/Elasticsearch index set with strict mappings, bounded adaptive bulk writes, atomic per-source build publication |
+| `ragmonk-code` | tree-sitter code intelligence: `.scm` queries, extraction, resolution, framework rules, code graph, cross-file resolution |
+| `ragmonk-documents` | normalized-document model, pinned tokenizer, token-budget splitting, row-aware tables, chunker |
+| `ragmonk-convert` | Rust-native document conversion (docling.rs, no ML/network), Docling-JSON normalizer, email and attachments, document processor |
+| `ragmonk-knowledge` | cross-domain linker (code entities <-> document chunks) and persistent manual links |
+| `ragmonk-ml` | pinned model assets, pure-Rust (Candle) embeddings, embedding cache, persistent HNSW index, semantic search, RRF and the cross-encoder reranker |
+| `ragmonk-retrieval` | lexical and hybrid search, exact-match pinning, reranking, symbol search, graph queries, explore and impact, context expansion and query classification |
+| `ragmonk-indexing` | scanner, ignore rules, incremental diff, retries, run lock, bounded transactional build coordinator, progress and status, daemon worker, filesystem watcher, network polling, targeted passes |
+| `ragmonk-storage` | SQLite control plane (`state/control.db`) and per-project knowledge stores (`projects/<id>/knowledge.db`) |
+| `ragmonk-config` | `config.yaml` loading, layering (defaults < user < project < env < CLI), typed validation |
+| `ragmonk-core` | errors and exit codes, domain models, home layout, stable IDs, secret filter, path guard, version |
+| `ragmonk-update` | native self-update: strict release tags, `update.json` cache, SHA-256 + optional minisign verification, `versions/<ver>` + `current` layout with rollback (ADR 0029) |
+| `ragmonk-telemetry` | JSON-lines logging, URL/credential redaction |
+
+Releases are built by `.github/workflows/rust-release.yml` with
+`cargo xtask package`, and the container image comes from the root
+`Dockerfile` (ADR 0030).
 
 ## Quality gates
 ```sh
-cd rust
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo xtask branding-audit
+cargo xtask clean-slate-audit
 ```
 
-## Reference data (frozen)
-The Python reference that `compat/golden/` and `compat/benchmarks/` were
-captured from has been retired (RUST-16, [ADR 0031](docs/adr/0031-cutover.md)). The goldens are now
-frozen expectations: tests compare against them, and nothing regenerates
-them. The `ragmonk-compat` harness and the `compat/tools/gen_*.py`
-generators are still in git history before ADR 0031.
+## Test fixtures
+`fixtures/` holds the code and document corpora the tests index, and
+`fixtures/expected/` the expected outputs that snapshot tests compare
+against. Snapshot tests that support it regenerate their expectations with
+`RAGMONK_BLESS=1`.
 
-`compat/fixtures/corpus/` holds the code and document corpus that the MCP,
-Admin UI and `ask` golden tests index. It is a copy of the former Python
-`tests/fixtures` files those goldens were captured from.
-
-Policies: [`docs/adr/`](docs/adr) (storage: ADR 0006, server: ADR 0007, V3 clean-slate plan). Goldens: `compat/golden/`,
-benchmarks: `compat/benchmarks/`.
+Design decisions are recorded in [`docs/adr/`](adr).

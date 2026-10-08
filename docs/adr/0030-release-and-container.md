@@ -1,32 +1,33 @@
-# ADR 0030: Native release workflow and container (RUST-15, slice 3)
+# ADR 0030: Native release workflow and container
 
 Status: accepted
 
-## Decisions (user)
+## Decisions
 
-- **Workflow:** a new `.github/workflows/rust-release.yml`. The Python
-  `release.yml` and `main-release.yml` stay untouched until the cutover at
-  RUST-16.
+- **Workflow:** `.github/workflows/rust-release.yml` publishes releases.
 - **Container:** published to GHCR as a multi-arch image
   (`ghcr.io/gzarog/ragmonk`, linux/amd64 and linux/arm64).
 - **Signing:** a hook. When the `MINISIGN_SECRET_KEY` secret exists the
   workflow signs `SHA256SUMS`; otherwise it publishes checksums only.
-- **Installer CI:** the installer jobs from ADR 0029 move from `ci.yml` to
-  `rust.yml`, so they run on every PR to `release/rust-rewrite-v1`.
+- **Installer CI:** the installer jobs from ADR 0029 run in `rust.yml` on
+  every PR.
 
 ## Release workflow
 
-The workflow only runs on manual dispatch. Its inputs are `version`
-(strict `MAJOR.MINOR.PATCH`), `prerelease` (default true) and `image`
-(default true).
+The workflow starts in three ways:
 
-It can also be started by pushing a `rust-v<MAJOR.MINOR.PATCH>` tag. That
-always publishes a pre-release with the image, and the version comes from
-the tag. Manual dispatch only works for workflows on the default branch,
-and this one lives on `release/rust-rewrite-v1`. The `rust-v` prefix keeps
-the tag push from firing the Python `release.yml` (`v*.*.*`). The GitHub
-release itself is still tagged `v<version>`, because that is the tag
-`ragmonk update` expects.
+- automatically, after the CI workflow passes on a push to `main`: the
+  next `vX.Y.Z` is computed (a patch bump, or a minor bump when the merged
+  commit message contains `[release minor]`), tagged and published as a
+  full release;
+- a pushed `rust-v<MAJOR.MINOR.PATCH>` tag: a pre-release with the image,
+  for dry runs;
+- manual dispatch (default branch only), with inputs `version` (strict
+  `MAJOR.MINOR.PATCH`), `prerelease` (default true) and `image` (default
+  true).
+
+The GitHub release itself is always tagged `v<version>`, because that is
+the tag `ragmonk update` expects.
 
 1. **validate:** checks the version format and refuses a tag `v<version>`
    that already exists.
@@ -40,39 +41,36 @@ release itself is still tagged `v<version>`, because that is the tag
    | `x86_64-pc-windows-msvc` | windows-latest |
 
    Each build does the following:
-   - fetches the pinned models with `rust/scripts/fetch_models.sh`, using
+   - fetches the pinned models with `scripts/fetch_models.sh`, using
      the same digests as the crates' manifests;
    - runs `cargo build --release --locked` with `RAGMONK_BUILD_VERSION`,
      `RAGMONK_BUILD_COMMIT` and `RAGMONK_MINISIGN_PUBKEY` (from
      `vars.MINISIGN_PUBLIC_KEY`);
    - smoke-tests `version --json`;
-   - packages the archive with `package_release.py --models`.
+   - packages the archive with `cargo xtask package --models`.
 3. **release:** assembles and publishes the GitHub release:
-   - merges the per-target checksums into `SHA256SUMS`;
+   - writes `SHA256SUMS` over every archive (`cargo xtask release-manifest`);
    - writes `install.sh` and `install.ps1` with the public key filled in;
    - signs `SHA256SUMS` with minisign when the secret is set, then verifies
      the signature against the public variable;
    - runs `gh release create v<version> --target <sha>`.
-
-   A tag pushed with `GITHUB_TOKEN` does not trigger the Python
-   `release.yml`.
 4. **image / image-manifest:** builds the image natively on amd64 and arm64
    runners and pushes each by digest. Each per-platform image is
    smoke-tested, then the two are joined into a manifest list tagged
    `<version>`, plus `latest` for a full release.
 
-Releases are pre-releases by default. GitHub's "latest release" endpoint,
-which both the Python updater and `ragmonk update` follow, skips
-pre-releases. So a native release reaches existing users only once a
-maintainer publishes it as a full release.
+Manual and tag-triggered releases are pre-releases by default. GitHub's
+"latest release" endpoint, which `ragmonk update` follows, skips
+pre-releases, so such a release reaches existing users only once it is
+published as a full release.
 
-## Container (`rust/Dockerfile`)
+## Container (`Dockerfile`)
 
 - **Build stage:** `rust:1.90.0-slim-bookworm`, matching
   `rust-toolchain.toml`. It builds `ragmonk-cli` with `--locked` and fetches
   the models.
 - **Runtime stage:** `debian:bookworm-slim` with `ca-certificates` and
-  `tini`, and no Python.
+  `tini`, and nothing else.
 - **User and data:** runs as the non-root user `ragmonk` (uid 10001).
   `RAGMONK_HOME=/data` is a volume.
 - **Models:** baked in at `/opt/ragmonk/models`, set through
@@ -107,18 +105,15 @@ installed.
 ## CI (`rust.yml`)
 
 - `install-script-tests` (Linux and macOS) and
-  `install-script-tests-windows` move here from `ci.yml`, unchanged apart
-  from the working directory.
+  `install-script-tests-windows` exercise the installers (ADR 0029).
 - `container-image` builds the amd64 image and checks that:
   - `version --json` reports the build-arg version;
-  - there is no Python in the image;
+  - no script interpreter is installed in the image;
   - `init` followed by `doctor` succeeds;
   - the models are present.
 
 ## Not done here
 
-- Deleting the Python release path, `release.yml` and the Python image. That
-  is RUST-16.
 - macOS notarization and Windows Authenticode signing. These need
   certificates the project does not have. The minisign hook covers
   integrity.

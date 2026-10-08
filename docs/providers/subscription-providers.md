@@ -23,9 +23,7 @@ ask that client to retrieve with `ragmonk_explore` and answer from the
 returned evidence:
 
 ```sh
-ragmonk install-agent --client codex
-# or:
-ragmonk install-agent --client claude-code
+ragmonk serve --mcp   # the command to register as a stdio MCP server
 ```
 
 RagMonk needs no AI provider configured for this flow. Note the privacy
@@ -99,8 +97,7 @@ is present — all offline and without printing secrets.
 
 ## Limitations and status
 
-- Both adapters are **beta** and gated behind version/isolation checks (see
-  [`subscription-integration-note.md`](subscription-integration-note.md)).
+- Both adapters are **beta** and gated behind version/isolation checks.
   If answer-only isolation cannot be enforced for your pinned runtime
   version, use the MCP client flow (A) instead.
 - Account allowances, model access, and provider/organization policies

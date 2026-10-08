@@ -1,14 +1,13 @@
-# ADR 0014: Persistent ANN index and semantic search (RUST-09, slice 2)
+# ADR 0014: Persistent ANN index and semantic search
 
 Status: accepted
 
-## Decisions (user)
+## Decisions
 
-1. **Engine.** A pure-Rust HNSW index with exact search as the fallback.
-   This mirrors the reference's usearch → brute-force pair without C++.
-2. **Scope.** This slice delivers the index plus the semantic query path,
-   with golden queries. Reciprocal Rank Fusion is ported as a tested
-   primitive; RUST-10 wires it into hybrid search.
+1. **Engine.** A pure-Rust HNSW index with exact search as the fallback,
+   with no C++ dependency.
+2. **Fusion.** Reciprocal Rank Fusion is a tested primitive in
+   `ragmonk-ml`; hybrid search (ADR 0016) uses it.
 
 ## Index (`ragmonk_ml::hnsw`)
 
@@ -55,20 +54,17 @@ Status: accepted
   - entities: qualified name, signature and line;
   - chunks: title > heading, a snippet, the ordinal and the attachment
     index.
-- Ordering matches the reference: `(-score, path, id)`.
-- Like the reference, it never fails because semantic search cannot run.
+- Ordering: `(-score, path, id)`.
+- It never fails because semantic search cannot run.
   A missing model, an empty query or a build without vectors is reported
   in `reason`.
 
 ## Evidence
 
-- `compat/golden/semantic.json` comes from the reference
-  (`compat/tools/gen_semantic_golden.py`). It holds exact cosine rankings
-  of the Python-stored vectors for 8 queries over the linking corpus
-  (32 subjects), including a Greek query.
-- Rust embeds the same 32 subjects. HNSW and exact search both reproduce
-  the top-10 order: scores within 1e-3, and swaps allowed only between
-  near-ties under 1e-4.
+- `fixtures/expected/semantic.json` holds exact cosine rankings for 8
+  queries over the linking corpus (32 subjects), including a Greek query.
+  HNSW and exact search both reproduce the top-10 order: scores within
+  1e-3, and swaps allowed only between near-ties under 1e-4.
 - The ANN tests cover:
   - round trip, corruption, truncation and version mismatch;
   - atomic save;
@@ -84,21 +80,12 @@ Status: accepted
 
 ## Benchmark
 
-20,000 clustered 384-dimension unit vectors and 200 queries, with identical
-input for both:
+`benchmarks/ann-20000.json`: 20,000 clustered 384-dimension unit vectors
+and 200 queries. Build about 11 s single-threaded, query about 0.6 ms,
+recall@10 about 0.73, exact query about 7.7 ms.
 
-| | Python (usearch, 4 threads) | Rust HNSW (1 thread) |
-|---|---|---|
-| Build | 1.6 s | 11.2 s |
-| Query | 0.09 ms | 0.59 ms |
-| Recall@10 | 0.635 | 0.731 |
-| Exact query | 1.4 ms (MKL) | 7.7 ms |
-
-- Rust has higher recall; usearch is faster. usearch builds and searches in
-  parallel batches with SIMD kernels, while Rust runs single-threaded on
-  baseline x86-64.
-- Build cost is about 0.5 ms per vector. That is under 2% of the time to
-  embed the same text at the slice-1 throughput.
+- Build cost is about 0.5 ms per vector, under 2% of the time to embed the
+  same text.
 - Sync is incremental, so steady-state cost tracks the change.
 - Load takes 0.24 s for a 33 MB file.
 
@@ -107,5 +94,3 @@ input for both:
 - Index build is single-threaded.
 - The digest check reads the build's key set once per query, which is
   O(n) over short rows.
-- Hybrid search wiring, filters and multi-source search belong to RUST-10.
-- Server-mode kNN belongs to RUST-12.
