@@ -2,6 +2,7 @@
 
 mod audit;
 mod branding;
+mod fixtures;
 mod package;
 
 use std::path::PathBuf;
@@ -21,7 +22,11 @@ commands:
   clean-slate-audit [--update-baseline] [--require-empty-baseline]
       Fail if a reference forbidden by ADR 0032 (clean slate)
       appears outside the narrow allowlist or above the shrink-only
-      transition baseline (audit/clean-slate-baseline.tsv).";
+      transition baseline (audit/clean-slate-baseline.tsv).
+  p0-corpus --out DIR [--sources N] [--files N] [--seed N] [--with-documents]
+      Generate the deterministic multi-repository P0 corpus (ADR 0033):
+      cross-repository C# symbols, English/Greek notes and, optionally,
+      PDF/scanned/EML documents. Defaults: 150 sources, 200000 files.";
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -43,6 +48,16 @@ fn main() -> Result<()> {
             Ok(())
         }
         Some("branding-audit") => branding::run(),
+        Some("p0-corpus") => {
+            let a = fixtures::CorpusArgs::parse(args)?;
+            let n = fixtures::generate(&audit::repo_root()?, &a)?;
+            println!(
+                "wrote {n} files in {} sources to {}",
+                a.sources,
+                a.out.display()
+            );
+            Ok(())
+        }
         Some("clean-slate-audit") => {
             let mut opts = audit::Options::default();
             for arg in args {

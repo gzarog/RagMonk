@@ -1,0 +1,17 @@
+{
+  "baseline_commit": "a92f9a1deec08cb977e0390033ea93f106ed9312",
+  "server_indexes_after_server_mode_run": {
+    "source-state": 0,
+    "files": 0,
+    "code": 0,
+    "documents": 0,
+    "chunks": 0,
+    "relationships": 0
+  },
+  "findings": [
+    "storage.mode=server indexed into 20 local SQLite knowledge.db files and wrote 0 records to any OpenSearch index",
+    "server-mode search returned results read from local SQLite (silent local fallback)",
+    "server-mode status reported no server counts (placeholder error in ragmonk-service status.rs)",
+    "sources were indexed serially under one global index.lock"
+  ]
+}

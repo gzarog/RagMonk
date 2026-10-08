@@ -1,0 +1,68 @@
+{
+  "plan": "RagMonk_P0_Completion_V1",
+  "baseline_commit": "a92f9a1deec08cb977e0390033ea93f106ed9312",
+  "measured_on": "2026-10-08",
+  "reproduce": "cargo build --release -p ragmonk-cli (at the baseline commit); RAGMONK_P0_SERVER_URL=http://localhost:9201 scripts/p0-baseline.sh target/release/ragmonk out.json 20 4000 opensearch",
+  "scenarios": {
+    "harness": "scripts/p0-baseline.sh",
+    "binary": "ragmonk 0.0.0",
+    "corpus": {
+      "generator": "cargo xtask p0-corpus --with-documents",
+      "sources": 20,
+      "files": 4000,
+      "seed": 1
+    },
+    "host": {
+      "cpus": 4,
+      "mem_gb": 15,
+      "cpu_model": "Intel(R) Xeon(R) Processor @ 2.80GHz"
+    },
+    "local": {
+      "mode": "local",
+      "cold_ms": 4162,
+      "warm_ms": 237,
+      "edit_one_file_ms": 307,
+      "query_ms": {
+        "search": 173,
+        "symbol": 58,
+        "explore": 152
+      },
+      "failed_source_ms": 241,
+      "status_ok": true,
+      "status_backend": null,
+      "local_knowledge_dbs": 20,
+      "search_result_paths": 20
+    },
+    "server": {
+      "mode": "server",
+      "cold_ms": 4179,
+      "warm_ms": 281,
+      "edit_one_file_ms": 311,
+      "query_ms": {
+        "search": 136,
+        "symbol": 77,
+        "explore": 150
+      },
+      "failed_source_ms": 226,
+      "status_ok": true,
+      "status_backend": null,
+      "local_knowledge_dbs": 20,
+      "search_result_paths": 20
+    }
+  },
+  "server_indexes_after_server_mode_run": {
+    "source-state": 0,
+    "files": 0,
+    "code": 0,
+    "documents": 0,
+    "chunks": 0,
+    "relationships": 0
+  },
+  "findings": [
+    "storage.mode=server indexed into 20 local SQLite knowledge.db files and wrote 0 records to any OpenSearch index",
+    "server-mode search returned results read from local SQLite (silent local fallback)",
+    "server-mode status reported no server counts (placeholder error in ragmonk-service status.rs)",
+    "sources were indexed serially under one global index.lock"
+  ],
+  "notes": "Small corpus (20 sources, 4000 generated files plus document fixtures in every tenth repository) on a shared 4-vCPU container; timings are a baseline for the same harness and host only, not a performance claim. The full 150-source/200000-file run uses the same script with 150 200000."
+}
