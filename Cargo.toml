@@ -1,0 +1,135 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ragmonk-ai",
+    "crates/ragmonk-backends",
+    "crates/ragmonk-cli",
+    "crates/ragmonk-code",
+    "crates/ragmonk-config",
+    "crates/ragmonk-convert",
+    "crates/ragmonk-core",
+    "crates/ragmonk-documents",
+    "crates/ragmonk-indexing",
+    "crates/ragmonk-knowledge",
+    "crates/ragmonk-ml",
+    "crates/ragmonk-mcp",
+    "crates/ragmonk-ops",
+    "crates/ragmonk-retrieval",
+    "crates/ragmonk-service",
+    "crates/ragmonk-storage",
+    "crates/ragmonk-telemetry",
+    "crates/ragmonk-ui",
+    "crates/ragmonk-update",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.89"
+license = "MIT"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+
+[workspace.dependencies]
+anyhow = "1"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query", "form", "json"] }
+futures-util = { version = "0.3", default-features = false }
+getrandom = "0.3"
+minijinja = { version = "2", features = ["loader", "json"] }
+minijinja-contrib = { version = "2", features = ["pycompat"] }
+signal-hook = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "time", "sync", "signal"] }
+ragmonk-ai = { path = "crates/ragmonk-ai" }
+ragmonk-backends = { path = "crates/ragmonk-backends" }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+dunce = "1"
+ragmonk-code = { path = "crates/ragmonk-code" }
+ragmonk-convert = { path = "crates/ragmonk-convert" }
+ragmonk-config = { path = "crates/ragmonk-config" }
+ragmonk-documents = { path = "crates/ragmonk-documents" }
+ragmonk-core = { path = "crates/ragmonk-core" }
+ragmonk-ml = { path = "crates/ragmonk-ml" }
+ragmonk-knowledge = { path = "crates/ragmonk-knowledge" }
+ragmonk-retrieval = { path = "crates/ragmonk-retrieval" }
+ragmonk-service = { path = "crates/ragmonk-service" }
+ragmonk-ops = { path = "crates/ragmonk-ops" }
+ragmonk-mcp = { path = "crates/ragmonk-mcp" }
+ragmonk-ui = { path = "crates/ragmonk-ui" }
+ragmonk-indexing = { path = "crates/ragmonk-indexing" }
+ragmonk-storage = { path = "crates/ragmonk-storage" }
+ragmonk-telemetry = { path = "crates/ragmonk-telemetry" }
+ragmonk-update = { path = "crates/ragmonk-update" }
+clap = { version = "4.5", features = ["derive"] }
+flate2 = "1"
+notify = "8.2"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "rustls-tls-native-roots", "json"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+sysinfo = { version = "0.37", default-features = false, features = ["system", "disk"] }
+tar = "0.4"
+zip = { version = "8", default-features = false, features = ["deflate"] }
+tempfile = "3"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "registry"] }
+yaml-rust2 = "0.10"
+
+# Inference/decoding crates are unusably slow unoptimized; tests run in the
+# dev profile, so build these optimized there too.
+[profile.dev.package.rten]
+opt-level = 3
+[profile.dev.package.rten-simd]
+opt-level = 3
+[profile.dev.package.rten-tensor]
+opt-level = 3
+[profile.dev.package.rten-vecmath]
+opt-level = 3
+[profile.dev.package.rten-imageproc]
+opt-level = 3
+[profile.dev.package.ocrs]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.tokenizers]
+opt-level = 3
+[profile.dev.package.rten-gemm]
+opt-level = 3
+[profile.dev.package.rten-base]
+opt-level = 3
+[profile.dev.package.rten-model-file]
+opt-level = 3
+[profile.dev.package.rten-shape-inference]
+opt-level = 3
+[profile.dev.package.zune-core]
+opt-level = 3
+[profile.dev.package.candle-core]
+opt-level = 3
+[profile.dev.package.candle-nn]
+opt-level = 3
+[profile.dev.package.gemm]
+opt-level = 3
+[profile.dev.package.gemm-common]
+opt-level = 3
+[profile.dev.package.gemm-f32]
+opt-level = 3
+[profile.dev.package.gemm-f16]
+opt-level = 3
+[profile.dev.package.half]
+opt-level = 3
+[profile.dev.package.pulp]
+opt-level = 3
+[profile.dev.package.safetensors]
+opt-level = 3

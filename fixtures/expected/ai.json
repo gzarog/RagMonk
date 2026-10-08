@@ -1,0 +1,2882 @@
+{
+ "codex": [
+  {
+   "case": "status_signed_in",
+   "model": "",
+   "op": "status",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {
+      "account": {
+       "email": "me@example.com"
+      },
+      "authMode": "chatgpt",
+      "authenticated": true,
+      "runtimeVersion": "0.40.0"
+     }
+    }
+   ],
+   "result": {
+    "account": "me@example.com",
+    "authenticated": true,
+    "detail": "signed in",
+    "provider": "codex",
+    "runtime_version": "0.40.0"
+   },
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "account/getStatus",
+     "params": {}
+    }
+   ]
+  },
+  {
+   "case": "status_signed_out",
+   "model": "",
+   "op": "status",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {
+      "authenticated": false
+     }
+    }
+   ],
+   "result": {
+    "account": null,
+    "authenticated": false,
+    "detail": "not signed in; run 'ragmonk ai login codex'",
+    "provider": "codex",
+    "runtime_version": null
+   },
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "account/getStatus",
+     "params": {}
+    }
+   ]
+  },
+  {
+   "case": "status_api_key_mode",
+   "error": {
+    "exit_code": 8,
+    "message": "the Codex runtime is signed in with an unexpected auth mode \"apikey\"; RagMonk's codex provider requires ChatGPT (subscription) sign-in, not an API key",
+    "type": "AiPolicyBlockedError"
+   },
+   "model": "",
+   "op": "status",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {
+      "authMode": "apikey",
+      "authenticated": true
+     }
+    }
+   ],
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "account/getStatus",
+     "params": {}
+    }
+   ]
+  },
+  {
+   "case": "login",
+   "model": "",
+   "op": "login",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {
+      "account": "me",
+      "authenticated": true
+     }
+    }
+   ],
+   "result": {
+    "account": "me",
+    "authenticated": true,
+    "detail": "signed in",
+    "provider": "codex",
+    "runtime_version": null
+   },
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "account/login",
+     "params": {
+      "mode": "chatgpt"
+     }
+    }
+   ]
+  },
+  {
+   "case": "logout",
+   "model": "",
+   "op": "logout",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {}
+    }
+   ],
+   "result": null,
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "account/logout",
+     "params": {}
+    }
+   ]
+  },
+  {
+   "case": "models",
+   "model": "",
+   "op": "models",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {
+      "models": [
+       {
+        "id": "gpt-5"
+       },
+       {
+        "name": "o4"
+       },
+       "raw",
+       5,
+       {}
+      ]
+     }
+    }
+   ],
+   "result": [
+    "gpt-5",
+    "o4",
+    "raw"
+   ],
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "model/list",
+     "params": {}
+    }
+   ]
+  },
+  {
+   "case": "answer_ok",
+   "model": "",
+   "op": "answer",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {
+      "threadId": "t1"
+     }
+    },
+    {
+     "result": {
+      "message": {
+       "content": [
+        {
+         "text": "A",
+         "type": "text"
+        },
+        {
+         "type": "image"
+        },
+        {
+         "text": "B",
+         "type": "text"
+        }
+       ]
+      },
+      "model": "gpt-5",
+      "status": "completed",
+      "usage": {
+       "inputTokens": 10,
+       "outputTokens": "x"
+      }
+     }
+    }
+   ],
+   "result": {
+    "model": "gpt-5",
+    "text": "AB",
+    "usage": [
+     10,
+     null
+    ]
+   },
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "thread/create",
+     "params": {
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      }
+     }
+    },
+    {
+     "id": 3,
+     "jsonrpc": "2.0",
+     "method": "thread/runTurn",
+     "params": {
+      "input": [
+       {
+        "content": "SYS",
+        "role": "system"
+       },
+       {
+        "content": "USER",
+        "role": "user"
+       }
+      ],
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      },
+      "stream": false,
+      "threadId": "t1"
+     }
+    }
+   ]
+  },
+  {
+   "case": "answer_ok/gpt-5-mini",
+   "model": "gpt-5-mini",
+   "op": "answer",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {
+      "threadId": "t1"
+     }
+    },
+    {
+     "result": {
+      "message": {
+       "content": [
+        {
+         "text": "A",
+         "type": "text"
+        },
+        {
+         "type": "image"
+        },
+        {
+         "text": "B",
+         "type": "text"
+        }
+       ]
+      },
+      "model": "gpt-5",
+      "status": "completed",
+      "usage": {
+       "inputTokens": 10,
+       "outputTokens": "x"
+      }
+     }
+    }
+   ],
+   "result": {
+    "model": "gpt-5",
+    "text": "AB",
+    "usage": [
+     10,
+     null
+    ]
+   },
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "thread/create",
+     "params": {
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      }
+     }
+    },
+    {
+     "id": 3,
+     "jsonrpc": "2.0",
+     "method": "thread/runTurn",
+     "params": {
+      "input": [
+       {
+        "content": "SYS",
+        "role": "system"
+       },
+       {
+        "content": "USER",
+        "role": "user"
+       }
+      ],
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      },
+      "model": "gpt-5-mini",
+      "stream": false,
+      "threadId": "t1"
+     }
+    }
+   ]
+  },
+  {
+   "case": "answer_text_field",
+   "model": "",
+   "op": "answer",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {
+      "id": "t2"
+     }
+    },
+    {
+     "result": {
+      "text": "plain"
+     }
+    }
+   ],
+   "result": {
+    "model": "codex",
+    "text": "plain",
+    "usage": [
+     null,
+     null
+    ]
+   },
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "thread/create",
+     "params": {
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      }
+     }
+    },
+    {
+     "id": 3,
+     "jsonrpc": "2.0",
+     "method": "thread/runTurn",
+     "params": {
+      "input": [
+       {
+        "content": "SYS",
+        "role": "system"
+       },
+       {
+        "content": "USER",
+        "role": "user"
+       }
+      ],
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      },
+      "stream": false,
+      "threadId": "t2"
+     }
+    }
+   ]
+  },
+  {
+   "case": "answer_failed",
+   "error": {
+    "exit_code": 1,
+    "message": "Codex turn did not complete (status=\"failed\"); refusing to present it as an answer",
+    "type": "AiInvalidResponseError"
+   },
+   "model": "",
+   "op": "answer",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {
+      "threadId": "t1"
+     }
+    },
+    {
+     "result": {
+      "status": "failed"
+     }
+    }
+   ],
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "thread/create",
+     "params": {
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      }
+     }
+    },
+    {
+     "id": 3,
+     "jsonrpc": "2.0",
+     "method": "thread/runTurn",
+     "params": {
+      "input": [
+       {
+        "content": "SYS",
+        "role": "system"
+       },
+       {
+        "content": "USER",
+        "role": "user"
+       }
+      ],
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      },
+      "stream": false,
+      "threadId": "t1"
+     }
+    }
+   ]
+  },
+  {
+   "case": "answer_empty",
+   "error": {
+    "exit_code": 1,
+    "message": "Codex turn returned no answer text",
+    "type": "AiInvalidResponseError"
+   },
+   "model": "",
+   "op": "answer",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {
+      "threadId": "t1"
+     }
+    },
+    {
+     "result": {
+      "message": {}
+     }
+    }
+   ],
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "thread/create",
+     "params": {
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      }
+     }
+    },
+    {
+     "id": 3,
+     "jsonrpc": "2.0",
+     "method": "thread/runTurn",
+     "params": {
+      "input": [
+       {
+        "content": "SYS",
+        "role": "system"
+       },
+       {
+        "content": "USER",
+        "role": "user"
+       }
+      ],
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      },
+      "stream": false,
+      "threadId": "t1"
+     }
+    }
+   ]
+  },
+  {
+   "case": "answer_no_thread",
+   "error": {
+    "exit_code": 1,
+    "message": "Codex runtime did not return a thread id",
+    "type": "AiInvalidResponseError"
+   },
+   "model": "",
+   "op": "answer",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {}
+    }
+   ],
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "thread/create",
+     "params": {
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      }
+     }
+    }
+   ]
+  },
+  {
+   "case": "answer_quota",
+   "error": {
+    "exit_code": 1,
+    "message": "the ChatGPT account's allowance is exhausted: usage limit reached",
+    "type": "AiQuotaExhaustedError"
+   },
+   "model": "",
+   "op": "answer",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "result": {
+      "threadId": "t1"
+     }
+    },
+    {
+     "error": {
+      "code": 429,
+      "message": "usage limit reached"
+     }
+    }
+   ],
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "thread/create",
+     "params": {
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      }
+     }
+    },
+    {
+     "id": 3,
+     "jsonrpc": "2.0",
+     "method": "thread/runTurn",
+     "params": {
+      "input": [
+       {
+        "content": "SYS",
+        "role": "system"
+       },
+       {
+        "content": "USER",
+        "role": "user"
+       }
+      ],
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      },
+      "stream": false,
+      "threadId": "t1"
+     }
+    }
+   ]
+  },
+  {
+   "case": "answer_login",
+   "error": {
+    "exit_code": 3,
+    "message": "the Codex runtime needs sign-in: please sign in. Run: ragmonk ai login codex",
+    "type": "AiAuthenticationRequiredError"
+   },
+   "model": "",
+   "op": "answer",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "error": {
+      "code": "unauthenticated",
+      "message": "please sign in"
+     }
+    }
+   ],
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "thread/create",
+     "params": {
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      }
+     }
+    }
+   ]
+  },
+  {
+   "case": "answer_policy",
+   "error": {
+    "exit_code": 8,
+    "message": "the Codex runtime refused the request on policy grounds: workspace disabled",
+    "type": "AiPolicyBlockedError"
+   },
+   "model": "",
+   "op": "answer",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "error": {
+      "code": 403,
+      "message": "workspace disabled"
+     }
+    }
+   ],
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "thread/create",
+     "params": {
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      }
+     }
+    }
+   ]
+  },
+  {
+   "case": "answer_other",
+   "error": {
+    "exit_code": 1,
+    "message": "runtime error -32000: boom",
+    "type": "JsonRpcError"
+   },
+   "model": "",
+   "op": "answer",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "error": {
+      "code": -32000,
+      "message": "boom"
+     }
+    }
+   ],
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "thread/create",
+     "params": {
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      }
+     }
+    }
+   ]
+  },
+  {
+   "case": "answer_string_error",
+   "error": {
+    "exit_code": 1,
+    "message": "runtime error : bad",
+    "type": "JsonRpcError"
+   },
+   "model": "",
+   "op": "answer",
+   "replies": [
+    {
+     "result": {
+      "serverInfo": {
+       "name": "codex"
+      }
+     }
+    },
+    {
+     "error": "bad"
+    }
+   ],
+   "sent": [
+    {
+     "id": 1,
+     "jsonrpc": "2.0",
+     "method": "initialize",
+     "params": {
+      "authMode": "chatgpt",
+      "capabilities": {
+       "isolation": {
+        "fileAccess": false,
+        "hooks": false,
+        "mcpServers": [],
+        "plugins": false,
+        "tools": false,
+        "web": false
+       }
+      },
+      "clientInfo": {
+       "name": "ragmonk",
+       "title": "RagMonk"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "initialized",
+     "params": {}
+    },
+    {
+     "id": 2,
+     "jsonrpc": "2.0",
+     "method": "thread/create",
+     "params": {
+      "isolation": {
+       "fileAccess": false,
+       "hooks": false,
+       "mcpServers": [],
+       "plugins": false,
+       "tools": false,
+       "web": false
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "factory": [
+  {
+   "config": {},
+   "env": "all",
+   "error": {
+    "exit_code": 3,
+    "message": "no ai.provider is configured. Set one with: ragmonk config set ai.provider <openai|anthropic|ollama|openai_compatible>",
+    "type": "AiNotConfiguredError"
+   },
+   "external_ai_allowed": false
+  },
+  {
+   "config": {
+    "provider": "  NONE "
+   },
+   "env": "all",
+   "error": {
+    "exit_code": 3,
+    "message": "no ai.provider is configured. Set one with: ragmonk config set ai.provider <openai|anthropic|ollama|openai_compatible>",
+    "type": "AiNotConfiguredError"
+   },
+   "external_ai_allowed": false
+  },
+  {
+   "config": {
+    "provider": "mystery"
+   },
+   "env": "all",
+   "error": {
+    "exit_code": 3,
+    "message": "unknown ai.provider=\"mystery\"; expected one of openai, anthropic, ollama, openai_compatible, codex, github_copilot",
+    "type": "AiNotConfiguredError"
+   },
+   "external_ai_allowed": true
+  },
+  {
+   "config": {
+    "provider": "openai"
+   },
+   "env": "all",
+   "error": {
+    "exit_code": 8,
+    "message": "ai.provider='openai' sends data to a network endpoint outside this machine, which requires privacy.external_ai_allowed=true (it defaults to false). Set it with: ragmonk config set privacy.external_ai_allowed true",
+    "type": "AiPrivacyBlockedError"
+   },
+   "external_ai_allowed": false
+  },
+  {
+   "config": {
+    "provider": "openai"
+   },
+   "env": "none",
+   "error": {
+    "exit_code": 3,
+    "message": "ai.provider=openai requires the OPENAI_API_KEY env var",
+    "type": "AiNotConfiguredError"
+   },
+   "external_ai_allowed": true
+  },
+  {
+   "config": {
+    "provider": "anthropic"
+   },
+   "env": "none",
+   "error": {
+    "exit_code": 3,
+    "message": "ai.provider=anthropic requires the ANTHROPIC_API_KEY env var",
+    "type": "AiNotConfiguredError"
+   },
+   "external_ai_allowed": true
+  },
+  {
+   "config": {
+    "provider": "anthropic"
+   },
+   "env": "all",
+   "error": {
+    "exit_code": 8,
+    "message": "ai.provider='anthropic' sends data to a network endpoint outside this machine, which requires privacy.external_ai_allowed=true (it defaults to false). Set it with: ragmonk config set privacy.external_ai_allowed true",
+    "type": "AiPrivacyBlockedError"
+   },
+   "external_ai_allowed": false
+  },
+  {
+   "config": {
+    "provider": "openai_compatible"
+   },
+   "env": "all",
+   "error": {
+    "exit_code": 3,
+    "message": "ai.provider=openai_compatible requires ai.base_url",
+    "type": "AiNotConfiguredError"
+   },
+   "external_ai_allowed": true
+  },
+  {
+   "config": {
+    "base_url": "http://x",
+    "provider": "openai_compatible"
+   },
+   "env": "all",
+   "error": {
+    "exit_code": 3,
+    "message": "ai.provider=openai_compatible requires ai.model",
+    "type": "AiNotConfiguredError"
+   },
+   "external_ai_allowed": true
+  },
+  {
+   "config": {
+    "provider": "openai_compatible"
+   },
+   "env": "all",
+   "error": {
+    "exit_code": 8,
+    "message": "ai.provider='openai_compatible' sends data to a network endpoint outside this machine, which requires privacy.external_ai_allowed=true (it defaults to false). Set it with: ragmonk config set privacy.external_ai_allowed true",
+    "type": "AiPrivacyBlockedError"
+   },
+   "external_ai_allowed": false
+  },
+  {
+   "config": {
+    "provider": "ollama"
+   },
+   "env": "none",
+   "external_ai_allowed": false
+  },
+  {
+   "config": {
+    "base_url": "http://[::1]:11434",
+    "provider": "ollama"
+   },
+   "env": "none",
+   "external_ai_allowed": false
+  },
+  {
+   "config": {
+    "base_url": "http://gpu-box:11434",
+    "provider": "ollama"
+   },
+   "env": "none",
+   "error": {
+    "exit_code": 8,
+    "message": "ai.provider='ollama (non-local base_url)' sends data to a network endpoint outside this machine, which requires privacy.external_ai_allowed=true (it defaults to false). Set it with: ragmonk config set privacy.external_ai_allowed true",
+    "type": "AiPrivacyBlockedError"
+   },
+   "external_ai_allowed": false
+  },
+  {
+   "config": {
+    "base_url": "http://gpu-box:11434",
+    "provider": "ollama"
+   },
+   "env": "none",
+   "external_ai_allowed": true
+  },
+  {
+   "config": {
+    "provider": "codex"
+   },
+   "env": "none",
+   "error": {
+    "exit_code": 8,
+    "message": "ai.provider='codex' sends data to a network endpoint outside this machine, which requires privacy.external_ai_allowed=true (it defaults to false). Set it with: ragmonk config set privacy.external_ai_allowed true",
+    "type": "AiPrivacyBlockedError"
+   },
+   "external_ai_allowed": false
+  },
+  {
+   "config": {
+    "provider": "github_copilot"
+   },
+   "env": "none",
+   "error": {
+    "exit_code": 8,
+    "message": "ai.provider='github_copilot' sends data to a network endpoint outside this machine, which requires privacy.external_ai_allowed=true (it defaults to false). Set it with: ragmonk config set privacy.external_ai_allowed true",
+    "type": "AiPrivacyBlockedError"
+   },
+   "external_ai_allowed": false
+  }
+ ],
+ "prompt": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+ "prompt_empty": "Question: q\n\nRetrieval summary: nothing\n\nNo evidence was retrieved for this question.",
+ "providers": [
+  {
+   "answer": {
+    "model": "gpt-4o-mini-2024-07-18",
+    "provider": "openai",
+    "text": "Dog.speak calls bark.",
+    "usage": {
+     "input_tokens": 120,
+     "output_tokens": 7
+    }
+   },
+   "case": "openai/ok",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "provider": "openai"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"id\": \"chatcmpl-1\", \"object\": \"chat.completion\", \"created\": 1, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Dog.speak calls bark.\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 120, \"completion_tokens\": 7, \"total_tokens\": 127}}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-4o-mini"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "answer": {
+    "model": "gpt-4o-mini-2024-07-18",
+    "provider": "openai",
+    "text": "Dog.speak calls bark.",
+    "usage": {
+     "input_tokens": 120,
+     "output_tokens": 7
+    }
+   },
+   "case": "openai/empty_evidence",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "provider": "openai"
+   },
+   "request": "empty",
+   "response": {
+    "body": "{\"id\": \"chatcmpl-1\", \"object\": \"chat.completion\", \"created\": 1, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Dog.speak calls bark.\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 120, \"completion_tokens\": 7, \"total_tokens\": 127}}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: q\n\nRetrieval summary: nothing\n\nNo evidence was retrieved for this question.",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-4o-mini"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai/http_401_json",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "provider": "openai"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "openai request failed: Error code: 401 - {\"error\": {\"message\": \"Incorrect API key provided\", \"type\": \"invalid_request_error\"}}",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"error\": {\"message\": \"Incorrect API key provided\", \"type\": \"invalid_request_error\"}}",
+    "content_type": "application/json",
+    "status": 401
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-4o-mini"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai/http_500_text",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "provider": "openai"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "openai request failed: upstream exploded",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "upstream exploded",
+    "content_type": "text/plain",
+    "status": 500
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-4o-mini"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai/not_json",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "provider": "openai"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "ai provider call failed: expected value at line 1 column 1",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "<html>nope</html>",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-4o-mini"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "answer": {
+    "model": "gpt-4o-mini",
+    "provider": "openai",
+    "text": "",
+    "usage": {
+     "input_tokens": null,
+     "output_tokens": null
+    }
+   },
+   "case": "openai/bare",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "provider": "openai"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"id\": \"x\", \"object\": \"chat.completion\", \"created\": 1, \"model\": \"\", \"choices\": []}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-4o-mini"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai/connection_refused",
+   "config": {
+    "base_url": "http://127.0.0.1:<DEAD>/v1",
+    "provider": "openai"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "openai request failed: Connection error.",
+    "type": "AiProviderError"
+   },
+   "request": "full"
+  },
+  {
+   "answer": {
+    "model": "gpt-4o-mini-2024-07-18",
+    "provider": "openai",
+    "text": "Dog.speak calls bark.",
+    "usage": {
+     "input_tokens": 120,
+     "output_tokens": 7
+    }
+   },
+   "case": "openai_model/ok",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "gpt-x",
+    "provider": "openai"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"id\": \"chatcmpl-1\", \"object\": \"chat.completion\", \"created\": 1, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Dog.speak calls bark.\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 120, \"completion_tokens\": 7, \"total_tokens\": 127}}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-x"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "answer": {
+    "model": "gpt-4o-mini-2024-07-18",
+    "provider": "openai",
+    "text": "Dog.speak calls bark.",
+    "usage": {
+     "input_tokens": 120,
+     "output_tokens": 7
+    }
+   },
+   "case": "openai_model/empty_evidence",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "gpt-x",
+    "provider": "openai"
+   },
+   "request": "empty",
+   "response": {
+    "body": "{\"id\": \"chatcmpl-1\", \"object\": \"chat.completion\", \"created\": 1, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Dog.speak calls bark.\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 120, \"completion_tokens\": 7, \"total_tokens\": 127}}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: q\n\nRetrieval summary: nothing\n\nNo evidence was retrieved for this question.",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-x"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai_model/http_401_json",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "gpt-x",
+    "provider": "openai"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "openai request failed: Error code: 401 - {\"error\": {\"message\": \"Incorrect API key provided\", \"type\": \"invalid_request_error\"}}",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"error\": {\"message\": \"Incorrect API key provided\", \"type\": \"invalid_request_error\"}}",
+    "content_type": "application/json",
+    "status": 401
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-x"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai_model/http_500_text",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "gpt-x",
+    "provider": "openai"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "openai request failed: upstream exploded",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "upstream exploded",
+    "content_type": "text/plain",
+    "status": 500
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-x"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai_model/not_json",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "gpt-x",
+    "provider": "openai"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "ai provider call failed: expected value at line 1 column 1",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "<html>nope</html>",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-x"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "answer": {
+    "model": "gpt-x",
+    "provider": "openai",
+    "text": "",
+    "usage": {
+     "input_tokens": null,
+     "output_tokens": null
+    }
+   },
+   "case": "openai_model/bare",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "gpt-x",
+    "provider": "openai"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"id\": \"x\", \"object\": \"chat.completion\", \"created\": 1, \"model\": \"\", \"choices\": []}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "gpt-x"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer sk-test",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai_model/connection_refused",
+   "config": {
+    "base_url": "http://127.0.0.1:<DEAD>/v1",
+    "model": "gpt-x",
+    "provider": "openai"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "openai request failed: Connection error.",
+    "type": "AiProviderError"
+   },
+   "request": "full"
+  },
+  {
+   "answer": {
+    "model": "gpt-4o-mini-2024-07-18",
+    "provider": "openai_compatible",
+    "text": "Dog.speak calls bark.",
+    "usage": {
+     "input_tokens": 120,
+     "output_tokens": 7
+    }
+   },
+   "case": "openai_compatible/ok",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "local-model",
+    "provider": "openai_compatible"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"id\": \"chatcmpl-1\", \"object\": \"chat.completion\", \"created\": 1, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Dog.speak calls bark.\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 120, \"completion_tokens\": 7, \"total_tokens\": 127}}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "local-model"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer ck",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "answer": {
+    "model": "gpt-4o-mini-2024-07-18",
+    "provider": "openai_compatible",
+    "text": "Dog.speak calls bark.",
+    "usage": {
+     "input_tokens": 120,
+     "output_tokens": 7
+    }
+   },
+   "case": "openai_compatible/empty_evidence",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "local-model",
+    "provider": "openai_compatible"
+   },
+   "request": "empty",
+   "response": {
+    "body": "{\"id\": \"chatcmpl-1\", \"object\": \"chat.completion\", \"created\": 1, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Dog.speak calls bark.\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 120, \"completion_tokens\": 7, \"total_tokens\": 127}}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: q\n\nRetrieval summary: nothing\n\nNo evidence was retrieved for this question.",
+       "role": "user"
+      }
+     ],
+     "model": "local-model"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer ck",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai_compatible/http_401_json",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "local-model",
+    "provider": "openai_compatible"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "openai-compatible request failed: Error code: 401 - {\"error\": {\"message\": \"Incorrect API key provided\", \"type\": \"invalid_request_error\"}}",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"error\": {\"message\": \"Incorrect API key provided\", \"type\": \"invalid_request_error\"}}",
+    "content_type": "application/json",
+    "status": 401
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "local-model"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer ck",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai_compatible/http_500_text",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "local-model",
+    "provider": "openai_compatible"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "openai-compatible request failed: upstream exploded",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "upstream exploded",
+    "content_type": "text/plain",
+    "status": 500
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "local-model"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer ck",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai_compatible/not_json",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "local-model",
+    "provider": "openai_compatible"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "ai provider call failed: expected value at line 1 column 1",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "<html>nope</html>",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "local-model"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer ck",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "answer": {
+    "model": "local-model",
+    "provider": "openai_compatible",
+    "text": "",
+    "usage": {
+     "input_tokens": null,
+     "output_tokens": null
+    }
+   },
+   "case": "openai_compatible/bare",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/v1",
+    "model": "local-model",
+    "provider": "openai_compatible"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"id\": \"x\", \"object\": \"chat.completion\", \"created\": 1, \"model\": \"\", \"choices\": []}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "local-model"
+    },
+    "headers": {
+     "accept": "application/json",
+     "authorization": "Bearer ck",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   }
+  },
+  {
+   "case": "openai_compatible/connection_refused",
+   "config": {
+    "base_url": "http://127.0.0.1:<DEAD>/v1",
+    "model": "local-model",
+    "provider": "openai_compatible"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "openai-compatible request failed: Connection error.",
+    "type": "AiProviderError"
+   },
+   "request": "full"
+  },
+  {
+   "answer": {
+    "model": "claude-3-5-haiku-20241022",
+    "provider": "anthropic",
+    "text": "Dog.speak calls bark.",
+    "usage": {
+     "input_tokens": 99,
+     "output_tokens": 5
+    }
+   },
+   "case": "anthropic/ok",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>",
+    "provider": "anthropic"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"id\": \"msg_1\", \"type\": \"message\", \"role\": \"assistant\", \"model\": \"claude-3-5-haiku-20241022\", \"content\": [{\"type\": \"text\", \"text\": \"Dog.speak \"}, {\"type\": \"tool_use\", \"id\": \"t\", \"name\": \"x\", \"input\": {}}, {\"type\": \"text\", \"text\": \"calls bark.\"}], \"stop_reason\": \"end_turn\", \"usage\": {\"input_tokens\": 99, \"output_tokens\": 5}}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "max_tokens": 1024,
+     "messages": [
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "claude-3-5-haiku-latest",
+     "system": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them."
+    },
+    "headers": {
+     "accept": "application/json",
+     "anthropic-version": "2023-06-01",
+     "content-type": "application/json",
+     "x-api-key": "ak-test"
+    },
+    "method": "POST",
+    "path": "/v1/messages"
+   }
+  },
+  {
+   "answer": {
+    "model": "claude-3-5-haiku-20241022",
+    "provider": "anthropic",
+    "text": "Dog.speak calls bark.",
+    "usage": {
+     "input_tokens": 99,
+     "output_tokens": 5
+    }
+   },
+   "case": "anthropic/empty_evidence",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>",
+    "provider": "anthropic"
+   },
+   "request": "empty",
+   "response": {
+    "body": "{\"id\": \"msg_1\", \"type\": \"message\", \"role\": \"assistant\", \"model\": \"claude-3-5-haiku-20241022\", \"content\": [{\"type\": \"text\", \"text\": \"Dog.speak \"}, {\"type\": \"tool_use\", \"id\": \"t\", \"name\": \"x\", \"input\": {}}, {\"type\": \"text\", \"text\": \"calls bark.\"}], \"stop_reason\": \"end_turn\", \"usage\": {\"input_tokens\": 99, \"output_tokens\": 5}}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "max_tokens": 1024,
+     "messages": [
+      {
+       "content": "Question: q\n\nRetrieval summary: nothing\n\nNo evidence was retrieved for this question.",
+       "role": "user"
+      }
+     ],
+     "model": "claude-3-5-haiku-latest",
+     "system": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them."
+    },
+    "headers": {
+     "accept": "application/json",
+     "anthropic-version": "2023-06-01",
+     "content-type": "application/json",
+     "x-api-key": "ak-test"
+    },
+    "method": "POST",
+    "path": "/v1/messages"
+   }
+  },
+  {
+   "case": "anthropic/http_401_json",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>",
+    "provider": "anthropic"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "anthropic request failed: Error code: 401 - {\"type\": \"error\", \"error\": {\"type\": \"authentication_error\", \"message\": \"invalid x-api-key\"}}",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"type\": \"error\", \"error\": {\"type\": \"authentication_error\", \"message\": \"invalid x-api-key\"}}",
+    "content_type": "application/json",
+    "status": 401
+   },
+   "sent": {
+    "body": {
+     "max_tokens": 1024,
+     "messages": [
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "claude-3-5-haiku-latest",
+     "system": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them."
+    },
+    "headers": {
+     "accept": "application/json",
+     "anthropic-version": "2023-06-01",
+     "content-type": "application/json",
+     "x-api-key": "ak-test"
+    },
+    "method": "POST",
+    "path": "/v1/messages"
+   }
+  },
+  {
+   "case": "anthropic/http_500_text",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>",
+    "provider": "anthropic"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "anthropic request failed: upstream exploded",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "upstream exploded",
+    "content_type": "text/plain",
+    "status": 500
+   },
+   "sent": {
+    "body": {
+     "max_tokens": 1024,
+     "messages": [
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "claude-3-5-haiku-latest",
+     "system": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them."
+    },
+    "headers": {
+     "accept": "application/json",
+     "anthropic-version": "2023-06-01",
+     "content-type": "application/json",
+     "x-api-key": "ak-test"
+    },
+    "method": "POST",
+    "path": "/v1/messages"
+   }
+  },
+  {
+   "case": "anthropic/not_json",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>",
+    "provider": "anthropic"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "ai provider call failed: expected value at line 1 column 1",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "<html>nope</html>",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "max_tokens": 1024,
+     "messages": [
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "claude-3-5-haiku-latest",
+     "system": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them."
+    },
+    "headers": {
+     "accept": "application/json",
+     "anthropic-version": "2023-06-01",
+     "content-type": "application/json",
+     "x-api-key": "ak-test"
+    },
+    "method": "POST",
+    "path": "/v1/messages"
+   }
+  },
+  {
+   "case": "anthropic/connection_refused",
+   "config": {
+    "base_url": "http://127.0.0.1:<DEAD>",
+    "provider": "anthropic"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "anthropic request failed: Connection error.",
+    "type": "AiProviderError"
+   },
+   "request": "full"
+  },
+  {
+   "answer": {
+    "model": "llama3.2:latest",
+    "provider": "ollama",
+    "text": "Dog.speak calls bark.",
+    "usage": {
+     "input_tokens": 80,
+     "output_tokens": 6
+    }
+   },
+   "case": "ollama/ok",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/",
+    "provider": "ollama"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"model\": \"llama3.2:latest\", \"message\": {\"role\": \"assistant\", \"content\": \"Dog.speak calls bark.\"}, \"done\": true, \"prompt_eval_count\": 80, \"eval_count\": 6}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "llama3.2",
+     "stream": false
+    },
+    "headers": {
+     "accept": "*/*",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/api/chat"
+   }
+  },
+  {
+   "answer": {
+    "model": "llama3.2:latest",
+    "provider": "ollama",
+    "text": "Dog.speak calls bark.",
+    "usage": {
+     "input_tokens": 80,
+     "output_tokens": 6
+    }
+   },
+   "case": "ollama/empty_evidence",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/",
+    "provider": "ollama"
+   },
+   "request": "empty",
+   "response": {
+    "body": "{\"model\": \"llama3.2:latest\", \"message\": {\"role\": \"assistant\", \"content\": \"Dog.speak calls bark.\"}, \"done\": true, \"prompt_eval_count\": 80, \"eval_count\": 6}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: q\n\nRetrieval summary: nothing\n\nNo evidence was retrieved for this question.",
+       "role": "user"
+      }
+     ],
+     "model": "llama3.2",
+     "stream": false
+    },
+    "headers": {
+     "accept": "*/*",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/api/chat"
+   }
+  },
+  {
+   "case": "ollama/http_401_json",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/",
+    "provider": "ollama"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "ollama returned HTTP 401: {\"error\": {\"message\": \"Incorrect API key provided\", \"type\": \"invalid_request_error\"}}",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "{\"error\": {\"message\": \"Incorrect API key provided\", \"type\": \"invalid_request_error\"}}",
+    "content_type": "application/json",
+    "status": 401
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "llama3.2",
+     "stream": false
+    },
+    "headers": {
+     "accept": "*/*",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/api/chat"
+   }
+  },
+  {
+   "case": "ollama/http_500_text",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/",
+    "provider": "ollama"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "ollama returned HTTP 500: upstream exploded",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "upstream exploded",
+    "content_type": "text/plain",
+    "status": 500
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "llama3.2",
+     "stream": false
+    },
+    "headers": {
+     "accept": "*/*",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/api/chat"
+   }
+  },
+  {
+   "case": "ollama/not_json",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/",
+    "provider": "ollama"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "ollama returned a non-JSON response: expected value at line 1 column 1",
+    "type": "AiProviderError"
+   },
+   "request": "full",
+   "response": {
+    "body": "<html>nope</html>",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "llama3.2",
+     "stream": false
+    },
+    "headers": {
+     "accept": "*/*",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/api/chat"
+   }
+  },
+  {
+   "answer": {
+    "model": "llama3.2",
+    "provider": "ollama",
+    "text": "",
+    "usage": {
+     "input_tokens": null,
+     "output_tokens": null
+    }
+   },
+   "case": "ollama/bare",
+   "config": {
+    "base_url": "http://127.0.0.1:<PORT>/",
+    "provider": "ollama"
+   },
+   "request": "full",
+   "response": {
+    "body": "{}",
+    "content_type": "application/json",
+    "status": 200
+   },
+   "sent": {
+    "body": {
+     "messages": [
+      {
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them.",
+       "role": "system"
+      },
+      {
+       "content": "Question: who calls bark?\n\nRetrieval summary: Found 1 symbol(s) and 0 document(s) matching 'bark'.\n\nEvidence:\n- [exact] animals.Dog.bark (/src/animals.py, line_start=17, line_end=18): def bark(self):\n    return 'woof'\n- [high] Λογαριασμός (doc.md): \n\nCall graph:\n- animals.Dog.speak -[calls]-> animals.Dog.bark\n",
+       "role": "user"
+      }
+     ],
+     "model": "llama3.2",
+     "stream": false
+    },
+    "headers": {
+     "accept": "*/*",
+     "content-type": "application/json"
+    },
+    "method": "POST",
+    "path": "/api/chat"
+   }
+  },
+  {
+   "case": "ollama/connection_refused",
+   "config": {
+    "base_url": "http://127.0.0.1:<DEAD>/",
+    "provider": "ollama"
+   },
+   "error": {
+    "exit_code": 1,
+    "message": "ollama request failed: [Errno 111] Connection refused",
+    "type": "AiProviderError"
+   },
+   "request": "full"
+  }
+ ],
+ "requests": {
+  "empty": {
+   "evidence": [],
+   "graph_paths": [],
+   "question": "q",
+   "summary": "nothing"
+  },
+  "full": {
+   "evidence": [
+    {
+     "confidence": "exact",
+     "entity": "animals.Dog.bark",
+     "location": {
+      "line_end": 18,
+      "line_start": 17,
+      "section": null
+     },
+     "path": "/src/animals.py",
+     "relationship": "defines",
+     "snippet": "def bark(self):\n    return 'woof'",
+     "source": "code"
+    },
+    {
+     "confidence": "high",
+     "entity": "Λογαριασμός",
+     "location": {},
+     "path": "doc.md"
+    }
+   ],
+   "graph_paths": [
+    {
+     "relationship": "calls",
+     "source": "animals.Dog.speak",
+     "target": "animals.Dog.bark"
+    }
+   ],
+   "question": "who calls bark?",
+   "summary": "Found 1 symbol(s) and 0 document(s) matching 'bark'."
+  }
+ }
+}

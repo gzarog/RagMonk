@@ -1,0 +1,3 @@
+# Clean-slate transition baseline (shrink-only; must be empty at release).
+# Regenerate with `cargo xtask clean-slate-audit --update-baseline`.
+# rule	count	path

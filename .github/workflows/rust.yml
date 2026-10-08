@@ -3,56 +3,20 @@ name: CI
 on:
   pull_request:
   push:
-    branches: ["main", "release/rust-rewrite-v1"]
-
-defaults:
-  run:
-    working-directory: rust
+    branches: ["main", "release/ragmonk-1.0-clean-slate"]
 
 jobs:
-  # Mechanical check of the rewrite's branch policy (see
-  # rust/docs/adr/0004-release-branch-flow.md): every rewrite feature branch
-  # merges into release/rust-rewrite-v1, never main/master.
-  pr-base-guard:
-    name: Rewrite PR base guard
-    if: github.event_name == 'pull_request'
+  # The former product name must not come back, and RagMonk 1.0 stays
+  # fresh-install/fresh-index only (ADR 0032): the clean-slate baseline
+  # only shrinks.
+  repository-audits:
+    name: Repository audits
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - name: Check PR base branch
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          echo "head=$HEAD_REF base=$BASE_REF"
-          case "$HEAD_REF" in
-            feature/rust-*)
-              if [ "$BASE_REF" != "release/rust-rewrite-v1" ]; then
-                echo "::error::Rust rewrite branch $HEAD_REF must target release/rust-rewrite-v1, not $BASE_REF"
-                exit 1
-              fi ;;
-          esac
-          case "$BASE_REF" in
-            main|master)
-              if [ "$HEAD_REF" = "release/rust-rewrite-v1" ]; then
-                echo "::error::Promoting release/rust-rewrite-v1 to $BASE_REF is a separate human decision outside the rewrite plan"
-                exit 1
-              fi ;;
-          esac
-
-  # No product identifier from before the RagMonk rename may come back
-  # (scripts/check_branding.py; standard library only).
-  branding-audit:
-    name: Branding audit
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
       - uses: actions/checkout@v4
-      - run: python3 scripts/check_branding.py
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask branding-audit
+      - run: cargo xtask clean-slate-audit
 
   rust-checks:
     name: Rust fmt/clippy/test (${{ matrix.os }})
@@ -67,13 +31,11 @@ jobs:
       - name: Show toolchain
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - name: cargo fmt
         run: cargo fmt --all --check
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      # RUST-07: the pinned ocrs models (not bundled) so OCR tests always
+      # The pinned ocrs models (not bundled) so OCR tests always
       # run in CI; digests match ragmonk-convert's OCR_MODEL_MANIFEST.
       - name: Cache OCR models
         uses: actions/cache@v4
@@ -96,7 +58,7 @@ jobs:
           }
           fetch text-detection.rten f15cfb56bd02c4bf478a20343986504a1f01e1665c2b3a0ad66340f054b1b5ca
           fetch text-recognition.rten e484866d4cce403175bd8d00b128feb08ab42e208de30e42cd9889d8f1735a6e
-      # RUST-09: the pinned embedding and reranker models (revision + sha256
+      # The pinned embedding and reranker models (revision + sha256
       # match ragmonk-ml's manifest) so parity and finalizer tests run.
       - name: Cache embedding models
         uses: actions/cache@v4
@@ -137,10 +99,11 @@ jobs:
       - name: cargo build --release
         run: cargo build --workspace --release
 
-  # RUST-03: V2 schema lifecycle against real clusters (legacy cleanup,
-  # init, invisible-until-publish, crash/abort/GC, bounded bulk, build mode).
-  server-v2-integration:
-    name: Rust V2 server integration (OpenSearch + Elasticsearch)
+  # Server index lifecycle against real, empty clusters: foreign-index
+  # refusal, init, invisible-until-publish, crash/abort/GC, bounded bulk,
+  # build mode.
+  server-integration:
+    name: Server integration (OpenSearch + Elasticsearch)
     runs-on: ubuntu-latest
     services:
       opensearch:
@@ -173,10 +136,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - name: Wait for clusters
-        working-directory: .
         run: |
           for url in "$RAGMONK_TEST_OPENSEARCH_URL" "$RAGMONK_TEST_ELASTICSEARCH_URL"; do
             for i in $(seq 1 60); do
@@ -184,12 +144,10 @@ jobs:
               sleep 5
             done
           done
-      - name: Live V2 lifecycle tests
+      - name: Live server lifecycle tests
         run: cargo test -p ragmonk-backends --test live -- --nocapture
-      - name: Live migrate-to-rust-v2 --execute
-        run: cargo test -p ragmonk-cli --test migrate -- --nocapture
 
-  # The native installers (RUST-15) end to end, against release archives
+  # The native installers end to end, against release archives
   # packaged from this commit's build and served from a local directory
   # (RAGMONK_DOWNLOAD_BASE): install, re-install a second version, then
   # `ragmonk update rollback` back to the first.
@@ -204,9 +162,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: .
     steps:
       # runner.temp is not available in job-level env.
       - name: Paths
@@ -217,13 +172,11 @@ jobs:
           done
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - name: Build and package two versions
         run: |
-          cargo build --manifest-path rust/Cargo.toml -p ragmonk-cli
+          cargo build -p ragmonk-cli
           for v in 0.9.0 0.9.1; do
-            python3 rust/scripts/package_release.py --binary rust/target/debug/ragmonk \
+            cargo xtask package --binary target/debug/ragmonk \
               --version "$v" --target "${{ matrix.target }}" --out "$DIST"
           done
           cat "$DIST/SHA256SUMS"
@@ -250,9 +203,6 @@ jobs:
   install-script-tests-windows:
     name: Install script (windows-latest)
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
       # runner.temp is not available in job-level env.
       - name: Paths
@@ -263,14 +213,12 @@ jobs:
             Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - name: Build and package two versions
         run: |
-          cargo build --manifest-path rust/Cargo.toml -p ragmonk-cli
+          cargo build -p ragmonk-cli
           if ($LASTEXITCODE -ne 0) { throw "build failed" }
           foreach ($v in "0.9.0", "0.9.1") {
-            python rust/scripts/package_release.py --binary rust/target/debug/ragmonk.exe `
+            cargo xtask package --binary target/debug/ragmonk.exe `
               --version $v --target x86_64-pc-windows-msvc --out $env:DIST
             if ($LASTEXITCODE -ne 0) { throw "packaging failed" }
           }
@@ -306,20 +254,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "version failed after rollback" }
 
   # The release image builds (amd64; arm64 builds natively in
-  # rust-release.yml) and runs without Python.
+  # rust-release.yml), runs from an empty home and ships no interpreter.
   container-image:
     name: Container image (linux/amd64)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: rust/Dockerfile
+          file: Dockerfile
           build-args: RAGMONK_VERSION=0.9.0
           tags: ragmonk:ci
           load: true
@@ -328,6 +273,8 @@ jobs:
       - name: Smoke test
         run: |
           docker run --rm ragmonk:ci version --json | grep -q '"0.9.0"'
+          # clean-slate-audit: allow-start (asserts the image has no interpreter)
           docker run --rm --entrypoint sh ragmonk:ci -c '! command -v python3 && ! command -v python'
+          # clean-slate-audit: allow-end
           docker run --rm --entrypoint sh ragmonk:ci -c 'ragmonk init && ragmonk doctor'
           test -n "$(docker run --rm --entrypoint ls ragmonk:ci /opt/ragmonk/models/all-minilm-l6-v2/model.safetensors)"

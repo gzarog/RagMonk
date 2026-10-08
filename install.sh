@@ -1,9 +1,9 @@
 #!/bin/sh
-# Installs the native RagMonk CLI (RUST-15): downloads the release archive
+# Installs the native RagMonk CLI: downloads the release archive
 # for this platform, verifies it against the release's SHA256SUMS (and the
 # minisign signature over it, when a key is configured below and
 # `minisign` is installed), unpacks it under $RAGMONK_INSTALL_DIR/versions,
-# and links `ragmonk` onto a per-user bin directory. No Python needed.
+# and links `ragmonk` onto a per-user bin directory.
 #
 #   RAGMONK_VERSION        version to install (default: the latest release)
 #   RAGMONK_INSTALL_DIR    default: ~/.ragmonk
@@ -137,11 +137,6 @@ cat > "$RAGMONK_HOME/install_info.json" <<JSON
 }
 JSON
 
-if [ -d "$INSTALL_DIR/venv" ]; then
-    echo "note: the old Python install in $INSTALL_DIR/venv and $INSTALL_DIR/app is no longer used;"
-    echo "      run 'ragmonk migrate-to-rust-v2 --check' and remove them once you are happy."
-fi
-
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *)
@@ -153,4 +148,7 @@ case ":$PATH:" in
 esac
 
 echo ""
-echo "Run 'ragmonk version' to verify, then 'ragmonk init' to get started."
+echo "Get started:"
+echo "  ragmonk init"
+echo "  ragmonk source add <path>"
+echo "  ragmonk index"

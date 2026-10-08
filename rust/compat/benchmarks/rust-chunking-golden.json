@@ -1,9 +1,0 @@
-{
-  "best_wall_time_s": 0.263102233,
-  "chunks": 874,
-  "configs": 3,
-  "documents": 10,
-  "implementation": "rust",
-  "iterations": 5,
-  "phase": "RUST-06"
-}

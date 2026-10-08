@@ -1,0 +1,13 @@
+{
+  "build_s": 11.244549889,
+  "dims": 384,
+  "engine": "hnsw (m=16, ef_construction=128, ef_search=96)",
+  "exact_query_ms": 7.681557399999999,
+  "file_bytes": 33302264,
+  "load_s": 0.238991427,
+  "queries": 200,
+  "query_ms": 0.58885021,
+  "recall_at_10": 0.7305,
+  "save_s": 0.274732435,
+  "vectors": 20000
+}

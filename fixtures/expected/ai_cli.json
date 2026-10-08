@@ -1,0 +1,328 @@
+[
+ {
+  "case": "ask-json",
+  "args": [
+   "ask",
+   "who calls speak",
+   "--json"
+  ],
+  "env": {},
+  "response": {
+   "status": 200,
+   "body": {
+    "model": "llama3.2:latest",
+    "message": {
+     "role": "assistant",
+     "content": "Dog.speak calls bark."
+    },
+    "done": true,
+    "prompt_eval_count": 80,
+    "eval_count": 6
+   }
+  },
+  "exit_code": 0,
+  "stdout": "{\"schema_version\":\"1\",\"data\":{\"question\":\"who calls speak\",\"answer\":{\"text\":\"Dog.speak calls bark.\",\"provider\":\"ollama\",\"model\":\"llama3.2:latest\",\"usage\":{\"input_tokens\":80,\"output_tokens\":6}},\"intent\":\"callers\",\"strategies\":[\"identifier\",\"graph_callers\"],\"evidence\":[{\"source\":\"same_file_name\",\"path\":\"<CORPUS>/code/javascript/animals.js\",\"location\":{\"line_start\":16,\"line_end\":18,\"page\":null,\"section\":null},\"entity\":\"code.javascript.animals.Dog.bark\",\"relationship\":\"calls\",\"confidence\":\"exact\",\"snippet\":\"bark() {\"},{\"source\":\"same_file_name\",\"path\":\"<CORPUS>/code/python/animals.py\",\"location\":{\"line_start\":17,\"line_end\":18,\"page\":null,\"section\":null},\"entity\":\"code.python.animals.Dog.bark\",\"relationship\":\"calls\",\"confidence\":\"exact\",\"snippet\":\"def bark(self) -> str:\"}],\"graph_paths\":[{\"source\":\"code.javascript.animals.Dog.bark\",\"relationship\":\"calls\",\"target\":\"code.javascript.animals.Animal.speak\",\"confidence\":\"exact\"},{\"source\":\"code.python.animals.Dog.bark\",\"relationship\":\"calls\",\"target\":\"code.javascript.animals.Animal.speak\",\"confidence\":\"exact\"}],\"evidence_truncated\":false,\"evidence_truncation_reasons\":[]}}",
+  "stderr": "",
+  "sent": [
+   {
+    "path": "/api/chat",
+    "body": {
+     "model": "llama3.2",
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them."
+      },
+      {
+       "role": "user",
+       "content": "Question: who calls speak\n\nRetrieval summary: Found 6 symbol(s) and 0 document(s) matching 'who calls speak'; see below for details.\n\nEvidence:\n- [exact] code.javascript.animals.Dog.bark (<CORPUS>/code/javascript/animals.js, line_start=16, line_end=18): bark() {\n- [exact] code.python.animals.Dog.bark (<CORPUS>/code/python/animals.py, line_start=17, line_end=18): def bark(self) -> str:\n\nCall graph:\n- code.javascript.animals.Dog.bark -[calls]-> code.javascript.animals.Animal.speak\n- code.python.animals.Dog.bark -[calls]-> code.javascript.animals.Animal.speak\n"
+      }
+     ],
+     "stream": false
+    }
+   }
+  ]
+ },
+ {
+  "case": "ask-text",
+  "args": [
+   "ask",
+   "Dog"
+  ],
+  "env": {},
+  "response": {
+   "status": 200,
+   "body": {
+    "model": "llama3.2:latest",
+    "message": {
+     "role": "assistant",
+     "content": "Dog.speak calls bark."
+    },
+    "done": true,
+    "prompt_eval_count": 80,
+    "eval_count": 6
+   }
+  },
+  "exit_code": 0,
+  "stdout": "Dog.speak calls bark.\n\nprovider=ollama model=llama3.2:latest evidence=0 item(s)\n",
+  "stderr": "",
+  "sent": [
+   {
+    "path": "/api/chat",
+    "body": {
+     "model": "llama3.2",
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them."
+      },
+      {
+       "role": "user",
+       "content": "Question: Dog\n\nRetrieval summary: Found 8 symbol(s) and 0 document(s) matching 'Dog'; see below for details.\n\nNo evidence was retrieved for this question."
+      }
+     ],
+     "stream": false
+    }
+   }
+  ]
+ },
+ {
+  "case": "ask-no-evidence",
+  "args": [
+   "ask",
+   "zzqqxx_nothing",
+   "--json"
+  ],
+  "env": {},
+  "response": {
+   "status": 200,
+   "body": {
+    "model": "llama3.2:latest",
+    "message": {
+     "role": "assistant",
+     "content": "Dog.speak calls bark."
+    },
+    "done": true,
+    "prompt_eval_count": 80,
+    "eval_count": 6
+   }
+  },
+  "exit_code": 0,
+  "stdout": "{\"schema_version\":\"1\",\"data\":{\"question\":\"zzqqxx_nothing\",\"answer\":{\"text\":\"Dog.speak calls bark.\",\"provider\":\"ollama\",\"model\":\"llama3.2:latest\",\"usage\":{\"input_tokens\":80,\"output_tokens\":6}},\"intent\":\"identifier\",\"strategies\":[\"identifier\",\"fts\"],\"evidence\":[],\"graph_paths\":[],\"evidence_truncated\":false,\"evidence_truncation_reasons\":[]}}",
+  "stderr": "",
+  "sent": [
+   {
+    "path": "/api/chat",
+    "body": {
+     "model": "llama3.2",
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them."
+      },
+      {
+       "role": "user",
+       "content": "Question: zzqqxx_nothing\n\nRetrieval summary: Found 0 symbol(s) and 0 document(s) matching 'zzqqxx_nothing'; see below for details.\n\nNo evidence was retrieved for this question."
+      }
+     ],
+     "stream": false
+    }
+   }
+  ]
+ },
+ {
+  "case": "ask-http-500",
+  "args": [
+   "ask",
+   "Dog"
+  ],
+  "env": {},
+  "response": {
+   "status": 500,
+   "body": "model not loaded"
+  },
+  "exit_code": 1,
+  "stdout": "",
+  "stderr": "Error: ollama returned HTTP 500: model not loaded\n",
+  "sent": [
+   {
+    "path": "/api/chat",
+    "body": {
+     "model": "llama3.2",
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are RagMonk's evidence-grounded assistant. Answer the user's question using ONLY the evidence and call-graph paths provided below -- they were retrieved deterministically from the user's own locally indexed code and documents, not written by you. If the evidence does not answer the question, say so plainly rather than guessing. Cite the relevant file paths from the evidence when you use them."
+      },
+      {
+       "role": "user",
+       "content": "Question: Dog\n\nRetrieval summary: Found 8 symbol(s) and 0 document(s) matching 'Dog'; see below for details.\n\nNo evidence was retrieved for this question."
+      }
+     ],
+     "stream": false
+    }
+   }
+  ]
+ },
+ {
+  "case": "ask-not-configured",
+  "args": [
+   "ask",
+   "Dog"
+  ],
+  "env": {
+   "RAGMONK_AI__PROVIDER": "none"
+  },
+  "response": null,
+  "exit_code": 3,
+  "stdout": "",
+  "stderr": "Error: no ai.provider is configured. Set one with: ragmonk config set ai.provider <openai|anthropic|ollama|openai_compatible>\n",
+  "sent": []
+ },
+ {
+  "case": "ask-privacy",
+  "args": [
+   "ask",
+   "Dog"
+  ],
+  "env": {
+   "RAGMONK_AI__PROVIDER": "openai"
+  },
+  "response": null,
+  "exit_code": 8,
+  "stdout": "",
+  "stderr": "Error: ai.provider='openai' sends data to a network endpoint outside this machine, which requires privacy.external_ai_allowed=true (it defaults to false). Set it with: ragmonk config set privacy.external_ai_allowed true\n",
+  "sent": []
+ },
+ {
+  "case": "ai-providers-json",
+  "args": [
+   "ai",
+   "providers",
+   "--json"
+  ],
+  "env": {},
+  "response": null,
+  "exit_code": 0,
+  "stdout": "{\"schema_version\":\"1\",\"data\":{\"providers\":[{\"provider_id\":\"anthropic\",\"display_name\":\"Anthropic API\",\"auth_modes\":[\"api_key\"],\"default_auth_mode\":\"api_key\",\"cloud_egress\":true,\"subscription\":false,\"api_key_env\":\"ANTHROPIC_API_KEY\",\"model_discovery\":\"static\",\"usage_reporting\":\"tokens\",\"beta\":false,\"notes\":\"API-key provider; reads ANTHROPIC_API_KEY from the environment.\"},{\"provider_id\":\"codex\",\"display_name\":\"ChatGPT via Codex (subscription)\",\"auth_modes\":[\"chatgpt\"],\"default_auth_mode\":\"chatgpt\",\"cloud_egress\":true,\"subscription\":true,\"api_key_env\":null,\"model_discovery\":\"dynamic\",\"usage_reporting\":\"unknown\",\"beta\":true,\"notes\":\"Uses a signed-in ChatGPT account through the official Codex runtime; consumes the account allowance. Beta until its version/isolation gates pass. Never reuses OPENAI_API_KEY.\"},{\"provider_id\":\"github_copilot\",\"display_name\":\"GitHub Copilot (subscription)\",\"auth_modes\":[\"signed_in_user\"],\"default_auth_mode\":\"signed_in_user\",\"cloud_egress\":true,\"subscription\":true,\"api_key_env\":null,\"model_discovery\":\"dynamic\",\"usage_reporting\":\"unknown\",\"beta\":true,\"notes\":\"Uses the signed-in GitHub Copilot CLI credentials through the official SDK; consumes the Copilot allowance. Never uses GH_TOKEN/GITHUB_TOKEN or a provider key.\"},{\"provider_id\":\"ollama\",\"display_name\":\"Ollama (local)\",\"auth_modes\":[\"none\"],\"default_auth_mode\":\"none\",\"cloud_egress\":false,\"subscription\":false,\"api_key_env\":null,\"model_discovery\":\"config\",\"usage_reporting\":\"none\",\"beta\":false,\"notes\":\"Local inference; loopback host is exempt from the privacy flag.\"},{\"provider_id\":\"openai\",\"display_name\":\"OpenAI API\",\"auth_modes\":[\"api_key\"],\"default_auth_mode\":\"api_key\",\"cloud_egress\":true,\"subscription\":false,\"api_key_env\":\"OPENAI_API_KEY\",\"model_discovery\":\"static\",\"usage_reporting\":\"tokens\",\"beta\":false,\"notes\":\"API-key provider; reads OPENAI_API_KEY from the environment.\"},{\"provider_id\":\"openai_compatible\",\"display_name\":\"OpenAI-compatible endpoint\",\"auth_modes\":[\"api_key\"],\"default_auth_mode\":\"api_key\",\"cloud_egress\":true,\"subscription\":false,\"api_key_env\":\"RAGMONK_OPENAI_COMPATIBLE_API_KEY\",\"model_discovery\":\"config\",\"usage_reporting\":\"unknown\",\"beta\":false,\"notes\":\"Self-hosted or third-party endpoint; requires ai.base_url and ai.model.\"}]}}",
+  "stderr": "",
+  "sent": []
+ },
+ {
+  "case": "ai-providers",
+  "args": [
+   "ai",
+   "providers"
+  ],
+  "env": {},
+  "response": null,
+  "exit_code": 0,
+  "stdout": "anthropic — Anthropic API\n  kind=api auth=api_key cloud_egress=true models=static usage=tokens\n  API-key provider; reads ANTHROPIC_API_KEY from the environment.\ncodex  — ChatGPT via Codex (subscription)\n  kind=subscription auth=chatgpt cloud_egress=true models=dynamic usage=unknown\n  Uses a signed-in ChatGPT account through the official Codex runtime; consumes the account allowance. Beta until its version/isolation gates pass. Never reuses OPENAI_API_KEY.\ngithub_copilot  — GitHub Copilot (subscription)\n  kind=subscription auth=signed_in_user cloud_egress=true models=dynamic usage=unknown\n  Uses the signed-in GitHub Copilot CLI credentials through the official SDK; consumes the Copilot allowance. Never uses GH_TOKEN/GITHUB_TOKEN or a provider key.\nollama — Ollama (local)\n  kind=local auth=none cloud_egress=false models=config usage=none\n  Local inference; loopback host is exempt from the privacy flag.\nopenai — OpenAI API\n  kind=api auth=api_key cloud_egress=true models=static usage=tokens\n  API-key provider; reads OPENAI_API_KEY from the environment.\nopenai_compatible — OpenAI-compatible endpoint\n  kind=api auth=api_key cloud_egress=true models=config usage=unknown\n  Self-hosted or third-party endpoint; requires ai.base_url and ai.model.\n",
+  "stderr": "",
+  "sent": []
+ },
+ {
+  "case": "ai-status-api",
+  "args": [
+   "ai",
+   "status",
+   "openai"
+  ],
+  "env": {},
+  "response": null,
+  "exit_code": 2,
+  "stdout": "",
+  "stderr": "Error: provider 'openai' does not use account sign-in (it is an API-key or local provider); this command applies only to subscription providers: codex, github_copilot\n",
+  "sent": []
+ },
+ {
+  "case": "ai-status-unknown",
+  "args": [
+   "ai",
+   "status",
+   "nope"
+  ],
+  "env": {},
+  "response": null,
+  "exit_code": 2,
+  "stdout": "",
+  "stderr": "Error: unknown ai provider 'nope'; run 'ragmonk ai providers' to list them\n",
+  "sent": []
+ },
+ {
+  "case": "ai-status-privacy",
+  "args": [
+   "ai",
+   "status",
+   "codex",
+   "--json"
+  ],
+  "env": {},
+  "response": null,
+  "exit_code": 8,
+  "stdout": "",
+  "stderr": "Error: ai provider 'codex' contacts a cloud runtime, which requires privacy.external_ai_allowed=true (it defaults to false). Set it with: ragmonk config set privacy.external_ai_allowed true\n",
+  "sent": []
+ },
+ {
+  "case": "ai-login-privacy",
+  "args": [
+   "ai",
+   "login",
+   "codex"
+  ],
+  "env": {},
+  "response": null,
+  "exit_code": 8,
+  "stdout": "",
+  "stderr": "Error: ai provider 'codex' contacts a cloud runtime, which requires privacy.external_ai_allowed=true (it defaults to false). Set it with: ragmonk config set privacy.external_ai_allowed true\n",
+  "sent": []
+ },
+ {
+  "case": "ai-status-unavailable",
+  "args": [
+   "ai",
+   "status",
+   "codex"
+  ],
+  "env": {
+   "RAGMONK_PRIVACY__EXTERNAL_AI_ALLOWED": "true"
+  },
+  "response": null,
+  "exit_code": 3,
+  "stdout": "",
+  "stderr": "Error: the 'codex' runtime is not installed or not on PATH; install it to use the codex provider (see docs/providers).\n",
+  "sent": []
+ },
+ {
+  "case": "ai-logout-unavailable",
+  "args": [
+   "ai",
+   "logout",
+   "codex"
+  ],
+  "env": {},
+  "response": null,
+  "exit_code": 3,
+  "stdout": "",
+  "stderr": "Error: the 'codex' runtime is not installed or not on PATH; install it to use the codex provider (see docs/providers).\n",
+  "sent": []
+ },
+ {
+  "case": "ai-models-unavailable",
+  "args": [
+   "ai",
+   "models",
+   "codex",
+   "--json"
+  ],
+  "env": {
+   "RAGMONK_PRIVACY__EXTERNAL_AI_ALLOWED": "true"
+  },
+  "response": null,
+  "exit_code": 3,
+  "stdout": "",
+  "stderr": "Error: the 'codex' runtime is not installed or not on PATH; install it to use the codex provider (see docs/providers).\n",
+  "sent": []
+ }
+]
