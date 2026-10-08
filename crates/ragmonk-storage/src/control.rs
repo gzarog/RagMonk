@@ -178,6 +178,53 @@ fn source_from_row(row: &Row<'_>) -> rusqlite::Result<(SourceRecord, String, Str
     ))
 }
 
+type RawState = (
+    String,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+fn state_row(row: &Row<'_>) -> rusqlite::Result<RawState> {
+    Ok((
+        row.get("source_id")?,
+        row.get("build_state")?,
+        row.get("rebuild_reason")?,
+        row.get("online_status")?,
+        row.get("active_build_id")?,
+        row.get("pending_build_id")?,
+        row.get("versions")?,
+        row.get("last_full_build_at")?,
+        row.get("last_scan_at")?,
+        row.get("last_error")?,
+    ))
+}
+
+fn state_from_raw(raw: RawState) -> Result<SourceState> {
+    let (source_id, state, reason, online, active, pending, versions, full_at, scan_at, err) = raw;
+    Ok(SourceState {
+        source_id,
+        build_state: BuildState::parse(&state)?,
+        rebuild_reason: reason,
+        online_status: online,
+        active_build_id: active,
+        pending_build_id: pending,
+        versions: versions
+            .map(|v| serde_json::from_str(&v))
+            .transpose()
+            .map_err(|e| StorageError::Invalid(format!("bad versions json: {e}")))?,
+        last_full_build_at: full_at,
+        last_scan_at: scan_at,
+        last_error: err,
+    })
+}
+
 /// A new source definition.
 #[derive(Debug, Clone)]
 pub struct NewSource {
@@ -311,61 +358,33 @@ impl ControlPlane {
         Ok(n > 0)
     }
 
+    /// Every source's state in one statement (status reads the catalog
+    /// and builds once per snapshot).
+    pub fn all_states(&self) -> Result<Vec<SourceState>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM source_state ORDER BY source_id")
+            .map_err(StorageError::sqlite("list source_state"))?;
+        let rows = stmt
+            .query_map([], state_row)
+            .map_err(StorageError::sqlite("list source_state"))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(StorageError::sqlite("list source_state"))?;
+        rows.into_iter().map(state_from_raw).collect()
+    }
+
     pub fn state(&self, source_id: &str) -> Result<SourceState> {
-        self.conn
+        let raw = self
+            .conn
             .query_row(
                 "SELECT * FROM source_state WHERE source_id = ?1",
                 [source_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>("source_id")?,
-                        row.get::<_, String>("build_state")?,
-                        row.get::<_, Option<String>>("rebuild_reason")?,
-                        row.get::<_, String>("online_status")?,
-                        row.get::<_, Option<String>>("active_build_id")?,
-                        row.get::<_, Option<String>>("pending_build_id")?,
-                        row.get::<_, Option<String>>("versions")?,
-                        row.get::<_, Option<String>>("last_full_build_at")?,
-                        row.get::<_, Option<String>>("last_scan_at")?,
-                        row.get::<_, Option<String>>("last_error")?,
-                    ))
-                },
+                state_row,
             )
             .optional()
             .map_err(StorageError::sqlite("get source_state"))?
-            .ok_or_else(|| StorageError::NotFound(format!("no such source: {source_id}")))
-            .and_then(
-                |(
-                    source_id,
-                    state,
-                    reason,
-                    online,
-                    active,
-                    pending,
-                    versions,
-                    full_at,
-                    scan_at,
-                    err,
-                )| {
-                    Ok(SourceState {
-                        source_id,
-                        build_state: BuildState::parse(&state)?,
-                        rebuild_reason: reason,
-                        online_status: online,
-                        active_build_id: active,
-                        pending_build_id: pending,
-                        versions: versions
-                            .map(|v| serde_json::from_str(&v))
-                            .transpose()
-                            .map_err(|e| {
-                                StorageError::Invalid(format!("bad versions json: {e}"))
-                            })?,
-                        last_full_build_at: full_at,
-                        last_scan_at: scan_at,
-                        last_error: err,
-                    })
-                },
-            )
+            .ok_or_else(|| StorageError::NotFound(format!("no such source: {source_id}")))?;
+        state_from_raw(raw)
     }
 
     /// Records whether the source root was reachable on the last pass.

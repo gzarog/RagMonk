@@ -3220,7 +3220,12 @@ name = "ragmonk-status"
 version = "0.0.0"
 dependencies = [
  "chrono",
+ "ragmonk-config",
+ "ragmonk-core",
+ "ragmonk-indexing",
+ "ragmonk-storage",
  "ragmonk-telemetry",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

@@ -1,5 +1,6 @@
-//! Read-only status queries over one project store: file counts
-//! by status, retry/failure queue stats and recent errors.
+//! Read-only status queries over one project store: one aggregate
+//! statement per published build, the recent error log and per-file error
+//! times.
 
 use std::collections::BTreeMap;
 
@@ -29,7 +30,83 @@ pub struct RetryStats {
     pub max_attempt_count: i64,
 }
 
+/// Every counter `ragmonk status` shows for one build, read by a single
+/// SQL statement (one consistent read snapshot under WAL).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct BuildSummary {
+    pub files: i64,
+    pub indexed: i64,
+    pub failed: i64,
+    pub retry: i64,
+    pub next_retry_at: Option<String>,
+    pub max_attempt_count: i64,
+    pub entities: i64,
+    pub documents: i64,
+    pub chunks: i64,
+    pub relationships: i64,
+    pub links: i64,
+    /// When the build was published (`builds.finished_at`).
+    pub published_at: Option<String>,
+}
+
 impl ProjectStore {
+    /// [`BuildSummary`] of `build_id`.
+    pub fn build_summary(&self, build_id: &str) -> Result<BuildSummary> {
+        Ok(self
+            .query_rows(
+                "build summary",
+                "SELECT
+                    (SELECT COUNT(*) FROM files WHERE build_id = ?1),
+                    (SELECT COUNT(*) FROM files WHERE build_id = ?1 AND status = 'indexed'),
+                    (SELECT COUNT(*) FROM files WHERE build_id = ?1 AND status = 'failed'),
+                    (SELECT COUNT(*) FROM files WHERE build_id = ?1 AND status = 'retry'),
+                    (SELECT MIN(next_attempt_at) FROM files WHERE build_id = ?1 AND status = 'retry'),
+                    (SELECT COALESCE(MAX(attempt_count), 0) FROM files WHERE build_id = ?1),
+                    (SELECT COUNT(*) FROM entities WHERE build_id = ?1),
+                    (SELECT COUNT(*) FROM documents WHERE build_id = ?1),
+                    (SELECT COUNT(*) FROM chunks WHERE build_id = ?1),
+                    (SELECT COUNT(*) FROM relationships WHERE build_id = ?1),
+                    (SELECT COUNT(*) FROM cross_links WHERE build_id = ?1),
+                    (SELECT finished_at FROM builds WHERE id = ?1)",
+                &[&build_id],
+                |r| {
+                    Ok(BuildSummary {
+                        files: r.get(0)?,
+                        indexed: r.get(1)?,
+                        failed: r.get(2)?,
+                        retry: r.get(3)?,
+                        next_retry_at: r.get(4)?,
+                        max_attempt_count: r.get(5)?,
+                        entities: r.get(6)?,
+                        documents: r.get(7)?,
+                        chunks: r.get(8)?,
+                        relationships: r.get(9)?,
+                        links: r.get(10)?,
+                        published_at: r.get(11)?,
+                    })
+                },
+            )?
+            .pop()
+            .unwrap_or_default())
+    }
+
+    /// When each failing file of `build_id` last failed: `file_id ->
+    /// occurred_at` of its newest recorded error.
+    pub fn file_error_times(&self, build_id: &str) -> Result<BTreeMap<String, String>> {
+        Ok(self
+            .query_rows(
+                "file error times",
+                "SELECT f.id, MAX(e.occurred_at) FROM files f
+                 JOIN index_errors e ON e.file_id = f.id AND e.source_id = f.source_id
+                 WHERE f.build_id = ?1 AND f.last_error IS NOT NULL
+                 GROUP BY f.id",
+                &[&build_id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            )?
+            .into_iter()
+            .collect())
+    }
+
     /// File counts per status in `build_id`.
     pub fn file_counts_by_status(&self, build_id: &str) -> Result<BTreeMap<String, i64>> {
         Ok(self

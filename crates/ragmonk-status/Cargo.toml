@@ -9,11 +9,16 @@ publish.workspace = true
 
 [dependencies]
 chrono.workspace = true
+ragmonk-core.workspace = true
+ragmonk-indexing.workspace = true
+ragmonk-storage.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 ragmonk-telemetry.workspace = true
 
 [dev-dependencies]
+ragmonk-config.workspace = true
+rusqlite.workspace = true
 tempfile.workspace = true
 
 [lints]
