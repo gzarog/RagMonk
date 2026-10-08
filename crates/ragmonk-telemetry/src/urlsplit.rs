@@ -162,7 +162,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn splits_like_python() {
+    fn splits_url_components() {
         let s = urlsplit("HTTPS://u:p@h:9200/x?q=1#f").unwrap();
         assert_eq!(s.scheme, "https");
         assert_eq!(s.netloc, "u:p@h:9200");

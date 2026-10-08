@@ -68,7 +68,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classifies_like_python() {
+    fn classifies_by_suffix() {
         assert_eq!(classify(Path::new("a/B.PY")), FileKind::Code);
         assert_eq!(classify(Path::new("x.Eml")), FileKind::Document);
         assert_eq!(classify(Path::new(".env")), FileKind::Unknown);

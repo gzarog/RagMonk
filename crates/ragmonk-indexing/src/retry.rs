@@ -24,7 +24,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn matches_python_policy() {
+    fn backoff_and_permanence_policy() {
         assert_eq!(backoff_seconds(0), 2.0);
         assert_eq!(backoff_seconds(1), 2.0);
         assert_eq!(backoff_seconds(3), 8.0);

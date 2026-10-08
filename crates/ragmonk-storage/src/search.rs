@@ -533,7 +533,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn word_tokens_match_python_w() {
+    fn word_tokens_split_on_non_word_chars() {
         assert_eq!(
             word_tokens("settlement.BetSettled"),
             ["settlement", "BetSettled"]

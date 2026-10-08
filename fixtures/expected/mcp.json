@@ -3323,7 +3323,7 @@
      "tests": [],
      "evidence": [],
      "warnings": [
-      "Requirements/Incidents are always empty: RagMonk has no document classifier yet to populate these categories (see cli/explore.py)."
+      "Requirements/Incidents are always empty: RagMonk has no document classifier yet to populate these categories."
      ]
     },
     "isError": false
@@ -3412,7 +3412,7 @@
      "tests": [],
      "evidence": [],
      "warnings": [
-      "Requirements/Incidents are always empty: RagMonk has no document classifier yet to populate these categories (see cli/explore.py)."
+      "Requirements/Incidents are always empty: RagMonk has no document classifier yet to populate these categories."
      ]
     },
     "isError": false

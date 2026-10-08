@@ -450,7 +450,7 @@ fn work(home: &Home, name: &str, args: &Map<String, Value>) -> Result<Value, Rag
             if empty("requirements") && empty("incidents") {
                 warnings.push(json!(
                     "Requirements/Incidents are always empty: RagMonk has no document \
-                     classifier yet to populate these categories (see cli/explore.py)."
+                     classifier yet to populate these categories."
                 ));
             }
             Ok(json!({

@@ -326,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn ensure_layout_creates_python_dirs() {
+    fn ensure_layout_creates_home_dirs() {
         let dir = tempfile::tempdir().unwrap();
         let home = Home::new(dir.path().join("h"));
         home.ensure_layout().unwrap();

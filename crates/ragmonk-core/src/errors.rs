@@ -212,7 +212,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exit_codes_match_python() {
+    fn exit_codes_by_error_kind() {
         assert_eq!(RagMonkError::usage("x").exit_code(), 2);
         assert_eq!(RagMonkError::config("x").exit_code(), 3);
         assert_eq!(
@@ -224,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn format_g_matches_python() {
+    fn format_g_renders_shortest_float() {
         for (v, s) in [
             (30.0, "30"),
             (0.5, "0.5"),

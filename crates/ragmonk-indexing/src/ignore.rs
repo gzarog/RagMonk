@@ -133,7 +133,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rules_like_python() {
+    fn gitignore_rules_apply() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join(".gitignore"),

@@ -410,7 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn source_defaults_match_python() {
+    fn source_defaults_when_fields_omitted() {
         let s: Source = serde_json::from_str(
             r#"{"id":"src_1","path":"/x","source_type":"local","created_at":"t","updated_at":"t"}"#,
         )
