@@ -1,6 +1,6 @@
 # ADR 0033 — P0: storage-neutral ports, authoritative server mode, bounded parallel indexing and grounded retrieval
 
-Status: accepted (P0-00, release branch `release/ragmonk-p0-completion-v1`)
+Status: accepted (P0-00, on the P0 completion release branch)
 
 ## Context
 At `main@a92f9a1` RagMonk ran end to end only in local mode. In server mode:
