@@ -20,7 +20,7 @@ The workflow starts in three ways:
   next `vX.Y.Z` is computed (a patch bump, or a minor bump when the merged
   commit message contains `[release minor]`), tagged and published as a
   full release;
-- a pushed `rust-v<MAJOR.MINOR.PATCH>` tag: a pre-release with the image,
+- a pushed `v<MAJOR.MINOR.PATCH>` tag: a pre-release with the image,
   for dry runs;
 - manual dispatch (default branch only), with inputs `version` (strict
   `MAJOR.MINOR.PATCH`), `prerelease` (default true) and `image` (default

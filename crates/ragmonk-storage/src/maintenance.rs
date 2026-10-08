@@ -85,7 +85,7 @@ pub fn snapshot(src: &Path, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// `(id, path)` of every registered source, read without migrating.
+/// `(id, path)` of every registered source, read without creating or altering the schema.
 pub fn registered_sources(control_db: &Path) -> Vec<(String, String)> {
     let Ok(conn) = read_only(control_db) else {
         return Vec::new();

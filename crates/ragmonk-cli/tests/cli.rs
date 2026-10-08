@@ -107,6 +107,7 @@ fn config_errors_exit_codes_and_redaction() {
     assert!(!stderr.contains("hunter2"), "credential leaked: {stderr}");
 }
 
+// clean-slate-audit: allow-start
 #[test]
 fn no_migration_command_exists() {
     let tmp = tempfile::tempdir().unwrap();
@@ -118,6 +119,7 @@ fn no_migration_command_exists() {
     assert!(out.status.success());
     assert!(!help.contains("migrate"), "{help}");
 }
+// clean-slate-audit: allow-end
 
 #[test]
 fn server_requires_server_mode() {

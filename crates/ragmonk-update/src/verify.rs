@@ -64,7 +64,7 @@ mod tests {
             .contains("not listed"));
     }
 
-    // A key pair and signature generated with the minisign format (legacy
+    // A key pair and signature generated with the minisign format (plain
     // and prehashed Ed25519), a fixed test-only seed (never a release key).
     const PUBKEY: &str = include_str!("../tests/minisign.pub");
     const SIG: &str = include_str!("../tests/minisign.sig");

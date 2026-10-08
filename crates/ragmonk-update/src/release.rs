@@ -195,7 +195,7 @@ mod tests {
             {"tag_name": "v0.3.30", "html_url": "a", "assets": [{"name": "ragmonk-0.3.30.tar.gz"}]},
             {"tag_name": "v0.10.0", "html_url": "d", "draft": true, "assets": with("0.10.0")},
             {"tag_name": "v0.0.6", "html_url": "b", "prerelease": true, "assets": with("0.0.6")},
-            {"tag_name": "rust-v0.0.9", "html_url": "c", "assets": with("0.0.9")},
+            {"tag_name": "release-0.0.9", "html_url": "c", "assets": with("0.0.9")},
             {"tag_name": "v0.0.5", "html_url": "e", "prerelease": true, "assets": with("0.0.5")}
         ]);
         let r = newest_release(&list, t).unwrap();

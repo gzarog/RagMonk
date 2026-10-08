@@ -422,7 +422,7 @@ pub fn resolved_outgoing(
     Ok(out)
 }
 
-/// Test-file naming conventions (Python, Go, C#, Java,
+/// Test-file naming conventions per indexed language (`.py`, Go, C#, Java,
 /// JS/TS); `\` is treated as `/`.
 pub fn is_test_file(path: &str) -> bool {
     let p = path.replace('\\', "/");

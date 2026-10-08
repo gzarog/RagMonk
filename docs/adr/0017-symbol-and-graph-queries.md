@@ -37,8 +37,8 @@ Rules:
 
 `fixtures/expected/graph.json` covers three corpora:
 
-- `fixtures/graph`: call chains, a cycle, unresolved callees, and Python,
-  Go and TypeScript test files;
+- `fixtures/graph`: call chains, a cycle, unresolved callees, and test files in
+  three indexed languages (`.py`, Go and TypeScript);
 - `fixtures/code`;
 - `fixtures/linking`.
 

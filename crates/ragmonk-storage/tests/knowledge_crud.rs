@@ -128,7 +128,7 @@ fn email_knowledge(f: &FileRow) -> FileKnowledge {
         ],
         chunks: vec![
             chunk(&parent, 0, "please review the budget"),
-            chunk(&child, 0, "zebra migration notes"),
+            chunk(&child, 0, "zebra herd notes"),
         ],
         ..FileKnowledge::default()
     }

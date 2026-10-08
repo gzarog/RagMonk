@@ -436,7 +436,9 @@ mod tests {
         ] {
             assert!(names.iter().any(|n| n == t), "{t} missing: {names:?}");
         }
+        // clean-slate-audit: allow-start
         assert!(!names.iter().any(|n| n.contains("migration")), "{names:?}");
+        // clean-slate-audit: allow-end
         create_or_verify(&mut conn, &path, KNOWLEDGE_SCHEMA).unwrap();
     }
 

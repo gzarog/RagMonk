@@ -47,7 +47,11 @@ ragmonk docs [--source <id>]                       # list indexed documents
 
 ## Code
 
+<!-- clean-slate-audit: allow-start -->
+
 Full extraction for Python, JavaScript, TypeScript/TSX, Go, Java, Rust and C#; HTTP routes from Python decorators and C# route attributes. Other languages are indexed for full-text search only.
+
+<!-- clean-slate-audit: allow-end -->
 
 ```bash
 ragmonk symbol | callers | callees | references | impact  <Symbol>

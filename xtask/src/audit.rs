@@ -5,8 +5,9 @@
 //! ADR). Every tracked text file is scanned line by line against [`RULES`].
 //! A finding is accepted only when it is
 //!
-//! * covered by [`ALLOWED_PATHS`] (Python as an *indexed source language*:
-//!   the parser wiring and `.py` input fixtures, nothing else),
+//! * covered by [`ALLOWED_PATHS`] (Python as an *indexed source language*
+//!   in the code-intelligence crate, test-input fixtures and the vendored
+//!   model vocabulary, each for the named rules only),
 //! * reduced to nothing by [`NEUTRAL_TOKENS`] (model ids such as
 //!   `all-MiniLM-L6-v2`, semver tags, the Python tree-sitter grammar), or
 //! * inside a `clean-slate-audit: allow-start` / `allow-end` block (the
@@ -77,22 +78,40 @@ const RULES: &[(&str, &str, &str)] = &[
 /// Substrings that look like a forbidden term but name something current.
 const NEUTRAL_TOKENS: &[&str] = &[
     // Pinned model identifiers.
-    r"(?i)all-MiniLM-L6-v2",
-    r"(?i)ms-marco-MiniLM-L-?6-v2",
+    r"(?i)all[-_]MiniLM[-_]L6[-_]v2",
+    r"(?i)ms[-_]marco[-_]MiniLM[-_]L[-_]?6[-_]v2",
+    // Pinned GitHub Action versions (`actions/cache@v2`).
+    r"@v[0-9]+\b",
+    // Third-party HTTP API versions (OpenAI-compatible and Anthropic).
+    r"/v1/(?:chat/completions|messages|models|embeddings)\b",
+    r#"https?://[^\s"'`]*/v1\b"#,
+    // A source-language value in a test record.
+    r#"\blanguage: "python""#,
     // Semantic-version tags (`v1.0.0`).
     r"\bv[0-9]+\.[0-9]+",
     // The Python grammar RagMonk uses to index Python source.
     r"tree[-_]sitter[-_]python",
 ];
 
-/// `(rule, path prefix or exact path)`: Python as an indexed language.
+/// `(rule, path prefix or exact path)`.
 const ALLOWED_PATHS: &[(&str, &str)] = &[
-    ("python", "crates/ragmonk-code/src/lang.rs"),
-    ("python", "crates/ragmonk-code/src/framework.rs"),
-    ("python", "crates/ragmonk-code/queries/python.scm"),
-    ("python", "fixtures/code/python/"),
-    ("python", "fixtures/corpus/languages/python/"),
+    // Python as an indexed source language: the code-intelligence crate
+    // (grammar wiring, queries, extraction and their tests) and the
+    // default ignore list (`.venv`/`venv` in indexed repositories).
+    ("python", "crates/ragmonk-code/"),
+    ("python", "crates/ragmonk-indexing/src/ignore.rs"),
+    ("python", "docs/adr/0009-code-intelligence.md"),
     ("python-file", "fixtures/"),
+    // Test inputs and their goldens are indexed *data*: Python sample
+    // code, a `my-helpers.v2.py` dotted-name case, `/v1` API paths in
+    // recorded requests, base64 attachments and a zebrafish-migration
+    // email. Legacy/rewrite rules still apply there.
+    ("python", "fixtures/"),
+    ("migration", "fixtures/"),
+    ("version-naming", "fixtures/"),
+    // The vendored WordPiece vocabulary of the pinned embedding model:
+    // English word pieces, not RagMonk text.
+    ("*", "crates/ragmonk-documents/assets/all-MiniLM-L6-v2/"),
 ];
 
 /// Rules that apply only to production sources (`crates/*/src/`).
@@ -228,9 +247,9 @@ pub fn run(opts: &Options) -> Result<()> {
 }
 
 fn allowed(rule: &str, path: &str) -> bool {
-    ALLOWED_PATHS
-        .iter()
-        .any(|(r, p)| *r == rule && (path == *p || (p.ends_with('/') && path.starts_with(p))))
+    ALLOWED_PATHS.iter().any(|(r, p)| {
+        (*r == rule || *r == "*") && (path == *p || (p.ends_with('/') && path.starts_with(p)))
+    })
 }
 
 fn blank(line: &str, neutral: &[Regex]) -> String {
@@ -329,6 +348,20 @@ mod tests {
         assert!(matches("version-naming", "let prefix = \"ragmonk-v2\";"));
         assert!(matches("version-naming", "mod v1;"));
         assert!(matches("version-naming", "tags: rust-v*"));
+        assert!(matches("version-naming", "let dir = home.join(\"v1\");"));
+        assert!(!matches("version-naming", "- uses: Swatinem/rust-cache@v2"));
+        assert!(!matches(
+            "version-naming",
+            "format!(\"{}/v1/messages\", base)"
+        ));
+        assert!(!matches(
+            "version-naming",
+            "base_url: https://api.openai.com/v1"
+        ));
+        assert!(!matches(
+            "version-naming",
+            "pub const ALL_MINILM_L6_V2: Spec"
+        ));
         assert!(!matches(
             "version-naming",
             "models/all-MiniLM-L6-v2/model.safetensors"
@@ -377,5 +410,26 @@ mod tests {
         assert!(allowed("python-file", "fixtures/code/python/animals.py"));
         assert!(!allowed("python-file", "scripts/check_branding.py"));
         assert!(!allowed("python", "crates/ragmonk-config/src/value.rs"));
+    }
+
+    #[test]
+    fn data_inputs_are_exempt_only_from_their_rules() {
+        assert!(allowed("python", "crates/ragmonk-code/tests/indexing.rs"));
+        assert!(allowed("python", "fixtures/expected/graph.json"));
+        assert!(allowed("version-naming", "fixtures/search/queries.json"));
+        assert!(allowed("migration", "fixtures/documents/mail.eml"));
+        assert!(!allowed("legacy", "fixtures/documents/mail.eml"));
+        assert!(!allowed("rewrite", "fixtures/expected/code.json"));
+        assert!(!allowed(
+            "version-naming",
+            "crates/ragmonk-code/src/lang.rs"
+        ));
+        assert!(allowed(
+            "legacy",
+            "crates/ragmonk-documents/assets/all-MiniLM-L6-v2/vocab.txt"
+        ));
+        assert!(!allowed("legacy", "crates/ragmonk-documents/src/lib.rs"));
+        assert!(!matches("python", "language: \"python\".into(),"));
+        assert!(matches("python", "language: \"python3\" runtime"));
     }
 }

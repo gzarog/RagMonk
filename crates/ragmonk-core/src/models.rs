@@ -144,7 +144,7 @@ fn full() -> IndexingMode {
 fn active() -> SourceStatus {
     SourceStatus::Active
 }
-fn parser_v1() -> String {
+fn parser_default() -> String {
     "1".into()
 }
 fn heading() -> SectionKind {
@@ -170,7 +170,7 @@ pub struct FileRecord {
     pub status: FileStatus,
     #[serde(default)]
     pub generation: i64,
-    #[serde(default = "parser_v1")]
+    #[serde(default = "parser_default")]
     pub parser_version: String,
     #[serde(default)]
     pub chunker_version: Option<String>,

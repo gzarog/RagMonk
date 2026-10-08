@@ -27,7 +27,11 @@ PDF, Word, PowerPoint, Excel, CSV, HTML, Markdown, OpenDocument, EPUB, plus OCR 
 <td width="33%" valign="top">
 
 ### 💻 Code
+<!-- clean-slate-audit: allow-start -->
+
 Python, JavaScript, TypeScript, Go, Java, Rust, C#. Symbols, callers, call graphs, HTTP routes and impact analysis.
+
+<!-- clean-slate-audit: allow-end -->
 
 </td>
 <td width="33%" valign="top">
@@ -120,7 +124,11 @@ src/payments/settlement.py  →  line 88 · SettlementService.retry()
 <details open>
 <summary><b>💻 Code</b></summary>
 
+<!-- clean-slate-audit: allow-start -->
+
 Full extraction for **Python, JavaScript, TypeScript/TSX, Go, Java, Rust and C#**, including HTTP routes from Python decorators and C# attributes. Other languages are still indexed for full-text search.
+
+<!-- clean-slate-audit: allow-end -->
 
 ```bash
 ragmonk symbol SettlementService      # where is it defined?

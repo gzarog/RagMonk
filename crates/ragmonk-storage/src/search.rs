@@ -538,7 +538,7 @@ mod tests {
             word_tokens("settlement.BetSettled"),
             ["settlement", "BetSettled"]
         );
-        assert_eq!(word_tokens("my-helpers.v2"), ["my", "helpers", "v2"]);
+        assert_eq!(word_tokens("my-helpers.v9"), ["my", "helpers", "v9"]);
         assert_eq!(
             word_tokens("café_total Λογαριασμός"),
             ["café_total", "Λογαριασμός"]

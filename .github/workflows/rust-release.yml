@@ -10,7 +10,7 @@ name: Rust release
 #     to main: the next vX.Y.Z is computed (patch bump, or minor when the
 #     merged commit message contains "[release minor]"), tagged, and
 #     published as a full release, which `ragmonk update` picks up;
-#   * a pushed `rust-v<MAJOR.MINOR.PATCH>` tag: a pre-release with the
+#   * a pushed `v<MAJOR.MINOR.PATCH>` tag: a pre-release with the
 #     image, for dry runs;
 #   * manual dispatch (default branch only).
 #
@@ -25,7 +25,7 @@ on:
     branches: [main]
   push:
     tags:
-      - "rust-v*.*.*"
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       version:
@@ -88,7 +88,7 @@ jobs:
           sha="$(git rev-parse HEAD)"
           case "$GITHUB_EVENT_NAME" in
             push)
-              v="${GITHUB_REF_NAME#rust-v}"; pre=true; img=true ;;
+              v="${GITHUB_REF_NAME#v}"; pre=true; img=true ;;
             workflow_run)
               latest="$(git tag --list 'v*.*.*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)"
               if git log -1 --format=%B | grep -qF '[release minor]'; then bump=minor; else bump=patch; fi
@@ -110,11 +110,15 @@ jobs:
         run: |
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
             || { echo "::error::version must be MAJOR.MINOR.PATCH, got '$VERSION'"; exit 1; }
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+          # A tag push *is* the release tag; every other trigger must not
+          # reuse an existing one.
+          if [ "$GITHUB_EVENT_NAME" != push ] && git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             echo "::error::tag $TAG already exists"; exit 1
           fi
       # Reserve the version before the long builds, so two merges racing
       # past the concurrency guard cannot both claim it.
+      # Pushed with GITHUB_TOKEN, so it does not re-trigger the `v*` tag
+      # push event above.
       - name: Push the release tag
         if: github.event_name == 'workflow_run'
         run: |

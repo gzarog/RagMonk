@@ -1,6 +1,6 @@
 [package]
 name = "ragmonk-backends"
-description = "RagMonk V2 OpenSearch/Elasticsearch schema, bounded bulk publication and legacy-index cleanup"
+description = "RagMonk OpenSearch/Elasticsearch index schema, bounded bulk publication and stale-index cleanup"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

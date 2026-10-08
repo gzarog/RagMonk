@@ -4,7 +4,7 @@
 //! ragmonk-index-bench [--files N] [--out path.json]
 //! ```
 //!
-//! Generates a synthetic corpus (N Python source modules plus N/20 text
+//! Generates a synthetic corpus (N source-code modules plus N/20 text
 //! documents), then measures in-process wall time for cold,
 //! warm-unchanged, single-edit, 1%-change, burst, rename and delete passes
 //! through the indexing coordinator. Processing uses the raw registry, so

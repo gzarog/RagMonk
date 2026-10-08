@@ -437,7 +437,7 @@ mod tests {
     fn build(n: usize, dims: usize) -> (Hnsw, Vec<(String, Vec<f32>)>) {
         let mut h = Hnsw::new(dims, HnswParams::default());
         let items: Vec<(String, Vec<f32>)> = (0..n)
-            .map(|i| (format!("v{i}"), unit(i as u64, dims)))
+            .map(|i| (format!("e{i}"), unit(i as u64, dims)))
             .collect();
         for (l, v) in &items {
             h.insert(l, v);
@@ -475,9 +475,9 @@ mod tests {
     fn deletes_are_never_returned_and_compaction_keeps_recall() {
         let (mut h, items) = build(2000, 24);
         for i in (0..2000).step_by(3) {
-            assert!(h.remove(&format!("v{i}")));
+            assert!(h.remove(&format!("e{i}")));
         }
-        assert!(!h.remove("v0"));
+        assert!(!h.remove("e0"));
         for q in 0..20 {
             for (l, _) in h.search(&unit(500 + q, 24), 20) {
                 let i: usize = l[1..].parse().unwrap();
@@ -498,8 +498,8 @@ mod tests {
         assert_eq!(a.links, b.links);
         let q = unit(7, 16);
         assert_eq!(a.search(&q, 5), b.search(&q, 5));
-        b.insert("v1", &q);
+        b.insert("e1", &q);
         assert_eq!(b.len(), 500);
-        assert_eq!(b.search(&q, 1)[0].0, "v1");
+        assert_eq!(b.search(&q, 1)[0].0, "e1");
     }
 }
