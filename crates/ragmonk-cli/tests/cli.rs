@@ -138,7 +138,8 @@ fn server_requires_server_mode() {
         .unwrap();
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["data"]["indexes"].as_array().unwrap().len(), 6);
+    assert_eq!(v["data"]["indexes"].as_array().unwrap().len(), 7);
+    assert_eq!(v["data"]["indexes"][6]["name"], "ragmonk-runtime");
     assert_eq!(v["data"]["indexes"][0]["name"], "ragmonk-source-state");
 }
 
