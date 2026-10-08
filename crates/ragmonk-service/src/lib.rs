@@ -40,6 +40,18 @@ pub fn load(home: &Home) -> Result<RagMonkConfig, RagMonkError> {
     })
 }
 
+/// The embedding tokenizer this build uses and the configured chunk ceiling.
+pub fn tokenizer_info(cfg: &RagMonkConfig) -> serde_json::Value {
+    use ragmonk_documents::tokenizer as t;
+    serde_json::json!({
+        "model_id": t::EMBEDDING_MODEL_ID,
+        "revision": t::TOKENIZER_REVISION,
+        "fingerprint": t::tokenizer_fingerprint(),
+        "max_sequence_tokens": t::MAX_SEQUENCE_TOKENS,
+        "chunk_ceiling": cfg.documents.chunking.resolved_max_tokens(),
+    })
+}
+
 pub(crate) fn generic(e: impl std::fmt::Display) -> RagMonkError {
     RagMonkError::new(ErrorKind::Generic, e.to_string())
 }

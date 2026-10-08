@@ -4,13 +4,36 @@
 <h1>Indexing</h1>
 
 {% set o = overview %}
+{% set f = o.summary.files %}
 <div class="grid">
-  <div class="stat"><div class="num">{{ o.queue_depth }}</div><div class="label">Queue depth</div></div>
-  <div class="stat"><div class="num">{{ o.counts.get("indexed", 0) }}</div><div class="label">Indexed</div></div>
-  <div class="stat"><div class="num">{{ o.counts.get("queued", 0) }}</div><div class="label">Queued</div></div>
-  <div class="stat"><div class="num">{{ o.counts.get("failed", 0) }}</div><div class="label">Failed</div></div>
-  <div class="stat"><div class="num">{{ "yes" if o.running else "no" }}</div><div class="label">Running</div></div>
+  <div class="stat"><div class="num">{{ "N/A" if f.published_indexed is none else f.published_indexed }}</div><div class="label">Published files</div></div>
+  <div class="stat"><div class="num">{{ "N/A" if f.failed is none else f.failed }}</div><div class="label">Failed</div></div>
+  <div class="stat"><div class="num">{{ "N/A" if f.retrying is none else f.retrying }}</div><div class="label">Retrying</div></div>
+  <div class="stat"><div class="num">{{ o.summary.sources.active }}</div><div class="label">Sources indexing</div></div>
+  <div class="stat"><div class="num">{{ "N/A" if f.pending_in_current_runs is none else f.pending_in_current_runs }}</div><div class="label">Pending in current runs</div></div>
+  <div class="stat"><div class="num">{{ "yes" if o.running else "no" }}</div><div class="label">UI run</div></div>
 </div>
+{% if o.workers %}
+<div class="panel">
+  <h2 style="margin-top:0">Active passes ({{ o.scope }})</h2>
+  <table>
+    <thead><tr><th>Source</th><th>Host</th><th>Stage</th><th>Processed</th><th>Indexed</th><th>Failed</th><th>Heartbeat</th></tr></thead>
+    <tbody>
+      {% for w in o.workers %}
+      <tr>
+        <td class="mono">{{ w.source_id }}</td>
+        <td>{{ w.host or "—" }}</td>
+        <td>{{ w.stage or "—" }} <span class="badge {{ 'ok' if w.liveness == 'live' else 'warn' }}">{{ w.liveness }}</span></td>
+        <td>{{ "N/A" if w.processed is none else w.processed }} / {{ "N/A" if w.planned is none else w.planned }}</td>
+        <td>{{ "N/A" if w.indexed is none else w.indexed }}</td>
+        <td>{{ "N/A" if w.failed is none else w.failed }}</td>
+        <td class="muted mono">{{ w.heartbeat_at or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 <div class="panel">
   <div class="field-row">

@@ -3279,6 +3279,7 @@ dependencies = [
  "ragmonk-ops",
  "ragmonk-retrieval",
  "ragmonk-service",
+ "ragmonk-status",
  "ragmonk-storage",
  "ragmonk-telemetry",
  "ragmonk-update",

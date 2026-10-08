@@ -10,12 +10,14 @@ use ragmonk_retrieval::graph::{self, Direction};
 use ragmonk_storage::control::SourceRecord;
 use ragmonk_storage::knowledge::ProjectStore;
 use ragmonk_storage::StorageLayout;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use ragmonk_ops::doctor as doctor_cmd;
 use ragmonk_service::load;
 use ragmonk_service::query::{self as query_cmd, open_sources, Opened};
 use ragmonk_service::sources::catalog;
+use ragmonk_status::model::{Liveness, SourceStatus};
+use ragmonk_status::StatusReport;
 use ragmonk_storage::knowledge::{DocumentRow, FileRow};
 use ragmonk_storage::read::KnowledgeRead;
 
@@ -29,12 +31,16 @@ fn abs(root: &str, rel: &str) -> String {
 
 // ------------------------------------------------------------ status ---
 
-/// `status_service.collect_status`.
-pub fn status(home: &Home) -> Result<Value, RagMonkError> {
-    ragmonk_service::status::collect(home)
+/// The canonical status report (the same data as `ragmonk status --json`).
+pub fn report(home: &Home) -> Result<StatusReport, RagMonkError> {
+    ragmonk_service::status::report(home)
 }
 
-/// `status_service.daemon_snapshot`.
+fn to_value(v: &impl serde::Serialize) -> Result<Value, RagMonkError> {
+    serde_json::to_value(v).map_err(|e| RagMonkError::new(ErrorKind::Generic, e.to_string()))
+}
+
+/// The daemon's heartbeat snapshot.
 pub fn daemon_snapshot(home: &Home) -> Value {
     let mut v = ragmonk_indexing::daemon::status_payload(home);
     if let Some(o) = v.as_object_mut() {
@@ -43,164 +49,80 @@ pub fn daemon_snapshot(home: &Home) -> Value {
     v
 }
 
-/// `status_service.recent_errors`: newest first across sources.
-pub fn recent_errors(home: &Home, limit: usize) -> Result<Vec<Value>, RagMonkError> {
-    let mut out = Vec::new();
-    for o in open_sources(home, None)? {
-        if let Some(server) = o.store.server() {
-            // Server mode: per-file errors recorded in the published build.
-            let stats = server
-                .backend()
-                .source_stats(&o.source.id, &o.build, limit)
-                .map_err(ragmonk_service::backend::server_err)?;
-            for e in stats.errors {
-                out.push(json!({
-                    "source_id": o.source.id,
-                    "path": abs(&o.source.path, &e.rel_path),
-                    "error_code": e.status,
-                    "error_message": e.error,
-                    "occurred_at": Value::Null,
-                }));
-            }
-            continue;
-        }
-        let Ok(store) = o.store.local() else { continue };
-        let Ok(records) = store.recent_errors(limit as i64) else {
-            continue;
-        };
-        for r in records {
-            out.push(json!({
-                "source_id": o.source.id,
-                "path": r.path.as_deref().map(|p| abs(&o.source.path, p)),
-                "error_code": r.error_code,
-                "error_message": r.error_message,
-                "occurred_at": r.occurred_at,
-            }));
-        }
-    }
-    out.sort_by(|a, b| {
-        b["occurred_at"]
-            .as_str()
-            .unwrap_or_default()
-            .cmp(a["occurred_at"].as_str().unwrap_or_default())
-    });
-    out.truncate(limit);
-    Ok(out)
+/// Dashboard data: the report plus the daemon snapshot.
+pub fn dashboard(home: &Home) -> Result<Value, RagMonkError> {
+    let mut r = report(home)?;
+    r.recent_errors.truncate(10);
+    Ok(json!({"status": to_value(&r)?, "daemon": daemon_snapshot(home)}))
 }
 
 // ----------------------------------------------------------- sources ---
 
-fn status_rows(home: &Home) -> Result<Map<String, Value>, RagMonkError> {
-    let st = status(home)?;
-    Ok(st["sources"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|s| Some((s["id"].as_str()?.to_owned(), s.clone())))
-        .collect())
-}
-
-fn summarize(s: &SourceRecord, row: &Value) -> Value {
-    let counts = row.get("counts").cloned().unwrap_or_else(|| json!({}));
-    let get = |k: &str| counts[k].as_i64().unwrap_or(0);
+fn summarize(s: &SourceRecord, row: Option<&SourceStatus>) -> Value {
+    let p = row.and_then(|r| r.published.as_ref());
+    let live = row
+        .and_then(|r| r.live.as_ref())
+        .filter(|l| l.liveness == Liveness::Live);
     json!({
         "id": s.id,
         "path": s.path,
         "type": s.source_type.as_str(),
         "enabled": s.enabled,
-        "status": row.get("status").cloned().unwrap_or_else(|| json!("active")),
+        "access": row.map(|r| r.access),
+        "index_state": row.map(|r| r.index_state),
         "include_patterns": s.include_patterns,
         "exclude_patterns": s.exclude_patterns,
-        "last_scan_at": row.get("last_scan_at").cloned().unwrap_or(Value::Null),
-        "last_error": row.get("last_error").cloned().unwrap_or(Value::Null),
-        "indexed": get("indexed"),
-        "failed": get("failed"),
-        "queued": get("queued"),
-        "queue_depth": row.get("queue_depth").cloned().unwrap_or(json!(0)),
-        "counts": counts,
+        "last_scan_at": row.and_then(|r| r.last_scan_at.clone()),
+        "last_error": row.and_then(|r| r.last_error.clone()),
+        "last_error_at": row.and_then(|r| r.last_error_at.clone()),
+        "published": p,
+        "live": live,
+        "warnings": row.map(|r| r.warnings.clone()).unwrap_or_default(),
     })
 }
 
-/// `source_service.list_sources`.
+/// Every registered source with its status row.
 pub fn list_sources(home: &Home) -> Result<Vec<Value>, RagMonkError> {
-    let rows = status_rows(home)?;
+    let r = report(home)?;
     let cp = catalog(home)?;
     Ok(cp
         .list(false)?
         .iter()
-        .map(|s| summarize(s, rows.get(&s.id).unwrap_or(&Value::Null)))
+        .map(|s| summarize(s, r.source(&s.id)))
         .collect())
 }
 
-/// `source_service.source_detail`.
+/// One source: its status row, published counters and its newest errors.
 pub fn source_detail(home: &Home, source_id: &str) -> Result<Value, RagMonkError> {
     let s = catalog(home)?.get(source_id)?;
-    let rows = status_rows(home)?;
-    let row = rows.get(&s.id).cloned().unwrap_or(Value::Null);
-    let mut detail = summarize(&s, &row);
-    let m = &row["metrics"];
-    let metric = |k: &str| m[k].as_i64().unwrap_or(0);
-    detail["metrics"] = json!({
-        "symbols_created": metric("symbols_created"),
-        "relationships_created": metric("relationships_created"),
-        "documents_processed": metric("documents_processed"),
-        "database_size_bytes": metric("database_size_bytes"),
-    });
-    let mut errors = Vec::new();
-    if let Some(o) = open_sources(home, Some(source_id))?.into_iter().next() {
-        if let Some(server) = o.store.server() {
-            for e in server
-                .backend()
-                .source_stats(&o.source.id, &o.build, 25)
-                .map_err(ragmonk_service::backend::server_err)?
-                .errors
-            {
-                errors.push(json!({
-                    "path": abs(&s.path, &e.rel_path),
-                    "error_code": e.status,
-                    "error_message": e.error,
-                    "occurred_at": Value::Null,
-                }));
-            }
-        }
-        for r in o
-            .store
-            .local()
-            .ok()
-            .map(|st| st.recent_errors(25))
-            .transpose()
-            .map_err(db)?
-            .unwrap_or_default()
-        {
-            errors.push(json!({
-                "path": r.path.as_deref().map(|p| abs(&s.path, p)),
-                "error_code": r.error_code,
-                "error_message": r.error_message,
-                "occurred_at": r.occurred_at,
-            }));
-        }
-    }
-    detail["errors"] = json!(errors);
+    let r = ragmonk_service::status::report_with(home, |o| {
+        o.error_source = Some(source_id.to_owned());
+    })?;
+    let mut detail = summarize(&s, r.source(&s.id));
+    detail["errors"] = json!(r
+        .recent_errors
+        .iter()
+        .map(|e| json!({
+            "path": e.path.as_deref().map(|p| abs(&s.path, p)),
+            "code": e.code,
+            "message": e.message,
+            "occurred_at": e.occurred_at,
+        }))
+        .collect::<Vec<_>>());
     Ok(detail)
 }
 
 // ---------------------------------------------------------- indexing ---
 
-/// `index_service.indexing_overview` (without the runner state, which
-/// the router adds).
+/// Indexing page data (without the UI runner state, which the router adds).
 pub fn indexing_overview(home: &Home) -> Result<Value, RagMonkError> {
-    let st = status(home)?;
-    let mut counts = Map::new();
-    let mut queue = 0;
-    for s in st["sources"].as_array().into_iter().flatten() {
-        queue += s["queue_depth"].as_i64().unwrap_or(0);
-        for (k, v) in s["counts"].as_object().into_iter().flatten() {
-            let total =
-                counts.get(k).and_then(Value::as_i64).unwrap_or(0) + v.as_i64().unwrap_or(0);
-            counts.insert(k.clone(), json!(total));
-        }
-    }
-    Ok(json!({"queue_depth": queue, "counts": counts}))
+    let r = report(home)?;
+    Ok(json!({
+        "summary": r.summary,
+        "workers": r.indexer.workers,
+        "scope": r.indexer.scope,
+        "health": r.health,
+    }))
 }
 
 /// `index_service.failed_files`.

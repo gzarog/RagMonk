@@ -159,29 +159,25 @@ pub fn run_checks(home: &Home) -> Result<Vec<Section>, RagMonkError> {
         checks: vec![lock],
     });
 
-    let status = ragmonk_indexing::status::collect_status(
-        home,
-        &cp,
-        cfg.indexing.status_stall_threshold_seconds,
-        chrono::Utc::now(),
-    )
-    .map_err(db)?;
-    let depth = status["totals"]["queue_depth"].as_i64().unwrap_or(0);
+    // Files of the published builds waiting for a retry (the durable
+    // per-file retry queue), from the canonical status report.
+    let status = ragmonk_service::status::report(home)?;
+    let retrying = status.summary.files.retrying;
     sections.push(Section {
         name: "Index",
-        checks: vec![check(
-            "queue",
-            if depth < QUEUE_DEPTH_WARN {
-                "ok"
-            } else {
-                "warn"
-            },
-            if depth == 0 {
-                "queue empty".to_owned()
-            } else {
-                format!("queue depth {depth}")
-            },
-        )],
+        checks: vec![match retrying {
+            None => check("queue", "warn", "retry queue unknown (status is partial)"),
+            Some(0) => check("queue", "ok", "queue empty"),
+            Some(n) => check(
+                "queue",
+                if (n as i64) < QUEUE_DEPTH_WARN {
+                    "ok"
+                } else {
+                    "warn"
+                },
+                format!("{n} file(s) waiting for a retry"),
+            ),
+        }],
     });
 
     let disk = match free_gb(home.root()) {

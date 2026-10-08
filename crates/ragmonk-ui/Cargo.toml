@@ -21,6 +21,7 @@ ragmonk-indexing.workspace = true
 ragmonk-ops.workspace = true
 ragmonk-retrieval.workspace = true
 ragmonk-service.workspace = true
+ragmonk-status.workspace = true
 ragmonk-storage.workspace = true
 ragmonk-telemetry.workspace = true
 ragmonk-update.workspace = true
