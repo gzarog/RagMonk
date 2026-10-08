@@ -9,6 +9,7 @@
 pub mod ask;
 pub mod backend;
 pub mod daemon;
+pub mod evidence;
 pub mod indexing;
 pub mod query;
 pub mod server_index;

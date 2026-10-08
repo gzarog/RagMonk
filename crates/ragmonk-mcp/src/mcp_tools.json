@@ -528,6 +528,156 @@
   }
  },
  {
+  "name": "ragmonk_evidence",
+  "description": "Grounded evidence for a question: deterministic intent routing, hard source/path/kind/document filters applied before retrieval, bounded decomposition, dedup and diversity, and typed [E#] citations re-verified against the index, with a supported / partial / insufficient_evidence verdict. Never calls an LLM or the network.",
+  "inputSchema": {
+   "properties": {
+    "query": {
+     "title": "Query",
+     "type": "string"
+    },
+    "source_ids": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Source Ids"
+    },
+    "path_prefixes": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Path Prefixes"
+    },
+    "kinds": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Kinds"
+    },
+    "document_ids": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Document Ids"
+    },
+    "exclude_attachments": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Exclude Attachments"
+    },
+    "limit": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Limit"
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "title": "ragmonk_evidenceArguments",
+   "type": "object"
+  },
+  "outputSchema": {
+   "additionalProperties": true,
+   "properties": {
+    "query": {
+     "title": "Query",
+     "type": "string"
+    },
+    "verdict": {
+     "title": "Verdict",
+     "type": "string"
+    },
+    "plan": {
+     "additionalProperties": true,
+     "title": "Plan",
+     "type": "object"
+    },
+    "evidence": {
+     "items": {
+      "additionalProperties": true,
+      "type": "object"
+     },
+     "title": "Evidence",
+     "type": "array"
+    },
+    "support": {
+     "items": {
+      "additionalProperties": true,
+      "type": "object"
+     },
+     "title": "Support",
+     "type": "array"
+    }
+   },
+   "required": [
+    "query",
+    "verdict",
+    "plan",
+    "evidence",
+    "support"
+   ],
+   "title": "ragmonk_evidenceOutput",
+   "type": "object"
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
   "name": "ragmonk_symbol",
   "description": "Look up a code symbol by name or fully qualified name.",
   "inputSchema": {

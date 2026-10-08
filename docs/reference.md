@@ -45,6 +45,41 @@ ragmonk search "remote work equipment allowance"   # --table · --json · --limi
 ragmonk docs [--source <id>]                       # list indexed documents
 ```
 
+### Evidence, hard filters and grounding
+
+```bash
+ragmonk evidence "who calls SettlementService.process" --json
+ragmonk evidence "compare billing and ledger retry limits" --source <id> --source <id>
+ragmonk search "refund policy" --path docs/ --kind document --no-attachments --explain --json
+```
+
+`ragmonk evidence` (MCP: `ragmonk_evidence`) routes the query to a typed intent (`exact_symbol`, `path_lookup`, `code_navigation`, `impact_analysis`, `document_fact`, `conceptual`, `cross_source_comparison`, `multi_hop`, `ambiguous`) without any model or network call, then runs only the strategies that intent needs.
+
+- **Hard filters** (`--source`, `--path`, `--kind`, `--document`, `--no-attachments`, also on `search`) are applied before retrieval and to every stage: lexical, semantic, graph callers, context and every subquery. No stage can widen them.
+- **Decomposition**: comparisons, flows and multi-part questions are split into at most `search.decomposition.max_subqueries` (default 4) subqueries; each comparison side keeps its best hit.
+- **Duplicates** are removed by provenance and content; at most `search.diversity.per_document_cap` chunks per file. `search.diversity.enabled` (MMR, off by default) is opt-in: on the P0 evaluation it lowered comparison coverage.
+- **Citations**: every result is an `[E#]` with source, build, record, path, line/page and a content fingerprint, re-verified against the same snapshot; a deleted file, a stale build or a filtered record is reported `valid: false`.
+- **Verdict**: `supported`, `partial` (a part of a multi-part question has no support), or `insufficient_evidence` (nothing reaches `search.grounding.min_coverage` of the query's content terms). `ragmonk ask` abstains without calling the provider on `insufficient_evidence`, gives the model only verified evidence as untrusted data, and reports uncited sentences and unknown citation ids under `grounding.answer_check`.
+- The whole run is bounded by `search.max_query_budget_ms` (default 5000); skipped stages are listed under `diagnostics.degraded`.
+
+| Setting | Default |
+|---|---|
+| `search.routing.enabled` | `true` |
+| `search.decomposition.enabled` / `.max_subqueries` / `.llm_enabled` | `true` / `4` / `false` |
+| `search.diversity.enabled` / `.lambda` / `.per_document_cap` / `.per_source_cap` | `false` / `0.7` / `3` / `0` |
+| `search.grounding.enabled` / `.min_coverage` | `true` / `0.5` |
+| `search.max_query_budget_ms` | `5000` |
+
+Optional profiles (set with `ragmonk config set`; none enables an expensive model by default):
+
+| Profile | Settings |
+|---|---|
+| code-heavy | defaults; `search.semantic false` |
+| document-heavy | `search.semantic true`, `search.lazy_semantic true`, `search.grounding.min_coverage 0.6` |
+| mixed | `search.semantic true`, `search.reranker.enabled true` (measure latency first: the reranker raised p95 in `benchmarks/semantic-quality.json`) |
+
+Quality is gated in CI by the 72-query golden set and by a 250-query generated evaluation (`crates/ragmonk-service/tests/p0_eval.rs`, held-out floors in `fixtures/p0/eval-gates.json`, last report in `benchmarks/p0-retrieval-eval.json`). Its labels come from the corpus generator, not from independent human labeling.
+
 ## Code
 
 <!-- clean-slate-audit: allow-start -->

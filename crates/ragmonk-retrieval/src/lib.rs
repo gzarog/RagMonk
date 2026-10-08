@@ -14,8 +14,10 @@
 pub mod classify;
 pub mod context;
 pub mod decompose;
+pub mod diversify;
 pub mod explore;
 pub mod graph;
+pub mod grounding;
 pub mod hybrid;
 pub mod lexical;
 pub mod route;

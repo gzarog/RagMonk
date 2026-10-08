@@ -611,6 +611,8 @@ pub struct SearchRequest<'a> {
     pub hybrid: bool,
     /// Expand document hits with their surrounding context.
     pub with_context: bool,
+    /// Hard filters, applied before ranking to every stage (ADR 0033).
+    pub filters: ragmonk_retrieval::route::SearchFilters,
 }
 
 /// Everything one `search` produced, for any renderer.
@@ -661,10 +663,46 @@ pub fn run_search(
     req: &SearchRequest<'_>,
 ) -> Result<SearchRun, RagMonkError> {
     let sc = &cfg.search;
-    let corp = corpora(opened);
+    let f = &req.filters;
+    // Hard source filter: other sources are never read.
+    let corp: Vec<Corpus<'_>> = corpora(opened)
+        .into_iter()
+        .filter(|c| f.allows_source(c.store.source_id()))
+        .collect();
+    // Over-fetch when filtering, so the limit still fills after it.
+    let fetch = if f.is_empty() {
+        req.limit
+    } else {
+        req.limit * 4
+    };
     let (mut results, stage_timings) =
-        lexical::search_with_timings(&corp, req.query, req.limit, sc.output.snippet_max_tokens)
+        lexical::search_with_timings(&corp, req.query, fetch, sc.output.snippet_max_tokens)
             .map_err(search_err)?;
+    if !f.is_empty() {
+        let mut kept = Vec::with_capacity(results.len());
+        for r in results {
+            let attachment = r.location.as_ref().is_some_and(|l| l.attachment.is_some());
+            let doc = if r.kind == "document" && !f.document_ids.is_empty() {
+                let c = corp.iter().find(|c| c.store.source_id() == r.source_id);
+                match c {
+                    Some(c) => c
+                        .store
+                        .chunk(c.build_id, &r.id)
+                        .map_err(RagMonkError::from)?
+                        .map(|ch| ch.document_id)
+                        .or_else(|| Some(r.id.clone())),
+                    None => None,
+                }
+            } else {
+                None
+            };
+            if f.allows(&r.source_id, &r.path, r.kind, doc.as_deref(), attachment) {
+                kept.push(r);
+            }
+        }
+        kept.truncate(req.limit);
+        results = kept;
+    }
     absolutize_results(&mut results, opened);
     let mut timings: Vec<Value> = stage_timings
         .iter()
@@ -684,6 +722,20 @@ pub fn run_search(
             Some(sc.semantic_top_k.max(1) as usize),
         )
         .map_err(search_err)?;
+        s.hits.retain(|h| {
+            let kind = if h.hit.kind == "entity" {
+                "entity"
+            } else {
+                "document"
+            };
+            f.allows(
+                &h.source_id,
+                &h.hit.path,
+                kind,
+                h.hit.document_id.as_deref(),
+                h.attachment.is_some(),
+            )
+        });
         absolutize_hits(&mut s.hits, opened);
         timings.push(json!({
             "stage": "semantic",

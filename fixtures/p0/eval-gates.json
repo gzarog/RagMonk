@@ -1,0 +1,278 @@
+{
+  "split": "heldout",
+  "margin": 0.05,
+  "floors": {
+    "lexical_baseline": {
+      "all": {
+        "recall@10": 0.771,
+        "mrr": 0.424,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "ambiguous": {
+        "recall@10": 0.95,
+        "mrr": 0.783,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "code_navigation": {
+        "recall@10": 0.0,
+        "mrr": 0.0,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "comparison": {
+        "recall@10": 0.95,
+        "mrr": 0.2,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "document_fact": {
+        "recall@10": 0.95,
+        "mrr": 0.25,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "email_attachment": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "english_hr": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "exact_symbol": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "filtered": {
+        "abstention_accuracy": 0.95
+      },
+      "greek": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "impact": {
+        "recall@10": 0.0,
+        "mrr": 0.0,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "negative": {
+        "abstention_accuracy": 0.95
+      }
+    },
+    "routed": {
+      "all": {
+        "recall@10": 0.95,
+        "mrr": 0.812,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "ambiguous": {
+        "recall@10": 0.95,
+        "mrr": 0.783,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "code_navigation": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "comparison": {
+        "recall@10": 0.95,
+        "mrr": 0.2,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "document_fact": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "email_attachment": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "english_hr": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "exact_symbol": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "filtered": {
+        "abstention_accuracy": 0.95
+      },
+      "greek": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "impact": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "negative": {
+        "abstention_accuracy": 0.95
+      }
+    },
+    "routed_decomposed": {
+      "all": {
+        "recall@10": 0.95,
+        "mrr": 0.928,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "ambiguous": {
+        "recall@10": 0.95,
+        "mrr": 0.783,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "code_navigation": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "comparison": {
+        "recall@10": 0.95,
+        "mrr": 0.905,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "document_fact": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "email_attachment": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "english_hr": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "exact_symbol": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "filtered": {
+        "abstention_accuracy": 0.95
+      },
+      "greek": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "impact": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "negative": {
+        "abstention_accuracy": 0.95
+      }
+    },
+    "routed_decomposed_diverse": {
+      "all": {
+        "recall@10": 0.95,
+        "mrr": 0.928,
+        "source_coverage": 0.786,
+        "abstention_accuracy": 0.95
+      },
+      "ambiguous": {
+        "recall@10": 0.95,
+        "mrr": 0.783,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "code_navigation": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "comparison": {
+        "recall@10": 0.95,
+        "mrr": 0.905,
+        "source_coverage": 0.0,
+        "abstention_accuracy": 0.95
+      },
+      "document_fact": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "email_attachment": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "english_hr": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "exact_symbol": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "filtered": {
+        "abstention_accuracy": 0.95
+      },
+      "greek": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "impact": {
+        "recall@10": 0.95,
+        "mrr": 0.95,
+        "source_coverage": 0.95,
+        "abstention_accuracy": 0.95
+      },
+      "negative": {
+        "abstention_accuracy": 0.95
+      }
+    }
+  }
+}

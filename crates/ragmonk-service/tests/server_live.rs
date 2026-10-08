@@ -265,6 +265,42 @@ fn scenario(base: &str, engine: &str) {
     let sym_b = query::symbol_value(&only, "SettlementService").unwrap();
     assert!(sym_b["matches"].as_array().unwrap().is_empty());
 
+    // --- evidence pipeline on the server (R01-R03) -----------------------
+    let cfg = ragmonk_service::load(&env.home).unwrap();
+    let ev = ragmonk_service::evidence::evidence_value(
+        &env.home,
+        &cfg,
+        &ragmonk_service::evidence::EvidenceRequest {
+            query: "SettlementService",
+            filters: ragmonk_retrieval::route::SearchFilters {
+                source_ids: vec![a.id.clone()],
+                ..Default::default()
+            },
+            limit: 5,
+        },
+    )
+    .unwrap();
+    assert_eq!(ev["plan"]["intent"], "exact_symbol", "{ev}");
+    let items = ev["evidence"].as_array().unwrap();
+    assert!(!items.is_empty(), "{ev}");
+    assert!(
+        items
+            .iter()
+            .all(|e| e["valid"] == true && e["source_id"] == a.id.as_str()),
+        "{ev}"
+    );
+    let none = ragmonk_service::evidence::evidence_value(
+        &env.home,
+        &cfg,
+        &ragmonk_service::evidence::EvidenceRequest {
+            query: "what is the zeppelin hangar lease",
+            filters: Default::default(),
+            limit: 5,
+        },
+    )
+    .unwrap();
+    assert_eq!(none["verdict"], "insufficient_evidence", "{none}");
+
     // --- status reconciles with published records (S03) -----------------
     let st = ragmonk_service::status::collect(&env.home).unwrap();
     assert_eq!(st["backend"]["type"], engine);

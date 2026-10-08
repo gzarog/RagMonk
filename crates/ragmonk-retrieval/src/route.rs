@@ -193,6 +193,33 @@ fn identifiers(text: &str) -> Vec<String> {
     v
 }
 
+/// The symbol a navigation / impact phrase names (`who calls X`, `what
+/// breaks if X changes`, ...).
+fn phrase_target(text: &str) -> Option<String> {
+    static R: OnceLock<Vec<Regex>> = OnceLock::new();
+    let rs = R.get_or_init(|| {
+        [
+            r"(?i)who calls ([\w.]+)",
+            r"(?i)callers of ([\w.]+)",
+            r"(?i)what calls ([\w.]+)",
+            r"(?i)who (?:uses|references) ([\w.]+)",
+            r"(?i)what does ([\w.]+) call",
+            r"(?i)callees of ([\w.]+)",
+            r"(?i)where is ([\w.]+) (?:defined|used|implemented)",
+            r"(?i)(?:implementation|definition) of ([\w.]+)",
+            r"(?i)what breaks if ([\w.]+)",
+            r"(?i)what happens if ([\w.]+) changes",
+            r"(?i)impact of ([\w.]+)",
+            r"(?i)what depends on ([\w.]+)",
+        ]
+        .iter()
+        .map(|p| Regex::new(p).expect("valid"))
+        .collect()
+    });
+    rs.iter()
+        .find_map(|r| r.captures(text).map(|c| c[1].to_owned()))
+}
+
 /// Extensions that make a dotted single token a file name, not a symbol.
 const FILE_EXTENSIONS: &[&str] = &[
     "md", "txt", "pdf", "eml", "docx", "doc", "odt", "pptx", "xlsx", "csv", "html", "htm", "json",
@@ -282,6 +309,11 @@ pub fn route(query: &str, opts: RouteOptions) -> Route {
             if ids.len() >= 2 { 0.9 } else { 0.75 },
         ));
     }
+    // Several questions in one query: answer each part.
+    if text.matches('?').count() >= 2 || text.contains(';') {
+        signals.push("multi_part".into());
+        scored.push((QueryIntent::MultiHop, 0.85));
+    }
     if r.multi_hop.is_match(text) {
         signals.push("multi_hop_phrase".into());
         scored.push((
@@ -308,7 +340,12 @@ pub fn route(query: &str, opts: RouteOptions) -> Route {
             Some(a) if a.1 >= x.1 => Some(a),
             _ => Some(x),
         });
-    let target = ids.first().cloned();
+    let target = match best {
+        Some((QueryIntent::ImpactAnalysis | QueryIntent::CodeNavigation, _)) => {
+            phrase_target(text).or_else(|| ids.first().cloned())
+        }
+        _ => ids.first().cloned(),
+    };
     match best {
         Some((QueryIntent::ImpactAnalysis, c)) => mk(
             QueryIntent::ImpactAnalysis,
@@ -442,6 +479,10 @@ mod tests {
             (
                 "how are failed payments retried overnight",
                 QueryIntent::Conceptual,
+            ),
+            (
+                "how are refunds approved? who signs invoices?",
+                QueryIntent::MultiHop,
             ),
             ("settlement", QueryIntent::Ambiguous),
             ("ledger retries", QueryIntent::Ambiguous),
