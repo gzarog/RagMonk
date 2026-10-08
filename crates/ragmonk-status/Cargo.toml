@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 chrono.workspace = true
+ragmonk-backends.workspace = true
 ragmonk-core.workspace = true
 ragmonk-indexing.workspace = true
 ragmonk-storage.workspace = true

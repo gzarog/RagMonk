@@ -1,8 +1,9 @@
 //! RagMonk server backends (OpenSearch and Elasticsearch).
 //!
 //! * [`schema`]: the index set `{prefix}-{source-state,files,code,
-//!   documents,chunks,relationships}` with strict mappings, vector/HNSW
-//!   settings fixed at creation and a `_meta.schema_version`.
+//!   documents,chunks,relationships,runtime}` with strict mappings,
+//!   vector/HNSW settings fixed at creation and a `_meta.schema_version`.
+//! * [`status`]: batched, bounded status reads and fenced run heartbeats.
 //! * [`backend::ServerBackend`]: idempotent writes with deterministic
 //!   IDs, bounded adaptive bulk batching, and atomic per-source build
 //!   publication (an unpublished build is never returned by any read).
@@ -17,6 +18,7 @@ pub mod error;
 pub mod publish;
 pub mod reader;
 pub mod schema;
+pub mod status;
 pub mod transport;
 
 pub use backend::ServerBackend;

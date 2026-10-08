@@ -189,3 +189,161 @@ pub fn read_local(
         now,
     )
 }
+
+/// Finished runs older than this are no longer shown.
+pub const FINISHED_RETENTION_SECONDS: f64 = 3600.0;
+
+fn str_field<'a>(d: &'a serde_json::Value, k: &str) -> Option<&'a str> {
+    d.get(k).and_then(serde_json::Value::as_str)
+}
+
+fn num_field(d: &serde_json::Value, k: &str) -> Option<u64> {
+    d.get(k).and_then(|v| {
+        v.as_u64()
+            .or_else(|| v.as_i64().and_then(|n| u64::try_from(n).ok()))
+    })
+}
+
+/// Server runs: heartbeat documents judged against the sources' writer
+/// leases. A run is `live` only while its lease (owner and fencing token)
+/// is still the source's live lease, its document has not expired and its
+/// heartbeat is fresh; an expired or superseded run is never running.
+pub fn server_runs(
+    docs: &[serde_json::Value],
+    leases: &std::collections::BTreeMap<String, crate::snapshot::LeaseFacts>,
+    threshold: f64,
+    now: DateTime<Utc>,
+) -> Vec<LiveRun> {
+    use crate::snapshot::parse_time;
+    let mut out = Vec::new();
+    for d in docs {
+        let Some(source_id) = str_field(d, "source_id") else {
+            continue;
+        };
+        let heartbeat = normalize_time(str_field(d, "heartbeat_at"));
+        let age = age_seconds(heartbeat.as_deref(), now);
+        let token = d.get("lease_token").and_then(serde_json::Value::as_i64);
+        let owner = str_field(d, "owner");
+        let lease = leases.get(source_id);
+        let lease_valid = lease
+            .is_some_and(|l| l.live && Some(l.owner.as_str()) == owner && Some(l.token) == token);
+        let finished = d.get("active").and_then(serde_json::Value::as_bool) == Some(false)
+            || str_field(d, "outcome").is_some();
+        let expired = str_field(d, "expires_at")
+            .and_then(parse_time)
+            .is_none_or(|e| e <= now);
+        let liveness = if finished {
+            Liveness::Finished
+        } else if expired || !lease_valid {
+            Liveness::Expired
+        } else if age.is_some_and(|a| a > threshold) {
+            Liveness::Stalled
+        } else {
+            Liveness::Live
+        };
+        if liveness == Liveness::Finished {
+            let ended =
+                normalize_time(str_field(d, "finished_at").or(str_field(d, "heartbeat_at")));
+            if age_seconds(ended.as_deref(), now).is_none_or(|a| a > FINISHED_RETENTION_SECONDS) {
+                continue;
+            }
+        }
+        let processed = num_field(d, "processed");
+        let planned = num_field(d, "planned");
+        out.push(LiveRun {
+            run_id: str_field(d, "run_id").map(str::to_owned),
+            source_id: source_id.to_owned(),
+            host: str_field(d, "host").map(str::to_owned),
+            pid: None,
+            operation: str_field(d, "operation").map(str::to_owned),
+            stage: str_field(d, "stage").map(str::to_owned),
+            liveness,
+            scanned: num_field(d, "scanned"),
+            planned,
+            processed,
+            indexed: num_field(d, "indexed"),
+            failed: num_field(d, "failed"),
+            retry: num_field(d, "retry"),
+            percentage: percentage(processed, planned),
+            started_at: normalize_time(str_field(d, "started_at")),
+            last_progress_at: normalize_time(str_field(d, "last_progress_at")),
+            heartbeat_at: heartbeat,
+            heartbeat_age_seconds: age,
+            lease_token: token,
+            lease_valid: Some(lease_valid),
+            outcome: str_field(d, "outcome").map(str::to_owned),
+        });
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::snapshot::{iso, LeaseFacts};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    fn ms(t: DateTime<Utc>) -> String {
+        t.timestamp_millis().to_string()
+    }
+
+    #[test]
+    fn server_liveness_requires_a_valid_lease_and_fresh_heartbeat() {
+        let now = Utc::now();
+        let doc = |src: &str, owner: &str, token: i64, beat: i64, exp: i64| {
+            json!({
+                "source_id": src, "run_id": "r", "host": owner.split(':').next(),
+                "owner": owner, "lease_token": token, "stage": "processing",
+                "active": true, "processed": 3, "planned": 6,
+                "heartbeat_at": ms(now - chrono::Duration::seconds(beat)),
+                "expires_at": ms(now + chrono::Duration::seconds(exp)),
+            })
+        };
+        let lease = |owner: &str, token: i64, live: bool| LeaseFacts {
+            owner: owner.into(),
+            token,
+            expires_at: Some(iso(now)),
+            live,
+        };
+        let mut leases = BTreeMap::new();
+        leases.insert("live".to_owned(), lease("a:1", 4, true));
+        leases.insert("superseded".to_owned(), lease("b:2", 9, true));
+        leases.insert("lease_gone".to_owned(), lease("a:1", 4, false));
+        leases.insert("stale".to_owned(), lease("a:1", 4, true));
+        leases.insert("expired_doc".to_owned(), lease("a:1", 4, true));
+        let docs = vec![
+            doc("live", "a:1", 4, 1, 60),
+            doc("superseded", "a:1", 4, 1, 60),
+            doc("lease_gone", "a:1", 4, 1, 60),
+            doc("stale", "a:1", 4, 500, 60),
+            doc("expired_doc", "a:1", 4, 1, -5),
+            json!({"source_id": "done", "active": false, "outcome": "completed",
+                   "finished_at": ms(now), "heartbeat_at": ms(now)}),
+            json!({"source_id": "old", "active": false, "outcome": "completed",
+                   "finished_at": ms(now - chrono::Duration::hours(5))}),
+        ];
+        let runs = server_runs(&docs, &leases, 120.0, now);
+        let got: Vec<(&str, Liveness)> = runs
+            .iter()
+            .map(|r| (r.source_id.as_str(), r.liveness))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("live", Liveness::Live),
+                ("superseded", Liveness::Expired),
+                ("lease_gone", Liveness::Expired),
+                ("stale", Liveness::Stalled),
+                ("expired_doc", Liveness::Expired),
+                ("done", Liveness::Finished),
+            ]
+        );
+        assert!(
+            runs.iter().all(|r| r.pid.is_none()),
+            "remote PIDs are never shown"
+        );
+        assert_eq!(runs[0].percentage, Some(50.0));
+        assert_eq!(runs[0].host.as_deref(), Some("a"));
+    }
+}

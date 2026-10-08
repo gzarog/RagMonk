@@ -345,6 +345,11 @@ impl ServerBackend {
         self.call_ok(method, path, Some(payload))
     }
 
+    /// `GET path` (no body), failing on a non-2xx status.
+    pub fn get_json(&self, path: &str) -> Result<Value> {
+        self.call_ok(Method::Get, path, None)
+    }
+
     fn call_ok(&self, method: Method, path: &str, payload: Option<&Value>) -> Result<Value> {
         let m = format!("{method:?}").to_uppercase();
         ok(self.call(method, path, payload)?, &m, path)
@@ -400,6 +405,35 @@ impl ServerBackend {
             self.verify(kind)?;
         }
         Ok(())
+    }
+
+    /// One request: the names of missing RagMonk indexes, after verifying
+    /// the schema identity of every existing one (never creates or
+    /// changes anything).
+    pub fn check_schema(&self) -> Result<Vec<String>> {
+        let names: Vec<String> = IndexKind::ALL.iter().map(|k| self.index(*k)).collect();
+        let v = self.call_ok(
+            Method::Get,
+            &format!(
+                "/{}/_mapping?ignore_unavailable=true&allow_no_indices=true",
+                names.join(",")
+            ),
+            None,
+        )?;
+        let mut missing = Vec::new();
+        for (kind, name) in IndexKind::ALL.iter().zip(&names) {
+            match v.get(name) {
+                Some(m) => schema::check_meta(
+                    name,
+                    m.pointer("/mappings/_meta"),
+                    *kind,
+                    self.vector.as_ref(),
+                )
+                .map_err(BackendError::SchemaMismatch)?,
+                None => missing.push(name.clone()),
+            }
+        }
+        Ok(missing)
     }
 
     /// Whether each RagMonk index exists (`HEAD`; never creates anything).
@@ -691,35 +725,7 @@ impl ServerBackend {
 
     /// Source-state documents matching `query`, every page.
     fn scan_states(&self, query: Value) -> Result<Vec<Value>> {
-        let path = format!("/{}/_search", self.index(IndexKind::SourceState));
-        let mut out = Vec::new();
-        let mut after: Option<Value> = None;
-        loop {
-            let mut body = json!({
-                "size": SCAN_PAGE,
-                "query": query,
-                "sort": [ { "source_id": "asc" } ],
-                "track_total_hits": false,
-            });
-            if let Some(a) = &after {
-                body["search_after"] = a.clone();
-            }
-            let v = self.call_ok(Method::Post, &path, Some(&body))?;
-            let hits = v
-                .pointer("/hits/hits")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            let n = hits.len();
-            for h in &hits {
-                out.push(h["_source"].clone());
-            }
-            if n < SCAN_PAGE {
-                break;
-            }
-            after = hits.last().map(|h| h["sort"].clone());
-        }
-        Ok(out)
+        self.scan_state_docs(query, None)
     }
 
     // ---- builds -------------------------------------------------------------
@@ -839,6 +845,7 @@ impl ServerBackend {
             doc.insert("pending_build_id".into(), Value::Null);
             doc.insert("versions".into(), versions.clone());
             doc.insert("rebuild_reason".into(), Value::Null);
+            doc.insert("published_at".into(), json!(now()));
             for (k, v) in extra {
                 doc.insert((*k).into(), v.clone());
             }
@@ -986,6 +993,11 @@ impl ServerBackend {
     /// Deletes every record and the state of a source.
     pub fn remove_source(&self, source_id: &str) -> Result<u64> {
         let n = self.delete_by_query(&json!({ "term": { "source_id": source_id } }))?;
+        self.delete_path(&format!(
+            "/{}/_doc/{}?refresh=true",
+            self.index(IndexKind::Runtime),
+            encode_id(source_id)
+        ))?;
         let path = format!(
             "/{}/_doc/{}?refresh=true",
             self.index(IndexKind::SourceState),
@@ -1327,6 +1339,10 @@ pub struct FileDoc {
     pub attempt_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    /// When the file's latest error happened (epoch milliseconds), the
+    /// event time the status error feed orders by.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_attempt_at: Option<String>,
     /// Digest of everything derived from this file (rows and vectors);
@@ -1549,8 +1565,21 @@ fn now_millis() -> u128 {
 }
 
 /// Epoch milliseconds; both engines accept `epoch_millis` for `date` fields.
-fn now() -> String {
+pub(crate) fn now() -> String {
     now_millis().to_string()
+}
+
+/// An RFC 3339 / naive-UTC ISO timestamp as epoch milliseconds.
+pub fn iso_to_millis(v: &str) -> Option<String> {
+    chrono::DateTime::parse_from_rfc3339(v)
+        .map(|d| d.timestamp_millis())
+        .ok()
+        .or_else(|| {
+            chrono::NaiveDateTime::parse_from_str(v, "%Y-%m-%dT%H:%M:%S%.f")
+                .ok()
+                .map(|n| n.and_utc().timestamp_millis())
+        })
+        .map(|ms| ms.to_string())
 }
 
 #[cfg(test)]

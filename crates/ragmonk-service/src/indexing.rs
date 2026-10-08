@@ -100,6 +100,8 @@ pub struct RunOptions {
     pub targets: Option<std::collections::BTreeSet<PathBuf>>,
     /// Override `indexing.max_parallel_sources`.
     pub max_parallel_sources: Option<usize>,
+    /// The run this pass belongs to (set by [`index_sources_with`]).
+    pub run_id: Option<String>,
 }
 
 /// `locks/index-<source_id>.lock`: one pass per source at a time.
@@ -231,6 +233,10 @@ pub fn index_sources_with(
     let total = sources.len() as i64;
     let lock_timeout = opts.lock_timeout;
     let run_id = summary.run_id.clone();
+    let run = &RunOptions {
+        run_id: Some(run_id.clone()),
+        ..run.clone()
+    };
     ragmonk_indexing::progress::track(&home.index_progress(), operation, Some(total), |tracker| {
         tracker.set_run(&run_id, parallel);
         let lock_wait_ms = AtomicUsize::new(0);

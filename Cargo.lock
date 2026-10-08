@@ -2953,6 +2953,7 @@ dependencies = [
 name = "ragmonk-backends"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "ragmonk-config",
  "ragmonk-core",
  "ragmonk-storage",
@@ -3220,6 +3221,7 @@ name = "ragmonk-status"
 version = "0.0.0"
 dependencies = [
  "chrono",
+ "ragmonk-backends",
  "ragmonk-config",
  "ragmonk-core",
  "ragmonk-indexing",

@@ -245,6 +245,7 @@ fn scenario(base: &str, engine: Engine) {
         "documents",
         "chunks",
         "relationships",
+        "runtime",
     ] {
         delete_index(&c, &format!("{foreign}-{kind}"));
     }
@@ -252,8 +253,9 @@ fn scenario(base: &str, engine: Engine) {
     // ---- empty init -----------------------------------------------------------
     let b = backend(base, engine, &prefix, 4, 40);
     let init = b.init().unwrap();
-    assert_eq!(init.created.len(), 6);
-    assert!(b.init().unwrap().existing.len() == 6, "init is idempotent");
+    assert_eq!(init.created.len(), 7);
+    assert!(b.init().unwrap().existing.len() == 7, "init is idempotent");
+    assert!(b.check_schema().unwrap().is_empty());
     let wrong = backend(base, engine, &prefix, 8, 40);
     assert!(matches!(wrong.init(), Err(BackendError::SchemaMismatch(_))));
 
@@ -429,6 +431,7 @@ fn drop_prefix(base: &str, prefix: &str) {
         "documents",
         "chunks",
         "relationships",
+        "runtime",
     ] {
         delete_index(&c, &format!("{prefix}-{kind}"));
     }
@@ -638,6 +641,54 @@ fn vectors(base: &str, engine: Engine) {
         .unwrap()
         .is_empty());
     drop_prefix(base, &prefix);
+}
+
+/// A prefix created by another schema identity is refused with reset
+/// instructions; nothing is converted or deleted (fresh-prefix policy).
+fn schema_identity(base: &str, engine: Engine) {
+    let prefix = unique("ident");
+    let b = p0_backend(base, engine, &prefix);
+    b.init().unwrap();
+    let c = client(base);
+    // The runtime index of this schema is missing: reported, not created.
+    delete_index(&c, &format!("{prefix}-runtime"));
+    assert_eq!(b.check_schema().unwrap(), vec![format!("{prefix}-runtime")]);
+    // An index of another schema identity under the prefix.
+    delete_index(&c, &format!("{prefix}-files"));
+    let r = c
+        .send(
+            Method::Put,
+            &format!("/{prefix}-files"),
+            Some((
+                br#"{"mappings":{"_meta":{"schema":"ragmonk","schema_version":2,"index_kind":"files","vector":null},"properties":{"x":{"type":"keyword"}}}}"#,
+                "application/json",
+            )),
+        )
+        .unwrap();
+    assert!(r.status < 300);
+    let err = b.check_schema().unwrap_err();
+    assert!(matches!(err, BackendError::SchemaMismatch(_)), "{err}");
+    assert!(err.to_string().contains("fresh index_prefix"), "{err}");
+    assert!(matches!(b.init(), Err(BackendError::SchemaMismatch(_))));
+    let still = c
+        .send(Method::Get, &format!("/{prefix}-files/_mapping"), None)
+        .unwrap();
+    assert!(String::from_utf8_lossy(&still.body).contains("\"schema_version\":2"));
+    drop_prefix(base, &prefix);
+}
+
+#[test]
+fn opensearch_schema_identity() {
+    if let Some(u) = url("RAGMONK_TEST_OPENSEARCH_URL") {
+        schema_identity(&u, Engine::OpenSearch);
+    }
+}
+
+#[test]
+fn elasticsearch_schema_identity() {
+    if let Some(u) = url("RAGMONK_TEST_ELASTICSEARCH_URL") {
+        schema_identity(&u, Engine::Elasticsearch);
+    }
 }
 
 #[test]

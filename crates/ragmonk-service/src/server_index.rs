@@ -28,6 +28,7 @@ use std::time::Duration;
 
 use ragmonk_backends::backend::Lease;
 use ragmonk_backends::publish::PublishInput;
+use ragmonk_backends::status::RuntimeDoc;
 use ragmonk_backends::ServerBackend;
 use ragmonk_config::RagMonkConfig;
 use ragmonk_core::errors::RagMonkError;
@@ -36,6 +37,7 @@ use ragmonk_core::paths::{project_id_for_canonical, Home};
 use ragmonk_indexing::coordinator::{
     run_source_with, Options, Progress, ProgressEvent, Registry, SourceResult,
 };
+use ragmonk_indexing::progress::{now_iso, SourceProgress, HEARTBEAT_INTERVAL};
 use ragmonk_storage::control::{ControlPlane, NewSource, SourceRecord};
 use ragmonk_storage::knowledge::ProjectStore;
 use ragmonk_storage::StorageLayout;
@@ -128,18 +130,28 @@ pub fn run_source(
     let lease = server
         .acquire_lease(&source.id, &lease_owner(), ttl)
         .map_err(server_err)?;
+    let beat = RuntimeHeartbeat::new(server, &lease, source, run, ttl);
+    beat.write();
     let stop = AtomicBool::new(false);
     let lost = AtomicBool::new(false);
     let result = std::thread::scope(|s| {
-        let (stop, lost, lease_ref) = (&stop, &lost, &lease);
+        let (stop, lost, lease_ref, beat_ref) = (&stop, &lost, &lease, &beat);
         s.spawn(move || {
             // Renew at a third of the TTL; a failed renewal means the lease
             // was superseded: the publish will be refused by the server.
+            // The run heartbeat is independent of file progress, so long
+            // stages stay visibly alive to every host.
             let step = (ttl / 3).max(Duration::from_millis(500));
             let mut waited = Duration::ZERO;
+            let mut since_beat = Duration::ZERO;
             while !stop.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(100));
                 waited += Duration::from_millis(100);
+                since_beat += Duration::from_millis(100);
+                if since_beat >= HEARTBEAT_INTERVAL {
+                    since_beat = Duration::ZERO;
+                    beat_ref.beat();
+                }
                 if waited >= step {
                     waited = Duration::ZERO;
                     if server.renew_lease(lease_ref).is_err() {
@@ -150,15 +162,165 @@ pub fn run_source(
             }
         });
         let _renewal = Renewal { stop };
+        let mut reporting = Reporting {
+            inner: progress,
+            beat: &beat,
+        };
         staged_pass(
-            home, cfg, server, source, registry, opts, run, &lease, progress,
+            home,
+            cfg,
+            server,
+            source,
+            registry,
+            opts,
+            run,
+            &lease,
+            &mut reporting,
         )
     });
     if lost.load(Ordering::SeqCst) {
         tracing::warn!(component = "indexing", event = "lease_lost", source_id = %source.id);
     }
+    beat.finish(result.as_ref().err().map(RagMonkError::message));
     let _ = server.release_lease(&lease);
     result
+}
+
+/// The pass's `{prefix}-runtime` heartbeat document: written on every
+/// stage change, at most every [`HEARTBEAT_INTERVAL`] for counters, by the
+/// independent heartbeat, and once with the terminal outcome. Fenced by
+/// the lease token; a failed write never fails the pass.
+struct RuntimeHeartbeat<'a> {
+    server: &'a ServerBackend,
+    base: RuntimeDoc,
+    ttl: Duration,
+    state: std::sync::Mutex<(SourceProgress, Option<std::time::Instant>)>,
+}
+
+impl<'a> RuntimeHeartbeat<'a> {
+    fn new(
+        server: &'a ServerBackend,
+        lease: &Lease,
+        source: &SourceRecord,
+        run: &RunOptions,
+        ttl: Duration,
+    ) -> Self {
+        let now = now_iso();
+        Self {
+            server,
+            base: RuntimeDoc {
+                source_id: source.id.clone(),
+                run_id: run
+                    .run_id
+                    .clone()
+                    .unwrap_or_else(crate::indexing::new_run_id),
+                host: ragmonk_indexing::runtime::host_name(),
+                owner: lease.owner.clone(),
+                lease_token: lease.token,
+                operation: Some(if run.force_full { "rebuild" } else { "index" }.into()),
+                ..RuntimeDoc::default()
+            },
+            ttl,
+            state: std::sync::Mutex::new((SourceProgress::new(&source.id, &now), None)),
+        }
+    }
+
+    fn with<R>(&self, f: impl FnOnce(&mut (SourceProgress, Option<std::time::Instant>)) -> R) -> R {
+        let mut g = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        f(&mut g)
+    }
+
+    fn apply(&self, event: &ProgressEvent) {
+        if ragmonk_indexing::progress::event_source(event)
+            .is_some_and(|id| id != self.base.source_id)
+        {
+            return;
+        }
+        let due = self.with(|(p, last)| {
+            let structural = p.apply(event, &now_iso());
+            structural || last.is_none_or(|t| t.elapsed() >= HEARTBEAT_INTERVAL)
+        });
+        if due {
+            self.write();
+        }
+    }
+
+    fn beat(&self) {
+        self.with(|(p, _)| p.heartbeat_at = Some(now_iso()));
+        self.write();
+    }
+
+    fn finish(&self, error: Option<&str>) {
+        self.with(|(p, _)| p.finish(error.is_none(), &now_iso()));
+        self.write_doc(error);
+    }
+
+    fn write(&self) {
+        self.write_doc(None);
+    }
+
+    fn write_doc(&self, error: Option<&str>) {
+        let ms = |v: &Option<String>| {
+            v.as_deref()
+                .and_then(ragmonk_backends::backend::iso_to_millis)
+        };
+        let doc = self.with(|(p, last)| {
+            *last = Some(std::time::Instant::now());
+            let now = chrono::Utc::now();
+            let expires = if p.active {
+                now + chrono::Duration::from_std(self.ttl.max(HEARTBEAT_INTERVAL * 3))
+                    .unwrap_or_else(|_| chrono::Duration::seconds(60))
+            } else {
+                now
+            };
+            RuntimeDoc {
+                stage: p.stage.clone(),
+                active: p.active,
+                outcome: p.outcome.clone(),
+                scanned: p.scanned,
+                planned: p.planned,
+                processed: p.processed,
+                indexed: p.indexed,
+                failed: p.failed,
+                retry: p.retry,
+                error: error.map(|e| {
+                    ragmonk_telemetry::redact::redact_urls_in_text(e)
+                        .chars()
+                        .take(500)
+                        .collect()
+                }),
+                started_at: ms(&p.started_at),
+                last_progress_at: ms(&p.last_progress_at),
+                heartbeat_at: ms(&p.heartbeat_at),
+                expires_at: Some(expires.timestamp_millis().to_string()),
+                finished_at: ms(&p.finished_at),
+                updated_at: Some(now.timestamp_millis().to_string()),
+                ..self.base.clone()
+            }
+        });
+        match self.server.write_runtime(&doc) {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::debug!(component = "indexing", event = "runtime_fenced", source_id = %doc.source_id)
+            }
+            Err(e) => {
+                tracing::debug!(component = "indexing", event = "runtime_write_failed", source_id = %doc.source_id, error = %e)
+            }
+        }
+    }
+}
+
+/// Forwards coordinator events and mirrors them into the heartbeat.
+struct Reporting<'a, 'b> {
+    inner: &'a mut dyn Progress,
+    beat: &'a RuntimeHeartbeat<'b>,
+}
+
+impl Progress for Reporting<'_, '_> {
+    fn event(&mut self, event: &ProgressEvent) {
+        self.inner.event(event);
+        self.beat.apply(event);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -259,12 +421,7 @@ fn staged_pass(
     });
     let build_id = record::build_id(
         &source.id,
-        &format!(
-            "{}-{}-{}",
-            ragmonk_indexing::progress::now_iso(),
-            std::process::id(),
-            lease.token
-        ),
+        &format!("{}-{}-{}", now_iso(), std::process::id(), lease.token),
     );
     let report = server
         .publish_from_store(&PublishInput {
