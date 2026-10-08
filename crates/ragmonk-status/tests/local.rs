@@ -385,3 +385,53 @@ fn dead_pid() -> i64 {
     child.wait().unwrap();
     pid
 }
+
+/// Peak resident memory of this process (Linux), in KiB.
+fn peak_rss_kib() -> Option<u64> {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()?
+        .lines()
+        .find(|l| l.starts_with("VmHWM:"))?
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()
+}
+
+/// Benchmark (ignored by default): 150 local sources, 30 snapshots.
+#[test]
+#[ignore = "benchmark: cargo test -p ragmonk-status --release --test local -- --ignored"]
+fn bench_local_150_sources() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = common::home(tmp.path());
+    let mut cp = common::control(&home);
+    for n in 0..150 {
+        let root = tmp.path().join(format!("src{n:03}"));
+        for f in 0..10 {
+            common::write(&root, &format!("m{f}.py"), "def f():\n    return 1\n");
+        }
+        if n % 10 == 0 {
+            common::write(&root, "bad.py", "b");
+        }
+        common::add_source(&mut cp, &root);
+    }
+    common::index(&home, &mut cp);
+    let mut ms = Vec::new();
+    let mut statements = 0;
+    for _ in 0..30 {
+        let t = Instant::now();
+        let r = report(&home);
+        ms.push(t.elapsed().as_secs_f64() * 1000.0);
+        statements = r.diagnostics.request_count.unwrap();
+    }
+    ms.sort_by(f64::total_cmp);
+    let p = |q: f64| (ms[((ms.len() as f64 - 1.0) * q).round() as usize] * 10.0).round() / 10.0;
+    println!(
+        "BENCH {}",
+        serde_json::json!({
+            "mode": "local", "sources": 150, "files": 1515, "samples": 30,
+            "sql_statements": statements, "p50_ms": p(0.5), "p95_ms": p(0.95),
+            "peak_rss_kib": peak_rss_kib(),
+        })
+    );
+}

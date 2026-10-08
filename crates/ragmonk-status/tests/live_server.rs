@@ -372,3 +372,204 @@ fn elasticsearch_status() {
         scenario(&u, Engine::Elasticsearch);
     }
 }
+
+fn percentile(sorted: &[f64], p: f64) -> f64 {
+    let i = ((sorted.len() as f64 - 1.0) * p).round() as usize;
+    sorted[i]
+}
+
+/// Benchmark (ignored by default; needs a live cluster): 150 sources with
+/// four passes heartbeating from two hosts; cold, idle and watch request
+/// counts and latency percentiles over 30 snapshots each.
+fn bench(base: &str, engine: Engine) -> serde_json::Value {
+    let prefix = unique("bench");
+    let writer = backend(base, engine, &prefix);
+    seed(&writer);
+    let now = chrono::Utc::now().timestamp_millis();
+    for (n, host) in [(1, "host-a"), (2, "host-a"), (3, "host-b"), (4, "host-b")] {
+        let owner = format!("{host}:{n}");
+        let lease = writer
+            .acquire_lease(&id(n), &owner, Duration::from_secs(600))
+            .unwrap();
+        writer
+            .write_runtime(&RuntimeDoc {
+                source_id: id(n),
+                run_id: format!("run-{host}"),
+                host: host.into(),
+                owner,
+                lease_token: lease.token,
+                stage: Some("processing".into()),
+                active: true,
+                planned: Some(100),
+                processed: 10,
+                heartbeat_at: Some(now.to_string()),
+                expires_at: Some((now + 600_000).to_string()),
+                ..RuntimeDoc::default()
+            })
+            .unwrap();
+    }
+    refresh(&writer, IndexKind::Runtime);
+    let reader = backend(base, engine, &prefix);
+    let inputs = ServerInputs {
+        backend: &reader,
+        endpoint: base,
+    };
+    let opts = CollectOptions::default();
+    let run = |session: Option<&mut ServerSession>| {
+        let before = reader.stats().requests;
+        let t = std::time::Instant::now();
+        let r = collect(&inputs, &opts, session).unwrap();
+        (
+            t.elapsed().as_secs_f64() * 1000.0,
+            reader.stats().requests - before,
+            r,
+        )
+    };
+    let (cold_ms, cold_requests, r) = run(None);
+    assert_eq!(r.indexer.active_source_count, 4);
+    let mut full = Vec::new();
+    let mut full_requests = 0;
+    for _ in 0..30 {
+        let (ms, n, _) = run(None);
+        full.push(ms);
+        full_requests = full_requests.max(n);
+    }
+    let mut session = ServerSession::default();
+    run(Some(&mut session));
+    let mut fast = Vec::new();
+    let mut fast_requests = 0;
+    for _ in 0..30 {
+        let (ms, n, _) = run(Some(&mut session));
+        fast.push(ms);
+        fast_requests = fast_requests.max(n);
+    }
+    full.sort_by(f64::total_cmp);
+    fast.sort_by(f64::total_cmp);
+    drop_prefix(&writer);
+    json!({
+        "engine": format!("{engine:?}"),
+        "sources": SOURCES,
+        "active_passes": 4,
+        "hosts": 2,
+        "cold": {"requests": cold_requests, "ms": (cold_ms * 10.0).round() / 10.0},
+        "full_snapshot": {"samples": 30, "max_requests": full_requests,
+            "p50_ms": (percentile(&full, 0.5) * 10.0).round() / 10.0,
+            "p95_ms": (percentile(&full, 0.95) * 10.0).round() / 10.0},
+        "watch_refresh": {"samples": 30, "max_requests": fast_requests,
+            "p50_ms": (percentile(&fast, 0.5) * 10.0).round() / 10.0,
+            "p95_ms": (percentile(&fast, 0.95) * 10.0).round() / 10.0},
+    })
+}
+
+#[test]
+#[ignore = "benchmark: cargo test -p ragmonk-status --release --test live_server -- --ignored"]
+fn bench_status_150_sources() {
+    for (var, engine) in [
+        ("RAGMONK_TEST_OPENSEARCH_URL", Engine::OpenSearch),
+        ("RAGMONK_TEST_ELASTICSEARCH_URL", Engine::Elasticsearch),
+    ] {
+        if let Some(u) = url(var) {
+            println!("BENCH {}", bench(&u, engine));
+        }
+    }
+}
+
+fn percentile(sorted: &[f64], p: f64) -> f64 {
+    sorted[((sorted.len() as f64 - 1.0) * p).round() as usize]
+}
+
+fn round1(v: f64) -> f64 {
+    (v * 10.0).round() / 10.0
+}
+
+/// 150 sources with four passes heartbeating from two hosts: request
+/// counts and latency percentiles of full snapshots and watch refreshes.
+fn bench(base: &str, engine: Engine) -> serde_json::Value {
+    let prefix = unique("bench");
+    let writer = backend(base, engine, &prefix);
+    seed(&writer);
+    let now = chrono::Utc::now().timestamp_millis();
+    for (n, host) in [(1, "host-a"), (2, "host-a"), (3, "host-b"), (4, "host-b")] {
+        let owner = format!("{host}:{n}");
+        let lease = writer
+            .acquire_lease(&id(n), &owner, Duration::from_secs(600))
+            .unwrap();
+        writer
+            .write_runtime(&RuntimeDoc {
+                source_id: id(n),
+                run_id: format!("run-{host}"),
+                host: host.into(),
+                owner,
+                lease_token: lease.token,
+                stage: Some("processing".into()),
+                active: true,
+                planned: Some(100),
+                processed: 10,
+                heartbeat_at: Some(now.to_string()),
+                expires_at: Some((now + 600_000).to_string()),
+                ..RuntimeDoc::default()
+            })
+            .unwrap();
+    }
+    refresh(&writer, IndexKind::Runtime);
+    let reader = backend(base, engine, &prefix);
+    let inputs = ServerInputs {
+        backend: &reader,
+        endpoint: base,
+    };
+    let opts = CollectOptions::default();
+    let run = |session: Option<&mut ServerSession>| {
+        let before = reader.stats().requests;
+        let t = std::time::Instant::now();
+        let r = collect(&inputs, &opts, session).unwrap();
+        (
+            t.elapsed().as_secs_f64() * 1000.0,
+            reader.stats().requests - before,
+            r,
+        )
+    };
+    let (cold_ms, cold_requests, r) = run(None);
+    assert_eq!(r.indexer.active_source_count, 4);
+    let (mut full, mut full_requests) = (Vec::new(), 0);
+    for _ in 0..30 {
+        let (ms, n, _) = run(None);
+        full.push(ms);
+        full_requests = full_requests.max(n);
+    }
+    let mut session = ServerSession::default();
+    run(Some(&mut session));
+    let (mut fast, mut fast_requests) = (Vec::new(), 0);
+    for _ in 0..30 {
+        let (ms, n, _) = run(Some(&mut session));
+        fast.push(ms);
+        fast_requests = fast_requests.max(n);
+    }
+    full.sort_by(f64::total_cmp);
+    fast.sort_by(f64::total_cmp);
+    drop_prefix(&writer);
+    assert!(full_requests <= 30 && fast_requests < 10);
+    json!({
+        "engine": format!("{engine:?}"),
+        "sources": SOURCES,
+        "active_passes": 4,
+        "hosts": 2,
+        "cold": {"requests": cold_requests, "ms": round1(cold_ms)},
+        "full_snapshot": {"samples": 30, "max_requests": full_requests,
+            "p50_ms": round1(percentile(&full, 0.5)), "p95_ms": round1(percentile(&full, 0.95))},
+        "watch_refresh": {"samples": 30, "max_requests": fast_requests,
+            "p50_ms": round1(percentile(&fast, 0.5)), "p95_ms": round1(percentile(&fast, 0.95))},
+    })
+}
+
+#[test]
+#[ignore = "benchmark: cargo test --release -p ragmonk-status --test live_server -- --ignored"]
+fn bench_status_150_sources() {
+    for (var, engine) in [
+        ("RAGMONK_TEST_OPENSEARCH_URL", Engine::OpenSearch),
+        ("RAGMONK_TEST_ELASTICSEARCH_URL", Engine::Elasticsearch),
+    ] {
+        if let Some(u) = url(var) {
+            println!("BENCH {}", bench(&u, engine));
+        }
+    }
+}
