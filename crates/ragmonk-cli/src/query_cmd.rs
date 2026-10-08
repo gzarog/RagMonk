@@ -366,6 +366,21 @@ pub struct SearchArgs {
     /// Also show one merged, reranked view of lexical and semantic results.
     #[arg(long)]
     hybrid: bool,
+    /// Only these source ids (repeatable; a hard filter).
+    #[arg(long = "source")]
+    sources: Vec<String>,
+    /// Only paths under this source-relative prefix (repeatable).
+    #[arg(long = "path")]
+    paths: Vec<String>,
+    /// Only these result kinds: entity, document, path (repeatable).
+    #[arg(long = "kind")]
+    kinds: Vec<String>,
+    /// Only these document ids (repeatable).
+    #[arg(long = "document")]
+    documents: Vec<String>,
+    /// Exclude hits inside email attachments.
+    #[arg(long)]
+    no_attachments: bool,
 }
 
 fn hits_table(results: &[&SearchResult]) {
@@ -526,6 +541,13 @@ pub fn search(a: &SearchArgs) -> Result<(), RagMonkError> {
             limit: a.limit,
             hybrid: a.hybrid,
             with_context: matches!(mode.as_str(), "json" | "snippets"),
+            filters: ragmonk_retrieval::route::SearchFilters {
+                source_ids: a.sources.clone(),
+                path_prefixes: a.paths.clone(),
+                kinds: a.kinds.clone(),
+                document_ids: a.documents.clone(),
+                exclude_attachments: a.no_attachments,
+            },
         },
     )?;
     let results = &run.results;
@@ -563,6 +585,23 @@ pub fn search(a: &SearchArgs) -> Result<(), RagMonkError> {
                 }).collect::<Vec<_>>(),
                 "total_ms": round3(total_ms),
                 "tokenizer": tokenizer_json(),
+            });
+            // Routing plan and filters (additive keys, ADR 0033).
+            let plan = ragmonk_retrieval::route::route(
+                &a.query,
+                ragmonk_retrieval::route::RouteOptions {
+                    semantic_available: sc.semantic,
+                    reranker_enabled: sc.reranker.enabled,
+                    decomposition_enabled: sc.decomposition.enabled,
+                },
+            );
+            payload["explain"]["plan"] = json!(plan);
+            payload["explain"]["filters"] = json!(ragmonk_retrieval::route::SearchFilters {
+                source_ids: a.sources.clone(),
+                path_prefixes: a.paths.clone(),
+                kinds: a.kinds.clone(),
+                document_ids: a.documents.clone(),
+                exclude_attachments: a.no_attachments,
             });
         }
         return print_json(&payload);
@@ -737,6 +776,95 @@ pub fn link(cmd: LinkCommand) -> Result<(), RagMonkError> {
                 &table,
             );
         }
+    }
+    Ok(())
+}
+
+/// `ragmonk evidence`: hard-filtered, routed, decomposed and grounded
+/// evidence with typed citations (ADR 0033).
+#[derive(clap::Args)]
+pub struct EvidenceArgs {
+    /// The question or lookup.
+    query: String,
+    /// Only these source ids (repeatable). A hard filter.
+    #[arg(long = "source")]
+    sources: Vec<String>,
+    /// Only paths under this source-relative prefix (repeatable).
+    #[arg(long = "path")]
+    paths: Vec<String>,
+    /// Only these result kinds: entity, document, path (repeatable).
+    #[arg(long = "kind")]
+    kinds: Vec<String>,
+    /// Only these document ids (repeatable).
+    #[arg(long = "document")]
+    documents: Vec<String>,
+    /// Exclude hits inside email attachments.
+    #[arg(long)]
+    no_attachments: bool,
+    #[arg(long, default_value_t = 10,
+          value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..=100))]
+    limit: usize,
+    #[arg(long = "json")]
+    json: bool,
+}
+
+pub fn evidence(a: &EvidenceArgs) -> Result<(), RagMonkError> {
+    let home = prepared_home()?;
+    let cfg = load(&home)?;
+    let v = ragmonk_service::evidence::evidence_value(
+        &home,
+        &cfg,
+        &ragmonk_service::evidence::EvidenceRequest {
+            query: &a.query,
+            filters: ragmonk_retrieval::route::SearchFilters {
+                source_ids: a.sources.clone(),
+                path_prefixes: a.paths.clone(),
+                kinds: a.kinds.clone(),
+                document_ids: a.documents.clone(),
+                exclude_attachments: a.no_attachments,
+            },
+            limit: a.limit,
+        },
+    )?;
+    if a.json {
+        return print_json(&v);
+    }
+    println!(
+        "Intent: {} (confidence {}) · verdict: {}",
+        v["plan"]["intent"].as_str().unwrap_or("-"),
+        v["plan"]["confidence"],
+        v["verdict"].as_str().unwrap_or("-")
+    );
+    for s in v["plan"]["subqueries"].as_array().into_iter().flatten() {
+        println!("  subquery: {}", s["text"].as_str().unwrap_or_default());
+    }
+    for e in v["evidence"].as_array().into_iter().flatten() {
+        let mut loc = String::new();
+        if let Some(l) = e["line_start"].as_i64() {
+            loc = format!(":{l}");
+        } else if let Some(p) = e["page_start"].as_i64() {
+            loc = format!(" (page {p})");
+        }
+        println!(
+            "[{}]{} {}{}  {}",
+            e["id"].as_str().unwrap_or_default(),
+            if e["valid"] == true {
+                ""
+            } else {
+                " (unverified)"
+            },
+            e["path"].as_str().unwrap_or_default(),
+            loc,
+            e["title"].as_str().unwrap_or_default()
+        );
+    }
+    for s in v["support"].as_array().into_iter().flatten() {
+        println!(
+            "  {}: {} (coverage {})",
+            s["query"].as_str().unwrap_or_default(),
+            s["status"].as_str().unwrap_or_default(),
+            s["coverage"]
+        );
     }
     Ok(())
 }

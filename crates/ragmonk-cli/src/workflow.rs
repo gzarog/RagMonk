@@ -6,15 +6,10 @@ use serde_json::{json, Value};
 
 use ragmonk_service::indexing::{index_sources, selected_sources, SourceEvent};
 use ragmonk_service::sources::{
-    add_source, assert_no_active_daemon, control_plane, docs_rows, get_source, project_data_dir,
-    remove_source, set_source_enabled, source_info,
+    assert_no_active_daemon, catalog, docs_rows, project_data_dir, remove_source,
 };
 
 use crate::{load, prepared_home, print_json};
-
-fn db(e: impl std::fmt::Display) -> RagMonkError {
-    RagMonkError::new(ErrorKind::Database, e.to_string())
-}
 
 fn generic(e: impl std::fmt::Display) -> RagMonkError {
     RagMonkError::new(ErrorKind::Generic, e.to_string())
@@ -145,7 +140,13 @@ pub fn init(a: &InitArgs) -> Result<(), RagMonkError> {
         ragmonk_config::write_user_config(&cfg, &home).map_err(generic)?;
         println!("Wrote default configuration to {}", config_path.display());
     }
-    control_plane(&home)?;
+    // Creates the local control plane, or (server mode) the server
+    // indexes; an unreachable server fails init instead of silently
+    // creating local state.
+    let c = catalog(&home)?;
+    if c.is_server() {
+        println!("Server indexes are ready (storage.mode = server).");
+    }
     println!("RagMonk initialized at {}", home.root().display());
     Ok(())
 }
@@ -194,20 +195,20 @@ fn confirm(prompt: &str) -> bool {
 
 pub fn source(cmd: SourceCommand) -> Result<(), RagMonkError> {
     let home = prepared_home()?;
-    let mut cp = control_plane(&home)?;
+    let mut cp = catalog(&home)?;
     match cmd {
         SourceCommand::Add {
             path,
             include,
             exclude,
         } => {
-            let s = add_source(&mut cp, &path, include, exclude)?;
+            let s = cp.add(&path, include, exclude)?;
             println!("Added source {} -> {}", s.id, s.path);
         }
         SourceCommand::List => {
             let mut rows = Vec::new();
-            for s in cp.list_sources(false).map_err(db)? {
-                let state = cp.state(&s.id).map_err(db)?;
+            for s in cp.list(false)? {
+                let state = cp.summary(&s.id)?;
                 rows.push(vec![
                     s.id.clone(),
                     s.path.clone(),
@@ -223,22 +224,26 @@ pub fn source(cmd: SourceCommand) -> Result<(), RagMonkError> {
             );
         }
         SourceCommand::Info { source_id } => {
-            let s = get_source(&cp, &source_id)?;
-            let v = source_info(&cp, &s)?;
+            let s = cp.get(&source_id)?;
+            let v = cp.info(&s)?;
             println!("{}", serde_json::to_string_pretty(&v).map_err(generic)?);
         }
         SourceCommand::Enable { source_id } => {
-            set_source_enabled(&mut cp, &source_id, true)?;
+            cp.set_enabled(&source_id, true)?;
             println!("Enabled {source_id}");
         }
         SourceCommand::Disable { source_id } => {
-            set_source_enabled(&mut cp, &source_id, false)?;
+            cp.set_enabled(&source_id, false)?;
             println!("Disabled {source_id}");
         }
         SourceCommand::Remove { source_id, yes } => {
-            let s = get_source(&cp, &source_id)?;
+            let s = cp.get(&source_id)?;
             assert_no_active_daemon(&home)?;
-            let project_dir = project_data_dir(&home, &s);
+            let project_dir = if cp.is_server() {
+                std::path::PathBuf::from(format!("server indexes ({} records)", s.id))
+            } else {
+                project_data_dir(&home, &s)
+            };
             if !yes {
                 println!("This will permanently remove:");
                 println!("  - source {} ({}) from the registry", s.id, s.path);

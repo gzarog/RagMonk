@@ -34,9 +34,11 @@ const SCHEMA_VERSION: &str = "1";
 pub const INSTRUCTIONS: &str =
     "RagMonk exposes code and document knowledge already indexed locally \
 on this machine (see `ragmonk index`). Start with ragmonk_explore for a natural-language or \
-identifier query -- it is the primary tool and runs RagMonk's deterministic query planner. The \
-other read-only tools (ragmonk_search/symbol/callers/callees/impact/documents/status) are \
-narrower, single-purpose lookups; all 8 of them return a bounded, versioned JSON result \
+identifier query -- it is the primary tool and runs RagMonk's deterministic query planner. Use \
+ragmonk_evidence when you need hard source/path/document filters or verified [E#] citations \
+with an explicit insufficient_evidence verdict. The other read-only tools \
+(ragmonk_search/symbol/callers/callees/impact/documents/status) are narrower, single-purpose \
+lookups; all 9 of them return a bounded, versioned JSON result \
 (schema_version/ok/error) and never call an LLM or the network -- results are \
 retrieved/structured data for the calling agent to reason over. ragmonk_ask is the one \
 exception: it calls the locally configured `ai:` provider (which may be a real cloud endpoint, \
@@ -471,6 +473,36 @@ fn work(home: &Home, name: &str, args: &Map<String, Value>) -> Result<Value, Rag
             let limit = optional(args, "limit", lexical::DEFAULT_LIMIT);
             query_cmd::lexical_value(&cfg, &open_sources(home, None)?, &query, limit)
         }
+        "ragmonk_evidence" => {
+            let query = required(args, "query")?;
+            let list = |k: &str| -> Vec<String> {
+                args.get(k)
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            };
+            ragmonk_service::evidence::evidence_value(
+                home,
+                &cfg,
+                &ragmonk_service::evidence::EvidenceRequest {
+                    query: &query,
+                    filters: ragmonk_retrieval::route::SearchFilters {
+                        source_ids: list("source_ids"),
+                        path_prefixes: list("path_prefixes"),
+                        kinds: list("kinds"),
+                        document_ids: list("document_ids"),
+                        exclude_attachments: args
+                            .get("exclude_attachments")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    },
+                    limit: optional(args, "limit", 10).min(100),
+                },
+            )
+        }
         "ragmonk_symbol" => {
             let name = required(args, "name")?;
             query_cmd::symbol_value(&open_sources(home, None)?, &name)
@@ -536,9 +568,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_has_all_nine_tools() {
+    fn catalog_has_all_ten_tools() {
         let names: Vec<&str> = tools().iter().filter_map(|t| t["name"].as_str()).collect();
-        assert_eq!(names.len(), 9);
+        assert_eq!(names.len(), 10);
+        assert!(names.contains(&"ragmonk_evidence"));
         assert!(names.contains(&"ragmonk_ask"));
     }
 

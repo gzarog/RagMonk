@@ -156,6 +156,13 @@ pub fn indexer_state_from(
         info["stage"] = json!(s.stage);
         info["started_at"] = json!(s.started_at);
         info["last_activity_at"] = json!(s.updated_at);
+        // Parallel-run details (ADR 0033), only when the run reports them.
+        if s.run_id.is_some() {
+            info["run_id"] = json!(s.run_id);
+            info["active_sources"] = json!(s.active_sources);
+            info["max_parallel_sources"] = json!(s.max_parallel_sources);
+            info["resources"] = json!(s.resources);
+        }
     } else if held {
         info["current_source_id"] = json!(owner.and_then(|o| o.source_id.clone()));
         info["started_at"] = json!(owner.and_then(|o| o.acquired_at.clone()));
@@ -218,7 +225,10 @@ pub fn derive_index_state(
     indexer: &Value,
     source_id: &str,
 ) -> &'static str {
-    let current = indexer["current_source_id"].as_str() == Some(source_id);
+    let current = indexer["current_source_id"].as_str() == Some(source_id)
+        || indexer["active_sources"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(source_id)));
     let q = |k: &str| queue[k].as_i64().unwrap_or(0);
     if access_state == "offline" {
         "offline"
@@ -262,6 +272,11 @@ fn text(v: &Value) -> String {
 /// Problems explaining the health verdict. Severities: `error` (work
 /// cannot continue), `warning` (degraded), `info`; scopes: `file`,
 /// `source`, `backend`, `runtime`.
+/// Whether a status row reports errors.
+pub fn row_has_errors(row: &Value) -> bool {
+    source_has_errors(row)
+}
+
 pub fn derive_problems(
     sources: &[Value],
     indexer: &Value,
@@ -473,7 +488,7 @@ fn file_size(p: &std::path::Path) -> u64 {
     std::fs::metadata(p).map_or(0, |m| m.len())
 }
 
-fn access_state(enabled: bool, online_status: &str) -> &'static str {
+pub fn access_state(enabled: bool, online_status: &str) -> &'static str {
     if !enabled {
         "disabled"
     } else if online_status == "offline" {

@@ -25,6 +25,9 @@ pub enum StorageError {
     Invalid(String),
     #[error("not found: {0}")]
     NotFound(String),
+    /// A server knowledge backend request failed (message already redacted).
+    #[error("server backend: {0}")]
+    Backend(String),
 }
 
 impl StorageError {

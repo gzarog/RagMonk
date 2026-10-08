@@ -379,8 +379,8 @@ async fn add_source(State(st): State<AppState>, Form(f): Form<Params>) -> Respon
     let include = split_patterns(f.get("include_patterns"));
     let exclude = split_patterns(f.get("exclude_patterns"));
     let r = locked(&st, move |home| {
-        let mut cp = ragmonk_service::sources::control_plane(home)?;
-        ragmonk_service::sources::add_source(&mut cp, &path, include, exclude).map(|_| ())
+        let mut cp = ragmonk_service::sources::catalog(home)?;
+        cp.add(&path, include, exclude).map(|_| ())
     })
     .await;
     match r {
@@ -396,8 +396,8 @@ async fn source_action(
     let r = locked(&st, move |home| -> Result<(), RagMonkError> {
         match action.as_str() {
             "enable" | "disable" => {
-                let mut cp = ragmonk_service::sources::control_plane(home)?;
-                ragmonk_service::sources::set_source_enabled(&mut cp, &id, action == "enable")
+                let mut cp = ragmonk_service::sources::catalog(home)?;
+                cp.set_enabled(&id, action == "enable")
             }
             "remove" => ragmonk_service::sources::remove_source(home, &id).map(|_| ()),
             _ => Err(RagMonkError::usage("unknown action")),
@@ -792,13 +792,7 @@ async fn backups_page(
 
 async fn create_backup(State(st): State<AppState>) -> Response {
     let r = locked(&st, |home| -> Result<(), RagMonkError> {
-        let cfg = ragmonk_service::load(home)?;
-        let lock = ragmonk_indexing::lock::RunLock::acquire(
-            &home.locks_dir().join("index.lock"),
-            "backup",
-            None,
-            std::time::Duration::from_secs_f64(cfg.indexing.lock_timeout_seconds),
-        )?;
+        let lock = ragmonk_service::indexing::home_exclusive(home, "backup")?;
         let r = ragmonk_ops::backup::create_backup(home, None);
         lock.release();
         r.map(|_| ())

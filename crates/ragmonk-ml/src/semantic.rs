@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use ragmonk_storage::knowledge::ProjectStore;
+use ragmonk_storage::read::KnowledgeRead;
 
 use crate::ann::{self, Engine};
 use crate::embedder::Embedder;
@@ -55,7 +55,7 @@ impl SemanticResult {
 /// because semantic search cannot run. An empty query, a missing model or
 /// a build without vectors is reported in `reason` instead.
 pub fn search(
-    store: &ProjectStore,
+    store: &dyn KnowledgeRead,
     project_dir: &Path,
     build_id: &str,
     embedder: Option<&Embedder>,
@@ -81,7 +81,16 @@ pub fn search(
         .pop()
         .unwrap_or_default();
     let k = candidate_k.unwrap_or(limit).max(limit);
-    let (engine, raw) = ann::search(store, project_dir, build_id, embedder.fingerprint(), &qv, k)?;
+    let (engine, raw) = match store.as_project_store() {
+        Some(local) => ann::search(local, project_dir, build_id, embedder.fingerprint(), &qv, k)?,
+        None => match store
+            .vector_search(build_id, embedder.fingerprint(), &qv, k)
+            .map_err(|e| e.to_string())?
+        {
+            Some(hits) => (Engine::Server, hits),
+            None => return Ok(SemanticResult::unavailable("vector search unavailable")),
+        },
+    };
     if raw.is_empty() {
         return Ok(SemanticResult {
             available: true,

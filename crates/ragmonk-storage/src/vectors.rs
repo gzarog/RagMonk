@@ -259,6 +259,17 @@ impl ProjectStore {
         )
     }
 
+    /// Distinct model fingerprints with vectors in `build_id`.
+    pub fn embedding_fingerprints(&self, build_id: &str) -> Result<Vec<String>> {
+        self.query_rows(
+            "embedding fingerprints",
+            "SELECT DISTINCT model_fingerprint FROM embeddings WHERE build_id = ?1
+             ORDER BY model_fingerprint",
+            &[&build_id],
+            |r| r.get(0),
+        )
+    }
+
     /// Rows in the persistent embedding cache.
     pub fn embedding_cache_len(&self) -> Result<i64> {
         self.conn

@@ -50,6 +50,9 @@ impl Drop for Scratch {
 /// Writes a backup archive and returns `(path, manifest)`. Reads every
 /// database through read-only snapshots.
 pub fn create_backup(home: &Home, dest: Option<&Path>) -> Result<(PathBuf, Value), RagMonkError> {
+    // Server mode: the knowledge lives in the cluster; back it up with the
+    // cluster's snapshot API. A local archive would not contain it.
+    crate::require_local(home, "backup")?;
     let layout = StorageLayout::new(home);
     let control = layout.control_db();
     let mut projects = serde_json::Map::new();
@@ -135,6 +138,7 @@ fn move_aside(path: &Path, holding: &Path) -> Result<Option<PathBuf>, RagMonkErr
 
 /// Verifies and restores an archive into `home` (the `restore` report).
 pub fn restore_archive(home: &Home, archive: &Path) -> Result<Value, RagMonkError> {
+    crate::require_local(home, "restore")?;
     let home = home.clone();
     let archive = archive.to_path_buf();
     if !archive.is_file() {

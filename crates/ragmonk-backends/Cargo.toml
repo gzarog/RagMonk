@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 ragmonk-config.workspace = true
 ragmonk-core.workspace = true
+ragmonk-storage.workspace = true
 ragmonk-telemetry.workspace = true
 reqwest.workspace = true
 serde.workspace = true

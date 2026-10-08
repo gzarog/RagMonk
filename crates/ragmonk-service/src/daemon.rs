@@ -12,9 +12,13 @@ use std::time::{Duration, Instant};
 use ragmonk_core::errors::RagMonkError;
 use ragmonk_core::paths::Home;
 use ragmonk_indexing::coordinator::Options;
-use ragmonk_indexing::daemon::{health, pid, CoordinatorRunner, Daemon, DaemonOptions};
+use ragmonk_indexing::coordinator::{Progress, Registry, SourceResult};
+use ragmonk_indexing::daemon::{
+    health, pid, Catalog, CoordinatorRunner, Daemon, DaemonOptions, PassRunner, ScanRequest,
+};
 use ragmonk_indexing::status::is_process_alive;
 use ragmonk_storage::control::ControlPlane;
+use ragmonk_storage::control::SourceRecord;
 use ragmonk_storage::StorageLayout;
 
 use crate::{generic, load};
@@ -148,25 +152,49 @@ pub fn run_foreground(home: &Home, on_ready: impl FnOnce(i64)) -> Result<(), Rag
         "text",
     );
     let stop = stop_flag()?;
-    let layout = StorageLayout::new(home);
-    let cache = cfg.runtime.sqlite_cache_size_mb;
-    let open = || ControlPlane::open(&layout, cache).map_err(generic);
-    // The daemon's catalog connection and the worker's own connection.
-    let (catalog, control) = (open()?, open()?);
-    let runner = CoordinatorRunner {
-        layout: layout.clone(),
-        control,
-        registry: ragmonk_convert::registry_with(
-            &cfg,
-            &ragmonk_convert::RegistryOptions::for_home(home),
-        ),
-        opts: Options::from_config(&cfg),
-    };
-    let daemon = Daemon::start(
+    ragmonk_indexing::governor::configure(ragmonk_indexing::governor::Limits::from_config(
+        &cfg.indexing,
+    ));
+    let workers = cfg.indexing.resolved_max_parallel_sources().max(1);
+    let registry =
+        || ragmonk_convert::registry_with(&cfg, &ragmonk_convert::RegistryOptions::for_home(home));
+    let (catalog, runners): (Box<dyn Catalog>, Vec<Box<dyn PassRunner>>) =
+        match crate::backend::open_for_write(home)? {
+            crate::backend::Backend::Local => {
+                let layout = StorageLayout::new(home);
+                let cache = cfg.runtime.sqlite_cache_size_mb;
+                let open = || ControlPlane::open(&layout, cache).map_err(generic);
+                // The daemon's catalog connection, and each worker's own.
+                let mut runners: Vec<Box<dyn PassRunner>> = Vec::new();
+                for _ in 0..workers {
+                    runners.push(Box::new(CoordinatorRunner {
+                        layout: layout.clone(),
+                        control: open()?,
+                        registry: registry(),
+                        opts: Options::from_config(&cfg),
+                    }));
+                }
+                (Box::new(open()?), runners)
+            }
+            crate::backend::Backend::Server(server) => {
+                let mut runners: Vec<Box<dyn PassRunner>> = Vec::new();
+                for _ in 0..workers {
+                    runners.push(Box::new(ServerRunner {
+                        home: home.clone(),
+                        cfg: cfg.clone(),
+                        server: server.clone(),
+                        registry: registry(),
+                        opts: Options::from_config(&cfg),
+                    }));
+                }
+                (Box::new(ServerCatalog(server)), runners)
+            }
+        };
+    let daemon = Daemon::start_with_runners(
         home.clone(),
         DaemonOptions::from_config(&cfg),
-        Box::new(catalog),
-        Box::new(runner),
+        catalog,
+        runners,
     )?;
     on_ready(me);
     while !stop.load(Ordering::Relaxed) {
@@ -177,4 +205,53 @@ pub fn run_foreground(home: &Home, on_ready: impl FnOnce(i64)) -> Result<(), Rag
         pid::remove_pid_file(home);
     }
     Ok(())
+}
+
+/// The server catalog as the daemon's source list.
+struct ServerCatalog(Arc<ragmonk_backends::ServerBackend>);
+
+impl Catalog for ServerCatalog {
+    fn list_sources(&mut self, enabled_only: bool) -> Result<Vec<SourceRecord>, RagMonkError> {
+        crate::sources::Catalog::Server(self.0.clone()).list(enabled_only)
+    }
+    fn get_source(&mut self, id: &str) -> Result<Option<SourceRecord>, RagMonkError> {
+        Ok(self
+            .0
+            .catalog_entry(id)
+            .map_err(crate::backend::server_err)?
+            .map(|e| crate::backend::record_of(&e)))
+    }
+}
+
+/// Server-mode daemon passes: the staged pipeline plus server publication
+/// (see [`crate::server_index`]).
+struct ServerRunner {
+    home: ragmonk_core::paths::Home,
+    cfg: ragmonk_config::RagMonkConfig,
+    server: Arc<ragmonk_backends::ServerBackend>,
+    registry: Registry,
+    opts: Options,
+}
+
+impl PassRunner for ServerRunner {
+    fn run_pass(
+        &mut self,
+        source: &SourceRecord,
+        request: &ScanRequest,
+        progress: &mut dyn Progress,
+    ) -> Result<SourceResult, RagMonkError> {
+        crate::server_index::run_source(
+            &self.home,
+            &self.cfg,
+            &self.server,
+            source,
+            &self.registry,
+            &self.opts,
+            &crate::indexing::RunOptions {
+                targets: (!request.full).then(|| request.changed_paths.clone()),
+                ..crate::indexing::RunOptions::default()
+            },
+            progress,
+        )
+    }
 }

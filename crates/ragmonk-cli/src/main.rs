@@ -106,6 +106,8 @@ enum Command {
     },
     /// Lexical search across code and documents.
     Search(query_cmd::SearchArgs),
+    /// Routed, filtered and citation-verified evidence for a question.
+    Evidence(query_cmd::EvidenceArgs),
     /// Look up a code symbol by name.
     Symbol {
         /// Symbol name or fully qualified name.
@@ -332,6 +334,7 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
         Command::References(a) => query_cmd::references(&a)?,
         Command::Impact(a) => query_cmd::impact(&a)?,
         Command::Explore { query, json } => query_cmd::explore(&query, json)?,
+        Command::Evidence(a) => query_cmd::evidence(&a)?,
         Command::Link(cmd) => query_cmd::link(cmd)?,
         Command::Doctor { json } => doctor_cmd::doctor(json)?,
         Command::Health { json } => doctor_cmd::health(json)?,
