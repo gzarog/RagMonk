@@ -162,14 +162,6 @@ jobs:
           cargo test -p ragmonk-cli --test status -- --nocapture
       - name: Status benchmark (150 sources, both engines)
         run: cargo test --release -p ragmonk-status --test live_server -- --ignored --nocapture
-      # Status (ADR 0034) on both engines: 150 sources in <= 30 requests,
-      # a watch refresh in < 10, pending builds invisible, global error
-      # order, two-host run visibility, fencing and expired leases; the
-      # CLI in server mode never reads the home's SQLite.
-      - name: Status live tests
-        run: |
-          cargo test -p ragmonk-status --test live_server -- --nocapture
-          cargo test -p ragmonk-cli --test status -- --nocapture
 
   # The native installers end to end, against release archives
   # packaged from this commit's build and served from a local directory
