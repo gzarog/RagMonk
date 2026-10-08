@@ -87,14 +87,17 @@ fn workflow_end_to_end() {
     assert!(t.starts_with("Path") && t.contains("notes.md"), "{t}");
 
     let st = json(&home, &["status", "--json"]);
-    assert_eq!(st["health"]["status"], "healthy");
-    assert_eq!(st["totals"]["by_status"]["indexed"], 2);
+    assert_eq!(st["schema_version"], 1);
+    assert_eq!(st["mode"], "local");
+    assert_eq!(st["health"]["state"], "healthy");
+    assert_eq!(st["summary"]["files"]["published_indexed"], 2);
+    assert_eq!(st["sources"][0]["index_state"], "completed");
     let t = out(&ragmonk(&home, &["status"]));
+    assert!(t.is_ascii(), "{t}");
     for part in [
-        "== Indexer ==",
-        "State: idle",
-        "== Summary ==",
-        "Health: healthy",
+        "RagMonk status  [local mode, sqlite, authoritative]",
+        "Health: HEALTHY",
+        "Published: 2 indexed, 0 failed, 0 retrying of 2 files",
         "== Sources ==",
         &id,
     ] {

@@ -80,7 +80,7 @@ fn backup_restore_round_trip_and_foreign_refusal() {
     assert!(archive.is_file());
 
     // Change state, then restore the snapshot.
-    let id = json(&home, &["status", "--json"])["sources"][0]["id"]
+    let id = json(&home, &["status", "--json"])["sources"][0]["source_id"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -93,8 +93,8 @@ fn backup_restore_round_trip_and_foreign_refusal() {
     assert_eq!(r["projects_restored"].as_array().unwrap().len(), 1);
     assert_eq!(r["daemon_was_running"], false);
     let st = json(&home, &["status", "--json"]);
-    assert_eq!(st["sources"][0]["id"], id.as_str());
-    assert_eq!(st["totals"]["by_status"]["indexed"], 2);
+    assert_eq!(st["sources"][0]["source_id"], id.as_str());
+    assert_eq!(st["sources"][0]["published"]["indexed"], 2);
     // The restored index answers queries.
     let s = json(&home, &["symbol", "main", "--json"]);
     assert_eq!(s["matches"].as_array().unwrap().len(), 1);
@@ -124,7 +124,7 @@ fn backup_restore_round_trip_and_foreign_refusal() {
         "{o:?}"
     );
     assert_eq!(
-        json(&home, &["status", "--json"])["sources"][0]["id"],
+        json(&home, &["status", "--json"])["sources"][0]["source_id"],
         id.as_str()
     );
 
