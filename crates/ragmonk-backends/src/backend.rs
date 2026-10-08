@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::bulk::{Action, BulkLimits, BulkReport, BulkWriter};
 use crate::engine::{Engine, VectorSpec};
@@ -38,8 +38,163 @@ pub struct SourceState {
     pub active_build_id: Option<String>,
     pub pending_build_id: Option<String>,
     pub versions: Value,
+    /// The whole stored document (catalog fields, lease, retired builds).
+    pub doc: Value,
     seq_no: i64,
     primary_term: i64,
+}
+
+impl SourceState {
+    /// A field of the stored document as a string.
+    pub fn field(&self, key: &str) -> Option<&str> {
+        self.doc.get(key).and_then(Value::as_str)
+    }
+}
+
+/// One file's recorded processing error.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct FileError {
+    pub rel_path: String,
+    pub status: String,
+    pub error: String,
+    pub attempt_count: i64,
+}
+
+/// Visible counters of one source's published build.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct SourceStats {
+    pub files_by_status: BTreeMap<String, u64>,
+    pub max_attempt_count: i64,
+    pub next_retry_at: Option<String>,
+    pub entities: u64,
+    pub documents: u64,
+    pub chunks: u64,
+    pub relationships: u64,
+    pub links: u64,
+    pub errors: Vec<FileError>,
+}
+
+/// A source registration in the server catalog.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CatalogEntry {
+    pub source_id: String,
+    /// Canonical root as seen by the indexing host.
+    pub path: String,
+    pub source_type: String,
+    pub enabled: bool,
+    pub include_patterns: Vec<String>,
+    pub exclude_patterns: Vec<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl CatalogEntry {
+    pub fn from_doc(doc: &Value) -> Self {
+        let s = |k: &str| {
+            doc.get(k)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let list = |k: &str| -> Vec<String> {
+            match doc.get(k) {
+                Some(Value::Array(a)) => a
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect(),
+                Some(Value::String(one)) => vec![one.clone()],
+                _ => Vec::new(),
+            }
+        };
+        Self {
+            source_id: s("source_id"),
+            path: s("path"),
+            source_type: s("source_type"),
+            enabled: doc.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+            include_patterns: list("include_patterns"),
+            exclude_patterns: list("exclude_patterns"),
+            created_at: s("created_at"),
+            updated_at: s("updated_at"),
+        }
+    }
+}
+
+/// A source's writer lease: who holds it, its fencing token and its TTL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lease {
+    pub source_id: String,
+    pub owner: String,
+    pub token: i64,
+    pub ttl: Duration,
+}
+
+/// Painless: drop build `params.b` from a record; delete the record when
+/// no build is left.
+const DETACH_SCRIPT: &str = "def v = ctx._source.build_id; List l = new ArrayList(); \
+    if (v instanceof List) { l.addAll(v) } else if (v != null) { l.add(v) } \
+    l.removeIf(x -> x == params.b); \
+    if (l.isEmpty()) { ctx.op = 'delete' } else { ctx._source.build_id = l }";
+
+/// Painless: add build `params.b` to a record (copy-forward), keeping only
+/// build ids still in `params.keep`.
+pub(crate) const ATTACH_SCRIPT: &str = "def v = ctx._source.build_id; List l = new ArrayList(); \
+    if (v instanceof List) { l.addAll(v) } else if (v != null) { l.add(v) } \
+    l.removeIf(x -> !params.keep.contains(x)); \
+    if (!l.contains(params.b)) { l.add(params.b) } \
+    ctx._source.build_id = l";
+
+/// `record_kind` of manual knowledge links: not build-scoped.
+pub const MANUAL_LINK: &str = "manual_link";
+/// `build_id` stored on manual links.
+pub const MANUAL_BUILD: &str = "manual";
+
+/// Page size of every scan over the source-state index.
+pub const SCAN_PAGE: usize = 1000;
+
+fn check_lease(state: &SourceState, lease: Option<&Lease>) -> Result<()> {
+    let owner = state.doc["lease_owner"].as_str().unwrap_or_default();
+    let token = state.doc["lease_token"].as_i64().unwrap_or(0);
+    let live = state.doc["lease_expires_at"]
+        .as_str()
+        .and_then(|s| s.parse::<u128>().ok())
+        .is_some_and(|e| e > now_millis());
+    match lease {
+        Some(l) => {
+            if owner != l.owner || token != l.token {
+                return Err(BackendError::Conflict(format!(
+                    "writer lease of {} was superseded (token {} is now {token} held by {owner:?})",
+                    l.source_id, l.token
+                )));
+            }
+            if !live {
+                return Err(BackendError::Conflict(format!(
+                    "writer lease of {} expired; refusing to change its state",
+                    l.source_id
+                )));
+            }
+            Ok(())
+        }
+        None if !owner.is_empty() && live => Err(BackendError::Conflict(format!(
+            "source {} is being indexed by {owner}; its writer lease is still live",
+            state.source_id
+        ))),
+        None => Ok(()),
+    }
+}
+
+fn retired_builds(doc: &Value) -> Vec<(String, u128)> {
+    doc.get("retired_builds")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|r| {
+            Some((
+                r["build_id"].as_str()?.to_owned(),
+                r["retired_at"].as_str()?.parse().ok()?,
+            ))
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -57,6 +212,8 @@ pub struct ServerBackend {
     vector: Option<VectorSpec>,
     limits: BulkLimits,
     settings: IndexSettings,
+    /// How long a replaced build stays readable after a publish.
+    gc_grace: Duration,
 }
 
 fn ok(resp: Response, method: &str, path: &str) -> Result<Value> {
@@ -128,7 +285,18 @@ impl ServerBackend {
             vector,
             limits,
             settings: IndexSettings::default(),
+            gc_grace: Duration::ZERO,
         }
+    }
+
+    /// Keeps replaced builds readable for `grace` after a publish.
+    pub fn with_gc_grace(mut self, grace: Duration) -> Self {
+        self.gc_grace = grace;
+        self
+    }
+
+    pub fn vector_spec(&self) -> Option<&VectorSpec> {
+        self.vector.as_ref()
     }
 
     pub fn with_settings(mut self, settings: IndexSettings) -> Self {
@@ -161,6 +329,20 @@ impl ServerBackend {
             }
             None => self.client.send(method, path, None),
         }
+    }
+
+    /// `DELETE path`: `Ok(false)` when the target did not exist.
+    pub fn delete_path(&self, path: &str) -> Result<bool> {
+        let resp = self.call(Method::Delete, path, None)?;
+        if resp.status == 404 {
+            return Ok(false);
+        }
+        ok(resp, "DELETE", path).map(|_| true)
+    }
+
+    /// One JSON request, failing on a non-2xx status.
+    pub fn post_json(&self, method: Method, path: &str, payload: &Value) -> Result<Value> {
+        self.call_ok(method, path, Some(payload))
     }
 
     fn call_ok(&self, method: Method, path: &str, payload: Option<&Value>) -> Result<Value> {
@@ -210,6 +392,16 @@ impl ServerBackend {
         Ok(report)
     }
 
+    /// Verifies every RagMonk index's schema identity (never creates or
+    /// changes anything). Missing indexes are reported by
+    /// [`Self::index_status`].
+    pub fn verify_schema(&self) -> Result<()> {
+        for kind in IndexKind::ALL {
+            self.verify(kind)?;
+        }
+        Ok(())
+    }
+
     /// Whether each RagMonk index exists (`HEAD`; never creates anything).
     pub fn index_status(&self) -> Result<Vec<(String, bool)>> {
         let mut out = Vec::new();
@@ -252,6 +444,22 @@ impl ServerBackend {
 
     // ---- source state ---------------------------------------------------
 
+    fn state_from(&self, source_id: &str, v: &Value) -> SourceState {
+        let src = &v["_source"];
+        let s = |k: &str| src.get(k).and_then(Value::as_str).map(str::to_owned);
+        SourceState {
+            source_id: source_id.to_owned(),
+            path: s("path"),
+            state: s("state").unwrap_or_default(),
+            active_build_id: s("active_build_id"),
+            pending_build_id: s("pending_build_id"),
+            versions: src.get("versions").cloned().unwrap_or(Value::Null),
+            doc: src.clone(),
+            seq_no: v["_seq_no"].as_i64().unwrap_or(-1),
+            primary_term: v["_primary_term"].as_i64().unwrap_or(-1),
+        }
+    }
+
     pub fn source_state(&self, source_id: &str) -> Result<Option<SourceState>> {
         let path = format!(
             "/{}/_doc/{}",
@@ -263,18 +471,7 @@ impl ServerBackend {
             return Ok(None);
         }
         let v = ok(resp, "GET", &path)?;
-        let src = &v["_source"];
-        let s = |k: &str| src.get(k).and_then(Value::as_str).map(str::to_owned);
-        Ok(Some(SourceState {
-            source_id: source_id.to_owned(),
-            path: s("path"),
-            state: s("state").unwrap_or_default(),
-            active_build_id: s("active_build_id"),
-            pending_build_id: s("pending_build_id"),
-            versions: src.get("versions").cloned().unwrap_or(Value::Null),
-            seq_no: v["_seq_no"].as_i64().unwrap_or(-1),
-            primary_term: v["_primary_term"].as_i64().unwrap_or(-1),
-        }))
+        Ok(Some(self.state_from(source_id, &v)))
     }
 
     fn write_state(&self, prev: Option<&SourceState>, doc: &Value) -> Result<()> {
@@ -298,28 +495,263 @@ impl ServerBackend {
         ok(resp, "PUT", &path).map(|_| ())
     }
 
+    /// Read-modify-write of one source-state document under optimistic
+    /// concurrency. `lease` (when given) must still be the source's live
+    /// writer lease; without one, a live lease held by anybody refuses the
+    /// write. `patch` edits the stored fields; everything else is kept.
+    fn patch_state(
+        &self,
+        source_id: &str,
+        lease: Option<&Lease>,
+        create_path: Option<&str>,
+        patch: impl FnOnce(&mut Map<String, Value>, Option<&SourceState>) -> Result<()>,
+    ) -> Result<()> {
+        let prev = self.source_state(source_id)?;
+        if let Some(p) = &prev {
+            check_lease(p, lease)?;
+        } else if lease.is_some() {
+            return Err(BackendError::Conflict(format!(
+                "source {source_id} is not registered on the server"
+            )));
+        }
+        let mut doc = match &prev {
+            Some(p) => p.doc.as_object().cloned().unwrap_or_default(),
+            None => {
+                let mut m = Map::new();
+                m.insert("source_id".into(), json!(source_id));
+                m.insert("path".into(), json!(create_path));
+                m.insert("state".into(), json!("needs_full_rebuild"));
+                m.insert("enabled".into(), json!(true));
+                m.insert("created_at".into(), json!(now()));
+                m
+            }
+        };
+        patch(&mut doc, prev.as_ref())?;
+        doc.insert("updated_at".into(), json!(now()));
+        self.write_state(prev.as_ref(), &Value::Object(doc))
+    }
+
+    // ---- writer leases ----------------------------------------------------
+
+    /// Takes the source's writer lease for `ttl`. Fails with
+    /// [`BackendError::Conflict`] while another owner's lease is live. Each
+    /// grant increments the fencing token, so a superseded holder's later
+    /// state writes (publish, abort) are refused.
+    pub fn acquire_lease(&self, source_id: &str, owner: &str, ttl: Duration) -> Result<Lease> {
+        let prev = self.source_state(source_id)?.ok_or_else(|| {
+            BackendError::Conflict(format!(
+                "source {source_id} is not registered on the server"
+            ))
+        })?;
+        let now_ms = now_millis();
+        let held_by = prev.doc["lease_owner"].as_str().unwrap_or_default();
+        let expires = prev.doc["lease_expires_at"]
+            .as_str()
+            .and_then(|s| s.parse::<u128>().ok());
+        if !held_by.is_empty() && held_by != owner && expires.is_some_and(|e| e > now_ms) {
+            return Err(BackendError::Conflict(format!(
+                "source {source_id} is being indexed by {held_by}; its writer lease is still live"
+            )));
+        }
+        let token = prev.doc["lease_token"].as_i64().unwrap_or(0) + 1;
+        let mut doc = prev.doc.as_object().cloned().unwrap_or_default();
+        doc.insert("lease_owner".into(), json!(owner));
+        doc.insert("lease_token".into(), json!(token));
+        doc.insert(
+            "lease_expires_at".into(),
+            json!((now_ms + ttl.as_millis()).to_string()),
+        );
+        doc.insert("updated_at".into(), json!(now()));
+        self.write_state(Some(&prev), &Value::Object(doc))?;
+        Ok(Lease {
+            source_id: source_id.to_owned(),
+            owner: owner.to_owned(),
+            token,
+            ttl,
+        })
+    }
+
+    /// Extends a live lease. Fails once it was superseded or expired.
+    pub fn renew_lease(&self, lease: &Lease) -> Result<()> {
+        self.patch_state(&lease.source_id, Some(lease), None, |doc, _| {
+            doc.insert(
+                "lease_expires_at".into(),
+                json!((now_millis() + lease.ttl.as_millis()).to_string()),
+            );
+            Ok(())
+        })
+    }
+
+    /// Gives a lease up. A lease that was already superseded is left alone.
+    pub fn release_lease(&self, lease: &Lease) -> Result<()> {
+        match self.patch_state(&lease.source_id, Some(lease), None, |doc, _| {
+            doc.insert("lease_owner".into(), Value::Null);
+            doc.insert("lease_expires_at".into(), Value::Null);
+            Ok(())
+        }) {
+            Err(BackendError::Conflict(_)) => Ok(()),
+            other => other,
+        }
+    }
+
+    // ---- source catalog -----------------------------------------------------
+
+    /// Registers a source in the server catalog (idempotent by id): an
+    /// existing registration is returned unchanged with `created = false`.
+    pub fn register_source(&self, entry: &CatalogEntry) -> Result<(CatalogEntry, bool)> {
+        if let Some(existing) = self.catalog_entry(&entry.source_id)? {
+            return Ok((existing, false));
+        }
+        let now = now();
+        let doc = json!({
+            "source_id": entry.source_id,
+            "path": entry.path,
+            "source_type": entry.source_type,
+            "enabled": entry.enabled,
+            "include_patterns": entry.include_patterns,
+            "exclude_patterns": entry.exclude_patterns,
+            "created_at": now,
+            "state": "needs_full_rebuild",
+            "rebuild_reason": "new source",
+            "online_status": "unknown",
+            "updated_at": now,
+        });
+        match self.write_state(None, &doc) {
+            Ok(()) => {}
+            // Lost a registration race: the other registration wins.
+            Err(BackendError::Conflict(_)) | Err(BackendError::Http { status: 409, .. }) => {
+                if let Some(existing) = self.catalog_entry(&entry.source_id)? {
+                    return Ok((existing, false));
+                }
+            }
+            Err(e) => return Err(e),
+        }
+        let created = self
+            .catalog_entry(&entry.source_id)?
+            .ok_or_else(|| BackendError::Invalid("registered source vanished".into()))?;
+        Ok((created, true))
+    }
+
+    pub fn catalog_entry(&self, source_id: &str) -> Result<Option<CatalogEntry>> {
+        Ok(self
+            .source_state(source_id)?
+            .map(|s| CatalogEntry::from_doc(&s.doc)))
+    }
+
+    /// Every registered source (optionally only enabled ones), paged with
+    /// `search_after` in `source_id` order: no truncation at any size.
+    pub fn list_catalog(&self, enabled_only: bool) -> Result<Vec<CatalogEntry>> {
+        let query = if enabled_only {
+            json!({ "term": { "enabled": true } })
+        } else {
+            json!({ "match_all": {} })
+        };
+        Ok(self
+            .scan_states(query)?
+            .iter()
+            .map(CatalogEntry::from_doc)
+            .collect())
+    }
+
+    pub fn set_source_enabled(&self, source_id: &str, enabled: bool) -> Result<()> {
+        self.require_registered(source_id)?;
+        self.patch_state(source_id, None, None, |doc, _| {
+            doc.insert("enabled".into(), json!(enabled));
+            Ok(())
+        })
+    }
+
+    /// Records the outcome of a scan (online/offline, last error).
+    pub fn set_online(
+        &self,
+        source_id: &str,
+        lease: Option<&Lease>,
+        online: bool,
+        error: Option<&str>,
+    ) -> Result<()> {
+        self.patch_state(source_id, lease, None, |doc, _| {
+            doc.insert(
+                "online_status".into(),
+                json!(if online { "online" } else { "offline" }),
+            );
+            doc.insert("last_scan_at".into(), json!(now()));
+            doc.insert("last_error".into(), json!(error));
+            Ok(())
+        })
+    }
+
+    fn require_registered(&self, source_id: &str) -> Result<()> {
+        if self.source_state(source_id)?.is_none() {
+            return Err(BackendError::NotFound(format!(
+                "no such source: {source_id}"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Source-state documents matching `query`, every page.
+    fn scan_states(&self, query: Value) -> Result<Vec<Value>> {
+        let path = format!("/{}/_search", self.index(IndexKind::SourceState));
+        let mut out = Vec::new();
+        let mut after: Option<Value> = None;
+        loop {
+            let mut body = json!({
+                "size": SCAN_PAGE,
+                "query": query,
+                "sort": [ { "source_id": "asc" } ],
+                "track_total_hits": false,
+            });
+            if let Some(a) = &after {
+                body["search_after"] = a.clone();
+            }
+            let v = self.call_ok(Method::Post, &path, Some(&body))?;
+            let hits = v
+                .pointer("/hits/hits")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let n = hits.len();
+            for h in &hits {
+                out.push(h["_source"].clone());
+            }
+            if n < SCAN_PAGE {
+                break;
+            }
+            after = hits.last().map(|h| h["sort"].clone());
+        }
+        Ok(out)
+    }
+
+    // ---- builds -------------------------------------------------------------
+
     /// Starts a build. Leftovers of a previous abandoned pending build are
     /// deleted first; the active build stays visible throughout.
     pub fn begin_build(&self, source_id: &str, path: &str, build_id: &str) -> Result<()> {
-        let prev = self.source_state(source_id)?;
-        if let Some(old) = prev.as_ref().and_then(|p| p.pending_build_id.clone()) {
-            if old != build_id {
-                self.delete_build_docs(source_id, &old)?;
+        self.begin_build_with(None, source_id, path, build_id)
+    }
+
+    /// [`Self::begin_build`] fenced by `lease`.
+    pub fn begin_build_with(
+        &self,
+        lease: Option<&Lease>,
+        source_id: &str,
+        path: &str,
+        build_id: &str,
+    ) -> Result<()> {
+        if let Some(prev) = self.source_state(source_id)? {
+            check_lease(&prev, lease)?;
+            if let Some(old) = prev.pending_build_id.clone() {
+                if old != build_id {
+                    self.delete_build_docs(source_id, &old)?;
+                }
             }
         }
-        let now = now();
-        let active = prev.as_ref().and_then(|p| p.active_build_id.clone());
-        let doc = json!({
-            "source_id": source_id,
-            "path": path,
-            "state": "building",
-            "active_build_id": active,
-            "pending_build_id": build_id,
-            "versions": prev.as_ref().map(|p| p.versions.clone()).unwrap_or(Value::Null),
-            "last_full_build_at": Value::Null,
-            "updated_at": now,
-        });
-        self.write_state(prev.as_ref(), &doc)
+        self.patch_state(source_id, lease, Some(path), |doc, _| {
+            doc.insert("path".into(), json!(path));
+            doc.insert("state".into(), json!("building"));
+            doc.insert("pending_build_id".into(), json!(build_id));
+            Ok(())
+        })
     }
 
     /// Writer for records of one build.
@@ -345,14 +777,42 @@ impl ServerBackend {
         .map(|_| ())
     }
 
-    /// Atomically makes `build_id` the visible build, then removes every
-    /// other build of the source.
+    /// Atomically makes `build_id` the visible build. The build it replaces
+    /// is retired, not deleted: it stays readable for `gc_grace` so queries
+    /// pinned to it finish, and is garbage-collected by a later publish.
     pub fn publish_build(
         &self,
         source_id: &str,
         build_id: &str,
         versions: &Value,
         full: bool,
+    ) -> Result<()> {
+        self.publish_build_with(None, source_id, build_id, versions, full)
+    }
+
+    /// [`Self::publish_build`] fenced by `lease`: a superseded or expired
+    /// lease cannot publish.
+    pub fn publish_build_with(
+        &self,
+        lease: Option<&Lease>,
+        source_id: &str,
+        build_id: &str,
+        versions: &Value,
+        full: bool,
+    ) -> Result<()> {
+        self.publish_build_ext(lease, source_id, build_id, versions, full, &[])
+    }
+
+    /// [`Self::publish_build_with`], also storing `extra` state fields in
+    /// the same compare-and-swap write.
+    pub fn publish_build_ext(
+        &self,
+        lease: Option<&Lease>,
+        source_id: &str,
+        build_id: &str,
+        versions: &Value,
+        full: bool,
+        extra: &[(&str, Value)],
     ) -> Result<()> {
         let prev = self
             .source_state(source_id)?
@@ -362,47 +822,106 @@ impl ServerBackend {
                 "build {build_id} is not the pending build of {source_id}"
             )));
         }
+        check_lease(&prev, lease)?;
         self.refresh_build_indexes()?;
-        let now = now();
-        let last_full = if full {
-            Value::String(now.clone())
-        } else {
-            Value::Null
-        };
-        let doc = json!({
-            "source_id": source_id,
-            "path": prev.path,
-            "state": "ready",
-            "active_build_id": build_id,
-            "pending_build_id": Value::Null,
-            "versions": versions,
-            "last_full_build_at": last_full,
-            "updated_at": now,
-        });
-        self.write_state(Some(&prev), &doc)?;
-        self.gc_source(source_id, build_id)
+        let now_ms = now_millis();
+        let mut retired = retired_builds(&prev.doc);
+        if let Some(old) = prev.active_build_id.as_ref().filter(|b| *b != build_id) {
+            retired.push((old.clone(), now_ms));
+        }
+        let grace = self.gc_grace.as_millis();
+        let (keep, expired): (Vec<_>, Vec<_>) = retired
+            .into_iter()
+            .partition(|(_, at)| grace > 0 && now_ms.saturating_sub(*at) < grace);
+        self.patch_state(source_id, lease, None, |doc, _| {
+            doc.insert("state".into(), json!("ready"));
+            doc.insert("active_build_id".into(), json!(build_id));
+            doc.insert("pending_build_id".into(), Value::Null);
+            doc.insert("versions".into(), versions.clone());
+            doc.insert("rebuild_reason".into(), Value::Null);
+            for (k, v) in extra {
+                doc.insert((*k).into(), v.clone());
+            }
+            if full {
+                doc.insert("last_full_build_at".into(), json!(now()));
+            }
+            doc.insert(
+                "retired_builds".into(),
+                json!(keep
+                    .iter()
+                    .map(|(b, at)| json!({ "build_id": b, "retired_at": at.to_string() }))
+                    .collect::<Vec<_>>()),
+            );
+            Ok(())
+        })?;
+        let _ = expired;
+        let mut keep_ids: Vec<String> = keep.into_iter().map(|(b, _)| b).collect();
+        keep_ids.push(build_id.to_owned());
+        self.gc_source(source_id, &keep_ids)
     }
 
     /// Discards a pending build. The previously active build (if any)
     /// stays visible.
     pub fn abort_build(&self, source_id: &str, build_id: &str) -> Result<()> {
-        self.delete_build_docs(source_id, build_id)?;
-        if let Some(prev) = self.source_state(source_id)? {
+        self.abort_build_with(None, source_id, build_id, None)
+    }
+
+    /// [`Self::abort_build`] fenced by `lease`, recording `error`. A
+    /// superseded holder only deletes its own pending records; it never
+    /// touches the state a newer holder owns.
+    pub fn abort_build_with(
+        &self,
+        lease: Option<&Lease>,
+        source_id: &str,
+        build_id: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let Some(prev) = self.source_state(source_id)? else {
+            return Ok(());
+        };
+        if prev.active_build_id.as_deref() == Some(build_id) {
+            return Err(BackendError::Conflict(format!(
+                "build {build_id} is the published build of {source_id}; refusing to abort it"
+            )));
+        }
+        if let Err(e) = check_lease(&prev, lease) {
+            // Superseded: the build is someone else's pending build (never
+            // touch it) or an orphan of this holder (safe to delete).
             if prev.pending_build_id.as_deref() == Some(build_id) {
-                let doc = json!({
-                    "source_id": source_id,
-                    "path": prev.path,
-                    "state": if prev.active_build_id.is_some() { "failed" } else { "needs_full_rebuild" },
-                    "active_build_id": prev.active_build_id,
-                    "pending_build_id": Value::Null,
-                    "versions": prev.versions,
-                    "last_full_build_at": Value::Null,
-                    "updated_at": now(),
-                });
-                self.write_state(Some(&prev), &doc)?;
+                return Err(e);
             }
+            self.delete_build_docs(source_id, build_id)?;
+            return Ok(());
+        }
+        self.delete_build_docs(source_id, build_id)?;
+        if prev.pending_build_id.as_deref() == Some(build_id) {
+            self.patch_state(source_id, lease, None, |doc, p| {
+                let has_active = p.is_some_and(|p| p.active_build_id.is_some());
+                doc.insert(
+                    "state".into(),
+                    json!(if has_active {
+                        "failed"
+                    } else {
+                        "needs_full_rebuild"
+                    }),
+                );
+                doc.insert("pending_build_id".into(), Value::Null);
+                if let Some(e) = error {
+                    doc.insert("last_error".into(), json!(e));
+                }
+                Ok(())
+            })?;
         }
         Ok(())
+    }
+
+    /// Marks a source for a full rebuild on its next pass.
+    pub fn require_full_rebuild(&self, source_id: &str, reason: &str) -> Result<()> {
+        self.patch_state(source_id, None, None, |doc, _| {
+            doc.insert("state".into(), json!("needs_full_rebuild"));
+            doc.insert("rebuild_reason".into(), json!(reason));
+            Ok(())
+        })
     }
 
     fn delete_by_query(&self, query: &Value) -> Result<u64> {
@@ -421,17 +940,45 @@ impl ServerBackend {
         Ok(v["deleted"].as_u64().unwrap_or(0))
     }
 
+    /// Removes `build_id` from every record of the source: a record that
+    /// belongs to other builds too (copied forward) just loses this build
+    /// id; a record that belonged only to this build is deleted. Shared
+    /// records of other builds are never deleted.
     fn delete_build_docs(&self, source_id: &str, build_id: &str) -> Result<u64> {
-        self.delete_by_query(&json!({ "bool": { "filter": [
-            { "term": { "source_id": source_id } },
-            { "term": { "build_id": build_id } },
-        ]}}))
+        self.refresh_build_indexes()?;
+        let names: Vec<String> = IndexKind::BUILD_SCOPED
+            .iter()
+            .map(|k| self.index(*k))
+            .collect();
+        let path = format!(
+            "/{}/_update_by_query?conflicts=proceed&refresh=true&wait_for_completion=true",
+            names.join(",")
+        );
+        let v = self.call_ok(
+            Method::Post,
+            &path,
+            Some(&json!({
+                "query": { "bool": { "filter": [
+                    { "term": { "source_id": source_id } },
+                    { "term": { "build_id": build_id } },
+                ] } },
+                "script": { "lang": "painless", "source": DETACH_SCRIPT, "params": { "b": build_id } },
+            })),
+        )?;
+        Ok(v["deleted"].as_u64().unwrap_or(0))
     }
 
-    fn gc_source(&self, source_id: &str, keep_build: &str) -> Result<()> {
+    /// Deletes every record of the source that belongs to none of the
+    /// `keep` builds (manual links are not build-scoped and survive). Ids of
+    /// dropped builds left on shared records are pruned by the next
+    /// copy-forward.
+    fn gc_source(&self, source_id: &str, keep: &[String]) -> Result<()> {
         self.delete_by_query(&json!({ "bool": {
             "filter": [ { "term": { "source_id": source_id } } ],
-            "must_not": [ { "term": { "build_id": keep_build } } ],
+            "must_not": [
+                { "terms": { "build_id": keep } },
+                { "term": { "record_kind": MANUAL_LINK } },
+            ],
         }}))
         .map(|_| ())
     }
@@ -453,27 +1000,13 @@ impl ServerBackend {
 
     // ---- reads ----------------------------------------------------------
 
-    /// `source_id -> active_build_id` for every published source.
+    /// `source_id -> active_build_id` for every published source, paged
+    /// (no truncation). Reads take this once per request: it is the
+    /// request's snapshot.
     pub fn active_builds(&self) -> Result<BTreeMap<String, String>> {
-        let path = format!("/{}/_search", self.index(IndexKind::SourceState));
-        let v = self.call_ok(
-            Method::Post,
-            &path,
-            Some(&json!({
-                "size": 10000,
-                "_source": ["source_id", "active_build_id"],
-                "query": { "exists": { "field": "active_build_id" } }
-            })),
-        )?;
         let mut out = BTreeMap::new();
-        for hit in v
-            .pointer("/hits/hits")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let src = &hit["_source"];
-            if let (Some(s), Some(b)) = (src["source_id"].as_str(), src["active_build_id"].as_str())
+        for doc in self.scan_states(json!({ "exists": { "field": "active_build_id" } }))? {
+            if let (Some(s), Some(b)) = (doc["source_id"].as_str(), doc["active_build_id"].as_str())
             {
                 out.insert(s.to_owned(), b.to_owned());
             }
@@ -576,6 +1109,111 @@ impl ServerBackend {
         Ok(v["count"].as_u64().unwrap_or(0))
     }
 
+    /// Status counters of one source's build: files by status, retry
+    /// queue, record counts and the most recent per-file errors. Read from
+    /// the build's own records (an unpublished build is never passed here).
+    pub fn source_stats(
+        &self,
+        source_id: &str,
+        build_id: &str,
+        error_limit: usize,
+    ) -> Result<SourceStats> {
+        let scope = json!([
+            { "term": { "source_id": source_id } },
+            { "term": { "build_id": build_id } },
+        ]);
+        let files = self.call_ok(
+            Method::Post,
+            &format!("/{}/_search", self.index(IndexKind::Files)),
+            Some(&json!({
+                "size": error_limit,
+                "_source": ["rel_path", "status", "last_error", "attempt_count", "next_attempt_at"],
+                "query": { "bool": { "filter": scope, "must": [ { "exists": { "field": "last_error" } } ] } },
+                "sort": [ { "rel_path": "asc" } ],
+            })),
+        )?;
+        let all = self.call_ok(
+            Method::Post,
+            &format!("/{}/_search", self.index(IndexKind::Files)),
+            Some(&json!({
+                "size": 0,
+                "query": { "bool": { "filter": scope } },
+                "aggs": {
+                    "by_status": { "terms": { "field": "status", "size": 32, "missing": "indexed" } },
+                    "max_attempt": { "max": { "field": "attempt_count" } },
+                    "retry": { "filter": { "term": { "status": "retry" } }, "aggs": {
+                        "next": { "terms": { "field": "next_attempt_at", "size": 1, "order": { "_key": "asc" } } },
+                    } },
+                },
+            })),
+        )?;
+        let mut by_status = BTreeMap::new();
+        for b in all
+            .pointer("/aggregations/by_status/buckets")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let (Some(k), Some(n)) = (b["key"].as_str(), b["doc_count"].as_u64()) {
+                by_status.insert(k.to_owned(), n);
+            }
+        }
+        let count = |kind: IndexKind, extra: Option<Value>| -> Result<u64> {
+            let mut filter = scope.as_array().cloned().unwrap_or_default();
+            filter.extend(extra);
+            let v = self.call_ok(
+                Method::Post,
+                &format!("/{}/_count", self.index(kind)),
+                Some(&json!({ "query": { "bool": { "filter": filter } } })),
+            )?;
+            Ok(v["count"].as_u64().unwrap_or(0))
+        };
+        let errors = files
+            .pointer("/hits/hits")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|h| {
+                let s = &h["_source"];
+                FileError {
+                    rel_path: s["rel_path"].as_str().unwrap_or_default().to_owned(),
+                    status: s["status"].as_str().unwrap_or_default().to_owned(),
+                    error: s["last_error"].as_str().unwrap_or_default().to_owned(),
+                    attempt_count: s["attempt_count"].as_i64().unwrap_or(0),
+                }
+            })
+            .collect();
+        Ok(SourceStats {
+            files_by_status: by_status,
+            max_attempt_count: all
+                .pointer("/aggregations/max_attempt/value")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0) as i64,
+            next_retry_at: all
+                .pointer("/aggregations/retry/next/buckets/0/key")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            entities: count(IndexKind::Code, None)?,
+            documents: count(IndexKind::Documents, None)?,
+            chunks: count(IndexKind::Chunks, None)?,
+            relationships: count(
+                IndexKind::Relationships,
+                Some(json!({ "term": { "record_kind": "edge" } })),
+            )?,
+            links: count(
+                IndexKind::Relationships,
+                Some(json!({ "term": { "record_kind": "link" } })),
+            )?,
+            errors,
+        })
+    }
+
+    /// `GET /_cluster/health` status (`green`/`yellow`/`red`).
+    pub fn cluster_health(&self) -> Result<String> {
+        let v = self.call_ok(Method::Get, "/_cluster/health", None)?;
+        Ok(v["status"].as_str().unwrap_or("unknown").to_owned())
+    }
+
     /// Raw record count including invisible builds (diagnostics/tests).
     pub fn raw_count(&self, kind: IndexKind, source_id: &str, build_id: &str) -> Result<u64> {
         let v = self.call_ok(
@@ -668,8 +1306,9 @@ impl Drop for BuildMode<'_> {
     }
 }
 
-/// Typed records written into a build. Field names match the mappings.
-#[derive(Debug, Clone, Serialize)]
+/// Typed records written into a build. Field names match the mappings;
+/// `None` fields are omitted.
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct FileDoc {
     pub file_id: String,
     pub rel_path: String,
@@ -682,9 +1321,21 @@ pub struct FileDoc {
     pub converter_version: Option<String>,
     pub embedding_model_id: Option<String>,
     pub embedding_text_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attempt_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_attempt_at: Option<String>,
+    /// Digest of everything derived from this file (rows and vectors);
+    /// equal digests let a later build copy the file forward server-side.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub knowledge_digest: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct EntityDoc {
     pub entity_id: String,
     pub file_id: String,
@@ -697,9 +1348,19 @@ pub struct EntityDoc {
     pub signature: Option<String>,
     pub start_line: i64,
     pub end_line: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_col: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_col: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtime: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding: Option<Vec<f32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_fingerprint: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct DocumentDoc {
     pub document_id: String,
     pub file_id: String,
@@ -715,9 +1376,13 @@ pub struct DocumentDoc {
     pub attachment_content_type: Option<String>,
     pub attachment_index: Option<i64>,
     pub attachment_content_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtime: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ChunkDoc {
     pub chunk_id: String,
     pub document_id: String,
@@ -728,6 +1393,7 @@ pub struct ChunkDoc {
     pub ordinal: i64,
     pub heading_path: Vec<String>,
     pub heading_level: Option<i64>,
+    /// The owning document's title (indexed for search, weight 8).
     pub title: Option<String>,
     pub search_text: String,
     pub text: String,
@@ -739,9 +1405,28 @@ pub struct ChunkDoc {
     pub caption: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedding: Option<Vec<f32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_ordinal: Option<i64>,
+    /// The heading text the chunk is searched under (weight 5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fts_heading: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment_content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment_index: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtime: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct EdgeDoc {
     pub relationship_id: String,
     pub file_id: String,
@@ -754,11 +1439,14 @@ pub struct EdgeDoc {
     pub confidence: String,
     pub source_location: Option<String>,
     pub evidence: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference_text: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct LinkDoc {
     pub relationship_id: String,
+    /// The link type (`mentioned_in`, `documents`, ...).
     pub relationship_type: String,
     pub entity_id: String,
     pub document_id: String,
@@ -842,7 +1530,7 @@ impl BuildWriter<'_> {
 }
 
 /// Document IDs go into URL paths.
-fn encode_id(id: &str) -> String {
+pub fn encode_id(id: &str) -> String {
     id.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
@@ -853,13 +1541,16 @@ fn encode_id(id: &str) -> String {
         .collect()
 }
 
-/// Epoch milliseconds; both engines accept `epoch_millis` for `date` fields.
-fn now() -> String {
+fn now_millis() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0)
-        .to_string()
+}
+
+/// Epoch milliseconds; both engines accept `epoch_millis` for `date` fields.
+fn now() -> String {
+    now_millis().to_string()
 }
 
 #[cfg(test)]

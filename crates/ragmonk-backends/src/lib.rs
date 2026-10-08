@@ -14,6 +14,8 @@ pub mod backend;
 pub mod bulk;
 pub mod engine;
 pub mod error;
+pub mod publish;
+pub mod reader;
 pub mod schema;
 pub mod transport;
 

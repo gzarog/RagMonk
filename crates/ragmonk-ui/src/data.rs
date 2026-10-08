@@ -15,7 +15,9 @@ use serde_json::{json, Map, Value};
 use ragmonk_ops::doctor as doctor_cmd;
 use ragmonk_service::load;
 use ragmonk_service::query::{self as query_cmd, open_sources, Opened};
-use ragmonk_service::sources::control_plane;
+use ragmonk_service::sources::catalog;
+use ragmonk_storage::knowledge::{DocumentRow, FileRow};
+use ragmonk_storage::read::KnowledgeRead;
 
 fn db(e: impl std::fmt::Display) -> RagMonkError {
     RagMonkError::new(ErrorKind::Database, e.to_string())
@@ -45,7 +47,25 @@ pub fn daemon_snapshot(home: &Home) -> Value {
 pub fn recent_errors(home: &Home, limit: usize) -> Result<Vec<Value>, RagMonkError> {
     let mut out = Vec::new();
     for o in open_sources(home, None)? {
-        let Ok(records) = o.store.recent_errors(limit as i64) else {
+        if let Some(server) = o.store.server() {
+            // Server mode: per-file errors recorded in the published build.
+            let stats = server
+                .backend()
+                .source_stats(&o.source.id, &o.build, limit)
+                .map_err(ragmonk_service::backend::server_err)?;
+            for e in stats.errors {
+                out.push(json!({
+                    "source_id": o.source.id,
+                    "path": abs(&o.source.path, &e.rel_path),
+                    "error_code": e.status,
+                    "error_message": e.error,
+                    "occurred_at": Value::Null,
+                }));
+            }
+            continue;
+        }
+        let Ok(store) = o.store.local() else { continue };
+        let Ok(records) = store.recent_errors(limit as i64) else {
             continue;
         };
         for r in records {
@@ -104,10 +124,9 @@ fn summarize(s: &SourceRecord, row: &Value) -> Value {
 /// `source_service.list_sources`.
 pub fn list_sources(home: &Home) -> Result<Vec<Value>, RagMonkError> {
     let rows = status_rows(home)?;
-    let cp = control_plane(home)?;
+    let cp = catalog(home)?;
     Ok(cp
-        .list_sources(false)
-        .map_err(db)?
+        .list(false)?
         .iter()
         .map(|s| summarize(s, rows.get(&s.id).unwrap_or(&Value::Null)))
         .collect())
@@ -115,8 +134,7 @@ pub fn list_sources(home: &Home) -> Result<Vec<Value>, RagMonkError> {
 
 /// `source_service.source_detail`.
 pub fn source_detail(home: &Home, source_id: &str) -> Result<Value, RagMonkError> {
-    let cp = control_plane(home)?;
-    let s = ragmonk_service::sources::get_source(&cp, source_id)?;
+    let s = catalog(home)?.get(source_id)?;
     let rows = status_rows(home)?;
     let row = rows.get(&s.id).cloned().unwrap_or(Value::Null);
     let mut detail = summarize(&s, &row);
@@ -130,7 +148,30 @@ pub fn source_detail(home: &Home, source_id: &str) -> Result<Value, RagMonkError
     });
     let mut errors = Vec::new();
     if let Some(o) = open_sources(home, Some(source_id))?.into_iter().next() {
-        for r in o.store.recent_errors(25).map_err(db)? {
+        if let Some(server) = o.store.server() {
+            for e in server
+                .backend()
+                .source_stats(&o.source.id, &o.build, 25)
+                .map_err(ragmonk_service::backend::server_err)?
+                .errors
+            {
+                errors.push(json!({
+                    "path": abs(&s.path, &e.rel_path),
+                    "error_code": e.status,
+                    "error_message": e.error,
+                    "occurred_at": Value::Null,
+                }));
+            }
+        }
+        for r in o
+            .store
+            .local()
+            .ok()
+            .map(|st| st.recent_errors(25))
+            .transpose()
+            .map_err(db)?
+            .unwrap_or_default()
+        {
             errors.push(json!({
                 "path": r.path.as_deref().map(|p| abs(&s.path, p)),
                 "error_code": r.error_code,
@@ -166,8 +207,8 @@ pub fn indexing_overview(home: &Home) -> Result<Value, RagMonkError> {
 pub fn failed_files(home: &Home) -> Result<Vec<Value>, RagMonkError> {
     let mut out = Vec::new();
     for o in open_sources(home, None)? {
-        let times = o.store.file_times(&o.build).map_err(db)?;
-        for f in o.store.files(&o.build).map_err(db)? {
+        let (times, files) = file_listing(&o)?;
+        for f in files {
             if f.status == "failed" {
                 out.push(json!({
                     "file_id": f.id,
@@ -196,17 +237,49 @@ fn attachment_info(d: &ragmonk_storage::knowledge::DocumentRow) -> Value {
     }
 }
 
+type Times = std::collections::BTreeMap<String, ragmonk_storage::status::FileTimes>;
+
+fn sdb(e: ragmonk_storage::StorageError) -> RagMonkError {
+    e.into()
+}
+
+/// `(file times, files)` of a source's build, from either backend.
+fn file_listing(o: &Opened) -> Result<(Times, Vec<FileRow>), RagMonkError> {
+    match o.store.server() {
+        Some(server) => Ok((Times::new(), server.file_rows(&o.build).map_err(sdb)?)),
+        None => {
+            let store = o.store.local()?;
+            Ok((
+                store.file_times(&o.build).map_err(db)?,
+                store.files(&o.build).map_err(db)?,
+            ))
+        }
+    }
+}
+
+type KindCounts = std::collections::HashMap<String, (i64, i64, i64)>;
+
+fn documents_and_counts(o: &Opened) -> Result<(Vec<DocumentRow>, KindCounts), RagMonkError> {
+    match o.store.server() {
+        Some(server) => Ok((
+            server.document_rows(&o.build).map_err(sdb)?,
+            server.chunk_kind_counts(&o.build).map_err(sdb)?,
+        )),
+        None => {
+            let store: &ProjectStore = o.store.local()?;
+            Ok((
+                store.documents(&o.build).map_err(db)?,
+                store.chunk_kind_counts(&o.build).map_err(db)?,
+            ))
+        }
+    }
+}
+
 fn document_rows(o: &Opened) -> Result<Vec<Value>, RagMonkError> {
-    let store: &ProjectStore = &o.store;
-    let docs = store.documents(&o.build).map_err(db)?;
-    let counts = store.chunk_kind_counts(&o.build).map_err(db)?;
-    let files: std::collections::HashMap<String, _> = store
-        .files(&o.build)
-        .map_err(db)?
-        .into_iter()
-        .map(|f| (f.id.clone(), f))
-        .collect();
-    let times = store.file_times(&o.build).map_err(db)?;
+    let (docs, counts) = documents_and_counts(o)?;
+    let (times, file_list) = file_listing(o)?;
+    let files: std::collections::HashMap<String, _> =
+        file_list.into_iter().map(|f| (f.id.clone(), f)).collect();
     let mut rows = Vec::new();
     for d in &docs {
         let f = files.get(&d.file_id);
@@ -308,35 +381,28 @@ pub fn document_detail(
     source_id: &str,
     document_id: &str,
 ) -> Result<Option<Value>, RagMonkError> {
-    let cp = control_plane(home)?;
-    ragmonk_service::sources::get_source(&cp, source_id)?;
+    catalog(home)?.get(source_id)?;
     let Some(o) = open_sources(home, Some(source_id))?.into_iter().next() else {
         return Ok(None);
     };
-    let docs = o.store.documents(&o.build).map_err(db)?;
+    let (docs, counts) = documents_and_counts(&o)?;
     let Some(d) = docs.iter().find(|d| d.id == document_id) else {
         return Ok(None);
     };
-    let file = o
-        .store
-        .files(&o.build)
-        .map_err(db)?
-        .into_iter()
-        .find(|f| f.id == d.file_id);
-    let (sections, paragraphs, tables) = o
-        .store
-        .chunk_kind_counts(&o.build)
-        .map_err(db)?
-        .get(&d.id)
-        .copied()
-        .unwrap_or_default();
-    let mut chunks: Vec<_> = o
-        .store
-        .file_chunks(&o.build, &d.file_id)
-        .map_err(db)?
-        .into_iter()
-        .filter(|c| c.document_id == d.id)
-        .collect();
+    let (times, files) = file_listing(&o)?;
+    let file = files.into_iter().find(|f| f.id == d.file_id);
+    let (sections, paragraphs, tables) = counts.get(&d.id).copied().unwrap_or_default();
+    let mut chunks: Vec<_> = match o.store.server() {
+        Some(server) => server.document_chunks(&o.build, &d.id).map_err(sdb)?,
+        None => o
+            .store
+            .local()?
+            .file_chunks(&o.build, &d.file_id)
+            .map_err(db)?
+            .into_iter()
+            .filter(|c| c.document_id == d.id)
+            .collect(),
+    };
     chunks.sort_by_key(|c| c.ordinal);
     Ok(Some(json!({
         "id": d.id,
@@ -351,7 +417,7 @@ pub fn document_detail(
         "paragraph_count": paragraphs,
         "table_count": tables,
         "is_scanned": d.is_scanned,
-        "indexed_at": o.store.file_times(&o.build).map_err(db)?.get(&d.file_id).and_then(|t| t.0.clone()),
+        "indexed_at": times.get(&d.file_id).and_then(|t| t.0.clone()),
         "chunks": chunks.iter().map(|c| json!({
             "id": c.id,
             "kind": c.kind,
@@ -446,16 +512,33 @@ pub fn list_symbols(
 ) -> Result<Vec<Value>, RagMonkError> {
     let mut rows = Vec::new();
     for o in open_sources(home, None)? {
-        let entities = match query {
+        let entities = match (query, o.store.server()) {
+            (Some(q), Some(server)) => {
+                // Same token-AND semantics as the local FTS lookup.
+                let expr = ragmonk_storage::search::word_tokens(q)
+                    .iter()
+                    .map(|t| format!("\"{t}\""))
+                    .collect::<Vec<_>>()
+                    .join(" AND ");
+                server
+                    .search_entities_fts(&o.build, &expr, limit as i64)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|h| server.entity(&o.build, &h.id).ok().flatten())
+                    .collect()
+            }
+            (None, Some(server)) => server.all_entities(&o.build).map_err(sdb)?,
             // A query FTS rejects matches nothing, never a 500.
-            Some(q) => o
-                .store
-                .search_code(&o.build, q, limit as i64)
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|h| o.store.entity(&o.build, &h.id).ok().flatten())
-                .collect(),
-            None => o.store.all_entities(&o.build).map_err(db)?,
+            (Some(q), None) => {
+                let store = o.store.local()?;
+                store
+                    .search_code(&o.build, q, limit as i64)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|h| store.entity(&o.build, &h.id).ok().flatten())
+                    .collect()
+            }
+            (None, None) => o.store.local()?.all_entities(&o.build).map_err(db)?,
         };
         for e in entities {
             rows.push(json!({

@@ -1,25 +1,40 @@
 //! Indexing runs over registered sources.
 //!
-//! Each source is processed under the `index` lock on its own: a source
-//! that cannot be locked, fails, or is unreachable is reported and the run
-//! moves on to the next one. Progress is published to the home's progress
-//! file while the run lasts.
+//! Up to `indexing.max_parallel_sources` independent sources run at once
+//! (ADR 0033). Each source pass holds its own
+//! `locks/index-<source_id>.lock` (and, in server mode, the source's
+//! server writer lease), so one source never runs twice at the same time,
+//! while different sources never wait for each other. A source that cannot
+//! be locked, fails, or is unreachable is reported and the others carry on.
+//! Whole-home operations (backup, restore, vector maintenance) take
+//! [`home_exclusive`]: `locks/index.lock` and then every source lock in id
+//! order, so they never interleave with a pass and locks are always taken
+//! in one global order (no lock inversion).
+//!
+//! Events are delivered on the calling thread, in completion order, through
+//! a bounded channel. Progress is published to the home's progress file.
+
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use ragmonk_core::errors::{ErrorKind, RagMonkError};
 use ragmonk_core::paths::Home;
-use ragmonk_indexing::coordinator::{run_source, Options, SourceResult};
+use ragmonk_indexing::coordinator::{run_source_with, Options, SourceResult};
 use ragmonk_indexing::lock::RunLock;
+use ragmonk_indexing::progress::ProgressTracker;
 use ragmonk_storage::control::SourceRecord;
 use ragmonk_storage::StorageLayout;
 
-use crate::sources::{control_plane, get_source};
+use crate::backend::Backend;
+use crate::sources::{catalog, control_plane};
 use crate::{db, load};
 
 /// What happened to one source during a run.
 pub enum SourceEvent<'a> {
     /// The source is next; its lock has not been taken yet.
     Started { source: &'a SourceRecord },
-    /// Another process holds the `index` lock for it.
+    /// Another process holds the source's lock (or server writer lease).
     Blocked {
         source: &'a SourceRecord,
         error: &'a RagMonkError,
@@ -37,18 +52,23 @@ pub enum SourceEvent<'a> {
 }
 
 /// The outcome of a whole run, with its concurrency metrics.
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct RunSummary {
+    /// Identifies this run in progress, logs and status.
+    pub run_id: String,
     pub attempted: usize,
     pub failed_sources: usize,
     pub failed_files: usize,
     /// Files left for a later retry (transient failures).
     pub retrying_files: usize,
-    /// Longest wait for a source's `index` lock.
+    /// Longest wait for a source's lock.
     pub max_lock_wait_seconds: f64,
     /// Highest pipeline in-flight count and active-worker count seen.
     pub in_flight_high_water: usize,
     pub active_workers_high_water: usize,
+    /// Most source passes running at the same time, and the configured cap.
+    pub parallel_sources_high_water: usize,
+    pub max_parallel_sources: usize,
 }
 
 impl RunSummary {
@@ -71,87 +91,282 @@ impl RunSummary {
     }
 }
 
+/// Run-level options beyond the configuration.
+#[derive(Debug, Clone, Default)]
+pub struct RunOptions {
+    /// Rebuild every selected source from scratch (`ragmonk rebuild`).
+    pub force_full: bool,
+    /// Only examine these absolute paths (a watcher-triggered pass).
+    pub targets: Option<std::collections::BTreeSet<PathBuf>>,
+    /// Override `indexing.max_parallel_sources`.
+    pub max_parallel_sources: Option<usize>,
+}
+
+/// `locks/index-<source_id>.lock`: one pass per source at a time.
+pub fn source_lock_path(home: &Home, source_id: &str) -> PathBuf {
+    ragmonk_indexing::lock::source_lock_path(home, source_id)
+}
+
+/// The server writer-lease owner of this process (`host:pid`).
+pub fn lease_owner() -> String {
+    let host = std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok()
+        .or_else(|| {
+            std::fs::read_to_string("/etc/hostname")
+                .ok()
+                .map(|s| s.trim().to_owned())
+        })
+        .filter(|h| !h.is_empty())
+        .unwrap_or_else(|| "host".into());
+    let host = ragmonk_indexing::lock::sanitize_token(&host, 64).unwrap_or_else(|| "host".into());
+    format!("{host}:{}", std::process::id())
+}
+
+/// A new run id: `run-<utc>-<pid>`.
+pub fn new_run_id() -> String {
+    format!(
+        "run-{}-{}",
+        chrono::Utc::now().format("%Y%m%dT%H%M%S%.3fZ"),
+        std::process::id()
+    )
+}
+
+/// Every lock a whole-home operation needs, held until dropped.
+pub struct HomeLocks {
+    locks: Vec<RunLock>,
+}
+
+impl HomeLocks {
+    pub fn release(self) {
+        for l in self.locks.into_iter().rev() {
+            l.release();
+        }
+    }
+}
+
+/// `locks/index.lock`, then every registered source's lock in id order.
+pub fn home_exclusive(home: &Home, operation: &str) -> Result<HomeLocks, RagMonkError> {
+    let cfg = load(home)?;
+    let timeout = Duration::from_secs_f64(cfg.indexing.lock_timeout_seconds);
+    let mut locks = vec![RunLock::acquire(
+        &home.locks_dir().join("index.lock"),
+        operation,
+        None,
+        timeout,
+    )?];
+    let mut ids: Vec<String> = match catalog(home) {
+        Ok(c) => c.list(false)?.into_iter().map(|s| s.id).collect(),
+        Err(e) => {
+            for l in locks {
+                l.release();
+            }
+            return Err(e);
+        }
+    };
+    ids.sort();
+    for id in ids {
+        match RunLock::acquire(&source_lock_path(home, &id), operation, Some(&id), timeout) {
+            Ok(l) => locks.push(l),
+            Err(e) => {
+                HomeLocks { locks }.release();
+                return Err(e);
+            }
+        }
+    }
+    Ok(HomeLocks { locks })
+}
+
 /// The sources a run covers: one by id, or every enabled source.
 pub fn selected_sources(
     home: &Home,
     source_id: Option<&str>,
 ) -> Result<Vec<SourceRecord>, RagMonkError> {
-    let cp = control_plane(home)?;
+    let c = catalog(home)?;
     match source_id {
-        Some(id) => Ok(vec![get_source(&cp, id)?]),
-        None => cp.list_sources(true).map_err(db),
+        Some(id) => Ok(vec![c.get(id)?]),
+        None => c.list(true),
     }
 }
 
-/// Indexes `sources` in order, reporting each through `on_event`.
+/// Indexes `sources`, reporting each through `on_event`.
 pub fn index_sources(
     home: &Home,
     sources: &[SourceRecord],
     operation: &str,
+    on_event: impl FnMut(SourceEvent<'_>),
+) -> Result<RunSummary, RagMonkError> {
+    index_sources_with(home, sources, operation, &RunOptions::default(), on_event)
+}
+
+/// What a worker reports to the calling thread.
+enum Outcome {
+    Started,
+    Blocked(RagMonkError),
+    Failed(RagMonkError),
+    Completed(Box<SourceResult>),
+}
+
+/// [`index_sources`] with run options: up to `max_parallel_sources`
+/// sources at once, each under its own lock.
+pub fn index_sources_with(
+    home: &Home,
+    sources: &[SourceRecord],
+    operation: &str,
+    run: &RunOptions,
     mut on_event: impl FnMut(SourceEvent<'_>),
 ) -> Result<RunSummary, RagMonkError> {
     let cfg = load(home)?;
-    let mut cp = control_plane(home)?;
-    let layout = StorageLayout::new(home);
+    let backend = crate::backend::open_for_write(home)?;
     let registry =
         ragmonk_convert::registry_with(&cfg, &ragmonk_convert::RegistryOptions::for_home(home));
     let opts = Options::from_config(&cfg);
+    let governor = ragmonk_indexing::governor::configure(
+        ragmonk_indexing::governor::Limits::from_config(&cfg.indexing),
+    );
+    let cap = run
+        .max_parallel_sources
+        .unwrap_or_else(|| cfg.indexing.resolved_max_parallel_sources())
+        .max(1);
+    let parallel = cap.min(sources.len()).max(1);
     let mut summary = RunSummary {
+        run_id: new_run_id(),
         attempted: sources.len(),
+        max_parallel_sources: cap,
         ..RunSummary::default()
     };
     let total = sources.len() as i64;
+    let lock_timeout = opts.lock_timeout;
+    let run_id = summary.run_id.clone();
     ragmonk_indexing::progress::track(&home.index_progress(), operation, Some(total), |tracker| {
-        for (i, source) in sources.iter().enumerate() {
-            tracker.begin_source(&source.id, Some(i as i64 + 1));
-            on_event(SourceEvent::Started { source });
-            let waiting = std::time::Instant::now();
-            let lock = RunLock::acquire(
-                &home.locks_dir().join("index.lock"),
-                operation,
-                Some(&source.id),
-                opts.lock_timeout,
-            );
-            summary.max_lock_wait_seconds = summary
-                .max_lock_wait_seconds
-                .max(waiting.elapsed().as_secs_f64());
-            let lock = match lock {
-                Ok(l) => l,
-                Err(error) => {
-                    summary.failed_sources += 1;
-                    on_event(SourceEvent::Blocked {
-                        source,
-                        error: &error,
-                    });
-                    continue;
-                }
-            };
-            let outcome = run_source(&layout, &mut cp, source, &registry, &opts, tracker);
-            lock.release();
-            match outcome {
-                Ok(run) => {
-                    if run.offline.is_none() {
-                        summary.failed_files += run.failed;
-                        summary.retrying_files += run.retrying;
+        tracker.set_run(&run_id, parallel);
+        let lock_wait_ms = AtomicUsize::new(0);
+        let stats = ragmonk_indexing::executor::run_bounded(
+            sources,
+            parallel,
+            |source, emit| {
+                emit.emit(Outcome::Started);
+                let waiting = Instant::now();
+                let lock = RunLock::acquire(
+                    &source_lock_path(home, &source.id),
+                    operation,
+                    Some(&source.id),
+                    lock_timeout,
+                );
+                lock_wait_ms.fetch_max(waiting.elapsed().as_millis() as usize, Ordering::SeqCst);
+                let outcome = match lock {
+                    Err(e) => Outcome::Blocked(e),
+                    Ok(lock) => {
+                        tracker.source_started(&source.id);
+                        let mut progress = tracker.clone();
+                        // The lock guard is released on drop, so a panicking
+                        // pass (reported by the executor) never leaks it.
+                        let r = run_one(
+                            home,
+                            &cfg,
+                            &backend,
+                            source,
+                            &registry,
+                            &opts,
+                            run,
+                            &mut progress,
+                        );
+                        tracker.source_finished(&source.id, r.is_ok());
+                        lock.release();
+                        match r {
+                            Ok(res) => Outcome::Completed(Box::new(res)),
+                            Err(e) if e.class() == Some("BackendConflictError") => {
+                                Outcome::Blocked(e)
+                            }
+                            Err(e) => Outcome::Failed(e),
+                        }
                     }
-                    summary.in_flight_high_water = summary
-                        .in_flight_high_water
-                        .max(run.pipeline.in_flight_high_water);
-                    summary.active_workers_high_water = summary
-                        .active_workers_high_water
-                        .max(run.pipeline.active_workers_high_water);
-                    on_event(SourceEvent::Completed { source, run: &run });
+                };
+                emit.emit(outcome);
+            },
+            |_| {
+                Outcome::Failed(RagMonkError::new(
+                    ErrorKind::Generic,
+                    "source pass panicked; its pending build was discarded",
+                ))
+            },
+            |i, outcome| {
+                let source = &sources[i];
+                match outcome {
+                    Outcome::Started => on_event(SourceEvent::Started { source }),
+                    Outcome::Blocked(error) => {
+                        summary.failed_sources += 1;
+                        on_event(SourceEvent::Blocked {
+                            source,
+                            error: &error,
+                        });
+                    }
+                    Outcome::Failed(error) => {
+                        summary.failed_sources += 1;
+                        tracing::warn!(component = "indexing", event = "source_failed", run_id = %summary.run_id, source_id = %source.id, error = %ragmonk_telemetry::redact::redact_urls_in_text(error.message()));
+                        on_event(SourceEvent::Failed {
+                            source,
+                            error: &error,
+                        });
+                    }
+                    Outcome::Completed(run) => {
+                        if run.offline.is_none() {
+                            summary.failed_files += run.failed;
+                            summary.retrying_files += run.retrying;
+                        }
+                        summary.in_flight_high_water = summary
+                            .in_flight_high_water
+                            .max(run.pipeline.in_flight_high_water);
+                        summary.active_workers_high_water = summary
+                            .active_workers_high_water
+                            .max(run.pipeline.active_workers_high_water);
+                        on_event(SourceEvent::Completed { source, run: &run });
+                    }
                 }
-                Err(error) => {
-                    summary.failed_sources += 1;
-                    on_event(SourceEvent::Failed {
-                        source,
-                        error: &error,
-                    });
-                }
-            }
-        }
+            },
+        );
+        summary.parallel_sources_high_water = stats.running_high_water;
+        summary.max_lock_wait_seconds = lock_wait_ms.load(Ordering::SeqCst) as f64 / 1000.0;
+        tracker.set_resources(&governor.snapshot());
         Ok::<(), RagMonkError>(())
     })?;
     Ok(summary)
+}
+
+/// One source pass against the configured backend. The caller holds the
+/// source's lock.
+#[allow(clippy::too_many_arguments)]
+fn run_one(
+    home: &Home,
+    cfg: &ragmonk_config::RagMonkConfig,
+    backend: &Backend,
+    source: &SourceRecord,
+    registry: &ragmonk_indexing::coordinator::Registry,
+    opts: &Options,
+    run: &RunOptions,
+    progress: &mut ProgressTracker,
+) -> Result<SourceResult, RagMonkError> {
+    match backend {
+        Backend::Local => {
+            // Each worker owns its connection (rusqlite connections are not
+            // shared between threads).
+            let mut cp = control_plane(home)?;
+            if run.force_full {
+                cp.require_full_rebuild(&source.id, "manual rebuild")
+                    .map_err(db)?;
+            }
+            run_source_with(
+                &StorageLayout::new(home),
+                &mut cp,
+                source,
+                registry,
+                opts,
+                run.targets.as_ref(),
+                progress,
+            )
+        }
+        Backend::Server(server) => crate::server_index::run_source(
+            home, cfg, server, source, registry, opts, run, progress,
+        ),
+    }
 }

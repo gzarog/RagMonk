@@ -103,6 +103,7 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
             converter_version: Some("d".into()),
             embedding_model_id: Some("test-model".into()),
             embedding_text_version: Some("e".into()),
+            ..Default::default()
         })
         .unwrap();
         let caller =
@@ -124,6 +125,7 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
                 signature: Some(format!("def {name}()")),
                 start_line: 1,
                 end_line: 3,
+                ..Default::default()
             })
             .unwrap();
         }
@@ -139,6 +141,7 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
             confidence: "exact".into(),
             source_location: Some(format!("{rel}:2")),
             evidence: Some("helper()".into()),
+            ..Default::default()
         })
         .unwrap();
     }
@@ -163,6 +166,7 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
             attachment_content_type: att.map(|_| "text/plain".into()),
             attachment_index: att,
             attachment_content_id: None,
+            ..Default::default()
         })
         .unwrap();
         for ord in 0..3u64 {
@@ -187,6 +191,7 @@ fn write_corpus(b: &ServerBackend, source: &str, build: &str, files: usize, mark
                 table_rows: None,
                 caption: None,
                 embedding: Some(vec![0.5, 0.5, 0.5, 0.5]),
+                ..Default::default()
             })
             .unwrap();
             chunks += 1;
@@ -406,5 +411,249 @@ fn opensearch_lifecycle() {
 fn elasticsearch_lifecycle() {
     if let Some(u) = url("RAGMONK_TEST_ELASTICSEARCH_URL") {
         scenario(&u, Engine::Elasticsearch);
+    }
+}
+
+// ---------------------------------------------------------------- P0 ---
+
+fn p0_backend(base: &str, engine: Engine, prefix: &str) -> ServerBackend {
+    backend(base, engine, prefix, 4, 500)
+}
+
+fn drop_prefix(base: &str, prefix: &str) {
+    let c = client(base);
+    for kind in [
+        "files",
+        "source-state",
+        "code",
+        "documents",
+        "chunks",
+        "relationships",
+    ] {
+        delete_index(&c, &format!("{prefix}-{kind}"));
+    }
+}
+
+/// Catalog scans page with `search_after`: 10001 registrations come back
+/// complete, unique and in order (P0-S01).
+fn catalog_paging(base: &str, engine: Engine) {
+    let prefix = unique("page");
+    let b = p0_backend(base, engine, &prefix);
+    b.init().unwrap();
+    let index = format!("{prefix}-source-state");
+    let n = 10_001;
+    for chunk in (0..n).collect::<Vec<_>>().chunks(2_000) {
+        let mut body = Vec::new();
+        for i in chunk {
+            let id = format!("src_{i:06}");
+            body.extend_from_slice(
+                json!({ "index": { "_index": index, "_id": id } })
+                    .to_string()
+                    .as_bytes(),
+            );
+            body.push(b'\n');
+            body.extend_from_slice(
+                json!({ "source_id": id, "path": format!("/r/{i}"), "enabled": i % 2 == 0,
+                        "active_build_id": format!("b{i}"), "state": "ready" })
+                .to_string()
+                .as_bytes(),
+            );
+            body.push(b'\n');
+        }
+        let r = b
+            .client()
+            .send(
+                Method::Post,
+                "/_bulk?refresh=true",
+                Some((&body, "application/x-ndjson")),
+            )
+            .unwrap();
+        assert!(r.status < 300);
+    }
+    let all = b.list_catalog(false).unwrap();
+    assert_eq!(all.len(), n);
+    let mut ids: Vec<&str> = all.iter().map(|e| e.source_id.as_str()).collect();
+    let sorted = ids.clone();
+    ids.dedup();
+    assert_eq!(ids.len(), n, "no duplicates");
+    assert_eq!(ids, sorted, "stable total order");
+    assert_eq!(b.list_catalog(true).unwrap().len(), n.div_ceil(2));
+    assert_eq!(b.active_builds().unwrap().len(), n, "no 10000 truncation");
+    drop_prefix(base, &prefix);
+}
+
+/// Writer leases fence stale holders; replaced builds stay readable for
+/// the GC grace period (P0-S02).
+fn leases_and_grace(base: &str, engine: Engine) {
+    use ragmonk_backends::backend::CatalogEntry;
+    let prefix = unique("lease");
+    let b = p0_backend(base, engine, &prefix).with_gc_grace(Duration::from_secs(3600));
+    b.init().unwrap();
+    let src = "src_lease";
+    let (e, created) = b
+        .register_source(&CatalogEntry {
+            source_id: src.into(),
+            path: "/repo".into(),
+            source_type: "local".into(),
+            enabled: true,
+            include_patterns: vec!["*.rs".into()],
+            exclude_patterns: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .unwrap();
+    assert!(created);
+    assert_eq!(e.include_patterns, ["*.rs"]);
+    let (_, again) = b
+        .register_source(&CatalogEntry {
+            source_id: src.into(),
+            path: "/elsewhere".into(),
+            source_type: "local".into(),
+            enabled: true,
+            include_patterns: vec![],
+            exclude_patterns: vec![],
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
+        .unwrap();
+    assert!(!again, "registration is idempotent");
+
+    let v = json!({"parser_version": "p"});
+    let l1 = b
+        .acquire_lease(src, "host-a:1", Duration::from_secs(60))
+        .unwrap();
+    assert!(
+        b.acquire_lease(src, "host-b:2", Duration::from_secs(60))
+            .is_err(),
+        "a live lease excludes other owners"
+    );
+    b.begin_build_with(Some(&l1), src, "/repo", "g1").unwrap();
+    write_corpus(&b, src, "g1", 5, "gamma");
+    b.publish_build_with(Some(&l1), src, "g1", &v, true)
+        .unwrap();
+    b.release_lease(&l1).unwrap();
+
+    // Host A takes the lease, starts g2, then stalls; its lease expires and
+    // host B takes over and publishes g3. A cannot publish or abort g2 any
+    // more, and B's state is intact.
+    let la = b
+        .acquire_lease(src, "host-a:1", Duration::from_millis(400))
+        .unwrap();
+    b.begin_build_with(Some(&la), src, "/repo", "g2").unwrap();
+    write_corpus(&b, src, "g2", 5, "delta");
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(matches!(
+        b.publish_build_with(Some(&la), src, "g2", &v, false),
+        Err(BackendError::Conflict(_))
+    ));
+    let lb = b
+        .acquire_lease(src, "host-b:2", Duration::from_secs(60))
+        .unwrap();
+    assert!(lb.token > la.token, "fencing token increases");
+    b.begin_build_with(Some(&lb), src, "/repo", "g3").unwrap();
+    write_corpus(&b, src, "g3", 5, "epsilon");
+    assert!(matches!(
+        b.publish_build_with(Some(&la), src, "g3", &v, false),
+        Err(BackendError::Conflict(_))
+    ));
+    assert!(b.abort_build_with(Some(&la), src, "g3", None).is_err());
+    b.publish_build_with(Some(&lb), src, "g3", &v, false)
+        .unwrap();
+    assert_eq!(b.active_builds().unwrap()[src], "g3");
+    // g1 was retired, not deleted: still readable within the grace period.
+    assert!(b.raw_count(IndexKind::Code, src, "g1").unwrap() > 0);
+    let st = b.source_state(src).unwrap().unwrap();
+    assert_eq!(st.doc["retired_builds"][0]["build_id"], "g1");
+    // Readers only see g3.
+    assert!(b.search_code("epsilon_fn", 10).unwrap().len() == 5);
+    assert!(b.search_code("gamma_fn", 10).unwrap().is_empty());
+    // The catalog fields survived every lifecycle write.
+    assert_eq!(
+        b.catalog_entry(src).unwrap().unwrap().include_patterns,
+        ["*.rs"]
+    );
+    b.release_lease(&lb).unwrap();
+    drop_prefix(base, &prefix);
+}
+
+/// k-NN through the read port on both engines, with model-dimension
+/// checks (P0-S03).
+fn vectors(base: &str, engine: Engine) {
+    use ragmonk_backends::reader::ServerReader;
+    use ragmonk_storage::read::KnowledgeRead;
+    let prefix = unique("vec");
+    let b = std::sync::Arc::new(p0_backend(base, engine, &prefix));
+    b.init().unwrap();
+    let src = "src_vec";
+    b.begin_build(src, "/repo", "vecb1").unwrap();
+    let mut w = b.build_writer(src, "vecb1");
+    let file_id = record::file_id(src, "a.md");
+    let doc = record::document_id(&file_id, None);
+    for (i, v) in [
+        [1.0f32, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.7, 0.7, 0.0, 0.0],
+    ]
+    .iter()
+    .enumerate()
+    {
+        w.chunk(&ChunkDoc {
+            chunk_id: format!("c{i}"),
+            document_id: doc.clone(),
+            file_id: file_id.clone(),
+            rel_path: "a.md".into(),
+            kind: "paragraph".into(),
+            ordinal: i as i64,
+            search_text: format!("chunk {i}"),
+            text: format!("chunk {i}"),
+            embedding: Some(v.to_vec()),
+            embedding_fingerprint: Some("fp".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    }
+    w.finish().unwrap();
+    b.publish_build(src, "vecb1", &json!({}), true).unwrap();
+    let r = ServerReader::new(b.clone(), src);
+    let hits = r
+        .vector_search("vecb1", "fp", &[1.0, 0.1, 0.0, 0.0], 2)
+        .unwrap()
+        .unwrap();
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0].1, "c0", "{hits:?}");
+    assert!(hits[0].2 > 0.9);
+    // Another model's vectors are never mixed in.
+    assert!(r
+        .vector_search("vecb1", "other-model", &[1.0, 0.0, 0.0, 0.0], 2)
+        .unwrap()
+        .unwrap()
+        .is_empty());
+    // Wrong dimension: explicit error, no silent result.
+    assert!(r.vector_search("vecb1", "fp", &[1.0, 0.0], 2).is_err());
+    // Another source's reader sees nothing of this build.
+    let other = ServerReader::new(b.clone(), "src_other");
+    assert!(other
+        .vector_search("vecb1", "fp", &[1.0, 0.0, 0.0, 0.0], 2)
+        .unwrap()
+        .unwrap()
+        .is_empty());
+    drop_prefix(base, &prefix);
+}
+
+#[test]
+fn opensearch_p0_catalog_leases_vectors() {
+    if let Some(u) = url("RAGMONK_TEST_OPENSEARCH_URL") {
+        catalog_paging(&u, Engine::OpenSearch);
+        leases_and_grace(&u, Engine::OpenSearch);
+        vectors(&u, Engine::OpenSearch);
+    }
+}
+
+#[test]
+fn elasticsearch_p0_catalog_leases_vectors() {
+    if let Some(u) = url("RAGMONK_TEST_ELASTICSEARCH_URL") {
+        catalog_paging(&u, Engine::Elasticsearch);
+        leases_and_grace(&u, Engine::Elasticsearch);
+        vectors(&u, Engine::Elasticsearch);
     }
 }

@@ -296,6 +296,50 @@ section! {
         status_stall_threshold_seconds: f64 = 120.0, check = |v| {
             if *v <= 0.0 { Err("must be > 0".into()) } else { Ok(()) }
         };
+        // P0 parallel indexing (ADR 0033). 0 = auto, evaluated at runtime.
+        max_parallel_sources: i64 = 0, check = |v| if (0..=32).contains(v) { Ok(()) } else {
+            Err("must be between 0 (auto) and 32".into())
+        };
+        cpu_workers: i64 = 0, check = |v| if (0..=256).contains(v) { Ok(()) } else {
+            Err("must be between 0 (auto) and 256".into())
+        };
+        ocr_workers: i64 = 1, check = |v| if (1..=64).contains(v) { Ok(()) } else {
+            Err("must be between 1 and 64".into())
+        };
+        embedding_workers: i64 = 1, check = |v| if (1..=64).contains(v) { Ok(()) } else {
+            Err("must be between 1 and 64".into())
+        };
+        io_concurrency: i64 = 8, check = |v| if (1..=1024).contains(v) { Ok(()) } else {
+            Err("must be between 1 and 1024".into())
+        };
+        max_in_flight_mb: i64 = 512, check = |v| if (16..=1_048_576).contains(v) { Ok(()) } else {
+            Err("must be between 16 and 1048576".into())
+        };
+        fairness_max_wait_seconds: i64 = 120, check = |v| if (1..=86_400).contains(v) { Ok(()) } else {
+            Err("must be between 1 and 86400".into())
+        };
+        max_targeted_paths: i64 = 512, check = |v| if (1..=1_000_000).contains(v) { Ok(()) } else {
+            Err("must be between 1 and 1000000".into())
+        };
+    }
+}
+
+impl IndexingConfig {
+    /// `max_parallel_sources`, resolving `0` to `min(4, max(1, cpus / 2))`.
+    pub fn resolved_max_parallel_sources(&self) -> usize {
+        if self.max_parallel_sources > 0 {
+            return self.max_parallel_sources as usize;
+        }
+        let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+        (cpus / 2).clamp(1, 4)
+    }
+
+    /// `cpu_workers`, resolving `0` to the number of available CPUs.
+    pub fn resolved_cpu_workers(&self) -> usize {
+        if self.cpu_workers > 0 {
+            return self.cpu_workers as usize;
+        }
+        std::thread::available_parallelism().map_or(1, |n| n.get())
     }
 }
 
@@ -428,6 +472,42 @@ section! {
 }
 
 section! {
+    SearchRoutingConfig {
+        enabled: bool = true;
+    }
+}
+
+section! {
+    SearchDecompositionConfig {
+        enabled: bool = true;
+        max_subqueries: i64 = 4, check = |v| if (1..=8).contains(v) { Ok(()) } else {
+            Err("must be between 1 and 8".into())
+        };
+        llm_enabled: bool = false;
+    }
+}
+
+section! {
+    SearchDiversityConfig {
+        enabled: bool = false;
+        lambda: f64 = 0.7, check = |v| if (0.0..=1.0).contains(v) { Ok(()) } else {
+            Err("must be between 0 and 1".into())
+        };
+        per_document_cap: i64 = 3, check = |v| if *v < 1 { Err("must be >= 1".into()) } else { Ok(()) };
+        per_source_cap: i64 = 0, check = |v| if *v < 0 { Err("must be >= 0 (0 = no cap)".into()) } else { Ok(()) };
+    }
+}
+
+section! {
+    SearchGroundingConfig {
+        enabled: bool = true;
+        min_coverage: f64 = 0.5, check = |v| if (0.0..=1.0).contains(v) { Ok(()) } else {
+            Err("must be between 0 and 1".into())
+        };
+    }
+}
+
+section! {
     SearchConfig {
         lexical: bool = true;
         graph: bool = true;
@@ -437,6 +517,13 @@ section! {
         output: SearchOutputConfig = SearchOutputConfig::default();
         context: SearchContextConfig = SearchContextConfig::default();
         reranker: SearchRerankerConfig = SearchRerankerConfig::default();
+        routing: SearchRoutingConfig = SearchRoutingConfig::default();
+        decomposition: SearchDecompositionConfig = SearchDecompositionConfig::default();
+        diversity: SearchDiversityConfig = SearchDiversityConfig::default();
+        grounding: SearchGroundingConfig = SearchGroundingConfig::default();
+        max_query_budget_ms: i64 = 5000, check = |v| if (100..=600_000).contains(v) { Ok(()) } else {
+            Err("must be between 100 and 600000".into())
+        };
     }
 }
 
@@ -516,6 +603,12 @@ section! {
             if *v <= 0.0 { Err("must be > 0".into()) } else { Ok(()) }
         };
         bulk: BulkConfig = BulkConfig::default();
+        gc_grace_seconds: f64 = 60.0, check = |v| {
+            if (0.0..=86_400.0).contains(v) { Ok(()) } else { Err("must be between 0 and 86400".into()) }
+        };
+        lease_seconds: f64 = 300.0, check = |v| {
+            if (5.0..=86_400.0).contains(v) { Ok(()) } else { Err("must be between 5 and 86400".into()) }
+        };
     }
 }
 

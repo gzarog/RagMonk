@@ -58,7 +58,8 @@ pub fn semantic_search(
     for c in corpora {
         let dir = c
             .store
-            .project_dir()
+            .as_project_store()
+            .and_then(|s| s.project_dir())
             .unwrap_or_else(|| Path::new(".").to_path_buf());
         let r = semantic::search(
             c.store,

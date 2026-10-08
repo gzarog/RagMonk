@@ -164,6 +164,11 @@ pub fn embed_build(
             .collect();
         if !missing.is_empty() {
             let inputs: Vec<&str> = missing.iter().map(|k| texts[*k]).collect();
+            // Model batches are bounded process-wide (governor order:
+            // embedding < cpu), whatever number of sources is indexing.
+            let gov = ragmonk_indexing::governor::global();
+            let _model = gov.acquire(ragmonk_indexing::governor::Class::Embedding, 1);
+            let _cpu = gov.acquire(ragmonk_indexing::governor::Class::Cpu, 1);
             let computed = embedder.embed(&inputs).map_err(|e| ProcessError {
                 code: "embedding_error".into(),
                 message: e.to_string(),

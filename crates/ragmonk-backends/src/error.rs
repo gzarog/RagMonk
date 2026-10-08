@@ -24,20 +24,28 @@ pub enum BackendError {
     #[error("{0}")]
     Conflict(String),
     #[error("{0}")]
+    NotFound(String),
+    #[error("{0}")]
     Invalid(String),
 }
 
 impl From<BackendError> for RagMonkError {
     fn from(e: BackendError) -> Self {
-        let kind = match e {
-            BackendError::Transport(_) => ErrorKind::SourceUnavailable,
-            BackendError::SchemaMismatch(_) | BackendError::Invalid(_) => ErrorKind::Config,
-            _ => ErrorKind::Generic,
+        let (kind, class) = match e {
+            BackendError::Transport(_) => (ErrorKind::SourceUnavailable, "BackendUnavailableError"),
+            BackendError::SchemaMismatch(_) => (ErrorKind::Config, "BackendSchemaMismatchError"),
+            BackendError::Invalid(_) => (ErrorKind::Config, "BackendConfigError"),
+            BackendError::NotFound(_) => (ErrorKind::Usage, "BackendNotFoundError"),
+            BackendError::Conflict(_) => (ErrorKind::Generic, "BackendConflictError"),
+            BackendError::Http { .. } | BackendError::Bulk { .. } => {
+                (ErrorKind::Database, "BackendRequestError")
+            }
         };
         RagMonkError::new(
             kind,
             ragmonk_telemetry::redact::redact_urls_in_text(&e.to_string()),
         )
+        .with_class(class)
     }
 }
 

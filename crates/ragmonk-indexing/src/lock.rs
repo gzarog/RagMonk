@@ -69,6 +69,23 @@ fn open_lock_file(path: &Path) -> std::io::Result<File> {
         .open(path)
 }
 
+/// `locks/index-<source_id>.lock`: one pass per source at a time (ADR
+/// 0033). Whole-home operations take `locks/index.lock` and then every
+/// source lock in id order.
+pub fn source_lock_path(home: &ragmonk_core::paths::Home, source_id: &str) -> PathBuf {
+    let safe: String = source_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    home.locks_dir().join(format!("index-{safe}.lock"))
+}
+
 /// Defensively reads owner metadata; `None` if absent/malformed/unreadable.
 pub fn read_lock_owner(path: &Path) -> Option<LockOwner> {
     let mut file = File::open(path).ok()?;

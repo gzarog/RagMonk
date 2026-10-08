@@ -7,9 +7,11 @@
 //! Rendering stays with each front end.
 
 pub mod ask;
+pub mod backend;
 pub mod daemon;
 pub mod indexing;
 pub mod query;
+pub mod server_index;
 pub mod sources;
 pub mod status;
 

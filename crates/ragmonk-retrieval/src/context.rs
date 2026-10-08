@@ -3,7 +3,8 @@
 //! siblings under that heading. This runs only on hits already ranked and
 //! cut to the limit. It changes what is shown, never what was selected.
 
-use ragmonk_storage::knowledge::{ChunkRow, ProjectStore};
+use ragmonk_storage::knowledge::ChunkRow;
+use ragmonk_storage::read::KnowledgeRead;
 use serde_json::{json, Value};
 
 use crate::SearchError;
@@ -72,7 +73,7 @@ fn tokens(text: &str) -> i64 {
 /// side. The first piece that overflows ends that side, so the window
 /// stays contiguous.
 pub fn expand_chunk_context(
-    store: &ProjectStore,
+    store: &dyn KnowledgeRead,
     build_id: &str,
     chunk_id: &str,
     opts: &ContextOptions,

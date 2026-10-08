@@ -2,27 +2,23 @@
 //! `vectors rebuild|backfill`.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use clap::Subcommand;
 use ragmonk_core::errors::{ErrorKind, RagMonkError};
 use ragmonk_core::paths::Home;
-use ragmonk_indexing::lock::RunLock;
 use ragmonk_ops::backup::{create_backup, restore_archive};
 use ragmonk_ops::rebuild::rebuild_sources;
 use ragmonk_service::sources::control_plane;
 use serde_json::json;
 
-use crate::{load, prepared_home, print_json};
+use crate::{prepared_home, print_json};
 
-fn index_lock(home: &Home, operation: &str) -> Result<RunLock, RagMonkError> {
-    let cfg = load(home)?;
-    RunLock::acquire(
-        &home.locks_dir().join("index.lock"),
-        operation,
-        None,
-        Duration::from_secs_f64(cfg.indexing.lock_timeout_seconds),
-    )
+/// Whole-home exclusive locks (index.lock, then every source lock).
+fn index_lock(
+    home: &Home,
+    operation: &str,
+) -> Result<ragmonk_service::indexing::HomeLocks, RagMonkError> {
+    ragmonk_service::indexing::home_exclusive(home, operation)
 }
 
 pub fn backup(dest: Option<String>, json_output: bool) -> Result<(), RagMonkError> {

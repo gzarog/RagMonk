@@ -1,14 +1,17 @@
 //! The background indexing daemon.
 //!
-//! One worker thread runs passes from a FIFO queue. A second thread
-//! enqueues every enabled source each `reconciliation_interval`. Triggers
-//! for one source coalesce: at most one queued pass, plus at most one
-//! follow-up while a pass runs. Follow-ups join the back of the queue, so
-//! a busy source never starves the others. Every pass takes
-//! `locks/index.lock` (operation `daemon`). On contention it backs off and
-//! re-enqueues itself with reason `lock_contention`. The worker owns its
-//! own database connections (the [`PassRunner`]). The daemon's
-//! [`Catalog`] connection is used only to read sources.
+//! Up to `workers` threads (one [`PassRunner`] each, `max_parallel_sources`
+//! in production) run passes from the fair [`Scheduler`] queue. A second
+//! thread enqueues every enabled source each `reconciliation_interval`.
+//! Triggers for one source coalesce: at most one queued pass, plus at most
+//! one follow-up while a pass runs, so one source never runs twice at a
+//! time. Small watcher-targeted passes go first, but aging bounds how long
+//! any queued source waits (see [`scheduler::Policy`]). Every pass takes
+//! its source's `locks/index-<source_id>.lock` (operation `daemon`); on
+//! contention it backs off and re-enqueues itself with reason
+//! `lock_contention`. Each worker owns its own database connections (its
+//! [`PassRunner`]). The daemon's [`Catalog`] connection is used only to
+//! read sources.
 
 pub mod health;
 pub mod pid;
@@ -28,7 +31,7 @@ use ragmonk_storage::StorageLayout;
 
 use crate::coordinator::{run_source_with, Options, Progress, Registry, SourceResult};
 use crate::lock::RunLock;
-use crate::progress::{now_iso, track};
+use crate::progress::now_iso;
 use health::{DaemonHealth, SourceWatchStatus};
 use scheduler::Scheduler;
 
@@ -113,6 +116,8 @@ impl PassRunner for CoordinatorRunner {
 
 #[derive(Debug, Clone)]
 pub struct DaemonOptions {
+    /// Fairness and path bounds of the queue.
+    pub policy: scheduler::Policy,
     pub reconciliation_interval: Duration,
     /// How long one pass waits for `index.lock`.
     pub lock_timeout: Duration,
@@ -131,6 +136,7 @@ impl Default for DaemonOptions {
     /// Reference defaults, with watching off.
     fn default() -> Self {
         Self {
+            policy: scheduler::Policy::default(),
             reconciliation_interval: Duration::from_secs(900),
             lock_timeout: Duration::from_secs(30),
             contention_backoff: Duration::from_secs(5),
@@ -146,6 +152,11 @@ impl Default for DaemonOptions {
 impl DaemonOptions {
     pub fn from_config(cfg: &ragmonk_config::RagMonkConfig) -> Self {
         Self {
+            policy: scheduler::Policy {
+                urgent_first: true,
+                max_wait: Duration::from_secs(cfg.indexing.fairness_max_wait_seconds.max(1) as u64),
+                max_paths: cfg.indexing.max_targeted_paths.max(1) as usize,
+            },
             reconciliation_interval: Duration::from_secs(
                 cfg.indexing.reconciliation_interval_seconds.max(1) as u64,
             ),
@@ -176,9 +187,17 @@ struct State {
     passes: u64,
 }
 
+/// The progress snapshot shared by concurrently running passes.
+#[derive(Default)]
+struct RunProgress {
+    tracker: Option<crate::progress::ProgressTracker>,
+    active: usize,
+}
+
 struct Shared {
     home: Home,
     opts: DaemonOptions,
+    progress: Mutex<RunProgress>,
     started_at: String,
     catalog: Mutex<Box<dyn Catalog>>,
     state: Mutex<State>,
@@ -334,7 +353,7 @@ impl Shared {
             return;
         };
         let lock_ = match RunLock::acquire(
-            &self.home.locks_dir().join("index.lock"),
+            &crate::lock::source_lock_path(&self.home, source_id),
             "daemon",
             Some(source_id),
             self.opts.lock_timeout,
@@ -355,10 +374,17 @@ impl Shared {
             }
         };
         let request = self.build_request(source_id);
-        let result = track(&self.home.index_progress(), "daemon", Some(1), |tracker| {
-            tracker.begin_source(source_id, Some(1));
-            runner.run_pass(&source, &request, tracker)
+        let mut tracker = self.progress_begin(source_id);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            runner.run_pass(&source, &request, &mut tracker)
+        }))
+        .unwrap_or_else(|_| {
+            Err(RagMonkError::new(
+                ErrorKind::Generic,
+                "daemon pass panicked; its pending build was discarded",
+            ))
         });
+        self.progress_end(source_id, &tracker, result.as_ref().err());
         drop(lock_);
         match result {
             Ok(r) => {
@@ -383,6 +409,37 @@ impl Shared {
             Err(e) => {
                 self.state().passes += 1;
                 tracing::error!(component = "daemon", event = "daemon_pass_error", source_id, error = %e.message());
+            }
+        }
+    }
+
+    /// Joins (or starts) the shared progress snapshot for one pass.
+    fn progress_begin(&self, source_id: &str) -> crate::progress::ProgressTracker {
+        let mut p = lock(&self.progress);
+        let tracker = p
+            .tracker
+            .get_or_insert_with(|| {
+                crate::progress::ProgressTracker::start(self.home.index_progress(), "daemon", None)
+            })
+            .clone();
+        p.active += 1;
+        tracker.source_started(source_id);
+        tracker
+    }
+
+    /// Leaves the shared snapshot; the last pass out writes the final one.
+    fn progress_end(
+        &self,
+        source_id: &str,
+        tracker: &crate::progress::ProgressTracker,
+        error: Option<&RagMonkError>,
+    ) {
+        tracker.source_finished(source_id, error.is_none());
+        let mut p = lock(&self.progress);
+        p.active = p.active.saturating_sub(1);
+        if p.active == 0 {
+            if let Some(t) = p.tracker.take() {
+                t.finish(error.map(RagMonkError::message));
             }
         }
     }
@@ -442,7 +499,7 @@ impl Shared {
 /// A started daemon. [`Daemon::stop`] (or drop) shuts it down gracefully.
 pub struct Daemon {
     shared: Arc<Shared>,
-    worker: Option<JoinHandle<()>>,
+    workers: Vec<JoinHandle<()>>,
     reconciler: Option<JoinHandle<()>>,
 }
 
@@ -462,12 +519,31 @@ impl Daemon {
         catalog: Box<dyn Catalog>,
         runner: Box<dyn PassRunner>,
     ) -> Result<Self, RagMonkError> {
+        Self::start_with_runners(home, opts, catalog, vec![runner])
+    }
+
+    /// [`Self::start`] with one worker thread per runner: up to
+    /// `runners.len()` different sources index at the same time.
+    pub fn start_with_runners(
+        home: Home,
+        opts: DaemonOptions,
+        catalog: Box<dyn Catalog>,
+        runners: Vec<Box<dyn PassRunner>>,
+    ) -> Result<Self, RagMonkError> {
+        if runners.is_empty() {
+            return Err(RagMonkError::usage("daemon needs at least one pass runner"));
+        }
+        let opts_policy = opts.policy;
         let shared = Arc::new_cyclic(|me| Shared {
             home,
             opts,
             started_at: now_iso(),
             catalog: Mutex::new(catalog),
-            state: Mutex::new(State::default()),
+            progress: Mutex::new(RunProgress::default()),
+            state: Mutex::new(State {
+                sched: Scheduler::with_policy(opts_policy),
+                ..State::default()
+            }),
             cv: Condvar::new(),
             watchers: Mutex::new(Watchers::default()),
             me: me.clone(),
@@ -477,14 +553,19 @@ impl Daemon {
             shared.attach_watcher(s);
         }
         let spawn_err = |e: std::io::Error| RagMonkError::new(ErrorKind::Generic, e.to_string());
-        let w = Arc::clone(&shared);
-        let worker = std::thread::Builder::new()
-            .name("ragmonk-daemon-worker".into())
-            .spawn(move || {
-                let mut runner = runner;
-                w.worker_loop(runner.as_mut());
-            })
-            .map_err(spawn_err)?;
+        let mut workers = Vec::with_capacity(runners.len());
+        for (i, runner) in runners.into_iter().enumerate() {
+            let w = Arc::clone(&shared);
+            workers.push(
+                std::thread::Builder::new()
+                    .name(format!("ragmonk-daemon-worker-{i}"))
+                    .spawn(move || {
+                        let mut runner = runner;
+                        w.worker_loop(runner.as_mut());
+                    })
+                    .map_err(spawn_err)?,
+            );
+        }
         let r = Arc::clone(&shared);
         let reconciler = std::thread::Builder::new()
             .name("ragmonk-daemon-reconcile".into())
@@ -505,7 +586,7 @@ impl Daemon {
         );
         Ok(Self {
             shared,
-            worker: Some(worker),
+            workers,
             reconciler: Some(reconciler),
         })
     }
@@ -524,6 +605,11 @@ impl Daemon {
     /// Passes finished so far (succeeded or failed).
     pub fn passes_completed(&self) -> u64 {
         self.shared.state().passes
+    }
+
+    /// Passes running right now.
+    pub fn running(&self) -> usize {
+        self.shared.state().sched.running()
     }
 
     /// True when nothing is queued or running.
@@ -561,9 +647,9 @@ impl Daemon {
             w.flush();
         }
         drop(watchers);
-        for h in [self.worker.take(), self.reconciler.take()]
+        for h in std::mem::take(&mut self.workers)
             .into_iter()
-            .flatten()
+            .chain(self.reconciler.take())
         {
             let _ = h.join();
         }
@@ -574,7 +660,7 @@ impl Daemon {
 
 impl Drop for Daemon {
     fn drop(&mut self) {
-        if self.worker.is_some() || self.reconciler.is_some() {
+        if !self.workers.is_empty() || self.reconciler.is_some() {
             self.shutdown();
         }
     }

@@ -17,18 +17,72 @@ use ragmonk_storage::knowledge::ProjectStore;
 use ragmonk_storage::StorageLayout;
 use serde_json::{json, Value};
 
+use ragmonk_backends::reader::ServerReader;
+use ragmonk_storage::read::KnowledgeRead;
+
+use crate::backend::Backend;
 use crate::sources::control_plane;
 use crate::{db, load};
 
-/// One indexed source: its record, store and active build.
+/// A source's knowledge reader: the local store, or a server reader pinned
+/// to the request's snapshot.
+pub enum Reader {
+    Local(ProjectStore),
+    Server(ServerReader),
+}
+
+impl Reader {
+    pub fn read(&self) -> &dyn KnowledgeRead {
+        match self {
+            Reader::Local(s) => s,
+            Reader::Server(s) => s,
+        }
+    }
+
+    /// The local store; in server mode a typed "local only" error.
+    pub fn local(&self) -> Result<&ProjectStore, RagMonkError> {
+        match self {
+            Reader::Local(s) => Ok(s),
+            Reader::Server(_) => Err(crate::backend::local_only("this operation")),
+        }
+    }
+
+    pub fn local_mut(&mut self) -> Result<&mut ProjectStore, RagMonkError> {
+        match self {
+            Reader::Local(s) => Ok(s),
+            Reader::Server(_) => Err(crate::backend::local_only("this operation")),
+        }
+    }
+
+    pub fn server(&self) -> Option<&ServerReader> {
+        match self {
+            Reader::Server(s) => Some(s),
+            Reader::Local(_) => None,
+        }
+    }
+}
+
+/// One indexed source: its record, reader and active build (the
+/// request's snapshot of it).
 pub struct Opened {
     pub source: SourceRecord,
-    pub store: ProjectStore,
+    pub store: Reader,
     pub build: String,
 }
 
-/// Every source with a published build (optionally one source).
+/// Every source with a published build (optionally one source), read from
+/// the configured backend. In server mode the catalog and the active
+/// builds come from the server, read once: that map is the request's
+/// snapshot, so every later read of this request sees one consistent set
+/// of builds. Nothing local is opened.
 pub fn open_sources(home: &Home, only: Option<&str>) -> Result<Vec<Opened>, RagMonkError> {
+    match crate::backend::open(home)? {
+        Backend::Local => open_local(home, only),
+        Backend::Server(server) => open_server(server, only),
+    }
+}
+
+fn open_local(home: &Home, only: Option<&str>) -> Result<Vec<Opened>, RagMonkError> {
     let cfg = load(home)?;
     let cp = control_plane(home)?;
     let sources = match only {
@@ -53,18 +107,41 @@ pub fn open_sources(home: &Home, only: Option<&str>) -> Result<Vec<Opened>, RagM
         .map_err(db)?;
         out.push(Opened {
             source,
-            store,
+            store: Reader::Local(store),
             build,
         });
     }
     Ok(out)
 }
 
+fn open_server(
+    server: std::sync::Arc<ragmonk_backends::ServerBackend>,
+    only: Option<&str>,
+) -> Result<Vec<Opened>, RagMonkError> {
+    let catalog = crate::sources::Catalog::Server(server.clone());
+    let sources = match only {
+        Some(id) => vec![catalog.get(id)?],
+        None => catalog.list(false)?,
+    };
+    let active = server.active_builds().map_err(crate::backend::server_err)?;
+    Ok(sources
+        .into_iter()
+        .filter_map(|source| {
+            let build = active.get(&source.id)?.clone();
+            Some(Opened {
+                store: Reader::Server(ServerReader::new(server.clone(), &source.id)),
+                source,
+                build,
+            })
+        })
+        .collect())
+}
+
 pub fn corpora(opened: &[Opened]) -> Vec<Corpus<'_>> {
     opened
         .iter()
         .map(|o| Corpus {
-            store: &o.store,
+            store: o.store.read(),
             build_id: &o.build,
         })
         .collect()
@@ -379,7 +456,10 @@ pub fn link_rows(
     entity: Option<&str>,
     document: Option<&str>,
 ) -> Result<Vec<Value>, RagMonkError> {
-    let store = &o.store;
+    if let Some(server) = o.store.server() {
+        return server_link_rows(o, server, entity, document);
+    }
+    let store = o.store.local()?;
     let mut links = store.links(&o.build).map_err(db)?;
     if let Some(r) = entity {
         let ids: std::collections::HashSet<String> = match store.entity(&o.build, r).map_err(db)? {
@@ -425,6 +505,72 @@ pub fn link_rows(
             });
         out.push(json!({
             "link_id": manual_ids.get(&l.id).cloned().unwrap_or_else(|| l.id.clone()),
+            "link_type": l.link_type,
+            "source_id": o.source.id,
+            "entity_id": l.entity_id,
+            "entity": entity_qn,
+            "document_id": l.document_id,
+            "document_path": document_path,
+            "section_id": l.chunk_id,
+            "resolver": l.resolver,
+            "confidence": l.confidence,
+            "evidence": l.evidence,
+        }));
+    }
+    Ok(out)
+}
+
+fn sdb(e: ragmonk_storage::StorageError) -> RagMonkError {
+    e.into()
+}
+
+/// Entity ids a `--entity` reference names (an id, or a short name).
+fn server_entity_ids(
+    server: &ServerReader,
+    build: &str,
+    r: &str,
+) -> Result<std::collections::HashSet<String>, RagMonkError> {
+    Ok(match server.entity(build, r).map_err(sdb)? {
+        Some(e) => [e.id].into(),
+        None => server
+            .entities_named(build, r)
+            .map_err(sdb)?
+            .into_iter()
+            .map(|e| e.id)
+            .collect(),
+    })
+}
+
+fn server_link_rows(
+    o: &Opened,
+    server: &ServerReader,
+    entity: Option<&str>,
+    document: Option<&str>,
+) -> Result<Vec<Value>, RagMonkError> {
+    let mut links = server.links(&o.build).map_err(sdb)?;
+    if let Some(r) = entity {
+        let ids = server_entity_ids(server, &o.build, r)?;
+        links.retain(|l| ids.contains(&l.entity_id));
+    } else if let Some(d) = document {
+        links.retain(|l| l.document_id == d);
+    }
+    let mut out = Vec::new();
+    for l in links {
+        let entity_qn = server
+            .entity(&o.build, &l.entity_id)
+            .map_err(sdb)?
+            .map(|e| e.qualified_name);
+        let document_path = server
+            .document_location(&o.build, &l.document_id)
+            .map_err(sdb)?
+            .map(|(rel, _)| {
+                Path::new(&o.source.path)
+                    .join(rel)
+                    .to_string_lossy()
+                    .into_owned()
+            });
+        out.push(json!({
+            "link_id": l.id,
             "link_type": l.link_type,
             "source_id": o.source.id,
             "entity_id": l.entity_id,
@@ -582,8 +728,9 @@ pub fn run_search(
     if req.with_context && !ctx_opts.disabled() {
         for r in results.iter().filter(|r| r.kind == "document") {
             if let Some(o) = opened.iter().find(|o| o.source.id == r.source_id) {
-                if let Some(c) = context::expand_chunk_context(&o.store, &o.build, &r.id, &ctx_opts)
-                    .map_err(search_err)?
+                if let Some(c) =
+                    context::expand_chunk_context(o.store.read(), &o.build, &r.id, &ctx_opts)
+                        .map_err(search_err)?
                 {
                     expanded.insert(r.id.clone(), c);
                 }
@@ -620,38 +767,25 @@ pub fn link_add(
     section: Option<&str>,
     source: Option<&str>,
 ) -> Result<LinkAdded, RagMonkError> {
-    use ragmonk_knowledge::manual;
     let mut opened = open_sources(home, source)?;
+    if opened.iter().any(|o| o.store.server().is_some()) {
+        return server_link_add(&opened, entity, document, section);
+    }
+    use ragmonk_knowledge::manual;
     let mut hits = Vec::new();
     for (i, o) in opened.iter().enumerate() {
-        let e = manual::resolve_entity(&o.store, &o.build, entity);
-        let d = manual::resolve_document(&o.store, &o.build, document);
+        let store = o.store.local()?;
+        let e = manual::resolve_entity(store, &o.build, entity);
+        let d = manual::resolve_document(store, &o.build, document);
         if let (Ok(e), Ok(d)) = (e, d) {
             hits.push((i, e, d));
         }
     }
-    let (i, e, (_, _, document_id)) = match hits.len() {
-        0 => {
-            return Err(RagMonkError::usage(format!(
-                "no unambiguous match for entity '{entity}' and document '{document}'"
-            )))
-        }
-        1 => hits.remove(0),
-        _ => {
-            let ids: Vec<&str> = hits
-                .iter()
-                .map(|(i, _, _)| opened[*i].source.id.as_str())
-                .collect();
-            return Err(RagMonkError::usage(format!(
-                "ambiguous match across sources ({}); pass --source to disambiguate",
-                ids.join(", ")
-            )));
-        }
-    };
+    let (i, e, (_, _, document_id)) = pick_unique(hits, &opened, entity, document)?;
     let o = &mut opened[i];
     let ordinal = match section {
         None => None,
-        Some(sid) => match o.store.chunk(&o.build, sid).map_err(db)? {
+        Some(sid) => match o.store.local()?.chunk(&o.build, sid).map_err(db)? {
             Some(c) if c.document_id == document_id => Some(c.ordinal),
             _ => {
                 return Err(RagMonkError::usage(format!(
@@ -661,9 +795,10 @@ pub fn link_add(
         },
     };
     let now = ragmonk_indexing::progress::now_iso();
+    let build = o.build.clone();
     let added = manual::add(
-        &mut o.store,
-        &o.build,
+        o.store.local_mut()?,
+        &build,
         &e.id,
         &document_id,
         ordinal,
@@ -681,10 +816,111 @@ pub fn link_add(
     })
 }
 
+fn pick_unique<E, D>(
+    mut hits: Vec<(usize, E, D)>,
+    opened: &[Opened],
+    entity: &str,
+    document: &str,
+) -> Result<(usize, E, D), RagMonkError> {
+    match hits.len() {
+        0 => Err(RagMonkError::usage(format!(
+            "no unambiguous match for entity '{entity}' and document '{document}'"
+        ))),
+        1 => Ok(hits.remove(0)),
+        _ => {
+            let ids: Vec<&str> = hits
+                .iter()
+                .map(|(i, _, _)| opened[*i].source.id.as_str())
+                .collect();
+            Err(RagMonkError::usage(format!(
+                "ambiguous match across sources ({}); pass --source to disambiguate",
+                ids.join(", ")
+            )))
+        }
+    }
+}
+
+fn server_link_add(
+    opened: &[Opened],
+    entity: &str,
+    document: &str,
+    section: Option<&str>,
+) -> Result<LinkAdded, RagMonkError> {
+    let mut hits = Vec::new();
+    for (i, o) in opened.iter().enumerate() {
+        let Some(server) = o.store.server() else {
+            continue;
+        };
+        let ents: Vec<_> = match server.entity(&o.build, entity).map_err(sdb)? {
+            Some(e) => vec![e],
+            None => server.entities_named(&o.build, entity).map_err(sdb)?,
+        };
+        let doc = server.resolve_document(&o.build, document).map_err(sdb)?;
+        if let ([e], Some(d)) = (ents.as_slice(), doc) {
+            hits.push((i, e.clone(), d));
+        }
+    }
+    let (i, e, (rel_path, file_id, document_id)) = pick_unique(hits, opened, entity, document)?;
+    let o = &opened[i];
+    let server = o
+        .store
+        .server()
+        .ok_or_else(|| crate::backend::local_only("link add"))?;
+    let (chunk_id, ordinal) = match section {
+        None => (None, None),
+        Some(sid) => match server.chunk(&o.build, sid).map_err(sdb)? {
+            Some(c) if c.document_id == document_id => (Some(c.id), Some(c.ordinal)),
+            _ => {
+                return Err(RagMonkError::usage(format!(
+                    "no such section '{sid}' in document {document_id}"
+                )))
+            }
+        },
+    };
+    let link_type = ragmonk_core::models::RelationshipType::DocumentedBy.as_str();
+    let id = ragmonk_core::ids::record::link_id(
+        &e.qualified_name,
+        &format!("{rel_path}#{}", -1),
+        ordinal.map(|o| o.to_string()).as_deref(),
+        link_type,
+        ragmonk_knowledge::manual::USER_RESOLVER,
+    );
+    let added = server
+        .put_manual_link(&ragmonk_backends::reader::ManualLinkRecord {
+            id: id.clone(),
+            link_type: link_type.into(),
+            entity_id: e.id.clone(),
+            entity_qualified_name: e.qualified_name.clone(),
+            document_id: document_id.clone(),
+            file_id,
+            rel_path,
+            chunk_id,
+            chunk_ordinal: ordinal,
+            note: None,
+        })
+        .map_err(sdb)?;
+    Ok(if added {
+        LinkAdded::Added {
+            entity: e.qualified_name,
+            document_id,
+            link_id: id,
+        }
+    } else {
+        LinkAdded::Exists
+    })
+}
+
 /// Removes a manual link from whichever source holds it.
 pub fn link_remove(home: &Home, link_id: &str, source: Option<&str>) -> Result<(), RagMonkError> {
     for mut o in open_sources(home, source)? {
-        if ragmonk_knowledge::manual::remove(&mut o.store, &o.build, link_id)
+        if let Some(server) = o.store.server() {
+            if server.remove_manual_link(link_id).map_err(sdb)? {
+                return Ok(());
+            }
+            continue;
+        }
+        let build = o.build.clone();
+        if ragmonk_knowledge::manual::remove(o.store.local_mut()?, &build, link_id)
             .map_err(|err| RagMonkError::usage(err.to_string()))?
         {
             return Ok(());

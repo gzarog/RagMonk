@@ -197,8 +197,9 @@ fn too_many_touched_paths_or_forced_reason_means_full() {
 fn lock_contention_backs_off_and_retries() {
     let h = Harness::new(&["a"], true, opts(), false);
     h.wait_log(1);
+    // Daemon passes hold their source's own lock (ADR 0033).
     let held = RunLock::acquire(
-        &h.home.locks_dir().join("index.lock"),
+        &ragmonk_indexing::lock::source_lock_path(&h.home, "a"),
         "index",
         None,
         Duration::from_millis(200),
@@ -208,7 +209,7 @@ fn lock_contention_backs_off_and_retries() {
     h.open();
     assert!(h.d().wait_idle(Duration::from_secs(5)));
     let held = RunLock::acquire(
-        &h.home.locks_dir().join("index.lock"),
+        &ragmonk_indexing::lock::source_lock_path(&h.home, "a"),
         "index",
         None,
         Duration::from_secs(5),
