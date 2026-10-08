@@ -157,7 +157,12 @@ pub fn assemble(
         active_run_count: run_ids.len(),
         active_source_count: active.len(),
         max_parallel_sources: c.max_parallel_sources,
-        workers: runs.clone(),
+        // Finished passes stay visible per source (`sources[].live`).
+        workers: runs
+            .iter()
+            .filter(|r| r.liveness != Liveness::Finished)
+            .cloned()
+            .collect(),
         resources: c.resources.clone(),
         lock: c.lock.clone(),
         last_run: c.last_run.clone(),
