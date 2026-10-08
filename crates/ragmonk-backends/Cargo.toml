@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+chrono.workspace = true
 ragmonk-config.workspace = true
 ragmonk-core.workspace = true
 ragmonk-storage.workspace = true

@@ -539,7 +539,28 @@ fn work(home: &Home, name: &str, args: &Map<String, Value>) -> Result<Value, Rag
                 .filter(|s| !s.is_empty());
             Ok(json!({"documents": ragmonk_service::sources::docs_rows(home, source)?}))
         }
-        "ragmonk_status" => ragmonk_service::status::collect(home),
+        "ragmonk_status" => {
+            let source = args
+                .get("source_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
+            let limit = args.get("error_limit").and_then(Value::as_i64);
+            let mut report = ragmonk_service::status::report_with(home, |o| {
+                if let Some(n) = limit.filter(|n| *n >= 0) {
+                    o.error_limit = n as usize;
+                }
+                o.error_source = source.clone();
+            })?;
+            if let Some(id) = &source {
+                if report.source(id).is_none() {
+                    return Err(RagMonkError::usage(format!("no such source: {id}")));
+                }
+                report.sources.retain(|s| &s.source_id == id);
+            }
+            Ok(json!({ "status": report }))
+        }
         "ragmonk_ask" => {
             let question = required(args, "question")?;
             let r = ragmonk_service::ask::ask_value(&question)?;
@@ -605,6 +626,26 @@ mod tests {
         assert!(v["error"].is_null());
         assert!(v["documents"][0].get("attachments").is_none());
         assert!(v["documents"][0]["title"].is_null());
+    }
+
+    #[test]
+    fn status_projection_is_lossless() {
+        let report: Value = serde_json::from_str(include_str!(
+            "../../ragmonk-status/tests/fixtures/server_multi_host.json"
+        ))
+        .unwrap();
+        let schema = &tool("ragmonk_status").unwrap()["outputSchema"];
+        let out = project(&json!({"ok": true, "status": report}), schema, schema);
+        assert_eq!(out["status"], report, "every canonical field survives");
+        assert_eq!(out["schema_version"], "1");
+        let failed = project(
+            &failure("BackendUnavailableError", "server unreachable"),
+            schema,
+            schema,
+        );
+        assert_eq!(failed["ok"], false);
+        assert!(failed["status"].is_null());
+        assert_eq!(failed["error"]["type"], "BackendUnavailableError");
     }
 
     #[test]

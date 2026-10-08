@@ -100,6 +100,8 @@ pub struct RunOptions {
     pub targets: Option<std::collections::BTreeSet<PathBuf>>,
     /// Override `indexing.max_parallel_sources`.
     pub max_parallel_sources: Option<usize>,
+    /// The run this pass belongs to (set by [`index_sources_with`]).
+    pub run_id: Option<String>,
 }
 
 /// `locks/index-<source_id>.lock`: one pass per source at a time.
@@ -109,18 +111,11 @@ pub fn source_lock_path(home: &Home, source_id: &str) -> PathBuf {
 
 /// The server writer-lease owner of this process (`host:pid`).
 pub fn lease_owner() -> String {
-    let host = std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .ok()
-        .or_else(|| {
-            std::fs::read_to_string("/etc/hostname")
-                .ok()
-                .map(|s| s.trim().to_owned())
-        })
-        .filter(|h| !h.is_empty())
-        .unwrap_or_else(|| "host".into());
-    let host = ragmonk_indexing::lock::sanitize_token(&host, 64).unwrap_or_else(|| "host".into());
-    format!("{host}:{}", std::process::id())
+    format!(
+        "{}:{}",
+        ragmonk_indexing::runtime::host_name(),
+        std::process::id()
+    )
 }
 
 /// A new run id: `run-<utc>-<pid>`.
@@ -238,6 +233,10 @@ pub fn index_sources_with(
     let total = sources.len() as i64;
     let lock_timeout = opts.lock_timeout;
     let run_id = summary.run_id.clone();
+    let run = &RunOptions {
+        run_id: Some(run_id.clone()),
+        ..run.clone()
+    };
     ragmonk_indexing::progress::track(&home.index_progress(), operation, Some(total), |tracker| {
         tracker.set_run(&run_id, parallel);
         let lock_wait_ms = AtomicUsize::new(0);

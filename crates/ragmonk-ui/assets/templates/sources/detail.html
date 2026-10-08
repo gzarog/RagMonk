@@ -12,22 +12,37 @@
     <tr><th>ID</th><td class="mono">{{ source.id }}</td></tr>
     <tr><th>Type</th><td>{{ source.type }}</td></tr>
     <tr><th>Enabled</th><td>{{ "yes" if source.enabled else "no" }}</td></tr>
-    <tr><th>Status</th><td>{{ source.status }}</td></tr>
+    <tr><th>State</th><td>{{ source.index_state or "unknown" }} · access {{ source.access or "unknown" }}</td></tr>
     <tr><th>Include patterns</th><td class="mono">{{ source.include_patterns|join(", ") or "—" }}</td></tr>
     <tr><th>Exclude patterns</th><td class="mono">{{ source.exclude_patterns|join(", ") or "—" }}</td></tr>
     <tr><th>Last scan</th><td>{{ source.last_scan_at or "—" }}</td></tr>
-    <tr><th>Last error</th><td>{{ source.last_error or "—" }}</td></tr>
+    <tr><th>Last error</th><td>{{ source.last_error or "—" }}{% if source.last_error_at %} <span class="muted mono">({{ source.last_error_at }})</span>{% endif %}</td></tr>
+    {% for w in source.warnings %}<tr><th>Note</th><td>{{ w }}</td></tr>{% endfor %}
   </table>
 </div>
 
+{% set p = source.published %}
+<h2>Published build</h2>
+{% if p %}
 <div class="grid">
-  <div class="stat"><div class="num">{{ source.counts.get("indexed", 0) }}</div><div class="label">Indexed</div></div>
-  <div class="stat"><div class="num">{{ source.counts.get("queued", 0) }}</div><div class="label">Queued</div></div>
-  <div class="stat"><div class="num">{{ source.counts.get("failed", 0) }}</div><div class="label">Failed</div></div>
-  <div class="stat"><div class="num">{{ source.metrics.documents_processed }}</div><div class="label">Documents</div></div>
-  <div class="stat"><div class="num">{{ source.metrics.symbols_created }}</div><div class="label">Symbols</div></div>
-  <div class="stat"><div class="num">{{ (source.metrics.database_size_bytes / 1024)|round(1) }} KB</div><div class="label">DB size</div></div>
+  <div class="stat"><div class="num">{{ p.indexed }}</div><div class="label">Indexed</div></div>
+  <div class="stat"><div class="num">{{ p.failed }}</div><div class="label">Failed</div></div>
+  <div class="stat"><div class="num">{{ p.retrying }}</div><div class="label">Retrying</div></div>
+  <div class="stat"><div class="num">{{ p.documents }}</div><div class="label">Documents</div></div>
+  <div class="stat"><div class="num">{{ p.code_entities }}</div><div class="label">Symbols</div></div>
+  <div class="stat"><div class="num">{{ p.chunks }}</div><div class="label">Chunks</div></div>
 </div>
+{% else %}
+<p class="muted">Nothing published for this source (or its counters are unavailable).</p>
+{% endif %}
+{% if source.live %}
+<div class="panel">
+  <h2 style="margin-top:0">Indexing now</h2>
+  <p>{{ source.live.stage or "starting" }} on {{ source.live.host or "this host" }} ·
+    {{ "N/A" if source.live.processed is none else source.live.processed }} / {{ "N/A" if source.live.planned is none else source.live.planned }} files
+    · heartbeat <span class="mono">{{ source.live.heartbeat_at or "—" }}</span></p>
+</div>
+{% endif %}
 
 <h2>Recent errors</h2>
 <div class="panel">
@@ -36,7 +51,7 @@
     <thead><tr><th>When</th><th>Path</th><th>Error</th></tr></thead>
     <tbody>
       {% for e in source.errors %}
-      <tr><td class="muted mono">{{ e.occurred_at }}</td><td class="mono">{{ e.path or "—" }}</td><td>{{ e.error_code }}: {{ e.error_message }}</td></tr>
+      <tr><td class="muted mono">{{ e.occurred_at or "time unknown" }}</td><td class="mono">{{ e.path or "—" }}</td><td>{{ e.code }}: {{ e.message }}</td></tr>
       {% endfor %}
     </tbody>
   </table>

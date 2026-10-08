@@ -226,7 +226,10 @@ fn constant_eq(a: &str, b: &str) -> bool {
 // ----------------------------------------------------------- responses ---
 
 fn error_response(e: &RagMonkError) -> Response {
-    let status = if e.kind() == ErrorKind::LocalStorageModeRequired {
+    let status = if matches!(
+        e.kind(),
+        ErrorKind::LocalStorageModeRequired | ErrorKind::SourceUnavailable
+    ) {
         StatusCode::SERVICE_UNAVAILABLE
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
@@ -305,22 +308,52 @@ fn param<'a>(p: &'a Params, k: &str) -> Option<&'a str> {
 
 // -------------------------------------------------------------- routes ---
 
+/// Liveness: the UI process answers. Says nothing about the backend.
 async fn health_probe() -> Json<Value> {
     Json(json!({"status": "ok"}))
+}
+
+/// Readiness: a status snapshot of the configured backend could be taken.
+/// An unreachable server (or a schema that does not match) is `503`.
+async fn ready_probe(State(st): State<AppState>) -> Response {
+    match locked(&st, data::report).await {
+        Ok(r) => Json(json!({
+            "ready": true,
+            "health": r.health.state,
+            "mode": r.mode,
+            "backend": r.backend.kind,
+            "observed_at": r.observed_at,
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"ready": false, "error": {"type": e.class().unwrap_or("RagMonkError"), "message": e.message()}})),
+        )
+            .into_response(),
+    }
+}
+
+/// The canonical status report as JSON (the CLI's `status --json` data).
+async fn status_api(State(st): State<AppState>) -> Response {
+    match locked(&st, data::report).await {
+        Ok(r) => Json(r).into_response(),
+        Err(e) => (
+            if e.kind() == ErrorKind::SourceUnavailable {
+                StatusCode::SERVICE_UNAVAILABLE
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            },
+            Json(json!({"error": {"type": e.class().unwrap_or("RagMonkError"), "message": e.message()}})),
+        )
+            .into_response(),
+    }
 }
 
 async fn dashboard(
     State(st): State<AppState>,
     axum::Extension(csrf): axum::Extension<CsrfToken>,
 ) -> Response {
-    let r = locked(&st, |home| -> Result<Value, RagMonkError> {
-        Ok(json!({
-            "status": data::status(home)?,
-            "daemon": data::daemon_snapshot(home),
-            "errors": data::recent_errors(home, 10)?,
-        }))
-    })
-    .await;
+    let r = locked(&st, data::dashboard).await;
     match r {
         Ok(ctx) => html("dashboard.html", "dashboard", &csrf, ctx),
         Err(e) => error_response(&e),
@@ -881,10 +914,10 @@ async fn system_page(
     axum::Extension(csrf): axum::Extension<CsrfToken>,
 ) -> Response {
     let r = locked(&st, |home| -> Result<Value, RagMonkError> {
-        let status = data::status(home)?;
+        let cfg = ragmonk_service::load(home)?;
         Ok(json!({
             "update": data::update_status(home)?,
-            "tokenizer": status["tokenizer"],
+            "tokenizer": ragmonk_service::tokenizer_info(&cfg),
             "home": home.root().to_string_lossy(),
         }))
     })
@@ -911,6 +944,8 @@ async fn not_found() -> Response {
 fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_probe))
+        .route("/ready", get(ready_probe))
+        .route("/api/status", get(status_api))
         .route("/events/indexing", get(indexing_events))
         .route("/", get(dashboard))
         .route("/sources", get(sources_page).post(add_source))

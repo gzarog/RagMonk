@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::progress::now_iso;
-use crate::status::is_process_alive;
+use crate::runtime::is_process_alive;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PidInfo {

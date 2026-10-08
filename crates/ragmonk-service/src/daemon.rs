@@ -16,7 +16,7 @@ use ragmonk_indexing::coordinator::{Progress, Registry, SourceResult};
 use ragmonk_indexing::daemon::{
     health, pid, Catalog, CoordinatorRunner, Daemon, DaemonOptions, PassRunner, ScanRequest,
 };
-use ragmonk_indexing::status::is_process_alive;
+use ragmonk_indexing::runtime::is_process_alive;
 use ragmonk_storage::control::ControlPlane;
 use ragmonk_storage::control::SourceRecord;
 use ragmonk_storage::StorageLayout;

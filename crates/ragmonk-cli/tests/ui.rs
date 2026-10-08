@@ -616,3 +616,94 @@ fn admin_ui_actions() {
     );
     assert_eq!(request(port, "GET", "/static/nope.js", &[], "").status, 404);
 }
+
+fn start_ui(home: &Path, env: &[(&str, &str)]) -> (Server, u16) {
+    let port = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut c = ragmonk(home);
+    for (k, v) in env {
+        c.env(k, v);
+    }
+    let server = Server(
+        c.args(["ui", "--no-browser", "--port", &port.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while TcpStream::connect(("127.0.0.1", port)).is_err() {
+        assert!(Instant::now() < deadline, "server did not start");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    (server, port)
+}
+
+/// `/api/status` is the CLI's canonical report; `/ready` reflects the
+/// backend while `/health` is only process liveness.
+#[test]
+fn status_api_matches_cli_and_readiness_tracks_the_backend() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let corpus = dir.path().join("source");
+    std::fs::create_dir_all(&corpus).unwrap();
+    std::fs::write(corpus.join("app.py"), "def main():\n    return 1\n").unwrap();
+    for args in [
+        &["init"][..],
+        &["source", "add", corpus.to_str().unwrap()],
+        &["index"],
+    ] {
+        assert!(ragmonk(&home).args(args).output().unwrap().status.success());
+    }
+    let cli: Value = serde_json::from_slice(
+        &ragmonk(&home)
+            .args(["status", "--json"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    let cli = &cli["data"];
+    {
+        let (_server, port) = start_ui(&home, &[]);
+        let api: Value =
+            serde_json::from_str(&request(port, "GET", "/api/status", &[], "").body).unwrap();
+        for k in ["mode", "health", "summary", "problems", "recent_errors"] {
+            assert_eq!(api[k], cli[k], "{k}");
+        }
+        let states = |v: &Value| -> Vec<(Value, Value)> {
+            v["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| (s["source_id"].clone(), s["index_state"].clone()))
+                .collect()
+        };
+        assert_eq!(states(&api), states(cli));
+        let ready = request(port, "GET", "/ready", &[], "");
+        assert_eq!(ready.status, 200, "{}", ready.body);
+        let ready: Value = serde_json::from_str(&ready.body).unwrap();
+        assert_eq!(ready["ready"], true);
+        assert_eq!(ready["health"], "healthy");
+    }
+    // An unreachable server: alive, but not ready, and no report.
+    let (_server, port) = start_ui(
+        &home,
+        &[
+            ("RAGMONK_STORAGE__MODE", "server"),
+            ("RAGMONK_STORAGE__SERVER__URL", "http://127.0.0.1:9"),
+            ("RAGMONK_STORAGE__SERVER__REQUEST_TIMEOUT_SECONDS", "2"),
+        ],
+    );
+    assert_eq!(request(port, "GET", "/health", &[], "").status, 200);
+    let ready = request(port, "GET", "/ready", &[], "");
+    assert_eq!(ready.status, 503, "{}", ready.body);
+    let ready: Value = serde_json::from_str(&ready.body).unwrap();
+    assert_eq!(ready["ready"], false);
+    assert_eq!(ready["error"]["type"], "BackendUnavailableError");
+    assert_eq!(request(port, "GET", "/api/status", &[], "").status, 503);
+}

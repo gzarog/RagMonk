@@ -2953,6 +2953,7 @@ dependencies = [
 name = "ragmonk-backends"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "ragmonk-config",
  "ragmonk-core",
  "ragmonk-storage",
@@ -2980,6 +2981,7 @@ dependencies = [
  "ragmonk-ops",
  "ragmonk-retrieval",
  "ragmonk-service",
+ "ragmonk-status",
  "ragmonk-telemetry",
  "ragmonk-ui",
  "ragmonk-update",
@@ -2989,6 +2991,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "signal-hook",
  "sysinfo",
  "tar",
  "tempfile",
@@ -3206,6 +3209,7 @@ dependencies = [
  "ragmonk-knowledge",
  "ragmonk-ml",
  "ragmonk-retrieval",
+ "ragmonk-status",
  "ragmonk-storage",
  "ragmonk-telemetry",
  "reqwest",
@@ -3213,6 +3217,23 @@ dependencies = [
  "signal-hook",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "ragmonk-status"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "ragmonk-backends",
+ "ragmonk-config",
+ "ragmonk-core",
+ "ragmonk-indexing",
+ "ragmonk-storage",
+ "ragmonk-telemetry",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -3258,6 +3279,7 @@ dependencies = [
  "ragmonk-ops",
  "ragmonk-retrieval",
  "ragmonk-service",
+ "ragmonk-status",
  "ragmonk-storage",
  "ragmonk-telemetry",
  "ragmonk-update",

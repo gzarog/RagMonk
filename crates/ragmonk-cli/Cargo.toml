@@ -23,11 +23,13 @@ ragmonk-mcp.workspace = true
 ragmonk-ops.workspace = true
 ragmonk-retrieval.workspace = true
 ragmonk-service.workspace = true
+ragmonk-status.workspace = true
 ragmonk-telemetry.workspace = true
 ragmonk-ui.workspace = true
 ragmonk-update.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+signal-hook.workspace = true
 
 [dev-dependencies]
 flate2.workspace = true

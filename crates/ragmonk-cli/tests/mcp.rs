@@ -31,8 +31,12 @@ const DROP: &[&str] = &[
 const VOLATILE: &[&str] = &[
     "pid",
     "hostname",
-    "running_for_seconds",
-    "database_size_bytes",
+    "host",
+    "snapshot_id",
+    "run_id",
+    "active_id",
+    "request_count",
+    "resources",
 ];
 const VOLATILE_SUFFIXES: &[&str] = &[
     "_at",

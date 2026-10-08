@@ -23,10 +23,7 @@
      "prompts": {
       "listChanged": false
      },
-     "resources": {
-      "subscribe": false,
-      "listChanged": false
-     },
+     "resources": "<VOLATILE>",
      "tools": {
       "listChanged": false
      }
@@ -1969,43 +1966,821 @@
      },
      {
       "name": "ragmonk_status",
-      "description": "Indexing status: sources, per-status file counts, queue depth.",
+      "description": "Authoritative indexing status (local SQLite or the configured OpenSearch/Elasticsearch): health and problems, live passes on every host, published counts per source, globally ordered recent errors and diagnostics. Unknown values are null, never 0. An unreachable server is an error result.",
       "inputSchema": {
-       "properties": {},
+       "properties": {
+        "source_id": {
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "default": null,
+         "description": "Only this source's row and errors (summary and problems stay global).",
+         "title": "Source Id"
+        },
+        "error_limit": {
+         "anyOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "default": null,
+         "description": "Recent errors to return (default 25, at most 200).",
+         "title": "Error Limit"
+        }
+       },
        "title": "ragmonk_statusArguments",
        "type": "object"
       },
       "outputSchema": {
        "$defs": {
-        "SourceStatus": {
+        "StatusReport": {
+         "type": "object",
          "properties": {
-          "id": {
-           "title": "Id",
+          "schema_version": {
+           "type": "integer"
+          },
+          "snapshot_id": {
+           "type": "string"
+          },
+          "observed_at": {
+           "type": "string"
+          },
+          "mode": {
+           "type": "string",
+           "enum": [
+            "local",
+            "server"
+           ]
+          },
+          "backend": {
+           "type": "object",
+           "properties": {
+            "kind": {
+             "type": "string",
+             "enum": [
+              "sqlite",
+              "opensearch",
+              "elasticsearch"
+             ]
+            },
+            "index_prefix": {
+             "anyOf": [
+              {
+               "type": "string"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "endpoint": {
+             "anyOf": [
+              {
+               "type": "string"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "reachable": {
+             "type": "boolean"
+            },
+            "authoritative": {
+             "type": "boolean"
+            },
+            "cluster": {
+             "anyOf": [
+              {
+               "type": "object",
+               "properties": {
+                "health": {
+                 "anyOf": [
+                  {
+                   "type": "string",
+                   "enum": [
+                    "green",
+                    "yellow",
+                    "red"
+                   ]
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                },
+                "unassigned_shards": {
+                 "anyOf": [
+                  {
+                   "type": "integer"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                },
+                "number_of_nodes": {
+                 "anyOf": [
+                  {
+                   "type": "integer"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                },
+                "indexes": {
+                 "type": "array",
+                 "items": {
+                  "type": "string"
+                 }
+                }
+               },
+               "required": [
+                "health",
+                "unassigned_shards",
+                "number_of_nodes",
+                "indexes"
+               ]
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "latency_ms": {
+             "anyOf": [
+              {
+               "type": "integer"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            }
+           },
+           "required": [
+            "kind",
+            "index_prefix",
+            "endpoint",
+            "reachable",
+            "authoritative",
+            "cluster",
+            "latency_ms"
+           ]
+          },
+          "health": {
+           "type": "object",
+           "properties": {
+            "state": {
+             "type": "string",
+             "enum": [
+              "healthy",
+              "degraded",
+              "failed",
+              "unknown"
+             ]
+            },
+            "problem_count": {
+             "type": "integer"
+            }
+           },
+           "required": [
+            "state",
+            "problem_count"
+           ]
+          },
+          "indexer": {
+           "type": "object",
+           "properties": {
+            "scope": {
+             "type": "string",
+             "enum": [
+              "host",
+              "cluster"
+             ]
+            },
+            "active_run_count": {
+             "type": "integer"
+            },
+            "active_source_count": {
+             "type": "integer"
+            },
+            "max_parallel_sources": {
+             "anyOf": [
+              {
+               "type": "integer"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "workers": {
+             "type": "array",
+             "items": {
+              "$ref": "#/$defs/LiveRun"
+             }
+            },
+            "resources": {
+             "anyOf": [
+              {
+               "type": "object",
+               "additionalProperties": true
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "lock": {
+             "anyOf": [
+              {
+               "type": "object",
+               "properties": {
+                "state": {
+                 "type": "string"
+                },
+                "pid": {
+                 "anyOf": [
+                  {
+                   "type": "integer"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                },
+                "operation": {
+                 "anyOf": [
+                  {
+                   "type": "string"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                },
+                "hostname": {
+                 "anyOf": [
+                  {
+                   "type": "string"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                },
+                "source_id": {
+                 "anyOf": [
+                  {
+                   "type": "string"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                },
+                "acquired_at": {
+                 "anyOf": [
+                  {
+                   "type": "string"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                }
+               },
+               "required": [
+                "state",
+                "pid",
+                "operation",
+                "hostname",
+                "source_id",
+                "acquired_at"
+               ]
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "last_run": {
+             "anyOf": [
+              {
+               "type": "object",
+               "properties": {
+                "run_id": {
+                 "anyOf": [
+                  {
+                   "type": "string"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                },
+                "operation": {
+                 "anyOf": [
+                  {
+                   "type": "string"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                },
+                "outcome": {
+                 "type": "string"
+                },
+                "started_at": {
+                 "anyOf": [
+                  {
+                   "type": "string"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                },
+                "completed_at": {
+                 "anyOf": [
+                  {
+                   "type": "string"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                },
+                "error": {
+                 "anyOf": [
+                  {
+                   "type": "string"
+                  },
+                  {
+                   "type": "null"
+                  }
+                 ],
+                 "default": null
+                }
+               },
+               "required": [
+                "run_id",
+                "operation",
+                "outcome",
+                "started_at",
+                "completed_at",
+                "error"
+               ]
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "stall_threshold_seconds": {
+             "type": "number"
+            }
+           },
+           "required": [
+            "scope",
+            "active_run_count",
+            "active_source_count",
+            "max_parallel_sources",
+            "workers",
+            "resources",
+            "lock",
+            "last_run",
+            "stall_threshold_seconds"
+           ]
+          },
+          "summary": {
+           "type": "object",
+           "properties": {
+            "sources": {
+             "type": "object",
+             "properties": {
+              "registered": {
+               "type": "integer"
+              },
+              "enabled": {
+               "type": "integer"
+              },
+              "active": {
+               "type": "integer"
+              },
+              "failed": {
+               "type": "integer"
+              },
+              "offline": {
+               "type": "integer"
+              }
+             },
+             "required": [
+              "registered",
+              "enabled",
+              "active",
+              "failed",
+              "offline"
+             ]
+            },
+            "files": {
+             "type": "object",
+             "properties": {
+              "discovered": {
+               "anyOf": [
+                {
+                 "type": "integer"
+                },
+                {
+                 "type": "null"
+                }
+               ],
+               "default": null
+              },
+              "published_indexed": {
+               "anyOf": [
+                {
+                 "type": "integer"
+                },
+                {
+                 "type": "null"
+                }
+               ],
+               "default": null
+              },
+              "failed": {
+               "anyOf": [
+                {
+                 "type": "integer"
+                },
+                {
+                 "type": "null"
+                }
+               ],
+               "default": null
+              },
+              "retrying": {
+               "anyOf": [
+                {
+                 "type": "integer"
+                },
+                {
+                 "type": "null"
+                }
+               ],
+               "default": null
+              },
+              "pending_in_current_runs": {
+               "anyOf": [
+                {
+                 "type": "integer"
+                },
+                {
+                 "type": "null"
+                }
+               ],
+               "default": null
+              }
+             },
+             "required": [
+              "discovered",
+              "published_indexed",
+              "failed",
+              "retrying",
+              "pending_in_current_runs"
+             ]
+            },
+            "entities": {
+             "anyOf": [
+              {
+               "type": "integer"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "documents": {
+             "anyOf": [
+              {
+               "type": "integer"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "chunks": {
+             "anyOf": [
+              {
+               "type": "integer"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "relationships": {
+             "anyOf": [
+              {
+               "type": "integer"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "throughput_files_per_second": {
+             "anyOf": [
+              {
+               "type": "number"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            }
+           },
+           "required": [
+            "sources",
+            "files",
+            "entities",
+            "documents",
+            "chunks",
+            "relationships",
+            "throughput_files_per_second"
+           ]
+          },
+          "sources": {
+           "type": "array",
+           "items": {
+            "$ref": "#/$defs/SourceStatus"
+           }
+          },
+          "problems": {
+           "type": "array",
+           "items": {
+            "$ref": "#/$defs/Problem"
+           }
+          },
+          "recent_errors": {
+           "type": "array",
+           "items": {
+            "$ref": "#/$defs/ErrorEvent"
+           }
+          },
+          "diagnostics": {
+           "type": "object",
+           "properties": {
+            "partial": {
+             "type": "boolean"
+            },
+            "missing_sections": {
+             "type": "array",
+             "items": {
+              "type": "string"
+             }
+            },
+            "collection_ms": {
+             "anyOf": [
+              {
+               "type": "integer"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "request_count": {
+             "anyOf": [
+              {
+               "type": "integer"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "cached_sections": {
+             "type": "array",
+             "items": {
+              "type": "object",
+              "properties": {
+               "section": {
+                "type": "string"
+               },
+               "age_seconds": {
+                "type": "number"
+               },
+               "ttl_seconds": {
+                "type": "number"
+               }
+              },
+              "required": [
+               "section",
+               "age_seconds",
+               "ttl_seconds"
+              ]
+             }
+            },
+            "consistency": {
+             "type": "string",
+             "enum": [
+              "consistent",
+              "retried",
+              "inconsistent"
+             ]
+            },
+            "inconsistent_sources": {
+             "type": "array",
+             "items": {
+              "type": "string"
+             }
+            }
+           },
+           "required": [
+            "partial",
+            "missing_sections",
+            "collection_ms",
+            "request_count",
+            "cached_sections",
+            "consistency",
+            "inconsistent_sources"
+           ]
+          }
+         },
+         "required": [
+          "schema_version",
+          "snapshot_id",
+          "observed_at",
+          "mode",
+          "backend",
+          "health",
+          "indexer",
+          "summary",
+          "sources",
+          "problems",
+          "recent_errors",
+          "diagnostics"
+         ],
+         "description": "The canonical RagMonk status report (schema_version 1): the same data `ragmonk status --json` prints."
+        },
+        "SourceStatus": {
+         "type": "object",
+         "properties": {
+          "source_id": {
            "type": "string"
           },
           "path": {
-           "title": "Path",
+           "type": "string"
+          },
+          "source_type": {
            "type": "string"
           },
           "enabled": {
-           "title": "Enabled",
            "type": "boolean"
           },
-          "status": {
-           "default": "active",
-           "title": "Status",
-           "type": "string"
+          "access": {
+           "type": "string",
+           "enum": [
+            "online",
+            "offline",
+            "disabled",
+            "unknown"
+           ]
           },
-          "counts": {
-           "additionalProperties": {
-            "type": "integer"
+          "index_state": {
+           "type": "string",
+           "enum": [
+            "not_indexed",
+            "queued",
+            "scanning",
+            "indexing",
+            "finalizing",
+            "publishing",
+            "completed",
+            "retrying",
+            "failed",
+            "stalled",
+            "offline",
+            "disabled",
+            "unknown"
+           ]
+          },
+          "build": {
+           "type": "object",
+           "properties": {
+            "active_id": {
+             "anyOf": [
+              {
+               "type": "string"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "pending_id": {
+             "anyOf": [
+              {
+               "type": "string"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            },
+            "state": {
+             "type": "string",
+             "enum": [
+              "not_indexed",
+              "building",
+              "ready",
+              "failed",
+              "needs_full_rebuild",
+              "unknown"
+             ]
+            },
+            "published_at": {
+             "anyOf": [
+              {
+               "type": "string"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "default": null
+            }
            },
-           "title": "Counts",
-           "type": "object"
+           "required": [
+            "active_id",
+            "pending_id",
+            "state",
+            "published_at"
+           ]
           },
-          "queue_depth": {
-           "title": "Queue Depth",
-           "type": "integer"
+          "published": {
+           "anyOf": [
+            {
+             "$ref": "#/$defs/PublishedCounts"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "live": {
+           "anyOf": [
+            {
+             "$ref": "#/$defs/LiveRun"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
           },
           "last_scan_at": {
            "anyOf": [
@@ -2016,8 +2791,18 @@
              "type": "null"
             }
            ],
-           "default": null,
-           "title": "Last Scan At"
+           "default": null
+          },
+          "last_error_at": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
           },
           "last_error": {
            "anyOf": [
@@ -2028,81 +2813,491 @@
              "type": "null"
             }
            ],
-           "default": null,
-           "title": "Last Error"
+           "default": null
           },
-          "access_state": {
-           "anyOf": [
-            {
-             "type": "string"
-            },
-            {
-             "type": "null"
-            }
-           ],
-           "default": null,
-           "title": "Access State"
-          },
-          "index_state": {
-           "anyOf": [
-            {
-             "type": "string"
-            },
-            {
-             "type": "null"
-            }
-           ],
-           "default": null,
-           "title": "Index State"
-          },
-          "queue": {
-           "anyOf": [
-            {
-             "additionalProperties": true,
-             "type": "object"
-            },
-            {
-             "type": "null"
-            }
-           ],
-           "default": null,
-           "title": "Queue"
-          },
-          "last_activity_at": {
-           "anyOf": [
-            {
-             "type": "string"
-            },
-            {
-             "type": "null"
-            }
-           ],
-           "default": null,
-           "title": "Last Activity At"
-          },
-          "last_error_detail": {
-           "anyOf": [
-            {
-             "additionalProperties": true,
-             "type": "object"
-            },
-            {
-             "type": "null"
-            }
-           ],
-           "default": null,
-           "title": "Last Error Detail"
+          "warnings": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
           }
          },
          "required": [
-          "id",
+          "source_id",
           "path",
+          "source_type",
           "enabled",
-          "counts",
-          "queue_depth"
+          "access",
+          "index_state",
+          "build",
+          "published",
+          "live",
+          "last_scan_at",
+          "last_error_at",
+          "last_error",
+          "warnings"
+         ]
+        },
+        "PublishedCounts": {
+         "type": "object",
+         "properties": {
+          "files": {
+           "type": "integer"
+          },
+          "indexed": {
+           "type": "integer"
+          },
+          "failed": {
+           "type": "integer"
+          },
+          "retrying": {
+           "type": "integer"
+          },
+          "code_entities": {
+           "type": "integer"
+          },
+          "documents": {
+           "type": "integer"
+          },
+          "chunks": {
+           "type": "integer"
+          },
+          "relationships": {
+           "type": "integer"
+          },
+          "links": {
+           "type": "integer"
+          },
+          "max_attempt_count": {
+           "type": "integer"
+          },
+          "next_retry_at": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          }
+         },
+         "required": [
+          "files",
+          "indexed",
+          "failed",
+          "retrying",
+          "code_entities",
+          "documents",
+          "chunks",
+          "relationships",
+          "links",
+          "max_attempt_count",
+          "next_retry_at"
          ],
-         "title": "SourceStatus",
-         "type": "object"
+         "description": "Counters of the source's published (active) build only."
+        },
+        "LiveRun": {
+         "type": "object",
+         "properties": {
+          "run_id": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "host": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "pid": {
+           "anyOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "operation": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "stage": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "scanned": {
+           "anyOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "planned": {
+           "anyOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "processed": {
+           "anyOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "indexed": {
+           "anyOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "failed": {
+           "anyOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "retry": {
+           "anyOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "percentage": {
+           "anyOf": [
+            {
+             "type": "number"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "started_at": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "last_progress_at": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "heartbeat_at": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "heartbeat_age_seconds": {
+           "anyOf": [
+            {
+             "type": "number"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "lease_token": {
+           "anyOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "lease_valid": {
+           "anyOf": [
+            {
+             "type": "boolean"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "outcome": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "source_id": {
+           "type": "string"
+          },
+          "liveness": {
+           "type": "string",
+           "enum": [
+            "live",
+            "stalled",
+            "expired",
+            "finished"
+           ]
+          }
+         },
+         "required": [
+          "run_id",
+          "host",
+          "pid",
+          "operation",
+          "stage",
+          "scanned",
+          "planned",
+          "processed",
+          "indexed",
+          "failed",
+          "retry",
+          "percentage",
+          "started_at",
+          "last_progress_at",
+          "heartbeat_at",
+          "heartbeat_age_seconds",
+          "lease_token",
+          "lease_valid",
+          "outcome",
+          "source_id",
+          "liveness"
+         ],
+         "description": "One source pass on this host (local) or any host (server). Remote PIDs are never shown; unknown counters are null."
+        },
+        "Problem": {
+         "type": "object",
+         "properties": {
+          "code": {
+           "type": "string"
+          },
+          "severity": {
+           "type": "string",
+           "enum": [
+            "info",
+            "warning",
+            "error"
+           ]
+          },
+          "scope": {
+           "type": "string",
+           "enum": [
+            "backend",
+            "cluster",
+            "runtime",
+            "source",
+            "file"
+           ]
+          },
+          "source_id": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "host": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "message": {
+           "type": "string"
+          },
+          "hint": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "observed_at": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          }
+         },
+         "required": [
+          "code",
+          "severity",
+          "scope",
+          "source_id",
+          "host",
+          "message",
+          "hint",
+          "observed_at"
+         ]
+        },
+        "ErrorEvent": {
+         "type": "object",
+         "properties": {
+          "source_id": {
+           "type": "string"
+          },
+          "path": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "code": {
+           "type": "string"
+          },
+          "message": {
+           "type": "string"
+          },
+          "status": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "attempt_count": {
+           "anyOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "occurred_at": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          }
+         },
+         "required": [
+          "source_id",
+          "path",
+          "code",
+          "message",
+          "status",
+          "attempt_count",
+          "occurred_at"
+         ],
+         "description": "A recorded error; the list is globally ordered by occurred_at (newest first)."
         },
         "ToolError": {
          "description": "A clear, typed error -- never a raw traceback. ``type`` is the\nRagMonk exception class name (``\"UsageError\"``, ``\"ConfigError\"``,\n...) or one of this module's own boundary types (``\"timeout\"``,\n``\"internal_error\"``), so a client can branch on it without parsing\nprose.",
@@ -2121,27 +3316,6 @@
           "message"
          ],
          "title": "ToolError",
-         "type": "object"
-        },
-        "TotalsSummary": {
-         "properties": {
-          "by_status": {
-           "additionalProperties": {
-            "type": "integer"
-           },
-           "title": "By Status",
-           "type": "object"
-          },
-          "queue_depth": {
-           "title": "Queue Depth",
-           "type": "integer"
-          }
-         },
-         "required": [
-          "by_status",
-          "queue_depth"
-         ],
-         "title": "TotalsSummary",
          "type": "object"
         }
        },
@@ -2166,91 +3340,23 @@
          ],
          "default": null
         },
-        "sources": {
-         "items": {
-          "$ref": "#/$defs/SourceStatus"
-         },
-         "title": "Sources",
-         "type": "array"
-        },
-        "totals": {
+        "status": {
          "anyOf": [
           {
-           "$ref": "#/$defs/TotalsSummary"
+           "$ref": "#/$defs/StatusReport"
           },
           {
            "type": "null"
           }
          ],
          "default": null
-        },
-        "health": {
-         "anyOf": [
-          {
-           "additionalProperties": true,
-           "type": "object"
-          },
-          {
-           "type": "null"
-          }
-         ],
-         "default": null,
-         "title": "Health"
-        },
-        "indexer": {
-         "anyOf": [
-          {
-           "additionalProperties": true,
-           "type": "object"
-          },
-          {
-           "type": "null"
-          }
-         ],
-         "default": null,
-         "title": "Indexer"
-        },
-        "queue": {
-         "anyOf": [
-          {
-           "additionalProperties": true,
-           "type": "object"
-          },
-          {
-           "type": "null"
-          }
-         ],
-         "default": null,
-         "title": "Queue"
-        },
-        "recent_errors": {
-         "items": {
-          "additionalProperties": true,
-          "type": "object"
-         },
-         "title": "Recent Errors",
-         "type": "array"
-        },
-        "problems": {
-         "items": {
-          "additionalProperties": true,
-          "type": "object"
-         },
-         "title": "Problems",
-         "type": "array"
         }
        },
        "required": [
         "ok"
        ],
-       "title": "StatusOutput",
+       "title": "ragmonk_statusOutput",
        "type": "object"
-      },
-      "annotations": {
-       "readOnlyHint": true,
-       "destructiveHint": false,
-       "idempotentHint": true,
-       "openWorldHint": false
       }
      },
      {
@@ -2496,7 +3602,7 @@
   "response": {
    "jsonrpc": "2.0",
    "result": {
-    "resources": []
+    "resources": "<VOLATILE>"
    }
   }
  },
@@ -3763,95 +4869,138 @@
      "schema_version": "1",
      "ok": true,
      "error": null,
-     "sources": [
-      {
-       "path": "<CORPUS>",
-       "enabled": true,
-       "status": "active",
-       "counts": {
-        "indexed": 12
-       },
-       "queue_depth": 0,
-       "last_scan_at": "<VOLATILE>",
-       "last_error": null,
-       "access_state": "online",
-       "index_state": "completed",
-       "queue": {
-        "queued": 0,
-        "processing": 0,
-        "retry": 0,
-        "failed": 0,
-        "completed": 12,
-        "depth": 0,
-        "oldest_pending_created_at": null,
-        "oldest_processing_started_at": null,
-        "next_retry_at": null,
-        "max_attempt_count": 0,
-        "latest_job_error": null
-       },
-       "last_activity_at": "<VOLATILE>",
-       "last_error_detail": null
-      }
-     ],
-     "totals": {
-      "by_status": {
-       "indexed": 12
+     "status": {
+      "schema_version": 1,
+      "snapshot_id": "<VOLATILE>",
+      "observed_at": "<VOLATILE>",
+      "mode": "local",
+      "backend": {
+       "kind": "sqlite",
+       "index_prefix": null,
+       "endpoint": null,
+       "reachable": true,
+       "authoritative": true,
+       "cluster": null,
+       "latency_ms": null
       },
-      "queue_depth": 0
-     },
-     "health": {
-      "status": "healthy",
-      "problem_count": 0
-     },
-     "indexer": {
-      "state": "idle",
-      "lock_state": "free",
-      "pid": null,
-      "operation": null,
-      "hostname": null,
-      "lock_source_id": null,
-      "acquired_at": null,
-      "running_for_seconds": null,
-      "current_source_id": null,
-      "source_position": null,
-      "source_total": null,
-      "stage": null,
-      "started_at": null,
-      "last_activity_at": null,
-      "last_activity_age_seconds": null,
-      "stall_threshold_seconds": 120.0,
-      "stall_reason": null,
-      "run": null,
-      "last_run": {
-       "operation": "index",
-       "outcome": "completed",
-       "pid": "<VOLATILE>",
-       "started_at": "<VOLATILE>",
-       "updated_at": "<VOLATILE>",
-       "completed_at": "<VOLATILE>",
-       "scanned": 12,
-       "queued": 0,
-       "retry": 0,
-       "indexed": 12,
-       "failed": 0,
-       "error": null
+      "health": {
+       "state": "healthy",
+       "problem_count": 0
+      },
+      "indexer": {
+       "scope": "host",
+       "active_run_count": 0,
+       "active_source_count": 0,
+       "max_parallel_sources": 1,
+       "workers": [],
+       "resources": null,
+       "lock": {
+        "state": "free",
+        "pid": null,
+        "operation": null,
+        "hostname": null,
+        "source_id": null,
+        "acquired_at": null
+       },
+       "last_run": {
+        "run_id": "<VOLATILE>",
+        "operation": "index",
+        "outcome": "completed",
+        "started_at": "<VOLATILE>",
+        "completed_at": "<VOLATILE>",
+        "error": null
+       },
+       "stall_threshold_seconds": 120.0
+      },
+      "summary": {
+       "sources": {
+        "registered": 1,
+        "enabled": 1,
+        "active": 0,
+        "failed": 0,
+        "offline": 0
+       },
+       "files": {
+        "discovered": 12,
+        "published_indexed": 12,
+        "failed": 0,
+        "retrying": 0,
+        "pending_in_current_runs": null
+       },
+       "entities": 61,
+       "documents": 9,
+       "chunks": 19,
+       "relationships": 151,
+       "throughput_files_per_second": null
+      },
+      "sources": [
+       {
+        "source_id": "<SOURCE>",
+        "path": "<CORPUS>",
+        "source_type": "local",
+        "enabled": true,
+        "access": "online",
+        "index_state": "completed",
+        "build": {
+         "active_id": "<VOLATILE>",
+         "pending_id": null,
+         "state": "ready",
+         "published_at": "<VOLATILE>"
+        },
+        "published": {
+         "files": 12,
+         "indexed": 12,
+         "failed": 0,
+         "retrying": 0,
+         "code_entities": 61,
+         "documents": 9,
+         "chunks": 19,
+         "relationships": 151,
+         "links": 4,
+         "max_attempt_count": 0,
+         "next_retry_at": null
+        },
+        "live": {
+         "run_id": "<VOLATILE>",
+         "host": "<VOLATILE>",
+         "pid": "<VOLATILE>",
+         "operation": "index",
+         "stage": "done",
+         "scanned": 12,
+         "planned": 12,
+         "processed": 12,
+         "indexed": 12,
+         "failed": 0,
+         "retry": 0,
+         "percentage": 100.0,
+         "started_at": "<VOLATILE>",
+         "last_progress_at": "<VOLATILE>",
+         "heartbeat_at": "<VOLATILE>",
+         "heartbeat_age_seconds": "<VOLATILE>",
+         "lease_token": null,
+         "lease_valid": null,
+         "outcome": "completed",
+         "source_id": "<SOURCE>",
+         "liveness": "finished"
+        },
+        "last_scan_at": "<VOLATILE>",
+        "last_error_at": null,
+        "last_error": null,
+        "warnings": []
+       }
+      ],
+      "problems": [],
+      "recent_errors": [],
+      "diagnostics": {
+       "partial": false,
+       "missing_sections": [],
+       "collection_ms": "<VOLATILE>",
+       "request_count": "<VOLATILE>",
+       "cached_sections": [],
+       "consistency": "consistent",
+       "inconsistent_sources": []
       }
-     },
-     "queue": {
-      "queued": 0,
-      "processing": 0,
-      "retry": 0,
-      "failed": 0,
-      "completed": 12,
-      "depth": 0,
-      "oldest_pending_created_at": null,
-      "oldest_processing_started_at": null,
-      "next_retry_at": null,
-      "max_attempt_count": 0,
-      "latest_job_error": null
-     },
-     "recent_errors": [],
-     "problems": []
+     }
     },
     "isError": false
    }

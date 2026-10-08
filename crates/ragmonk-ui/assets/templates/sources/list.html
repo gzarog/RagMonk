@@ -27,7 +27,7 @@
 <div class="panel">
   <table>
     <thead>
-      <tr><th>Path</th><th>Type</th><th>Enabled</th><th>Status</th><th>Indexed</th><th>Failed</th><th>Last scan</th><th></th></tr>
+      <tr><th>Path</th><th>Type</th><th>Enabled</th><th>State</th><th>Published</th><th>Failed</th><th>Last scan</th><th></th></tr>
     </thead>
     <tbody>
       {% for s in sources %}
@@ -37,9 +37,9 @@
         <td>
           {% if s.enabled %}<span class="badge ok">enabled</span>{% else %}<span class="badge muted">disabled</span>{% endif %}
         </td>
-        <td><span class="badge {{ 'ok' if s.status == 'active' else 'muted' }}">{{ s.status }}</span></td>
-        <td>{{ s.indexed }}</td>
-        <td>{{ s.failed }}</td>
+        <td><span class="badge {{ 'ok' if s.index_state == 'completed' else 'muted' }}">{{ s.index_state or "unknown" }}</span>{% if s.access == 'offline' %} <span class="badge warn">offline</span>{% endif %}</td>
+        <td>{{ "N/A" if s.published is none else s.published.indexed }}</td>
+        <td>{{ "N/A" if s.published is none else s.published.failed }}</td>
         <td class="muted">{{ s.last_scan_at or "—" }}</td>
         <td class="right">
           {% if s.enabled %}

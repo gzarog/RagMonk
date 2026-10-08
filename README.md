@@ -235,36 +235,41 @@ Every command supports `--help`.
 
 ## 📊 Is it working? `ragmonk status`
 
-`ragmonk status` tells you whether indexing is **running, progressing, stalled or failing**, and what failed. Example while indexing:
+`ragmonk status` tells you whether indexing is **running, progressing, stalled or failing**, on which sources and hosts, and what failed. Example while two sources index on two hosts (server mode):
 
 ```
-╭──────────────── Indexer ────────────────╮
-│ State: running                          │
-│ PID: 44884  Operation: index            │
-│ Source: src_8322e (17/150)  Stage: processing  Last activity: 2s ago │
-╰─────────────────────────────────────────╯
-Health: degraded (2 problem(s))
-Jobs: queued=720 processing=1 retry=23 failed=7
+RagMonk status  [server mode, opensearch http://search.example:9200 prefix=ragmonk, authoritative]
+Snapshot 2026-10-08T15:00:00.000000Z (0s ago)
+Health: DEGRADED  (2 problem(s))  Cluster: yellow (unassigned shards 7)
+Sources: 3 registered, 3 enabled, 2 active, 0 failed, 0 offline
+Published: 2400 indexed, 4 failed, 6 retrying of 2410 files; 18000 entities, 320 documents, 9100 chunks, 41000 relationships
+In progress: 2 pass(es) over 2 source(s) on 2 host(s); files pending in current runs: N/A
+== Active passes ==
+Source     Host    Run   Stage       Progress        Indexed  Failed  Retry  Heartbeat
+src_alpha  host-a  live  processing  120/300 (40%)   118      1       1      1s ago
+src_beta   host-b  live  scanning    0/N/A           0        0       0      3s ago
 ```
 
 | Flag | What it does |
 |---|---|
-| `--watch` | Live view with deltas and files/sec (Ctrl+C to exit) |
-| `--errors` | Only the sources and errors that need attention |
-| `--verbose` | Lock owner, timings, next retry, last file error per source |
-| `--json` | Full machine-readable status (same data as the MCP tool and Admin UI) |
+| `--watch` | Live view (cheap refresh; Ctrl+C to exit) |
+| `--errors` | Only the sources, problems and errors that need attention |
+| `--verbose` | Full ids and paths, builds, run ids, locks and diagnostics |
+| `--json` | The canonical machine-readable report (same data as the MCP tool and the Admin UI's `/api/status`) |
 
-**Reading the source table**
+**Reading it**
 
-| Column | Meaning |
+| Term | Meaning |
 |---|---|
+| **Published** | Counts of each source's published build only; work in progress never mixes in |
+| **In progress / Active passes** | Passes running now, on this host (local mode) or any host (server mode) |
+| **State** | `queued` · `scanning` · `indexing` · `finalizing` · `publishing` · `completed` · `retrying` · `failed` · `stalled` · `offline` · `disabled` · `not_indexed` · `unknown` |
 | **Access** | Can the folder be reached? `online` · `offline` · `disabled` |
-| **Index State** | `indexing` · `waiting` · `retrying` · `errors` · `completed` · `idle` · `offline` · `stalled` |
-| **Last Activity** | Last progress heartbeat for the source being indexed, otherwise its last scan |
+| **N/A** | Not observable (for example the total before a scan finished); never shown as `0` |
 
-**Health:** `healthy` · `degraded` (some files failed or are retrying, or a source is offline) · `failed` (backend unreachable, run stalled or crashed, or all sources offline). The `problems` list always says why.
+**Health:** `healthy` · `degraded` (failed or retrying files, an offline source, a yellow cluster) · `failed` (backend unreachable, red cluster, a pass stalled or crashed, all sources offline) · `unknown` (part of the status could not be read). The problems list always says why, with a code and a hint.
 
-> ⏱️ **"stalled"** means indexing is still running on that source but has reported no progress for **120 seconds** (`indexing.status_stall_threshold_seconds`). A single very large PDF can legitimately take longer than that. If this happens often, raise the threshold.
+> ⏱️ **"stalled"** means a pass stopped sending heartbeats for **120 seconds** (`indexing.status_stall_threshold_seconds`). Passes send heartbeats every 5 seconds even during a long OCR or embedding step, so a stall means the process is stuck or gone.
 
 ---
 

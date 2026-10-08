@@ -16,6 +16,7 @@ members = [
     "crates/ragmonk-ops",
     "crates/ragmonk-retrieval",
     "crates/ragmonk-service",
+    "crates/ragmonk-status",
     "crates/ragmonk-storage",
     "crates/ragmonk-telemetry",
     "crates/ragmonk-ui",
@@ -59,6 +60,7 @@ ragmonk-ml = { path = "crates/ragmonk-ml" }
 ragmonk-knowledge = { path = "crates/ragmonk-knowledge" }
 ragmonk-retrieval = { path = "crates/ragmonk-retrieval" }
 ragmonk-service = { path = "crates/ragmonk-service" }
+ragmonk-status = { path = "crates/ragmonk-status" }
 ragmonk-ops = { path = "crates/ragmonk-ops" }
 ragmonk-mcp = { path = "crates/ragmonk-mcp" }
 ragmonk-ui = { path = "crates/ragmonk-ui" }

@@ -314,7 +314,9 @@ fn coordinator_runner_indexes_and_publishes_progress() {
     let p = ragmonk_indexing::progress::read_progress(&home.index_progress()).unwrap();
     assert!(!p.running);
     assert_eq!(p.operation.as_deref(), Some("daemon"));
-    assert_eq!(p.indexed, 2);
+    let indexed: i64 = p.sources.iter().map(|s| s.indexed).sum();
+    assert_eq!(indexed, 2);
+    assert!(p.sources.iter().all(|s| !s.active));
     let snap = health::read_health(&home).unwrap();
     assert_eq!(snap.sources[0].source_id, src.id);
     assert!(snap.sources[0].online);

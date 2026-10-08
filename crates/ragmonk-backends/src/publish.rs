@@ -377,6 +377,8 @@ impl ServerBackend {
             .iter()
             .map(|s| (s.row.id.as_str(), (s.row.rel_path.as_str(), s.row.mtime)))
             .collect();
+        // When each failing file last failed (its newest error event).
+        let error_times = store.file_error_times(build).map_err(storage)?;
         let mut w = self.build_writer(input.source_id, input.build_id);
         for s in &write {
             let f = &s.row;
@@ -395,6 +397,11 @@ impl ServerBackend {
                 status: Some(f.status.clone()),
                 attempt_count: Some(f.attempt_count),
                 last_error: f.last_error.clone(),
+                last_error_at: f
+                    .last_error
+                    .as_ref()
+                    .and_then(|_| error_times.get(&f.id))
+                    .and_then(|t| crate::backend::iso_to_millis(t)),
                 next_attempt_at: f.next_attempt_at.clone(),
                 knowledge_digest: Some(s.digest.clone()),
             })?;

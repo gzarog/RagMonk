@@ -674,6 +674,10 @@ pub fn run_source_with(
         &mut result,
     );
     let outcome = outcome.and_then(|()| {
+        progress.event(&ProgressEvent::Stage {
+            source_id: source.id.clone(),
+            stage: "publishing",
+        });
         let started = Instant::now();
         if full {
             // Committed but still invisible: the control plane points at the
@@ -880,6 +884,12 @@ fn build(
         Ok(())
     })?;
     result.pipeline = pipeline;
+    if !registry.finalizers.is_empty() {
+        progress.event(&ProgressEvent::Stage {
+            source_id: source_id.into(),
+            stage: "finalizing",
+        });
+    }
     for finalizer in &registry.finalizers {
         let report = finalizer.finalize(store, build_id, &touched).map_err(|e| {
             RagMonkError::new(

@@ -3,17 +3,26 @@
 {% block content %}
 <h1>Dashboard</h1>
 
-{% set m = status.totals.metrics %}
+{% set sm = status.summary %}
+{% set hc = {"healthy": "ok", "degraded": "warn", "failed": "danger"} %}
+<p>
+  <span class="badge {{ hc.get(status.health.state, 'muted') }}">{{ status.health.state }}</span>
+  {{ status.health.problem_count }} problem(s) ·
+  <code>{{ status.backend.kind }}</code>{% if status.backend.index_prefix %} prefix <code>{{ status.backend.index_prefix }}</code>{% endif %}
+  {% if status.backend.cluster %} · cluster {{ status.backend.cluster.health or "unknown" }}{% endif %}
+  · snapshot <span class="mono">{{ status.observed_at }}</span>
+  {% if status.diagnostics.partial %}<span class="badge warn">partial: {{ status.diagnostics.missing_sections|join(", ") }}</span>{% endif %}
+</p>
 <div class="grid">
-  <div class="stat"><div class="num">{{ status.sources|length }}</div><div class="label">Sources</div></div>
-  <div class="stat"><div class="num">{{ status.sources|selectattr("enabled")|list|length }}</div><div class="label">Enabled</div></div>
-  <div class="stat"><div class="num">{{ m.files_indexed }}</div><div class="label">Indexed files</div></div>
-  <div class="stat"><div class="num">{{ m.index_queue_depth }}</div><div class="label">Queued</div></div>
-  <div class="stat"><div class="num">{{ m.files_failed }}</div><div class="label">Failed</div></div>
-  <div class="stat"><div class="num">{{ m.documents_processed }}</div><div class="label">Documents</div></div>
-  <div class="stat"><div class="num">{{ m.symbols_created }}</div><div class="label">Symbols</div></div>
-  <div class="stat"><div class="num">{{ m.relationships_created }}</div><div class="label">Relationships</div></div>
-  <div class="stat"><div class="num">{{ (m.database_size_bytes / 1024)|round(1) }} KB</div><div class="label">DB / index size</div></div>
+  <div class="stat"><div class="num">{{ sm.sources.registered }}</div><div class="label">Sources</div></div>
+  <div class="stat"><div class="num">{{ sm.sources.enabled }}</div><div class="label">Enabled</div></div>
+  <div class="stat"><div class="num">{{ sm.sources.active }}</div><div class="label">Indexing now</div></div>
+  <div class="stat"><div class="num">{{ "N/A" if sm.files.published_indexed is none else sm.files.published_indexed }}</div><div class="label">Published files</div></div>
+  <div class="stat"><div class="num">{{ "N/A" if sm.files.failed is none else sm.files.failed }}</div><div class="label">Failed</div></div>
+  <div class="stat"><div class="num">{{ "N/A" if sm.files.retrying is none else sm.files.retrying }}</div><div class="label">Retrying</div></div>
+  <div class="stat"><div class="num">{{ "N/A" if sm.documents is none else sm.documents }}</div><div class="label">Documents</div></div>
+  <div class="stat"><div class="num">{{ "N/A" if sm.entities is none else sm.entities }}</div><div class="label">Symbols</div></div>
+  <div class="stat"><div class="num">{{ "N/A" if sm.relationships is none else sm.relationships }}</div><div class="label">Relationships</div></div>
 </div>
 
 <div class="panel">
@@ -25,25 +34,38 @@
       <span class="badge muted">Daemon stopped</span>
     {% endif %}
   </div>
-  <p class="muted">
-    Tokenizer: <code>{{ status.tokenizer.get("model_id", status.tokenizer.get("name", "unknown")) }}</code>
-    · chunk ceiling {{ status.tokenizer.chunk_ceiling }} tokens
-    · last reconciliation {{ daemon.last_reconciliation_at or "—" }}
-  </p>
+  {% if status.indexer.workers %}
+  <table>
+    <thead><tr><th>Source</th><th>Host</th><th>Stage</th><th>Progress</th><th>Heartbeat</th></tr></thead>
+    <tbody>
+      {% for w in status.indexer.workers %}
+      <tr>
+        <td class="mono">{{ w.source_id }}</td>
+        <td>{{ w.host or "—" }}</td>
+        <td>{{ w.stage or "—" }} <span class="badge {{ 'ok' if w.liveness == 'live' else 'warn' }}">{{ w.liveness }}</span></td>
+        <td>{{ "N/A" if w.processed is none else w.processed }} / {{ "N/A" if w.planned is none else w.planned }}{% if w.percentage is not none %} ({{ w.percentage }}%){% endif %}</td>
+        <td class="muted mono">{{ w.heartbeat_at or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No indexing pass is running · last reconciliation {{ daemon.last_reconciliation_at or "—" }}</p>
+  {% endif %}
 </div>
 
 <h2>Sources</h2>
 <div class="panel">
   <table>
-    <thead><tr><th>Source</th><th>Status</th><th>Indexed</th><th>Queued</th><th>Failed</th><th>Last scan</th></tr></thead>
+    <thead><tr><th>Source</th><th>State</th><th>Published</th><th>Failed</th><th>Retrying</th><th>Last scan</th></tr></thead>
     <tbody>
       {% for s in status.sources %}
       <tr>
-        <td><a href="/sources/{{ s.id }}">{{ s.path }}</a></td>
-        <td><span class="badge {{ 'ok' if s.status == 'active' else 'muted' }}">{{ s.status }}</span></td>
-        <td>{{ s.counts.get("indexed", 0) }}</td>
-        <td>{{ s.queue_depth }}</td>
-        <td>{{ s.counts.get("failed", 0) }}</td>
+        <td><a href="/sources/{{ s.source_id }}">{{ s.path }}</a></td>
+        <td><span class="badge {{ 'ok' if s.index_state == 'completed' else 'muted' }}">{{ s.index_state }}</span></td>
+        <td>{{ "N/A" if s.published is none else s.published.indexed }}</td>
+        <td>{{ "N/A" if s.published is none else s.published.failed }}</td>
+        <td>{{ "N/A" if s.published is none else s.published.retrying }}</td>
         <td class="muted">{{ s.last_scan_at or "—" }}</td>
       </tr>
       {% else %}
@@ -53,18 +75,37 @@
   </table>
 </div>
 
+{% if status.problems %}
+<h2>Problems</h2>
+<div class="panel">
+  <table>
+    <thead><tr><th>Severity</th><th>Code</th><th>Source</th><th>Message</th></tr></thead>
+    <tbody>
+      {% for p in status.problems %}
+      <tr>
+        <td><span class="badge {{ 'danger' if p.severity == 'error' else ('warn' if p.severity == 'warning' else 'muted') }}">{{ p.severity }}</span></td>
+        <td class="mono">{{ p.code }}</td>
+        <td class="mono">{{ p.source_id or "—" }}{% if p.host %} @{{ p.host }}{% endif %}</td>
+        <td>{{ p.message }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <h2>Latest indexing errors</h2>
 <div class="panel">
-  {% if errors %}
+  {% if status.recent_errors %}
   <table>
     <thead><tr><th>When</th><th>Source</th><th>Path</th><th>Error</th></tr></thead>
     <tbody>
-      {% for e in errors %}
+      {% for e in status.recent_errors %}
       <tr>
-        <td class="muted mono">{{ e.occurred_at }}</td>
+        <td class="muted mono">{{ e.occurred_at or "time unknown" }}</td>
         <td>{{ e.source_id }}</td>
         <td class="mono">{{ e.path or "—" }}</td>
-        <td>{{ e.error_code }}: {{ e.error_message }}</td>
+        <td>{{ e.code }}: {{ e.message }}</td>
       </tr>
       {% endfor %}
     </tbody>

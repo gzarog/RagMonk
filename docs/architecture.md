@@ -7,7 +7,8 @@ helper for packaging and repository audits.
 | Crate | Responsibility |
 |-------|----------------|
 | `ragmonk-cli` | `ragmonk` binary: `version`, `config`, `server schema/init`, `daemon`, `init`, `source`, `index`, `status`, `docs`, `watch`, `search`, `symbol`, `callers`, `callees`, `references`, `impact`, `explore`, `link`, `doctor`, `health`, `backup`, `restore`, `rebuild`, `update`, `uninstall`, `vectors`, `ask`, `ai`, `ui` and `serve --mcp` |
-| `ragmonk-service` | application services shared by the CLI, Admin UI and MCP server: the single storage-mode resolver (`backend::open`), source catalog, bounded parallel indexing runs, server-mode staged indexing and publication, queries, status, `ask`, daemon control |
+| `ragmonk-service` | application services shared by the CLI, Admin UI and MCP server: the single storage-mode resolver (`backend::open`), source catalog, bounded parallel indexing runs, server-mode staged indexing and publication (with run heartbeats), queries, the status facade, `ask`, daemon control |
+| `ragmonk-status` | the single status model, the local SQLite and batched OpenSearch/Elasticsearch collectors, run liveness, the health evaluator and the globally ordered error feed (ADR 0034) |
 | `ragmonk-ops` | operations: `doctor`, backup/restore, full rebuilds, vector maintenance, uninstall |
 | `ragmonk-mcp` | stdio MCP server (`ragmonk serve --mcp`) exposing the read-only `ragmonk_*` tools |
 | `ragmonk-ui` | local Admin UI (`ragmonk ui`), an axum server with embedded templates |
@@ -19,7 +20,7 @@ helper for packaging and repository audits.
 | `ragmonk-knowledge` | cross-domain linker (code entities <-> document chunks) and persistent manual links |
 | `ragmonk-ml` | pinned model assets, pure-Rust (Candle) embeddings, embedding cache, persistent HNSW index, semantic search, RRF and the cross-encoder reranker |
 | `ragmonk-retrieval` | lexical and hybrid search, exact-match pinning, reranking, symbol search, graph queries, explore and impact, context expansion and query classification |
-| `ragmonk-indexing` | scanner, ignore rules, incremental diff, retries, per-source run locks, bounded parallel executor, process-wide resource governor, bounded transactional build coordinator, progress and status, fair multi-worker daemon, filesystem watcher, network polling, targeted passes |
+| `ragmonk-indexing` | scanner, ignore rules, incremental diff, retries, per-source run locks, bounded parallel executor, process-wide resource governor, bounded transactional build coordinator, per-source progress and heartbeats, process probes, fair multi-worker daemon, filesystem watcher, network polling, targeted passes |
 | `ragmonk-storage` | SQLite control plane (`state/control.db`), per-project knowledge stores (`projects/<id>/knowledge.db`) and the storage-neutral `KnowledgeRead` port every retrieval stage reads through |
 | `ragmonk-config` | `config.yaml` loading, layering (defaults < user < project < env < CLI), typed validation |
 | `ragmonk-core` | errors and exit codes, domain models, home layout, stable IDs, secret filter, path guard, version |

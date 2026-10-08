@@ -1,6 +1,6 @@
 //! The server index schema manifest.
 //!
-//! Six specialized indexes (no multiplexing of unrelated record kinds),
+//! Seven specialized indexes (no multiplexing of unrelated record kinds),
 //! `dynamic: strict` mappings, only query/filter/sort fields indexed (bulky
 //! text is stored with `index: false`), and an `_meta` block carrying the
 //! schema identity so an incompatible existing index is detected instead of
@@ -13,7 +13,7 @@ use crate::engine::{Engine, VectorSpec};
 /// Mapping identity, bumped on any mapping change. Existing indexes with
 /// another identity are refused: the operator uses a fresh prefix/cluster or
 /// resets the current indexes; nothing is ever mutated in place.
-pub const SCHEMA_VERSION: u64 = 2;
+pub const SCHEMA_VERSION: u64 = 3;
 pub const SCHEMA_TAG: &str = "ragmonk";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
@@ -25,16 +25,20 @@ pub enum IndexKind {
     Documents,
     Chunks,
     Relationships,
+    /// Live indexing runs: one heartbeat document per source, written by
+    /// whichever host holds the source's writer lease.
+    Runtime,
 }
 
 impl IndexKind {
-    pub const ALL: [IndexKind; 6] = [
+    pub const ALL: [IndexKind; 7] = [
         IndexKind::SourceState,
         IndexKind::Files,
         IndexKind::Code,
         IndexKind::Documents,
         IndexKind::Chunks,
         IndexKind::Relationships,
+        IndexKind::Runtime,
     ];
 
     /// Indexes holding build-scoped, index-derived records.
@@ -54,6 +58,7 @@ impl IndexKind {
             IndexKind::Documents => "documents",
             IndexKind::Chunks => "chunks",
             IndexKind::Relationships => "relationships",
+            IndexKind::Runtime => "runtime",
         }
     }
 }
@@ -139,6 +144,7 @@ fn properties(kind: IndexKind, engine: Engine, vector: Option<&VectorSpec>) -> M
             ("lease_expires_at", date()),
             ("retired_builds", opaque()),
             ("content_digest", kw()),
+            ("published_at", date()),
             ("updated_at", date()),
         ],
         IndexKind::Files => {
@@ -157,6 +163,7 @@ fn properties(kind: IndexKind, engine: Engine, vector: Option<&VectorSpec>) -> M
                 ("status", kw()),
                 ("attempt_count", int()),
                 ("last_error", stored_text()),
+                ("last_error_at", date()),
                 ("next_attempt_at", kw()),
                 ("knowledge_digest", kw()),
                 ("indexed_at", date()),
@@ -263,6 +270,33 @@ fn properties(kind: IndexKind, engine: Engine, vector: Option<&VectorSpec>) -> M
             ]);
             f
         }
+        // Fast-changing run progress lives here, never in the source-state
+        // compare-and-swap document. `lease_token` fences writes: a run that
+        // lost the source's lease cannot overwrite a newer run's document.
+        IndexKind::Runtime => vec![
+            ("source_id", kw()),
+            ("run_id", kw()),
+            ("host", kw()),
+            ("owner", kw()),
+            ("lease_token", long()),
+            ("operation", kw()),
+            ("stage", kw()),
+            ("active", boolean()),
+            ("outcome", kw()),
+            ("scanned", long()),
+            ("planned", long()),
+            ("processed", long()),
+            ("indexed", long()),
+            ("failed", long()),
+            ("retry", long()),
+            ("error", stored_text()),
+            ("started_at", date()),
+            ("last_progress_at", date()),
+            ("heartbeat_at", date()),
+            ("expires_at", date()),
+            ("finished_at", date()),
+            ("updated_at", date()),
+        ],
     };
     fields.sort_by(|a, b| a.0.cmp(b.0));
     props(&fields)
@@ -467,11 +501,31 @@ mod tests {
                 "lease_expires_at",
                 "retired_builds",
                 "last_error",
+                "published_at",
             ],
         );
         has(
             IndexKind::Files,
-            &["status", "attempt_count", "last_error", "next_attempt_at"],
+            &[
+                "status",
+                "attempt_count",
+                "last_error",
+                "last_error_at",
+                "next_attempt_at",
+            ],
+        );
+        has(
+            IndexKind::Runtime,
+            &[
+                "source_id",
+                "run_id",
+                "host",
+                "lease_token",
+                "stage",
+                "heartbeat_at",
+                "expires_at",
+                "outcome",
+            ],
         );
         has(
             IndexKind::Code,

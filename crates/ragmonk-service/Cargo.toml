@@ -19,6 +19,7 @@ ragmonk-indexing.workspace = true
 ragmonk-knowledge.workspace = true
 ragmonk-ml.workspace = true
 ragmonk-retrieval.workspace = true
+ragmonk-status.workspace = true
 ragmonk-storage.workspace = true
 ragmonk-telemetry.workspace = true
 serde_json.workspace = true

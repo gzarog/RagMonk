@@ -302,16 +302,26 @@ fn scenario(base: &str, engine: &str) {
     assert_eq!(none["verdict"], "insufficient_evidence", "{none}");
 
     // --- status reconciles with published records (S03) -----------------
-    let st = ragmonk_service::status::collect(&env.home).unwrap();
-    assert_eq!(st["backend"]["type"], engine);
-    assert_eq!(st["backend"]["authoritative"], true);
-    let files: i64 = st["totals"]["metrics"]["files_discovered"]
-        .as_i64()
-        .unwrap();
-    assert_eq!(files as u64, srv.count(IndexKind::Files, None).unwrap());
+    let st = ragmonk_service::status::report(&env.home).unwrap();
+    assert_eq!(st.backend.kind.as_str(), engine);
+    assert!(st.backend.authoritative);
     assert_eq!(
-        st["totals"]["metrics"]["symbols_created"].as_i64().unwrap() as u64,
-        srv.count(IndexKind::Code, None).unwrap()
+        st.summary.files.discovered,
+        Some(srv.count(IndexKind::Files, None).unwrap())
+    );
+    assert_eq!(
+        st.summary.entities,
+        Some(srv.count(IndexKind::Code, None).unwrap())
+    );
+    // The pass left a finished heartbeat document on the server.
+    let row = st.source(&a.id).unwrap();
+    let live = row.live.as_ref().expect("runtime document of the pass");
+    assert_eq!(live.liveness, ragmonk_status::model::Liveness::Finished);
+    assert_eq!(live.outcome.as_deref(), Some("completed"));
+    assert!(live.host.is_some() && live.pid.is_none());
+    assert_eq!(
+        row.index_state,
+        ragmonk_status::model::SourceIndexState::Completed
     );
 
     // --- warm pass: no new generation -----------------------------------
@@ -453,7 +463,7 @@ fn no_local_fallback() {
     for e in [
         open_sources(&home, None).err().unwrap(),
         catalog(&home).err().unwrap(),
-        ragmonk_service::status::collect(&home).err().unwrap(),
+        ragmonk_service::status::report(&home).err().unwrap(),
         selected_sources(&home, None).err().unwrap(),
         ragmonk_service::sources::control_plane(&home)
             .err()

@@ -81,13 +81,8 @@ pub fn open_with(cfg: &RagMonkConfig) -> Result<Backend, RagMonkError> {
         return Ok(Backend::Local);
     }
     let server = connect(cfg)?;
-    let missing: Vec<String> = server
-        .index_status()
-        .map_err(server_err)?
-        .into_iter()
-        .filter(|(_, exists)| !exists)
-        .map(|(name, _)| name)
-        .collect();
+    // One request verifies every existing index and lists missing ones.
+    let missing = server.check_schema().map_err(server_err)?;
     if !missing.is_empty() {
         return Err(RagMonkError::config(format!(
             "server indexes are missing ({}); run `ragmonk server init` first",
@@ -95,7 +90,6 @@ pub fn open_with(cfg: &RagMonkConfig) -> Result<Backend, RagMonkError> {
         ))
         .with_class("BackendSchemaMismatchError"));
     }
-    server.verify_schema().map_err(server_err)?;
     Ok(Backend::Server(Arc::new(server)))
 }
 
