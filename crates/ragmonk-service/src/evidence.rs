@@ -201,6 +201,15 @@ fn fuse(parts: Vec<Vec<RankedHit>>) -> Vec<RankedHit> {
         b.0.candidate
             .exact_match
             .cmp(&a.0.candidate.exact_match)
+            // Exact matches of one name are equally exact; their per-source
+            // rank ties are broken by path-derived ids, so order by path.
+            .then_with(|| {
+                if a.0.candidate.exact_match && b.0.candidate.exact_match {
+                    a.0.candidate.path.cmp(&b.0.candidate.path)
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
             .then(b.1.total_cmp(&a.1))
             .then(a.2.cmp(&b.2))
             .then_with(|| a.0.candidate.source_id.cmp(&b.0.candidate.source_id))
