@@ -13,10 +13,12 @@
 
 pub mod classify;
 pub mod context;
+pub mod decompose;
 pub mod explore;
 pub mod graph;
 pub mod hybrid;
 pub mod lexical;
+pub mod route;
 
 use ragmonk_storage::read::KnowledgeRead;
 
