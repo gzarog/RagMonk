@@ -1,9 +1,9 @@
-# Installs the native RagMonk CLI (RUST-15) on Windows: downloads the
+# Installs the native RagMonk CLI on Windows: downloads the
 # release archive, verifies it against the release's SHA256SUMS (and the
 # minisign signature over it, when a key is configured below and
 # minisign.exe is on PATH), unpacks it under
 # $env:RAGMONK_INSTALL_DIR\versions, and puts ragmonk.exe on a per-user
-# bin directory added to the user's PATH. No Python needed.
+# bin directory added to the user's PATH.
 #
 #   RAGMONK_VERSION        version to install (default: the latest release)
 #   RAGMONK_INSTALL_DIR    default: %LOCALAPPDATA%\RagMonk
@@ -144,11 +144,6 @@ $info = [ordered]@{
 } | ConvertTo-Json
 [IO.File]::WriteAllText((Join-Path $RagMonkHome "install_info.json"), $info)
 
-if (Test-Path (Join-Path $InstallDir "venv")) {
-    Write-Host "note: the old Python install in $InstallDir\venv and $InstallDir\app is no longer used;"
-    Write-Host "      run 'ragmonk migrate-to-rust-v2 --check' and remove them once you are happy."
-}
-
 $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 if (-not (($UserPath -split ';') -contains $BinDir)) {
     $NewPath = if ($UserPath) { "$UserPath;$BinDir" } else { $BinDir }
@@ -157,4 +152,7 @@ if (-not (($UserPath -split ';') -contains $BinDir)) {
 }
 
 Write-Host ""
-Write-Host "Run 'ragmonk version' to verify, then 'ragmonk init' to get started."
+Write-Host "Get started:"
+Write-Host "  ragmonk init"
+Write-Host "  ragmonk source add <path>"
+Write-Host "  ragmonk index"

@@ -1,1 +1,3 @@
-rust/crates/ragmonk-update/tests/minisign.* -text
+crates/ragmonk-documents/assets/** -text
+crates/ragmonk-update/tests/minisign.* -text
+fixtures/documents/** -text

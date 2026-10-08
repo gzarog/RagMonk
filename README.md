@@ -6,7 +6,7 @@
 ### Answers with exact sources. Entirely on your machine.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Native binary](https://img.shields.io/badge/native-Rust-orange)](rust/)
+[![Native binary](https://img.shields.io/badge/native-Rust-orange)](docs/architecture.md)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-green)](https://modelcontextprotocol.io)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](https://github.com/gzarog/RagMonk)
 
@@ -27,7 +27,11 @@ PDF, Word, PowerPoint, Excel, CSV, HTML, Markdown, OpenDocument, EPUB, plus OCR 
 <td width="33%" valign="top">
 
 ### 💻 Code
+<!-- clean-slate-audit: allow-start -->
+
 Python, JavaScript, TypeScript, Go, Java, Rust, C#. Symbols, callers, call graphs, HTTP routes and impact analysis.
+
+<!-- clean-slate-audit: allow-end -->
 
 </td>
 <td width="33%" valign="top">
@@ -65,7 +69,7 @@ RagMonk is a **local-first knowledge engine**. Point it at folders and you get a
 |---|---|
 | **macOS / Linux** | `curl -fsSL https://raw.githubusercontent.com/gzarog/RagMonk/main/install.sh \| sh` |
 | **Windows (PowerShell)** | `irm https://raw.githubusercontent.com/gzarog/RagMonk/main/install.ps1 \| iex` |
-| **Docker** | `docker pull ghcr.io/gzarog/ragmonk` (see [Container](rust/docs/adr/0030-release-and-container.md)) |
+| **Docker** | `docker pull ghcr.io/gzarog/ragmonk` (see [Container](docs/adr/0030-release-and-container.md)) |
 
 **Requirements:** none. A single native binary for Linux x86_64, macOS (Apple silicon and Intel) and Windows x86_64, with the embedding, reranker and OCR models bundled, so everything runs offline from the first start. Update in place with `ragmonk update install`.
 
@@ -112,7 +116,7 @@ src/payments/settlement.py  →  line 88 · SettlementService.retry()
 | **PNG / JPG / TIFF** | Opt-in OCR (`documents.image_ocr: true`) |
 
 - A corrupt file is isolated and marked as failed. The rest of the run continues.
-- Legacy `.doc`, `.ppt`, `.xls` and `.rtf` files are detected but not converted.
+- Older binary `.doc`, `.ppt`, `.xls` files and `.rtf` files are detected but not converted.
 - Incremental: only changed files are reprocessed, and PDF conversions are cached by content.
 
 </details>
@@ -120,7 +124,11 @@ src/payments/settlement.py  →  line 88 · SettlementService.retry()
 <details open>
 <summary><b>💻 Code</b></summary>
 
+<!-- clean-slate-audit: allow-start -->
+
 Full extraction for **Python, JavaScript, TypeScript/TSX, Go, Java, Rust and C#**, including HTTP routes from Python decorators and C# attributes. Other languages are still indexed for full-text search.
+
+<!-- clean-slate-audit: allow-end -->
 
 ```bash
 ragmonk symbol SettlementService      # where is it defined?
@@ -156,8 +164,7 @@ Manage sources, run indexing with live progress, browse document chunks, test se
 <summary><b>🤖 AI agents (MCP)</b></summary>
 
 ```bash
-ragmonk install-agent --client claude-code   # or: codex · cursor · vscode · all
-ragmonk serve --mcp
+ragmonk serve --mcp   # register this command as a stdio MCP server in your client
 ```
 
 Tools exposed: `ragmonk_explore`, `ragmonk_search`, `ragmonk_documents`, `ragmonk_symbol`, `ragmonk_callers`, `ragmonk_callees`, `ragmonk_impact`, `ragmonk_status`, `ragmonk_ask`.
@@ -263,7 +270,7 @@ Jobs: queued=720 processing=1 retry=23 failed=7
 
 ## ⚙️ Configuration
 
-Settings live in `~/.ragmonk/config.yaml` (Windows: `%LOCALAPPDATA%\RagMonk`). Change them with `ragmonk config set KEY VALUE`, or override any of them with an environment variable, e.g. `RAGMONK_DOCUMENTS__OCR=off`. Set `RAGMONK_HOME` to move the whole runtime folder.
+Settings live in `~/.ragmonk/config.yaml` (Windows: `%LOCALAPPDATA%\RagMonk`); unknown keys are rejected. Change them with `ragmonk config set KEY VALUE`, or override any of them with an environment variable, e.g. `RAGMONK_DOCUMENTS__OCR=off`. Set `RAGMONK_HOME` to move the whole runtime folder.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -271,8 +278,6 @@ Settings live in `~/.ragmonk/config.yaml` (Windows: `%LOCALAPPDATA%\RagMonk`). C
 | `documents.image_ocr` | `false` | OCR plain images (PNG/JPG/TIFF) |
 | `documents.max_pages` | `1000` | Skip larger PDFs |
 | `documents.pdf_mode` | `accurate` | `fast` = text layer only, much faster, no layout/tables |
-| `documents.pdf_table_structure` | `true` | `false` = skip table detection (faster) |
-| `documents.pdf_process_workers` | `1` | Convert PDFs in N parallel processes (more RAM) |
 | `documents.email_attachments` | `true` | Index supported `.eml` attachments as child documents |
 | `search.semantic` | `false` | Local embedding-based semantic search |
 | `indexing.watch` | `true` | Daemon watches folders for changes |
@@ -288,11 +293,9 @@ Settings live in `~/.ragmonk/config.yaml` (Windows: `%LOCALAPPDATA%\RagMonk`). C
 | Situation | Try |
 |---|---|
 | Many digital (non-scanned) PDFs, speed matters more than layout | `ragmonk config set documents.pdf_mode fast`: 81s → 1.6s on a 24-PDF test set |
-| PDFs without tables | `ragmonk config set documents.pdf_table_structure false` |
-| Many-core machine, lots of PDFs | `ragmonk config set documents.pdf_process_workers 4` |
 | Big first index | Let it finish once. After that only changed files are reprocessed |
 
-Changing `pdf_mode` or `pdf_table_structure` reprocesses PDFs on the next `ragmonk index`.
+Changing `pdf_mode` reprocesses PDFs on the next `ragmonk index`.
 
 </details>
 

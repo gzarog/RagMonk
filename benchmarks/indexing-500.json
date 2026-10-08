@@ -1,0 +1,153 @@
+{
+  "files": 500,
+  "processing": "raw (scan/diff/hash/storage/publication only)",
+  "scenarios": [
+    {
+      "counts": {
+        "changed": 0,
+        "deleted": 0,
+        "hash_calls": 525,
+        "moved": 0,
+        "new": 525,
+        "scanned": 525,
+        "unchanged": 0,
+        "unseen_kept": 0
+      },
+      "scenario": "cold_index",
+      "timings": {
+        "classify_seconds": 0.014638124,
+        "hash_calls": 525,
+        "process_seconds": 0.02467418,
+        "publish_seconds": 0.000617898,
+        "scan_seconds": 0.00635763
+      },
+      "wall_time_s": 0.070835357
+    },
+    {
+      "counts": {
+        "changed": 0,
+        "deleted": 0,
+        "hash_calls": 0,
+        "moved": 0,
+        "new": 0,
+        "scanned": 525,
+        "unchanged": 525,
+        "unseen_kept": 0
+      },
+      "scenario": "warm_unchanged",
+      "timings": {
+        "classify_seconds": 0.001088766,
+        "hash_calls": 0,
+        "process_seconds": 0.0,
+        "publish_seconds": 0.0,
+        "scan_seconds": 0.006184295
+      },
+      "wall_time_s": 0.010024703
+    },
+    {
+      "counts": {
+        "changed": 1,
+        "deleted": 0,
+        "hash_calls": 1,
+        "moved": 0,
+        "new": 0,
+        "scanned": 525,
+        "unchanged": 524,
+        "unseen_kept": 0
+      },
+      "scenario": "single_edit",
+      "timings": {
+        "classify_seconds": 0.001268221,
+        "hash_calls": 1,
+        "process_seconds": 0.000734719,
+        "publish_seconds": 0.001389588,
+        "scan_seconds": 0.005833321
+      },
+      "wall_time_s": 0.012940582
+    },
+    {
+      "counts": {
+        "changed": 5,
+        "deleted": 0,
+        "hash_calls": 5,
+        "moved": 0,
+        "new": 0,
+        "scanned": 525,
+        "unchanged": 520,
+        "unseen_kept": 0
+      },
+      "scenario": "one_percent_change",
+      "timings": {
+        "classify_seconds": 0.001283977,
+        "hash_calls": 5,
+        "process_seconds": 0.001131857,
+        "publish_seconds": 0.000959675,
+        "scan_seconds": 0.005734767
+      },
+      "wall_time_s": 0.013629839
+    },
+    {
+      "counts": {
+        "changed": 25,
+        "deleted": 0,
+        "hash_calls": 25,
+        "moved": 0,
+        "new": 0,
+        "scanned": 525,
+        "unchanged": 500,
+        "unseen_kept": 0
+      },
+      "scenario": "burst_change",
+      "timings": {
+        "classify_seconds": 0.001953398,
+        "hash_calls": 25,
+        "process_seconds": 0.002836756,
+        "publish_seconds": 0.002238766,
+        "scan_seconds": 0.006767103
+      },
+      "wall_time_s": 0.019816323
+    },
+    {
+      "counts": {
+        "changed": 0,
+        "deleted": 0,
+        "hash_calls": 1,
+        "moved": 1,
+        "new": 0,
+        "scanned": 525,
+        "unchanged": 525,
+        "unseen_kept": 0
+      },
+      "scenario": "rename",
+      "timings": {
+        "classify_seconds": 0.001432989,
+        "hash_calls": 1,
+        "process_seconds": 0.000482476,
+        "publish_seconds": 0.000993126,
+        "scan_seconds": 0.006673918
+      },
+      "wall_time_s": 0.014091926
+    },
+    {
+      "counts": {
+        "changed": 0,
+        "deleted": 1,
+        "hash_calls": 0,
+        "moved": 0,
+        "new": 0,
+        "scanned": 524,
+        "unchanged": 524,
+        "unseen_kept": 0
+      },
+      "scenario": "delete",
+      "timings": {
+        "classify_seconds": 0.001340418,
+        "hash_calls": 0,
+        "process_seconds": 0.000190559,
+        "publish_seconds": 0.001255245,
+        "scan_seconds": 0.007401717
+      },
+      "wall_time_s": 0.015129401
+    }
+  ]
+}

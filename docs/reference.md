@@ -16,7 +16,7 @@ Detail behind the [README](../README.md) pitch deck.
 | **EML** | Subject, headers and body · supported attachments indexed as child documents (see below) |
 
 - A corrupt or unsupported file is isolated and recorded as failed; the run continues.
-- Legacy `.doc` / `.ppt` / `.xls` / `.rtf` are detected but not converted.
+- Older binary `.doc` / `.ppt` / `.xls` files and `.rtf` are detected but not converted.
 - PDF conversions are cached by content hash; unchanged PDFs skip the layout model.
 - Chunk sizes follow the embedding model's real tokenizer (`documents.chunking.max_tokens: auto`); tables split at row boundaries.
 
@@ -47,7 +47,11 @@ ragmonk docs [--source <id>]                       # list indexed documents
 
 ## Code
 
+<!-- clean-slate-audit: allow-start -->
+
 Full extraction for Python, JavaScript, TypeScript/TSX, Go, Java, Rust and C#; HTTP routes from Python decorators and C# route attributes. Other languages are indexed for full-text search only.
+
+<!-- clean-slate-audit: allow-end -->
 
 ```bash
 ragmonk symbol | callers | callees | references | impact  <Symbol>
@@ -61,10 +65,8 @@ ragmonk link remove <ID>
 | Setting | Default | Effect |
 |---|---|---|
 | `documents.pdf_mode` | `accurate` | `fast` reads only the PDF text layer (no layout or table models, no model loading). On a 24-PDF test corpus: 81s to 1.6s. Loses heading/table structure and multi-column reading order; low-text PDFs still follow `documents.ocr`. |
-| `documents.pdf_table_structure` | `true` | Accepted for compatibility with older configs; the native PDF converter has no separate table-structure model, so it has no effect. |
-| `documents.pdf_process_workers` | `1` | Accepted for compatibility with older configs (1–32); the native PDF converter does not use separate worker processes, so it has no effect. |
 
-Changing `pdf_mode` or `pdf_table_structure` reprocesses PDFs on the next index (they get their own conversion-cache entries); `pdf_process_workers` does not.
+Changing `pdf_mode` reprocesses PDFs on the next index (each mode has its own conversion-cache entries).
 
 Cross-domain linking (code identifiers mentioned in documents) uses a word index plus a pattern cache instead of testing every identifier against every document section: a 2,100-file cold index spent 222s linking before and 0.7s after, with identical links.
 
@@ -114,8 +116,7 @@ JSON additions (existing `sources`, `backend`, `totals`, `tokenizer` keys are un
 ## MCP (AI agents)
 
 ```bash
-ragmonk install-agent --client claude-code   # or codex · cursor · vscode · all
-ragmonk serve --mcp
+ragmonk serve --mcp   # register this command as a stdio MCP server in your client
 ```
 
 Tools: `ragmonk_explore`, `ragmonk_search`, `ragmonk_documents`, `ragmonk_symbol`, `ragmonk_callers`, `ragmonk_callees`, `ragmonk_impact`, `ragmonk_status`, `ragmonk_ask`.
@@ -151,7 +152,7 @@ ragmonk init --storage-mode server --storage-engine opensearch \
 ragmonk backup [PATH]
 ragmonk restore ARCHIVE
 ragmonk rebuild [--source ID]
-ragmonk upgrade
+ragmonk doctor
 ragmonk update check|status|install|rollback
 ragmonk vectors rebuild
 ragmonk uninstall [--keep-data]
