@@ -3216,6 +3216,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ragmonk-status"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "ragmonk-telemetry",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "ragmonk-storage"
 version = "0.0.0"
 dependencies = [
