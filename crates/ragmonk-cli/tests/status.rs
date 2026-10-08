@@ -4,7 +4,6 @@
 
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
-use std::time::{Duration, Instant};
 
 fn cmd(home: &Path, args: &[&str], env: &[(&str, &str)]) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_ragmonk"));
@@ -44,6 +43,8 @@ fn local_home(dir: &Path) -> std::path::PathBuf {
 #[cfg(unix)]
 #[test]
 fn watch_stops_cleanly_on_ctrl_c() {
+    use std::time::{Duration, Instant};
+
     let dir = tempfile::tempdir().unwrap();
     let home = local_home(dir.path());
     let child = cmd(&home, &["status", "--watch", "--interval", "0.2"], &[])
