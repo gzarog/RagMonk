@@ -25,13 +25,42 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::{now_iso, write_tx};
 use crate::error::{Result, StorageError};
-use crate::knowledge::{cached, ProjectStore, RelationshipRow};
+use crate::knowledge::{
+    cached, entity_from_row, EntityRow, ProjectStore, RelationshipRow, CROSS_FILE_RESOLVERS,
+    ENTITY_COLUMNS,
+};
 
 /// `metadata` key holding the JSON [`GraphState`] (small: status reads it).
 pub const GRAPH_STATE_KEY: &str = "graph_state";
 /// `metadata` key holding the graph's per-file dependency keys (JSON
 /// `file_id -> key`), read only by the graph stage.
 pub const GRAPH_FILES_KEY: &str = "graph_files";
+/// `metadata` key holding the graph's per-file symbol dependencies (JSON
+/// `file_id -> FileSymbols`), read only by the graph stage.
+pub const GRAPH_SYMBOLS_KEY: &str = "graph_symbols";
+
+/// Symbol key of a qualified name.
+pub fn qualified_key(qualified_name: &str) -> String {
+    format!("q:{qualified_name}")
+}
+
+/// Symbol key of a bare name.
+pub fn name_key(name: &str) -> String {
+    format!("n:{name}")
+}
+
+/// What one file defines and what its cross-file references look up, as
+/// symbol keys ([`qualified_key`], [`name_key`]). A reference is affected
+/// by a change exactly when a definition under one of its keys changed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileSymbols {
+    /// Keys of every entity the file defines.
+    #[serde(default)]
+    pub defs: Vec<String>,
+    /// Keys every cross-file reference of the file resolves through.
+    #[serde(default)]
+    pub refs: Vec<String>,
+}
 
 /// Graph lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -86,6 +115,11 @@ pub struct GraphState {
     /// everything".
     #[serde(skip)]
     pub files: BTreeMap<String, String>,
+    /// Dependency metadata: per-file symbol definitions and references
+    /// (stored under [`GRAPH_SYMBOLS_KEY`], loaded with `files`). Empty
+    /// means "re-resolve every reference".
+    #[serde(skip)]
+    pub symbols: BTreeMap<String, FileSymbols>,
     #[serde(default)]
     pub last_success_at: Option<String>,
     #[serde(default)]
@@ -182,6 +216,18 @@ impl ProjectStore {
         state.files = raw
             .and_then(|r| serde_json::from_str(&r).ok())
             .unwrap_or_default();
+        let raw: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = ?1",
+                [GRAPH_SYMBOLS_KEY],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(StorageError::sqlite("read graph symbols"))?;
+        state.symbols = raw
+            .and_then(|r| serde_json::from_str(&r).ok())
+            .unwrap_or_default();
         Ok(state)
     }
 
@@ -212,6 +258,8 @@ impl ProjectStore {
     pub fn put_graph_state_with_files(&mut self, state: &GraphState) -> Result<()> {
         let files = serde_json::to_string(&state.files).map_err(invalid)?;
         self.put_metadata(GRAPH_FILES_KEY, &files)?;
+        let symbols = serde_json::to_string(&state.symbols).map_err(invalid)?;
+        self.put_metadata(GRAPH_SYMBOLS_KEY, &symbols)?;
         self.put_graph_state(state)
     }
 
@@ -293,6 +341,100 @@ impl ProjectStore {
                 })
             },
         )
+    }
+
+    /// The current [`FileSymbols`] of `file_ids` in `build_id` (every file
+    /// with entities or cross-file references when `None`).
+    pub fn file_symbols(
+        &self,
+        build_id: &str,
+        file_ids: Option<&[String]>,
+    ) -> Result<BTreeMap<String, FileSymbols>> {
+        let mut out: BTreeMap<String, FileSymbols> = BTreeMap::new();
+        let add_defs = |rows: Vec<EntityRow>, out: &mut BTreeMap<String, FileSymbols>| {
+            for e in rows {
+                let s = out.entry(e.file_id).or_default();
+                s.defs.push(qualified_key(&e.qualified_name));
+                s.defs.push(name_key(&e.name));
+            }
+        };
+        let add_refs = |rows: Vec<RelationshipRow>, out: &mut BTreeMap<String, FileSymbols>| {
+            for r in rows {
+                let Some(text) = r.reference_text.as_deref() else {
+                    continue;
+                };
+                if !CROSS_FILE_RESOLVERS.contains(&r.resolver.as_str()) {
+                    continue;
+                }
+                let s = out.entry(r.file_id).or_default();
+                s.refs.push(qualified_key(text));
+                s.refs
+                    .push(name_key(text.rsplit('.').next().unwrap_or(text)));
+            }
+        };
+        match file_ids {
+            None => {
+                add_defs(self.all_entities(build_id)?, &mut out);
+                add_refs(self.cross_file_references(build_id)?, &mut out);
+            }
+            Some(ids) => {
+                for id in ids {
+                    out.entry(id.clone()).or_default();
+                    add_defs(self.file_entities(build_id, id)?, &mut out);
+                    add_refs(self.file_relationships(build_id, id)?, &mut out);
+                }
+            }
+        }
+        for s in out.values_mut() {
+            s.defs.sort();
+            s.defs.dedup();
+            s.refs.sort();
+            s.refs.dedup();
+        }
+        Ok(out)
+    }
+
+    /// Entities whose qualified name is `qn`, in cross-file resolution
+    /// order (file, line, id).
+    pub fn entities_by_qualified_name(&self, build_id: &str, qn: &str) -> Result<Vec<EntityRow>> {
+        self.query_rows(
+            "entities by qualified name",
+            &format!(
+                "SELECT {ENTITY_COLUMNS} FROM entities WHERE build_id = ?1 AND qualified_name = ?2
+                 ORDER BY file_id, start_line, id"
+            ),
+            &[&build_id, &qn],
+            entity_from_row,
+        )
+    }
+
+    /// Entities whose bare name is `name`, in bare-name resolution order
+    /// (qualified name, file, line, id).
+    pub fn entities_by_bare_name(&self, build_id: &str, name: &str) -> Result<Vec<EntityRow>> {
+        self.query_rows(
+            "entities by name",
+            &format!(
+                "SELECT {ENTITY_COLUMNS} FROM entities WHERE build_id = ?1 AND name = ?2
+                 ORDER BY qualified_name, file_id, start_line, id"
+            ),
+            &[&build_id, &name],
+            entity_from_row,
+        )
+    }
+
+    /// Cross-file references recorded by `file_id`.
+    pub fn file_cross_file_references(
+        &self,
+        build_id: &str,
+        file_id: &str,
+    ) -> Result<Vec<RelationshipRow>> {
+        Ok(self
+            .file_relationships(build_id, file_id)?
+            .into_iter()
+            .filter(|r| {
+                r.reference_text.is_some() && CROSS_FILE_RESOLVERS.contains(&r.resolver.as_str())
+            })
+            .collect())
     }
 
     /// Deletes every graph row (relationships and automatic/manual link

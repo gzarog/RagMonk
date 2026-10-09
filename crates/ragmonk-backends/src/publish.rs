@@ -213,16 +213,33 @@ impl ServerBackend {
         file_ids: &[String],
         keep: &[String],
     ) -> Result<u64> {
+        self.copy_forward_in(
+            &[
+                IndexKind::Files,
+                IndexKind::Code,
+                IndexKind::Documents,
+                IndexKind::Chunks,
+            ],
+            source_id,
+            from,
+            to,
+            file_ids,
+            keep,
+        )
+    }
+
+    /// [`Self::copy_forward`] over the records of `kinds` only.
+    pub fn copy_forward_in(
+        &self,
+        kinds: &[IndexKind],
+        source_id: &str,
+        from: &str,
+        to: &str,
+        file_ids: &[String],
+        keep: &[String],
+    ) -> Result<u64> {
         let mut copied = 0;
-        let names: Vec<String> = [
-            IndexKind::Files,
-            IndexKind::Code,
-            IndexKind::Documents,
-            IndexKind::Chunks,
-        ]
-        .iter()
-        .map(|k| self.index(*k))
-        .collect();
+        let names: Vec<String> = kinds.iter().map(|k| self.index(*k)).collect();
         let mut keep: Vec<String> = keep.to_vec();
         keep.push(to.to_owned());
         for batch in file_ids.chunks(COPY_BATCH) {

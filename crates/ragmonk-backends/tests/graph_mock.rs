@@ -20,8 +20,8 @@ use serde_json::{json, Value};
 struct Engine0 {
     state: Value,
     seq: i64,
-    /// `(build_id, record_kind)` of every record.
-    records: Vec<(String, String)>,
+    /// `(build ids, record_kind, file_id)` of every record.
+    records: Vec<(Vec<String>, String, String)>,
     fail_bulk: bool,
     /// Publishes another base build when the graph records are refreshed
     /// (a concurrent base publication between write and promotion).
@@ -68,7 +68,8 @@ impl Transport for Mock {
             for line in text.lines().filter(|l| !l.is_empty()) {
                 let v: Value = serde_json::from_str(line).unwrap();
                 if let (Some(b), Some(k)) = (v["build_id"].as_str(), v["record_kind"].as_str()) {
-                    e.records.push((b.to_owned(), k.to_owned()));
+                    let f = v["file_id"].as_str().unwrap_or_default().to_owned();
+                    e.records.push((vec![b.to_owned()], k.to_owned(), f));
                 }
             }
             return ok(json!({"errors": false, "items": []}));
@@ -82,9 +83,39 @@ impl Transport for Mock {
         }
         if base.ends_with("/_update_by_query") {
             let v: Value = serde_json::from_slice(body.unwrap().0).unwrap();
-            let gone = v["script"]["params"]["b"].as_str().unwrap().to_owned();
+            let b = v["script"]["params"]["b"].as_str().unwrap().to_owned();
+            let filter = v["query"]["bool"]["filter"].as_array().unwrap().clone();
+            let from = filter[1]["term"]["build_id"].as_str().unwrap().to_owned();
+            if let Some(keep) = v["script"]["params"]["keep"].as_array() {
+                // Copy-forward: matching records gain `b`.
+                assert!(base.starts_with("/rm-relationships/"), "{base}");
+                let keep: Vec<String> = keep
+                    .iter()
+                    .map(|k| k.as_str().unwrap().to_owned())
+                    .collect();
+                let files: Vec<String> = filter[2]["terms"]["file_id"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|f| f.as_str().unwrap().to_owned())
+                    .collect();
+                let mut updated = 0;
+                for (builds, _, f) in &mut e.records {
+                    if builds.contains(&from) && files.contains(f) {
+                        builds.retain(|x| keep.contains(x));
+                        if !builds.contains(&b) {
+                            builds.push(b.clone());
+                        }
+                        updated += 1;
+                    }
+                }
+                return ok(json!({"updated": updated, "failures": []}));
+            }
             let before = e.records.len();
-            e.records.retain(|(b, _)| *b != gone);
+            for (builds, _, _) in &mut e.records {
+                builds.retain(|x| *x != b);
+            }
+            e.records.retain(|(builds, _, _)| !builds.is_empty());
             return ok(json!({"deleted": before - e.records.len(), "failures": []}));
         }
         panic!("unexpected request {method:?} {path}");
@@ -175,7 +206,7 @@ fn edges_of(m: &Mock, generation: &str) -> usize {
         .unwrap()
         .records
         .iter()
-        .filter(|(b, k)| b == generation && k == "edge")
+        .filter(|(b, k, _)| b.iter().any(|x| x == generation) && k == "edge")
         .count()
 }
 
@@ -287,4 +318,67 @@ fn a_failed_generation_is_never_visible_and_a_republished_base_makes_the_graph_s
     let (g, active): (ServerGraph, _) = b.graph("s1").unwrap().unwrap();
     assert_eq!(g.effective_state(active.as_deref()), "stale");
     assert_eq!(b.visible_graph("s1", "b2").unwrap(), None);
+}
+
+fn edge(id: &str, file: &str) -> RelationshipRow {
+    RelationshipRow {
+        id: id.into(),
+        file_id: file.into(),
+        relationship_type: "calls".into(),
+        source_entity_id: "e".into(),
+        resolver: "same_file_name".into(),
+        confidence: "exact".into(),
+        ..RelationshipRow::default()
+    }
+}
+
+#[test]
+fn unchanged_files_are_copied_forward_and_only_changed_files_are_written() {
+    let (m, b, dir) = setup();
+    let (mut store, local) = staged(dir.path());
+    // A second file with its own edges.
+    let file2 = FileRow {
+        id: "f2".into(),
+        rel_path: "b.py".into(),
+        kind: "code".into(),
+        status: "indexed".into(),
+        ..FileRow::default()
+    };
+    store
+        .put_files(&local, &[(&file2, &FileKnowledge::default())])
+        .unwrap();
+    store
+        .put_relationships(&local, &[edge("s0", "f2"), edge("s1", "f2")])
+        .unwrap();
+    let r = b.publish_graph(&input(&store, &local, "b1", "g1")).unwrap();
+    assert_eq!(
+        (r.files_written, r.files_copied, r.edges_written),
+        (2, 0, 5)
+    );
+
+    // Only f1 changes: f2's two edges are copied, f1's four are written.
+    store
+        .put_relationships(&local, &[edge("r9", "f1")])
+        .unwrap();
+    let r = b.publish_graph(&input(&store, &local, "b1", "g2")).unwrap();
+    assert!(r.published);
+    assert_eq!((r.files_written, r.files_copied), (1, 1), "{r:?}");
+    assert_eq!((r.edges_written, r.records_copied), (4, 2), "{r:?}");
+    assert_eq!(edges_of(&m, "g2"), 6);
+    assert_eq!(b.visible_graph("s1", "b1").unwrap().as_deref(), Some("g2"));
+    // The retired generation is collected; shared records survive.
+    assert_eq!(edges_of(&m, "g1"), 0);
+    let n = m.0.lock().unwrap().records.len();
+    assert_eq!(n, 6, "no duplicated records");
+
+    // A new base with the same graph: everything is copied, nothing written.
+    m.0.lock().unwrap().state["active_build_id"] = json!("b2");
+    let r = b.publish_graph(&input(&store, &local, "b2", "g3")).unwrap();
+    assert!(r.published);
+    assert_eq!(
+        (r.files_written, r.files_copied, r.edges_written),
+        (0, 2, 0)
+    );
+    assert_eq!(b.visible_graph("s1", "b2").unwrap().as_deref(), Some("g3"));
+    assert_eq!(edges_of(&m, "g3"), 6);
 }

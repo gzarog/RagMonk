@@ -15,10 +15,14 @@
 //!    index pass picks the change up and the graph is retried against it.
 //! 3. In one SQLite transaction: verify the base generation is still the
 //!    one planned against, replace the changed files' relationships,
-//!    re-resolve every cross-file reference of the build (only rows whose
-//!    outcome changed are rewritten, which covers unchanged files affected
-//!    by added, removed, moved or newly ambiguous targets), relink, re-apply
-//!    manual link intent and promote the new graph generation. Any error
+//!    re-resolve cross-file references, relink, re-apply manual link intent
+//!    and promote the new graph generation. Re-resolution is scoped by the
+//!    per-file symbol dependencies ([`FileSymbols`](ragmonk_storage::graph::FileSymbols)): the changed files,
+//!    plus every unchanged file with a reference whose qualified or bare
+//!    name matches a definition the changed or removed files had before or
+//!    have now (added, removed, moved or newly ambiguous targets).
+//!    Candidates are looked up per symbol, never by loading the build, and
+//!    only rows whose outcome changed are rewritten. Any error
 //!    rolls everything back and records `failed`; the base index stays
 //!    published and searchable throughout.
 //!
@@ -34,7 +38,7 @@ use ragmonk_storage::knowledge::{ProjectStore, RelationshipRow};
 use ragmonk_storage::StorageError;
 use serde::Serialize;
 
-use crate::process::{file_relationships, graph_derivation, resolve_build};
+use crate::process::{file_relationships, graph_derivation, resolve_build, resolve_files};
 
 /// Most files parsed before their relationships are written.
 pub const GRAPH_BATCH: usize = 256;
@@ -82,6 +86,9 @@ pub struct GraphReport {
     pub relationships_written: usize,
     /// Cross-file references whose resolution changed.
     pub resolutions_changed: usize,
+    /// Files whose cross-file references were re-resolved (every file for
+    /// a full build; changed files plus their symbol dependents otherwise).
+    pub files_reresolved: usize,
     pub links: usize,
     pub seconds: f64,
 }
@@ -135,6 +142,7 @@ pub fn build_graph(
             files_processed: 0,
             relationships_written: 0,
             resolutions_changed: 0,
+            files_reresolved: 0,
             links: 0,
             seconds: started.elapsed().as_secs_f64(),
         });
@@ -189,12 +197,21 @@ fn build(
     progress: &mut GraphProgressFn<'_>,
 ) -> Result<GraphReport, GraphError> {
     let files = store.graph_files(build_id).map_err(failed)?;
+    // Incremental only on top of a complete record of this base build:
+    // its file keys and its per-file symbol dependencies.
     let full = prev.base_build_id.as_deref() != Some(build_id)
         || prev.derivation_version.as_deref() != Some(derivation)
-        || prev.files.is_empty();
+        || prev.files.is_empty()
+        || prev.symbols.is_empty();
     let changed: Vec<&GraphFile> = files
         .iter()
         .filter(|f| full || prev.files.get(&f.id) != Some(&f.key))
+        .collect();
+    let current: std::collections::BTreeSet<&str> = files.iter().map(|f| f.id.as_str()).collect();
+    let removed: Vec<&String> = prev
+        .files
+        .keys()
+        .filter(|f| !current.contains(f.as_str()))
         .collect();
     let total = changed.len();
     progress(0, total);
@@ -234,10 +251,46 @@ fn build(
         done += batch.len();
         progress(done, total);
     }
-    let resolutions_changed = resolve_build(store, build_id).map_err(failed)?;
-    let touched: Vec<String> = changed.iter().map(|f| f.id.clone()).collect();
+    let changed_ids: Vec<String> = changed.iter().map(|f| f.id.clone()).collect();
+    let (symbols, resolutions_changed, files_reresolved) = if full {
+        let n = resolve_build(store, build_id).map_err(failed)?;
+        let symbols = store.file_symbols(build_id, None).map_err(failed)?;
+        (symbols, n, files.len())
+    } else {
+        // Symbols whose definitions changed: the old definitions of every
+        // changed or removed file and the new ones of every changed file.
+        let fresh = store
+            .file_symbols(build_id, Some(&changed_ids))
+            .map_err(failed)?;
+        let mut keys: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+        for f in changed_ids.iter().chain(removed.iter().copied()) {
+            if let Some(s) = prev.symbols.get(f) {
+                keys.extend(s.defs.iter().map(String::as_str));
+            }
+            if let Some(s) = fresh.get(f) {
+                keys.extend(s.defs.iter().map(String::as_str));
+            }
+        }
+        // Re-resolve the changed files and every unchanged file with a
+        // reference through one of those symbols.
+        let mut targets: std::collections::BTreeSet<String> = changed_ids.iter().cloned().collect();
+        for (f, s) in &prev.symbols {
+            if current.contains(f.as_str()) && s.refs.iter().any(|k| keys.contains(k.as_str())) {
+                targets.insert(f.clone());
+            }
+        }
+        let n = resolve_files(store, build_id, &targets).map_err(failed)?;
+        let mut symbols = prev.symbols.clone();
+        for f in &removed {
+            symbols.remove(*f);
+        }
+        symbols.extend(fresh);
+        (symbols, n, targets.len())
+    };
     let links = match opts.linker {
-        Some(l) => l.link(store, build_id, &touched, full).map_err(failed)?,
+        Some(l) => l
+            .link(store, build_id, &changed_ids, full)
+            .map_err(failed)?,
         None => 0,
     };
     let state = GraphState {
@@ -250,6 +303,7 @@ fn build(
             .iter()
             .map(|f| (f.id.clone(), f.key.clone()))
             .collect(),
+        symbols,
         last_success_at: Some(ragmonk_storage::db::now_iso()),
         last_error: None,
         stale_reason: None,
@@ -265,6 +319,7 @@ fn build(
         files_processed: total,
         relationships_written: written,
         resolutions_changed,
+        files_reresolved,
         links,
         seconds: 0.0,
     })

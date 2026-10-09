@@ -10,7 +10,7 @@
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-green)](https://modelcontextprotocol.io)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](https://github.com/gzarog/RagMonk)
 
-**[Install](#-install)** · **[Quick start](#-quick-start-5-minutes)** · **[Features](#-what-you-get)** · **[Commands](#-command-cheat-sheet)** · **[Status](#-is-it-working-ragmonk-status)** · **[Configuration](#%EF%B8%8F-configuration)** · **[FAQ](#-faq--troubleshooting)**
+**[Overview slides](docs/ragmonk-overview.html)** · **[Install](#-install)** · **[Quick start](#-quick-start-5-minutes)** · **[Features](#-what-you-get)** · **[How indexing works](#-how-indexing-works)** · **[Commands](#-command-cheat-sheet)** · **[Status](#-is-it-working-ragmonk-status)** · **[Configuration](#%EF%B8%8F-configuration)** · **[FAQ](#-faq--troubleshooting)**
 
 </div>
 
@@ -97,6 +97,31 @@ src/payments/settlement.py  →  line 88 · SettlementService.retry()
 ```
 
 > 💡 **Keep it fresh automatically:** run `ragmonk daemon start`, and changed files are re-indexed in the background.
+
+> 🎞️ **New here?** Open [`docs/ragmonk-overview.html`](docs/ragmonk-overview.html) in a browser: a short slide overview for users and engineers.
+
+---
+
+## 🔄 How indexing works
+
+Every `ragmonk index` (and every background daemon pass) runs in **two stages**:
+
+```
+ Stage 1 · INDEX (all selected sources)          Stage 2 · RELATIONSHIPS (after ALL of stage 1)
+ scan → diff → convert → entities → chunks     ┃  code edges → cross-file resolution
+ → embeddings → PUBLISH  ── searchable now ──  ┃  → doc↔code links → manual links → PUBLISH graph
+```
+
+| | |
+|---|---|
+| ⚡ **Search first** | A source is searchable as soon as stage 1 publishes it. Relationship work never delays or rolls back the index. |
+| 🧱 **A barrier** | Stage 2 starts only after every selected source finished stage 1. |
+| 🎯 **Exact snapshots** | Each relationship graph belongs to one published index. A graph built from an older index is never shown as current. A file edited mid-run marks the graph `stale` instead of mixing versions. |
+| ♻️ **Incremental** | Only changed files are re-parsed, and only files that reference a changed symbol are re-resolved. In server mode unchanged edges and links are copied forward on the cluster, not rewritten. |
+| 🩹 **Retry cheaply** | `ragmonk relationships build [--source ID]` rebuilds graphs without re-reading or re-converting any content. |
+| 🔌 **Optional** | `indexing.relationships_enabled: false` skips stage 2 and hides graphs (callers, callees, impact, doc↔code links); search still works, nothing is deleted, and toggling it never forces a reindex. |
+
+A run where every index published but a graph failed is reported as a **partial success**: the index is usable, and `status` shows the graph separately.
 
 ---
 
@@ -264,6 +289,7 @@ src_beta   host-b  live  scanning    0/N/A           0        0       0      3s 
 |---|---|
 | **Published** | Counts of each source's published build only; work in progress never mixes in |
 | **In progress / Active passes** | Passes running now, on this host (local mode) or any host (server mode) |
+| **Relationships** | The source's graph, independent of its index: `ready` · `pending` · `building` · `stale` · `failed` · `disabled`. Shown per source in `--verbose`, and whenever it needs attention |
 | **State** | `queued` · `scanning` · `indexing` · `finalizing` · `publishing` · `completed` · `retrying` · `failed` · `stalled` · `offline` · `disabled` · `not_indexed` · `unknown` |
 | **Access** | Can the folder be reached? `online` · `offline` · `disabled` |
 | **N/A** | Not observable (for example the total before a scan finished); never shown as `0` |
@@ -288,6 +314,7 @@ Settings live in `~/.ragmonk/config.yaml` (Windows: `%LOCALAPPDATA%\RagMonk`); u
 | `search.semantic` | `false` | Local embedding-based semantic search |
 | `indexing.watch` | `true` | Daemon watches folders for changes |
 | `indexing.max_file_size_mb` | `100` | Skip larger files |
+| `indexing.relationships_enabled` | `true` | Build relationship graphs (code edges, doc↔code links) after indexing |
 | `indexing.lock_timeout_seconds` | `30` | Max wait when another process is indexing |
 | `indexing.status_stall_threshold_seconds` | `120` | When `status` reports "stalled" |
 | `ai.provider` / `ai.model` | *(none)* | Optional AI answers for `ragmonk ask` |
@@ -328,6 +355,12 @@ Run `ragmonk status --errors` to see the failing files and why. Files that fail 
 </details>
 
 <details>
+<summary><b>Relationships show <code>stale</code> or <code>failed</code></b></summary>
+
+The index itself is published and searchable; only the relationship graph (callers, impact, doc↔code links) is not current. `stale` usually means a file changed while the run was going: the next `ragmonk index` picks it up. To retry just the graphs, run `ragmonk relationships build`. `ragmonk status --verbose` shows the reason.
+</details>
+
+<details>
 <summary><b>"Another RagMonk process holds index.lock"</b></summary>
 
 Another index run, the daemon or the Admin UI is indexing right now. The error names the PID and the operation. Wait for it, or stop it with `ragmonk daemon stop`. **Do not delete the lock file.** It is released automatically when its owner exits or crashes.
@@ -351,7 +384,7 @@ Run `ragmonk doctor`. It checks the runtime folder, sources, databases, the inde
 
 **📄 Documents** · **💻 Code** · **🔗 Linked** · **🔒 Local**
 
-📘 [Full reference](docs/reference.md) · 🖥️ [Admin UI guide](docs/ui.md) · 📝 [Releases](https://github.com/gzarog/RagMonk/releases) · 🤝 [Contributing](CONTRIBUTING.md) · 🔐 [Security](SECURITY.md)
+🎞️ [Overview slides](docs/ragmonk-overview.html) · 📘 [Full reference](docs/reference.md) · 🖥️ [Admin UI guide](docs/ui.md) · 📝 [Releases](https://github.com/gzarog/RagMonk/releases) · 🤝 [Contributing](CONTRIBUTING.md) · 🔐 [Security](SECURITY.md)
 
 MIT licensed
 
