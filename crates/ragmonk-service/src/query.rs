@@ -461,6 +461,11 @@ pub fn link_rows(
     }
     let store = o.store.local()?;
     let mut links = store.links(&o.build).map_err(db)?;
+    if !store.graph_visible(&o.build).map_err(db)? {
+        // Automatic links belong to the relationship graph, which does not
+        // match this build; manual links are user data and stay listed.
+        links.retain(|l| l.resolver == ragmonk_knowledge::manual::USER_RESOLVER);
+    }
     if let Some(r) = entity {
         let ids: std::collections::HashSet<String> = match store.entity(&o.build, r).map_err(db)? {
             Some(e) => [e.id].into(),

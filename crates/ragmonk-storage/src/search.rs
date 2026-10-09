@@ -394,6 +394,9 @@ impl ProjectStore {
         outgoing: bool,
         limit: i64,
     ) -> Result<Vec<RelationshipRow>> {
+        if !self.graph_visible(build_id)? {
+            return Ok(Vec::new());
+        }
         let column = if outgoing {
             "source_entity_id"
         } else {
@@ -423,6 +426,9 @@ impl ProjectStore {
         relationship_type: Option<&str>,
         limit: i64,
     ) -> Result<Vec<RelationshipRow>> {
+        if !self.graph_visible(build_id)? {
+            return Ok(Vec::new());
+        }
         let (filter, order) = match relationship_type {
             Some(_) => ("AND relationship_type = ?3", "id"),
             None => ("AND (?3 IS NULL)", "relationship_type, id"),
@@ -473,6 +479,9 @@ impl ProjectStore {
     /// route), then link type. (This keeps the pick among same-time links
     /// deterministic.)
     pub fn entity_links(&self, build_id: &str, entity_id: &str) -> Result<Vec<EntityLinkRow>> {
+        if !self.graph_visible(build_id)? {
+            return Ok(Vec::new());
+        }
         self.query_rows(
             "entity links",
             "SELECT l.link_type, l.document_id, l.chunk_id, l.resolver, l.confidence,

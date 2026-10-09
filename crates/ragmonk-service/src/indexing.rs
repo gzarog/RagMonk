@@ -1,5 +1,13 @@
 //! Indexing runs over registered sources.
 //!
+//! A run is two-staged with an explicit barrier: phase 1 indexes and
+//! publishes every selected source; only after **all** phase-1 passes
+//! ended does phase 2 ([`crate::relationships`]) build relationship graphs
+//! for the sources that published, when `indexing.relationships_enabled`
+//! is on. Search over a newly published base index is available as soon as
+//! its phase-1 pass publishes; a graph failure never rolls it back and is
+//! reported separately from indexing failures.
+//!
 //! Up to `indexing.max_parallel_sources` independent sources run at once
 //! (ADR 0033). Each source pass holds its own
 //! `locks/index-<source_id>.lock` (and, in server mode, the source's
@@ -49,6 +57,11 @@ pub enum SourceEvent<'a> {
         source: &'a SourceRecord,
         run: &'a SourceResult,
     },
+    /// Phase 2 ended for a source (after every phase-1 pass of the run).
+    Relationships {
+        source: &'a SourceRecord,
+        outcome: &'a crate::relationships::RelationshipOutcome,
+    },
 }
 
 /// The outcome of a whole run, with its concurrency metrics.
@@ -69,12 +82,30 @@ pub struct RunSummary {
     /// Most source passes running at the same time, and the configured cap.
     pub parallel_sources_high_water: usize,
     pub max_parallel_sources: usize,
+    /// `indexing.relationships_enabled` for this run.
+    pub relationships_enabled: bool,
+    /// Phase 2 totals (all zero when relationships are disabled).
+    pub relationships: crate::relationships::StageSummary,
 }
 
 impl RunSummary {
-    /// An `IndexingPartialFailure` error when anything failed.
+    /// `success`, `partial_success` (every index published, some
+    /// relationship graph not) or `failed` (an indexing failure).
+    pub fn outcome(&self) -> &'static str {
+        if self.failed_sources > 0 || self.failed_files > 0 {
+            "failed"
+        } else if self.relationships.not_current() > 0 {
+            "partial_success"
+        } else {
+            "success"
+        }
+    }
+
+    /// An `IndexingPartialFailure` error when anything failed. Indexing
+    /// failures and relationship failures are reported separately.
     pub fn into_result(self) -> Result<Self, RagMonkError> {
-        if self.failed_sources == 0 && self.failed_files == 0 {
+        let graph = self.relationships.not_current();
+        if self.failed_sources == 0 && self.failed_files == 0 && graph == 0 {
             return Ok(self);
         }
         let mut parts = Vec::new();
@@ -83,6 +114,11 @@ impl RunSummary {
         }
         if self.failed_files > 0 {
             parts.push(format!("{} file(s) failed to index", self.failed_files));
+        }
+        if graph > 0 {
+            parts.push(format!(
+                "relationships were not published for {graph} source(s) (their index is published and searchable; retry with 'ragmonk relationships build')"
+            ));
         }
         Err(RagMonkError::new(
             ErrorKind::IndexingPartialFailure,
@@ -239,7 +275,10 @@ pub fn index_sources_with(
     };
     ragmonk_indexing::progress::track(&home.index_progress(), operation, Some(total), |tracker| {
         tracker.set_run(&run_id, parallel);
+        tracker.set_phase("indexing");
         let lock_wait_ms = AtomicUsize::new(0);
+        // Phase-1 passes that published (or confirmed) a base index.
+        let mut indexed: Vec<usize> = Vec::new();
         let stats = ragmonk_indexing::executor::run_bounded(
             sources,
             parallel,
@@ -312,6 +351,9 @@ pub fn index_sources_with(
                         if run.offline.is_none() {
                             summary.failed_files += run.failed;
                             summary.retrying_files += run.retrying;
+                            if run.build_id.is_some() {
+                                indexed.push(i);
+                            }
                         }
                         summary.in_flight_high_water = summary
                             .in_flight_high_water
@@ -326,6 +368,43 @@ pub fn index_sources_with(
         );
         summary.parallel_sources_high_water = stats.running_high_water;
         summary.max_lock_wait_seconds = lock_wait_ms.load(Ordering::SeqCst) as f64 / 1000.0;
+        // The barrier: every phase-1 pass of this batch has ended.
+        tracker.set_phase("indexed");
+        indexed.sort_unstable();
+        let ready: Vec<SourceRecord> = indexed.iter().map(|i| sources[*i].clone()).collect();
+        summary.relationships_enabled = cfg.indexing.relationships_enabled;
+        if cfg.indexing.relationships_enabled {
+            for s in &ready {
+                tracker.source_relationships(&s.id, "pending", None, None);
+            }
+            tracker.set_phase("relationships");
+            crate::relationships::run_stage(
+                home,
+                &cfg,
+                &backend,
+                &ready,
+                operation,
+                parallel,
+                &opts,
+                Some(tracker),
+                |source, outcome| {
+                    summary.relationships.add(&outcome);
+                    on_event(SourceEvent::Relationships {
+                        source,
+                        outcome: &outcome,
+                    });
+                },
+            );
+        } else {
+            // No graph jobs; existing graphs are hidden, never deleted.
+            for s in &ready {
+                if let Err(e) = crate::relationships::mark_disabled(home, &cfg, &backend, s) {
+                    tracing::debug!(component = "relationships", event = "disable_not_recorded", source_id = %s.id, error = %e.message());
+                }
+                tracker.source_relationships(&s.id, "disabled", None, None);
+            }
+        }
+        tracker.set_phase("done");
         tracker.set_resources(&governor.snapshot());
         Ok::<(), RagMonkError>(())
     })?;

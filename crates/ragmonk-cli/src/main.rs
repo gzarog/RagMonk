@@ -57,12 +57,16 @@ enum Command {
     /// Manage registered sources.
     #[command(subcommand)]
     Source(workflow::SourceCommand),
-    /// Scan sources and process pending files.
+    /// Scan sources and process pending files, then build relationship
+    /// graphs once every selected source is indexed.
     Index {
         /// Only index this source id.
         #[arg(long = "source")]
         source: Option<String>,
     },
+    /// Manage relationship graphs (built after indexing).
+    #[command(subcommand)]
+    Relationships(RelationshipsCommand),
     /// Show indexing status.
     Status(status_cmd::StatusArgs),
     /// List indexed documents.
@@ -193,6 +197,19 @@ enum Command {
 }
 
 #[derive(Subcommand)]
+enum RelationshipsCommand {
+    /// Build (or retry) relationship graphs from the published index,
+    /// without reindexing any content.
+    Build {
+        /// Only this source id.
+        #[arg(long = "source")]
+        source: Option<String>,
+        #[arg(long = "json")]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum ServerCommand {
     /// Print the index schema manifest for the configured engine.
     Schema {
@@ -316,6 +333,9 @@ fn run(cli: Cli) -> Result<(), RagMonkError> {
         Command::Init(a) => workflow::init(&a)?,
         Command::Source(cmd) => workflow::source(cmd)?,
         Command::Index { source } => workflow::index(source)?,
+        Command::Relationships(RelationshipsCommand::Build { source, json }) => {
+            workflow::relationships_build(source, json)?
+        }
         Command::Status(a) => status_cmd::status(&a)?,
         Command::Docs { source, json } => workflow::docs(source, json)?,
         Command::Watch => daemon_cmd::run(daemon_cmd::DaemonCommand::Run)?,

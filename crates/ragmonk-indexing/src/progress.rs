@@ -37,15 +37,29 @@ pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 /// Finished source entries kept in the snapshot (active ones are always kept).
 pub const MAX_FINISHED_SOURCES: usize = 256;
 
-/// Canonical stage names, in pass order.
-pub const STAGES: [&str; 6] = [
+/// Canonical stage names, in pass order. `indexed` (base index published,
+/// relationship graph pending) and `relationships` (graph stage running)
+/// only appear when `indexing.relationships_enabled` is on: the graph stage
+/// starts after every selected source finished indexing.
+pub const STAGES: [&str; 8] = [
     "starting",
     "scanning",
     "processing",
     "finalizing",
     "publishing",
+    "indexed",
+    "relationships",
     "done",
 ];
+
+/// Run phases, in order: every selected source is indexed (`indexing`),
+/// then the barrier (`indexed`), then the graph stage (`relationships`,
+/// skipped when disabled), then `done`.
+pub const PHASES: [&str; 4] = ["indexing", "indexed", "relationships", "done"];
+
+fn is_zero(v: &i64) -> bool {
+    *v == 0
+}
 
 /// One source pass inside a run.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +83,17 @@ pub struct SourceProgress {
     /// Last liveness signal (progress or heartbeat).
     pub heartbeat_at: Option<String>,
     pub finished_at: Option<String>,
+    /// Relationship graph stage of this source, independent of indexing:
+    /// `pending`, `building`, `ready`, `up_to_date`, `failed`, `stale`,
+    /// `skipped` or `disabled`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationships: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationships_planned: Option<i64>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub relationships_processed: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationships_error: Option<String>,
 }
 
 impl SourceProgress {
@@ -177,6 +202,9 @@ pub struct IndexProgress {
     pub error: Option<String>,
     /// Resource-governor counters per permit class.
     pub resources: Option<Value>,
+    /// The run's phase (see [`PHASES`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
 }
 
 impl Default for IndexProgress {
@@ -199,6 +227,7 @@ impl Default for IndexProgress {
             sources: Vec::new(),
             error: None,
             resources: None,
+            phase: None,
         }
     }
 }
@@ -415,6 +444,50 @@ impl ProgressTracker {
                 }
             }
             i.flush(true);
+        });
+    }
+
+    /// Moves the run to `phase` (see [`PHASES`]).
+    pub fn set_phase(&self, phase: &str) {
+        self.with(|i| {
+            i.progress.phase = Some(phase.into());
+            i.flush(true);
+        });
+    }
+
+    /// Records a source's relationship graph stage (`progress` is files
+    /// done / to do). The source's own stage follows it: `indexed` while
+    /// pending, `relationships` while building, `done` once it ended.
+    pub fn source_relationships(
+        &self,
+        source_id: &str,
+        state: &str,
+        progress: Option<(usize, usize)>,
+        error: Option<&str>,
+    ) {
+        self.with(|i| {
+            let now = i.now();
+            let entry = i.progress.source_mut(source_id, &now);
+            let structural = entry.relationships.as_deref() != Some(state);
+            entry.relationships = Some(state.into());
+            entry.stage = Some(
+                match state {
+                    "pending" => "indexed",
+                    "building" => "relationships",
+                    _ => "done",
+                }
+                .into(),
+            );
+            if let Some((done, total)) = progress {
+                entry.relationships_processed = done as i64;
+                entry.relationships_planned = Some(total as i64);
+            }
+            if error.is_some() || structural {
+                entry.relationships_error = error.map(str::to_owned);
+            }
+            entry.last_progress_at = Some(now.clone());
+            entry.heartbeat_at = Some(now);
+            i.flush(structural);
         });
     }
 

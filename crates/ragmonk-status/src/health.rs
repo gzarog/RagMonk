@@ -358,6 +358,28 @@ pub fn problems(i: &ProblemInput<'_>) -> Vec<Problem> {
                 None,
             );
         }
+        if let Some(r) = f.relationships.as_ref().filter(|r| {
+            f.active_build_id.is_some() && matches!(r.state.as_str(), "failed" | "stale")
+        }) {
+            let why = r
+                .last_error
+                .as_deref()
+                .or(r.stale_reason.as_deref())
+                .map(|w| format!(": {}", crate::errors::redact_text(w)))
+                .unwrap_or_default();
+            b.add(
+                C::RelationshipsNotCurrent,
+                Warning,
+                Sc::Source,
+                id,
+                None,
+                format!(
+                    "relationship graph is {}{why}; the index is published and searchable",
+                    r.state
+                ),
+                Some("ragmonk relationships build"),
+            );
+        }
         if let Some(p) = &f.published {
             if p.failed > 0 {
                 b.add(

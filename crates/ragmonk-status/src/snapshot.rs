@@ -60,6 +60,8 @@ pub struct SourceFacts {
     pub published_missing: bool,
     /// Server mode: the source-state writer lease.
     pub lease: Option<LeaseFacts>,
+    /// The relationship graph (`None` when unknown).
+    pub relationships: Option<RelationshipStatus>,
 }
 
 /// A source's server writer lease as stored in its state document.
@@ -120,6 +122,7 @@ pub fn assemble(
                 enabled: f.enabled,
                 access: f.access,
                 index_state,
+                relationship_state: f.relationships.clone(),
                 build: SourceBuild {
                     active_id: f.active_build_id.clone(),
                     pending_id: f.pending_build_id.clone(),

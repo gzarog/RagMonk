@@ -81,8 +81,10 @@ impl Processor for RawProcessor {
 }
 
 /// Whole-build work that runs on the writer after every file of a build is
-/// written and before it is published (e.g. cross-file reference
-/// resolution). An error aborts the build; the previous build stays visible.
+/// written and before it is published (e.g. embeddings). Relationship
+/// extraction, resolution and linking are never finalizers: they run after
+/// publication in the separate graph stage. An error aborts the build; the
+/// previous build stays visible.
 pub trait BuildFinalizer: Send + Sync {
     /// `touched` lists every file id written in this build (all files for
     /// a full rebuild; changed/new/moved files for an incremental pass).

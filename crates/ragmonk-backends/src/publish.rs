@@ -1,8 +1,10 @@
 //! Publishing a staged build to the server.
 //!
 //! Server-mode indexing runs the backend-agnostic pipeline (scan, diff,
-//! conversion, parsing, chunking, resolution, linking, embedding) into a
-//! disposable local staging store, then publishes the result here:
+//! conversion, parsing, chunking, embedding) into a disposable local
+//! staging store, then publishes the base index here (the relationship
+//! graph is published separately, after this, by
+//! [`ServerBackend::publish_graph`](crate::graph)):
 //!
 //! 1. Every staged file gets a *knowledge digest* over its file row, its
 //!    entities, documents, chunks and vector keys.
@@ -13,9 +15,8 @@
 //!    `_update_by_query` adds the new build id to their records'
 //!    multi-valued `build_id` (no reconversion, no client round trip, no
 //!    duplicated record).
-//! 4. Every other file's records (and vectors) are bulk-written; all
-//!    relationships and links are rewritten, because a change in one file
-//!    can re-resolve edges of unchanged files.
+//! 4. Every other file's records (and vectors) are bulk-written. No
+//!    relationship or link is written: graph generations are independent.
 //! 5. The build is published with an atomic compare-and-swap; any error
 //!    aborts it and the previous build stays visible.
 //!
@@ -32,9 +33,7 @@ use sha2::{Digest, Sha256};
 use ragmonk_storage::knowledge::{DocumentRow, FileRow, ProjectStore};
 use ragmonk_storage::vectors::SUBJECT_ENTITY;
 
-use crate::backend::{
-    ChunkDoc, DocumentDoc, EdgeDoc, EntityDoc, FileDoc, Lease, LinkDoc, ServerBackend,
-};
+use crate::backend::{ChunkDoc, DocumentDoc, EntityDoc, FileDoc, Lease, ServerBackend};
 use crate::bulk::BulkReport;
 use crate::error::{BackendError, Result};
 use crate::schema::IndexKind;
@@ -72,7 +71,6 @@ pub struct PublishReport {
     pub files_written: usize,
     pub records_copied: u64,
     pub records_written: usize,
-    pub relationships_written: usize,
     pub vectors_written: usize,
     pub bulk: BulkReport,
     pub seconds: f64,
@@ -104,8 +102,8 @@ fn storage(e: ragmonk_storage::StorageError) -> BackendError {
     BackendError::Invalid(format!("staging store: {e}"))
 }
 
-/// Per-file digests of the staged build, plus the overall digest
-/// (which also covers relationships and links).
+/// Per-file digests of the staged build, plus the overall digest of the
+/// base index (relationships and links are not part of it).
 fn digests(
     store: &ProjectStore,
     build: &str,
@@ -152,22 +150,7 @@ fn digests(
         feed(&mut h, &fingerprint);
         let digest = hex(h);
         overall.update(digest.as_bytes());
-        for r in store.file_relationships(build, &f.id).map_err(storage)? {
-            feed(&mut overall, &r);
-        }
         out.push(Staged { row: f, digest });
-    }
-    for l in store.links(build).map_err(storage)? {
-        feed(
-            &mut overall,
-            &(
-                &l.id,
-                &l.entity_id,
-                &l.document_id,
-                &l.chunk_id,
-                &l.resolver,
-            ),
-        );
     }
     Ok((out, hex(overall)))
 }
@@ -373,10 +356,6 @@ impl ServerBackend {
         let docs = store.documents(build).map_err(storage)?;
         let docs_by_id: BTreeMap<&str, &DocumentRow> =
             docs.iter().map(|d| (d.id.as_str(), d)).collect();
-        let paths: HashMap<&str, (&str, f64)> = staged
-            .iter()
-            .map(|s| (s.row.id.as_str(), (s.row.rel_path.as_str(), s.row.mtime)))
-            .collect();
         // When each failing file last failed (its newest error event).
         let error_times = store.file_error_times(build).map_err(storage)?;
         let mut w = self.build_writer(input.source_id, input.build_id);
@@ -521,57 +500,6 @@ impl ServerBackend {
                 })?;
                 report.records_written += 1;
             }
-        }
-        // Relationships and links: always rewritten (a change in one file
-        // can re-resolve edges recorded in another).
-        for s in staged {
-            for r in store
-                .file_relationships(build, &s.row.id)
-                .map_err(storage)?
-            {
-                w.edge(&EdgeDoc {
-                    relationship_id: r.id,
-                    file_id: s.row.id.clone(),
-                    rel_path: s.row.rel_path.clone(),
-                    relationship_type: r.relationship_type,
-                    source_entity_id: r.source_entity_id,
-                    target_entity_id: r.target_entity_id,
-                    target_symbol: r.target_symbol,
-                    resolver: r.resolver,
-                    confidence: r.confidence,
-                    source_location: r.source_location,
-                    evidence: r.evidence,
-                    reference_text: r.reference_text,
-                })?;
-                report.relationships_written += 1;
-            }
-        }
-        for l in store.links(build).map_err(storage)? {
-            let (file_id, rel) = docs_by_id
-                .get(l.document_id.as_str())
-                .map(|d| {
-                    (
-                        d.file_id.clone(),
-                        paths
-                            .get(d.file_id.as_str())
-                            .map(|p| p.0.to_owned())
-                            .unwrap_or_default(),
-                    )
-                })
-                .unwrap_or_default();
-            w.link(&LinkDoc {
-                relationship_id: l.id,
-                relationship_type: l.link_type,
-                entity_id: l.entity_id,
-                document_id: l.document_id,
-                chunk_id: l.chunk_id,
-                file_id,
-                rel_path: rel,
-                resolver: l.resolver,
-                confidence: l.confidence,
-                evidence: l.evidence,
-            })?;
-            report.relationships_written += 1;
         }
         report.bulk = w.finish()?;
         Ok(())

@@ -35,6 +35,9 @@ pub const MAX_READ: usize = 10_000;
 pub struct ServerReader {
     backend: Arc<ServerBackend>,
     source_id: String,
+    /// `base build -> visible graph generation`, resolved once per reader
+    /// (one request's snapshot).
+    graph: std::sync::Mutex<std::collections::HashMap<String, Option<String>>>,
 }
 
 impl ServerReader {
@@ -42,7 +45,24 @@ impl ServerReader {
         Self {
             backend,
             source_id: source_id.to_owned(),
+            graph: Default::default(),
         }
+    }
+
+    /// The graph generation derived from base build `b`, when it is the
+    /// source's ready graph; `None` (graph queries come back empty) for a
+    /// missing, building, failed, disabled or stale graph.
+    pub fn graph_generation(&self, b: &str) -> Result<Option<String>> {
+        let mut cache = self.graph.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(g) = cache.get(b) {
+            return Ok(g.clone());
+        }
+        let g = self
+            .backend
+            .visible_graph(&self.source_id, b)
+            .map_err(Self::err)?;
+        cache.insert(b.to_owned(), g.clone());
+        Ok(g)
     }
 
     pub fn backend(&self) -> &ServerBackend {
@@ -193,9 +213,12 @@ impl ServerReader {
         } else {
             json!([{ "relationship_type": "asc" }, { "relationship_id": "asc" }])
         };
+        let Some(graph) = self.graph_generation(build_id)? else {
+            return Ok(Vec::new());
+        };
         let hits = self.find(
             IndexKind::Relationships,
-            build_id,
+            &graph,
             filter,
             None,
             sort,
@@ -292,6 +315,9 @@ pub struct ManualLinkRecord {
 impl ServerReader {
     /// Automatic links of build `b` and the source's manual links.
     pub fn links(&self, b: &str) -> Result<Vec<ServerLink>> {
+        // Without a visible graph only manual links are listed.
+        let g = self.graph_generation(b)?.unwrap_or_default();
+        let b = g.as_str();
         let body = json!({
             "size": MAX_READ,
             "query": { "bool": { "filter": [
@@ -1014,7 +1040,11 @@ impl KnowledgeRead for ServerReader {
     }
 
     fn entity_links(&self, b: &str, entity_id: &str) -> Result<Vec<EntityLinkRow>> {
-        // Automatic links of this build plus the source's manual links.
+        // Automatic links of the build's visible graph generation plus the
+        // source's manual links; nothing without a visible graph.
+        let Some(graph) = self.graph_generation(b)? else {
+            return Ok(Vec::new());
+        };
         let path = format!("/{}/_search", self.backend.index(IndexKind::Relationships));
         let body = json!({
             "size": MAX_READ,
@@ -1022,7 +1052,7 @@ impl KnowledgeRead for ServerReader {
                 { "term": { "source_id": self.source_id } },
                 { "term": { "entity_id": entity_id } },
                 { "bool": { "should": [
-                    { "bool": { "filter": [ { "term": { "build_id": b } }, { "term": { "record_kind": "link" } } ] } },
+                    { "bool": { "filter": [ { "term": { "build_id": graph } }, { "term": { "record_kind": "link" } } ] } },
                     { "bool": { "filter": [ { "term": { "build_id": MANUAL_BUILD } }, { "term": { "record_kind": MANUAL_LINK } } ] } },
                 ], "minimum_should_match": 1 } },
             ] } },

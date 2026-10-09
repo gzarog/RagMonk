@@ -12,6 +12,13 @@
 //! `lock_contention`. Each worker owns its own database connections (its
 //! [`PassRunner`]). The daemon's [`Catalog`] connection is used only to
 //! read sources.
+//!
+//! Relationship graphs are a separate, later stage: a source whose pass
+//! published is remembered as graph-pending, and graph work
+//! ([`PassRunner::run_graph`]) is only dispatched once no index pass is
+//! queued or running (the same barrier as `ragmonk index`). A pass that
+//! changes nothing still lets a missing, failed or outdated graph be
+//! rebuilt without reindexing.
 
 pub mod health;
 pub mod pid;
@@ -82,7 +89,18 @@ pub trait PassRunner: Send {
         request: &ScanRequest,
         progress: &mut dyn Progress,
     ) -> Result<SourceResult, RagMonkError>;
+
+    /// The relationship graph stage of one source whose base index is
+    /// published (the caller holds the source's lock). Returns the graph
+    /// state for the log. Default: no graph stage.
+    fn run_graph(&mut self, _source: &SourceRecord) -> Option<String> {
+        None
+    }
 }
+
+/// A graph stage hook for [`CoordinatorRunner`] (the graph lives in crates
+/// above this one).
+pub type GraphHook = Arc<dyn Fn(&SourceRecord) -> Option<String> + Send + Sync>;
 
 /// The production runner: the coordinator over a worker-owned control
 /// plane. A request with touched paths runs as a targeted pass. Anything
@@ -92,6 +110,8 @@ pub struct CoordinatorRunner {
     pub control: ControlPlane,
     pub registry: Registry,
     pub opts: Options,
+    /// The relationship graph stage, if any.
+    pub graph: Option<GraphHook>,
 }
 
 impl PassRunner for CoordinatorRunner {
@@ -111,6 +131,10 @@ impl PassRunner for CoordinatorRunner {
             targets,
             progress,
         )
+    }
+
+    fn run_graph(&mut self, source: &SourceRecord) -> Option<String> {
+        self.graph.as_ref().and_then(|g| g(source))
     }
 }
 
@@ -185,6 +209,9 @@ struct State {
     last_pass_at: HashMap<String, String>,
     last_reconciliation_at: Option<String>,
     passes: u64,
+    /// Sources whose base index was published and whose graph stage has
+    /// not run since.
+    graph_pending: BTreeSet<String>,
 }
 
 /// The progress snapshot shared by concurrently running passes.
@@ -393,6 +420,9 @@ impl Shared {
                     s.last_pass_at.insert(source_id.into(), now_iso());
                     s.online.insert(source_id.into(), r.offline.is_none());
                     s.passes += 1;
+                    if r.offline.is_none() && r.build_id.is_some() {
+                        s.graph_pending.insert(source_id.into());
+                    }
                 }
                 tracing::info!(
                     component = "daemon",
@@ -461,6 +491,52 @@ impl Shared {
             if let Some(id) = next {
                 self.run_pass(&id, runner);
                 self.settle(&id);
+                self.run_graphs(runner);
+            }
+        }
+    }
+
+    /// The barrier: graph work is taken only when no index pass is queued
+    /// or running, and only by one worker at a time.
+    fn take_graph_batch(&self) -> Vec<String> {
+        let mut s = self.state();
+        if s.stopped || s.sched.has_queued() || s.sched.running() > 0 {
+            return Vec::new();
+        }
+        std::mem::take(&mut s.graph_pending).into_iter().collect()
+    }
+
+    fn run_graphs(&self, runner: &mut dyn PassRunner) {
+        for source_id in self.take_graph_batch() {
+            let source = match lock(&self.catalog).get_source(&source_id) {
+                Ok(Some(s)) if s.enabled => s,
+                _ => continue,
+            };
+            let lock_ = match RunLock::acquire(
+                &crate::lock::source_lock_path(&self.home, &source_id),
+                "daemon",
+                Some(&source_id),
+                self.opts.lock_timeout,
+            ) {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::warn!(component = "daemon", event = "daemon_graph_lock_contention", source_id = %source_id, detail = %e.message());
+                    self.state().graph_pending.insert(source_id);
+                    continue;
+                }
+            };
+            let state = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runner.run_graph(&source)
+            }))
+            .unwrap_or_else(|_| Some("failed".into()));
+            drop(lock_);
+            if let Some(state) = state {
+                tracing::info!(
+                    component = "daemon",
+                    event = "daemon_graph_completed",
+                    source_id = %source_id,
+                    state = %state,
+                );
             }
         }
     }

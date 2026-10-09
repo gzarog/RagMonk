@@ -317,8 +317,37 @@ fn wants(s: &SourceStatus, errors_only: bool) -> bool {
             .as_ref()
             .is_some_and(|p| p.failed > 0 || p.retrying > 0)
         || s.last_error.is_some()
-        || !s.warnings.is_empty();
+        || !s.warnings.is_empty()
+        || s.relationship_state
+            .as_ref()
+            .is_some_and(|r| matches!(r.state.as_str(), "failed" | "stale"));
     !errors_only || troubled
+}
+
+/// The relationship graph note of a source row: always in verbose mode,
+/// otherwise only while it is not ready (indexing is reported separately).
+fn relationship_note(s: &SourceStatus, verbose: bool) -> Option<String> {
+    let r = s.relationship_state.as_ref()?;
+    if !verbose && matches!(r.state.as_str(), "ready" | "disabled" | "pending") {
+        return None;
+    }
+    let mut note = format!("relationships: {}", r.state);
+    if verbose {
+        if let Some(g) = &r.generation {
+            note += &format!(" (generation {}", clip(g, 40));
+            if let Some(b) = &r.base_build_id {
+                note += &format!(", base {}", clip(b, 40));
+            }
+            note += ")";
+        }
+        if let Some(t) = &r.last_success_at {
+            note += &format!(", last success {t}");
+        }
+    }
+    if let Some(why) = r.last_error.as_deref().or(r.stale_reason.as_deref()) {
+        note += &format!(": {}", clip(&ascii(why), if verbose { 400 } else { 100 }));
+    }
+    Some(note)
 }
 
 fn sources(r: &StatusReport, errors_only: bool, verbose: bool) -> String {
@@ -374,6 +403,7 @@ fn sources(r: &StatusReport, errors_only: bool, verbose: bool) -> String {
                         )
                     }),
             )
+            .chain(relationship_note(s, verbose))
             .collect();
         for n in notes {
             rows.push(vec![String::new(), format!("  {n}")]);
@@ -656,6 +686,7 @@ mod tests {
                     SourceIndexState::Completed
                 },
                 published: Some(PublishedCounts::default()),
+                relationship_state: None,
                 build: SourceBuild {
                     state: BuildState::Ready,
                     ..base.build.clone()

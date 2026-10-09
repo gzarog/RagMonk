@@ -214,6 +214,7 @@ pub fn collect(
             last_error_at: agg.and_then(|a| normalize_time(a.last_error_at.as_deref())),
             published: active.as_ref().and(agg).map(published),
             published_missing: active.is_some() && published_map.is_none(),
+            relationships: Some(relationship_status(d, active.as_deref())),
             active_build_id: active,
             lease,
         });
@@ -306,4 +307,25 @@ pub fn collect(
         now,
         Some(started.elapsed().as_millis() as u64),
     ))
+}
+
+/// The graph record of a source-state document (`versions.graph`).
+fn relationship_status(d: &Value, active: Option<&str>) -> RelationshipStatus {
+    let g = &d["versions"][ragmonk_backends::graph::GRAPH_KEY];
+    let get = |k: &str| g.get(k).and_then(Value::as_str).map(str::to_owned);
+    let base = get("base_build_id");
+    let mut state = get("state").unwrap_or_else(|| "pending".into());
+    let mut stale_reason = get("stale_reason");
+    if state == "ready" && base.as_deref() != active {
+        state = "stale".into();
+        stale_reason.get_or_insert_with(|| "the base index was republished".into());
+    }
+    RelationshipStatus {
+        state,
+        generation: get("generation"),
+        base_build_id: base,
+        last_success_at: normalize_time(get("published_at").as_deref()),
+        last_error: get("last_error"),
+        stale_reason,
+    }
 }

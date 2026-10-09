@@ -338,6 +338,7 @@ pub fn index(source_id: Option<String>) -> Result<(), RagMonkError> {
                 );
             }
         }
+        SourceEvent::Relationships { source, outcome } => print_relationships(&source.id, outcome),
     })?;
     let (attempted, failed) = (summary.attempted, summary.failed_sources);
     if failed > 0 {
@@ -350,7 +351,104 @@ pub fn index(source_id: Option<String>) -> Result<(), RagMonkError> {
             "Index complete: {attempted} source(s) processed, {attempted} succeeded, 0 failed."
         );
     }
+    print_relationship_totals(&summary);
     summary.into_result().map(drop)
+}
+
+/// One source's phase-2 line (`relationships: ...`), separate from its
+/// indexing line.
+fn print_relationships(
+    source_id: &str,
+    outcome: &ragmonk_service::relationships::RelationshipOutcome,
+) {
+    use ragmonk_service::relationships::RelationshipOutcome as O;
+    match outcome {
+        O::Built(r) | O::UpToDate(r) => {
+            let g = &r.graph;
+            println!(
+                "{source_id}: relationships {} (generation {}, {} file(s) recomputed{}, {} edge(s), {} link(s))",
+                outcome.state(),
+                g.generation,
+                g.files_processed,
+                if g.full { ", full" } else { "" },
+                g.relationships_written,
+                g.links
+            );
+        }
+        O::Skipped(reason) => println!("{source_id}: relationships skipped: {reason}"),
+        other => println!(
+            "{source_id}: relationships {}: {} (the index is published and searchable)",
+            other.state(),
+            other.error().unwrap_or_default()
+        ),
+    }
+}
+
+fn print_relationship_totals(summary: &ragmonk_service::indexing::RunSummary) {
+    if !summary.relationships_enabled {
+        println!("Relationships: disabled (indexing.relationships_enabled: false).");
+        return;
+    }
+    let r = &summary.relationships;
+    if r.attempted == 0 {
+        return;
+    }
+    println!(
+        "Relationships: {} source(s) attempted, {} built, {} up to date, {} stale, {} failed.",
+        r.attempted, r.built, r.up_to_date, r.stale, r.failed
+    );
+}
+
+// ------------------------------------------------------- relationships ---
+
+/// `ragmonk relationships build [--source ID]`: the graph stage alone.
+pub fn relationships_build(
+    source_id: Option<String>,
+    json_output: bool,
+) -> Result<(), RagMonkError> {
+    let home = prepared_home()?;
+    let sources = selected_sources(&home, source_id.as_deref())?;
+    if sources.is_empty() {
+        println!("No enabled sources.");
+        return Ok(());
+    }
+    let mut rows = Vec::new();
+    let summary = ragmonk_service::relationships::build(&home, &sources, |source, outcome| {
+        if json_output {
+            let mut row = outcome.json();
+            row["source_id"] = serde_json::json!(source.id);
+            rows.push(row);
+        } else {
+            print_relationships(&source.id, outcome);
+        }
+    })?;
+    if json_output {
+        crate::print_json(&serde_json::json!({
+            "outcome": if summary.not_current() == 0 { "success" } else { "partial_success" },
+            "summary": summary,
+            "sources": rows,
+        }))?;
+    } else {
+        println!(
+            "Relationships: {} source(s) attempted, {} built, {} up to date, {} stale, {} failed, {} skipped.",
+            summary.attempted,
+            summary.built,
+            summary.up_to_date,
+            summary.stale,
+            summary.failed,
+            summary.skipped
+        );
+    }
+    if summary.not_current() > 0 {
+        return Err(RagMonkError::new(
+            ragmonk_core::errors::ErrorKind::IndexingPartialFailure,
+            format!(
+                "relationships were not published for {} source(s); see 'ragmonk status' for details",
+                summary.not_current()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------- docs ---

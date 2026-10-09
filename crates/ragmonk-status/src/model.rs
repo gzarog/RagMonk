@@ -219,6 +219,9 @@ pub enum ProblemCode {
     FilesFailed,
     FilesRetrying,
     PendingWithoutIndexer,
+    /// The relationship graph failed or is stale; the index itself is
+    /// published and searchable.
+    RelationshipsNotCurrent,
 }
 
 impl ProblemCode {
@@ -243,6 +246,7 @@ impl ProblemCode {
             ProblemCode::FilesFailed => "files_failed",
             ProblemCode::FilesRetrying => "files_retrying",
             ProblemCode::PendingWithoutIndexer => "pending_without_indexer",
+            ProblemCode::RelationshipsNotCurrent => "relationships_not_current",
         }
     }
 }
@@ -437,6 +441,22 @@ pub struct PublishedCounts {
     pub next_retry_at: Option<String>,
 }
 
+/// A source's relationship graph, independent of its index state: the
+/// base index is searchable whatever this says.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationshipStatus {
+    /// `disabled`, `pending`, `building`, `ready`, `stale` or `failed`
+    /// (a `ready` graph of another base generation reports `stale`).
+    pub state: String,
+    /// The published graph generation.
+    pub generation: Option<String>,
+    /// The base build the graph was derived from.
+    pub base_build_id: Option<String>,
+    pub last_success_at: Option<String>,
+    pub last_error: Option<String>,
+    pub stale_reason: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SourceStatus {
     pub source_id: String,
@@ -445,6 +465,9 @@ pub struct SourceStatus {
     pub enabled: bool,
     pub access: Access,
     pub index_state: SourceIndexState,
+    /// The relationship graph stage (`null` when unknown).
+    #[serde(default)]
+    pub relationship_state: Option<RelationshipStatus>,
     pub build: SourceBuild,
     /// `null`: the source has no published build, or the published
     /// section could not be read (see diagnostics).

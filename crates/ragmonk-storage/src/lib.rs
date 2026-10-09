@@ -15,6 +15,7 @@
 pub mod control;
 pub mod db;
 pub mod error;
+pub mod graph;
 pub mod knowledge;
 pub mod maintenance;
 pub mod read;

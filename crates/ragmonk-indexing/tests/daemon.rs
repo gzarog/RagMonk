@@ -301,6 +301,7 @@ fn coordinator_runner_indexes_and_publishes_progress() {
         control: common::control(&home),
         registry: Registry::raw(),
         opts: Options::from_config(&ragmonk_config::RagMonkConfig::default()),
+        graph: None,
     };
     let d = Daemon::start(home.clone(), opts(), Box::new(cp), Box::new(runner)).unwrap();
     for _ in 0..500 {
@@ -370,6 +371,7 @@ fn watched_daemon(network: bool) -> (tempfile::TempDir, PathBuf, Home, Log, Daem
             control: common::control(&home),
             registry: Registry::raw(),
             opts: Options::from_config(&ragmonk_config::RagMonkConfig::default()),
+            graph: None,
         },
     );
     let catalog = Fake(Arc::new(Mutex::new(vec![src.clone()])));
@@ -433,4 +435,68 @@ fn local_watcher_triggers_targeted_pass() {
 #[test]
 fn network_poller_triggers_targeted_pass() {
     check_watched(true, "network_watcher");
+}
+
+/// Logs passes and graph stages; passes publish a build.
+struct Staged(Arc<Mutex<Vec<String>>>);
+impl PassRunner for Staged {
+    fn run_pass(
+        &mut self,
+        source: &SourceRecord,
+        _request: &ScanRequest,
+        _p: &mut dyn Progress,
+    ) -> Result<SourceResult, RagMonkError> {
+        self.0.lock().unwrap().push(format!("pass:{}", source.id));
+        std::thread::sleep(Duration::from_millis(20));
+        Ok(SourceResult {
+            source_id: source.id.clone(),
+            build_id: Some(format!("b-{}", source.id)),
+            ..SourceResult::default()
+        })
+    }
+
+    fn run_graph(&mut self, source: &SourceRecord) -> Option<String> {
+        self.0.lock().unwrap().push(format!("graph:{}", source.id));
+        Some("ready".into())
+    }
+}
+
+#[test]
+fn graph_stages_run_only_after_every_queued_index_pass() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = Home::new(dir.path());
+    std::fs::create_dir_all(home.locks_dir()).unwrap();
+    let ids = ["a", "b", "c", "d"];
+    let cat = Fake(Arc::new(Mutex::new(
+        ids.iter()
+            .map(|i| source(i, &dir.path().display().to_string()))
+            .collect(),
+    )));
+    let log: Arc<Mutex<Vec<String>>> = Arc::default();
+    let runners: Vec<Box<dyn PassRunner>> = (0..2)
+        .map(|_| Box::new(Staged(log.clone())) as Box<dyn PassRunner>)
+        .collect();
+    let d = Daemon::start_with_runners(home, opts(), Box::new(cat), runners).unwrap();
+    for _ in 0..500 {
+        if log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e.starts_with("graph:"))
+            .count()
+            == ids.len()
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    d.stop();
+    let log = log.lock().unwrap().clone();
+    let last_pass = log.iter().rposition(|e| e.starts_with("pass:")).unwrap();
+    let first_graph = log.iter().position(|e| e.starts_with("graph:")).unwrap();
+    assert!(last_pass < first_graph, "barrier violated: {log:?}");
+    let mut graphs: Vec<&String> = log.iter().filter(|e| e.starts_with("graph:")).collect();
+    graphs.sort();
+    graphs.dedup();
+    assert_eq!(graphs.len(), ids.len(), "{log:?}");
 }

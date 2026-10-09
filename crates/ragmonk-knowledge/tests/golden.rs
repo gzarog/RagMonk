@@ -72,6 +72,10 @@ impl Fx {
         )
         .unwrap();
         assert!(r.published || r.build_id.is_some(), "{r:?}");
+        // Phase 2: links are part of the relationship graph.
+        let (mut store, active) = self.store();
+        ragmonk_knowledge::build_graph(&mut store, &self.root, &active, 2, None, &mut |_, _| {})
+            .unwrap();
     }
 
     fn store(&self) -> (ProjectStore, String) {
@@ -257,4 +261,50 @@ fn manual_links_are_exact_persistent_and_removable() {
     let (mut s, b) = f.store();
     assert!(manual::remove(&mut s, &b, &link.id).unwrap());
     assert!(user(&f).is_empty());
+}
+
+#[test]
+fn links_appear_only_after_the_graph_stage_and_manual_intent_is_reapplied() {
+    let mut f = fixture();
+    let cfg = ragmonk_config::RagMonkConfig::default();
+    run_source(
+        &f.layout,
+        &mut f.cp,
+        &f.src,
+        &ragmonk_convert::registry(&cfg),
+        &Options::from_config(&cfg),
+        &mut NoProgress,
+    )
+    .unwrap();
+    let (s, b) = f.store();
+    assert!(s.links(&b).unwrap().is_empty(), "phase 1 wrote links");
+    assert!(s.entity_links(&b, "anything").unwrap().is_empty());
+    drop(s);
+    let (mut s, b) = f.store();
+    ragmonk_knowledge::build_graph(&mut s, &f.root, &b, 2, None, &mut |_, _| {}).unwrap();
+    assert!(!s.links(&b).unwrap().is_empty());
+    manual::add(
+        &mut s,
+        &b,
+        "web.orders.OrderController.cancelOrder",
+        "orders.html",
+        None,
+        None,
+        "t",
+    )
+    .unwrap()
+    .expect("new link");
+    // A full graph recomputation keeps the user's link.
+    s.put_graph_state_with_files(&ragmonk_storage::graph::GraphState::default())
+        .unwrap();
+    let g = ragmonk_knowledge::build_graph(&mut s, &f.root, &b, 2, None, &mut |_, _| {}).unwrap();
+    assert!(g.full);
+    assert_eq!(
+        s.links(&b)
+            .unwrap()
+            .iter()
+            .filter(|l| l.resolver == manual::USER_RESOLVER)
+            .count(),
+        1
+    );
 }

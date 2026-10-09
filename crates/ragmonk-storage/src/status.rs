@@ -36,6 +36,8 @@ pub struct BuildSummary {
     pub links: i64,
     /// When the build was published (`builds.finished_at`).
     pub published_at: Option<String>,
+    /// The relationship graph's state record (raw `metadata` JSON).
+    pub graph_state: Option<String>,
 }
 
 impl ProjectStore {
@@ -56,7 +58,8 @@ impl ProjectStore {
                     (SELECT COUNT(*) FROM chunks WHERE build_id = ?1),
                     (SELECT COUNT(*) FROM relationships WHERE build_id = ?1),
                     (SELECT COUNT(*) FROM cross_links WHERE build_id = ?1),
-                    (SELECT finished_at FROM builds WHERE id = ?1)",
+                    (SELECT finished_at FROM builds WHERE id = ?1),
+                    (SELECT value FROM metadata WHERE key = 'graph_state')",
                 &[&build_id],
                 |r| {
                     Ok(BuildSummary {
@@ -72,11 +75,24 @@ impl ProjectStore {
                         relationships: r.get(9)?,
                         links: r.get(10)?,
                         published_at: r.get(11)?,
+                        graph_state: r.get(12)?,
                     })
                 },
             )?
             .pop()
             .unwrap_or_default())
+    }
+
+    /// The effective graph status of `build_id` from its [`BuildSummary`]
+    /// (no extra statement).
+    pub fn graph_status_of(build_id: &str, s: &BuildSummary) -> crate::graph::GraphStatus {
+        let state: crate::graph::GraphState = s
+            .graph_state
+            .as_deref()
+            .and_then(|r| serde_json::from_str(r).ok())
+            .unwrap_or_default();
+        let generation = format!("{build_id}@{}", s.published_at.as_deref().unwrap_or(""));
+        state.status(Some(&generation))
     }
 
     /// When each failing file of `build_id` last failed: `file_id ->
