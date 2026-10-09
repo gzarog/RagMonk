@@ -5,7 +5,45 @@ on:
   push:
     branches: ["main", "release/ragmonk-1.0-clean-slate"]
 
+# A newer push to the same PR supersedes its running CI. Pushes get a
+# unique group (the run id) and are never cancelled: a green main push
+# is what rust-release.yml publishes from.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
 jobs:
+  # Which conditional PR jobs this change needs (docs/CI.md). Fail closed:
+  # any error fails this job, and the CI gate fails with it. Pushes run
+  # everything.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      installer: ${{ steps.classify.outputs.installer }}
+      docker: ${{ steps.classify.outputs.docker }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "installer=true" >> "$GITHUB_OUTPUT"
+            echo "docker=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The PR checkout is the merge commit; its first parent is the base.
+          git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+          cat "$RUNNER_TEMP/changed"
+          scripts/ci_changes.sh --self-test
+          scripts/ci_changes.sh < "$RUNNER_TEMP/changed" | tee -a "$GITHUB_OUTPUT"
+
   # The former product name must not come back, and RagMonk 1.0 stays
   # fresh-install/fresh-index only (ADR 0032): the clean-slate baseline
   # only shrinks.
@@ -18,12 +56,43 @@ jobs:
       - run: cargo xtask branding-audit
       - run: cargo xtask clean-slate-audit
 
-  rust-checks:
+  rust-linux:
+    name: Rust fmt/clippy/test (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the toolchain; rustup installs it on first use.
+      - name: Show toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo fmt
+        run: cargo fmt --all --check
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - uses: ./.github/actions/fetch-models
+        with:
+          dir: ${{ runner.temp }}
+      - name: cargo test
+        run: cargo test --workspace --no-fail-fast
+        env:
+          RAGMONK_OCR_MODELS_DIR: ${{ runner.temp }}/ocr-models
+          RAGMONK_REQUIRE_OCR: "1"
+          RAGMONK_MODELS_DIR: ${{ runner.temp }}/models
+          RAGMONK_REQUIRE_MODELS: "1"
+      # Release-mode build only on pushes; PRs stop at the debug tests.
+      - name: cargo build --release
+        if: github.event_name == 'push'
+        run: cargo build --workspace --release
+
+  # Windows/macOS: the same full checks plus the release build, on pushes
+  # to main and the release branch only (PRs validate on Linux).
+  rust-cross-platform:
     name: Rust fmt/clippy/test (${{ matrix.os }})
+    if: github.event_name == 'push'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -35,60 +104,9 @@ jobs:
         run: cargo fmt --all --check
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      # The pinned ocrs models (not bundled) so OCR tests always
-      # run in CI; digests match ragmonk-convert's OCR_MODEL_MANIFEST.
-      - name: Cache OCR models
-        uses: actions/cache@v4
+      - uses: ./.github/actions/fetch-models
         with:
-          path: ${{ runner.temp }}/ocr-models
-          key: ocrs-models-f15cfb56-e484866d
-      - name: Fetch OCR models
-        shell: bash
-        env:
-          DIR: ${{ runner.temp }}/ocr-models
-        run: |
-          mkdir -p "$DIR"
-          fetch() {
-            [ -f "$DIR/$1" ] || curl -sSfL --retry 4 -o "$DIR/$1" "https://ocrs-models.s3-accelerate.amazonaws.com/$1"
-            if command -v sha256sum >/dev/null; then
-              echo "$2  $DIR/$1" | sha256sum -c -
-            else
-              echo "$2  $DIR/$1" | shasum -a 256 -c -
-            fi
-          }
-          fetch text-detection.rten f15cfb56bd02c4bf478a20343986504a1f01e1665c2b3a0ad66340f054b1b5ca
-          fetch text-recognition.rten e484866d4cce403175bd8d00b128feb08ab42e208de30e42cd9889d8f1735a6e
-      # The pinned embedding and reranker models (revision + sha256
-      # match ragmonk-ml's manifest) so parity and finalizer tests run.
-      - name: Cache embedding models
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/models
-          key: models-minilm-1110a243-msmarco-233902d2
-      - name: Fetch embedding models
-        shell: bash
-        env:
-          DIR: ${{ runner.temp }}/models/all-minilm-l6-v2
-          BASE: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41
-        run: |
-          mkdir -p "$DIR"
-          fetch() {
-            [ -f "$DIR/$1" ] || curl -sSfL --retry 4 -o "$DIR/$1" "$BASE/$1"
-            if command -v sha256sum >/dev/null; then
-              echo "$2  $DIR/$1" | sha256sum -c -
-            else
-              echo "$2  $DIR/$1" | shasum -a 256 -c -
-            fi
-          }
-          fetch config.json 953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41
-          fetch model.safetensors 53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db
-          fetch tokenizer.json be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037
-          DIR="${{ runner.temp }}/models/ms-marco-minilm-l6-v2"
-          BASE=https://huggingface.co/cross-encoder/ms-marco-MiniLM-L-6-v2/resolve/233902d25c440f23af6f7d6e94d2946bac0bee0a
-          mkdir -p "$DIR"
-          fetch config.json 380e02c93f431831be65d99a4e7e5f67c133985bf2e77d9d4eba46847190bacc
-          fetch model.safetensors 821d1aa69520101d6e0737f78a042ae25b19e5cb9160701909d10434f4aeb0ae
-          fetch tokenizer.json d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66
+          dir: ${{ runner.temp }}
       - name: cargo test
         run: cargo test --workspace --no-fail-fast
         env:
@@ -160,8 +178,7 @@ jobs:
         run: |
           cargo test -p ragmonk-status --test live_server -- --nocapture
           cargo test -p ragmonk-cli --test status -- --nocapture
-      - name: Status benchmark (150 sources, both engines)
-        run: cargo test --release -p ragmonk-status --test live_server -- --ignored --nocapture
+      # The 150-source release-mode benchmark runs in rust-nightly.yml.
 
   # The native installers end to end, against release archives
   # packaged from this commit's build and served from a local directory
@@ -177,6 +194,8 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: macos-latest
             target: aarch64-apple-darwin
+    needs: changes
+    if: needs.changes.outputs.installer == 'true'
     runs-on: ${{ matrix.os }}
     steps:
       # runner.temp is not available in job-level env.
@@ -218,6 +237,8 @@ jobs:
 
   install-script-tests-windows:
     name: Install script (windows-latest)
+    needs: changes
+    if: needs.changes.outputs.installer == 'true'
     runs-on: windows-latest
     steps:
       # runner.temp is not available in job-level env.
@@ -273,6 +294,8 @@ jobs:
   # rust-release.yml), runs from an empty home and ships no interpreter.
   container-image:
     name: Container image (linux/amd64)
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -294,3 +317,54 @@ jobs:
           # clean-slate-audit: allow-end
           docker run --rm --entrypoint sh ragmonk:ci -c 'ragmonk init && ragmonk doctor'
           test -n "$(docker run --rm --entrypoint ls ragmonk:ci /opt/ragmonk/models/all-minilm-l6-v2/model.safetensors)"
+
+  # The one stable required status. Mandatory jobs must succeed; on
+  # pushes every job is mandatory; on PRs a conditional job may be
+  # skipped only when `changes` succeeded and did not select it.
+  ci-gate:
+    name: CI gate
+    if: always()
+    needs:
+      - changes
+      - repository-audits
+      - rust-linux
+      - rust-cross-platform
+      - server-integration
+      - install-script-tests
+      - install-script-tests-windows
+      - container-image
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          result() { jq -r --arg j "$1" '.[$j].result // "missing"' <<<"$NEEDS"; }
+          output() { jq -r --arg j "$1" --arg o "$2" '.[$j].outputs[$o] // ""' <<<"$NEEDS"; }
+          fail=0
+          check() { # job, may-skip
+            r=$(result "$1")
+            if [ "$r" = success ] || { [ "$2" = yes ] && [ "$r" = skipped ]; }; then
+              echo "ok   $1: $r"
+            else
+              echo "FAIL $1: $r"; fail=1
+            fi
+          }
+          for j in changes repository-audits rust-linux server-integration; do check "$j" no; done
+          if [ "$EVENT" = pull_request ]; then
+            check rust-cross-platform yes
+            inst=$(output changes installer); dock=$(output changes docker)
+            skip_inst=yes; [ "$inst" = true ] && skip_inst=no
+            skip_dock=yes; [ "$dock" = true ] && skip_dock=no
+            check install-script-tests "$skip_inst"
+            check install-script-tests-windows "$skip_inst"
+            check container-image "$skip_dock"
+          else
+            for j in rust-cross-platform install-script-tests install-script-tests-windows container-image; do
+              check "$j" no
+            done
+          fi
+          exit $fail

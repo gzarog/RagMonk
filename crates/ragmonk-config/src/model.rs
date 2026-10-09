@@ -288,6 +288,9 @@ section! {
         code_extraction_workers: i64 = 1;
         document_extraction_workers: i64 = 1;
         embedding_batch_size: i64 = 16;
+        // Call graphs and code<->document links. Off skips their extraction,
+        // cross-file resolution and knowledge linking (faster indexing).
+        relationships_enabled: bool = true;
         lock_timeout_seconds: f64 = 30.0, check = |v| {
             if *v > 0.0 && *v <= 3600.0 { Ok(()) } else {
                 Err("must be > 0 and <= 3600".into())
