@@ -35,6 +35,7 @@ const VOLATILE: &[&str] = &[
     "snapshot_id",
     "run_id",
     "active_id",
+    "base_build_id",
     "request_count",
     "resources",
 ];

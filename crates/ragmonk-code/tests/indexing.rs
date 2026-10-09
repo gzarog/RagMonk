@@ -1,6 +1,8 @@
-//! Code intelligence through the indexer: parse-failure isolation,
-//! whole-build resolution matching the expected relationships, incremental
-//! re-resolution, determinism and graph traversal.
+//! Code intelligence through the indexer and the post-index graph stage:
+//! parse-failure isolation, whole-build resolution matching the expected
+//! relationships, incremental re-resolution (matching a full
+//! recomputation), stale-snapshot protection, determinism and graph
+//! traversal.
 
 mod common;
 
@@ -8,11 +10,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use ragmonk_code::graph::{traverse_symbol, Direction};
+use ragmonk_code::graph_stage::{build_graph, GraphError, GraphOptions, GraphOutcome, GraphReport};
 use ragmonk_code::process::{entity_ids, prepare_source, PreparedCode};
 use ragmonk_core::ids::record;
 use ragmonk_core::paths::project_id_for_canonical;
 use ragmonk_indexing::coordinator::{run_source, NoProgress, Options};
 use ragmonk_storage::control::{ControlPlane, SourceRecord};
+use ragmonk_storage::graph::GraphLifecycle;
 use ragmonk_storage::knowledge::ProjectStore;
 use ragmonk_storage::StorageLayout;
 use serde_json::{json, Value};
@@ -69,7 +73,8 @@ fn fixture() -> Fixture {
 }
 
 impl Fixture {
-    fn index(&mut self) -> ragmonk_indexing::coordinator::SourceResult {
+    /// Phase 1 only: the base index.
+    fn index_base(&mut self) -> ragmonk_indexing::coordinator::SourceResult {
         run_source(
             &self.layout,
             &mut self.cp,
@@ -79,6 +84,29 @@ impl Fixture {
             &mut NoProgress,
         )
         .unwrap()
+    }
+
+    /// Phase 2 only: the relationship graph of the published build.
+    fn graph(&self) -> Result<GraphReport, GraphError> {
+        let (mut store, active) = self.store();
+        build_graph(
+            &mut store,
+            &self.root,
+            &active,
+            &GraphOptions {
+                workers: 3,
+                linker: None,
+                cancel: None,
+            },
+            &mut |_, _| {},
+        )
+    }
+
+    /// Both phases, like `ragmonk index`.
+    fn index(&mut self) -> ragmonk_indexing::coordinator::SourceResult {
+        let r = self.index_base();
+        self.graph().unwrap();
+        r
     }
 
     fn store(&self) -> (ProjectStore, String) {
@@ -317,4 +345,174 @@ fn callers_and_callees_traverse_the_build() {
     )
     .unwrap();
     assert_eq!(limited.len(), 2);
+}
+
+fn relationships_dump(f: &Fixture) -> BTreeMap<String, String> {
+    let (store, active) = f.store();
+    let mut out = BTreeMap::new();
+    for file in store.files(&active).unwrap() {
+        for r in store.file_relationships(&active, &file.id).unwrap() {
+            out.insert(r.id.clone(), format!("{r:?}"));
+        }
+    }
+    out
+}
+
+#[test]
+fn the_primary_index_never_derives_relationships() {
+    let mut f = fixture();
+    let r = f.index_base();
+    assert!(r.published);
+    let all = "SELECT COUNT(*) FROM relationships WHERE build_id = ?1";
+    assert_eq!(f.count(all), 0, "phase 1 wrote relationships");
+    assert!(f.count("SELECT COUNT(*) FROM entities WHERE build_id = ?1") > 50);
+    let (store, active) = f.store();
+    assert!(!store.graph_visible(&active).unwrap());
+    assert_eq!(
+        store.graph_status(Some(&active)).unwrap().state,
+        GraphLifecycle::Pending
+    );
+    drop(store);
+
+    let g = f.graph().unwrap();
+    assert_eq!(g.outcome, GraphOutcome::Built);
+    assert!(g.full);
+    assert!(f.count(all) > 100);
+    let (store, active) = f.store();
+    assert!(store.graph_visible(&active).unwrap());
+    drop(store);
+    // A second graph pass over the same base is a no-op.
+    assert_eq!(f.graph().unwrap().outcome, GraphOutcome::UpToDate);
+}
+
+#[test]
+fn a_republished_base_hides_the_old_graph_until_it_is_rebuilt() {
+    let mut f = fixture();
+    f.index();
+    common::write(
+        &f.root,
+        "python/pkg/late.py",
+        "def unknown_function():\n    return 0\n",
+    );
+    assert!(f.index_base().published);
+    let (store, active) = f.store();
+    assert!(!store.graph_visible(&active).unwrap());
+    assert_eq!(
+        store.graph_status(Some(&active)).unwrap().state,
+        GraphLifecycle::Stale
+    );
+    // Graph readers return nothing for a stale graph.
+    assert!(store
+        .edges(
+            &active,
+            ragmonk_storage::knowledge::Endpoint::Source,
+            "x",
+            &[],
+            10
+        )
+        .unwrap()
+        .is_empty());
+    drop(store);
+    let g = f.graph().unwrap();
+    assert!(!g.full, "an incremental update is enough");
+    assert_eq!(g.files_processed, 1);
+    let (store, active) = f.store();
+    assert!(store.graph_visible(&active).unwrap());
+}
+
+#[test]
+fn incremental_graph_updates_match_a_full_recomputation() {
+    let mut f = fixture();
+    f.index();
+    // Additions, a change, a deletion and a move between graph builds.
+    common::write(
+        &f.root,
+        "python/pkg/late.py",
+        "def unknown_function():\n    return 0\n",
+    );
+    std::fs::remove_file(f.root.join("python/pkg/helpers.py")).unwrap();
+    let text = std::fs::read_to_string(f.root.join("python/animals.py")).unwrap();
+    std::fs::write(
+        f.root.join("python/animals.py"),
+        format!("{text}\ndef bark():\n    pass\n"),
+    )
+    .unwrap();
+    std::fs::rename(
+        f.root.join("python/pkg/service.py"),
+        f.root.join("python/pkg/service2.py"),
+    )
+    .unwrap();
+    f.index_base();
+    let g = f.graph().unwrap();
+    assert!(!g.full);
+    let incremental = relationships_dump(&f);
+
+    // Forget the dependency metadata: the next graph is recomputed fully.
+    let (mut store, _) = f.store();
+    store
+        .put_graph_state_with_files(&ragmonk_storage::graph::GraphState::default())
+        .unwrap();
+    drop(store);
+    let g = f.graph().unwrap();
+    assert!(g.full);
+    assert_eq!(relationships_dump(&f), incremental);
+}
+
+#[test]
+fn a_file_edited_after_indexing_never_yields_a_mixed_graph() {
+    let mut f = fixture();
+    f.index_base();
+    // Changed on disk after the base was published, before the graph.
+    let p = f.root.join("python/animals.py");
+    let text = std::fs::read_to_string(&p).unwrap();
+    std::fs::write(&p, format!("{text}\n# edited\n")).unwrap();
+    match f.graph() {
+        Err(GraphError::Stale(reason)) => assert!(reason.contains("python/animals.py"), "{reason}"),
+        other => panic!("expected a stale graph, got {other:?}"),
+    }
+    // Nothing of the graph was published; the base index is untouched.
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM relationships WHERE build_id = ?1"),
+        0
+    );
+    assert!(f.count("SELECT COUNT(*) FROM entities WHERE build_id = ?1") > 50);
+    let (store, active) = f.store();
+    assert_eq!(
+        store.graph_status(Some(&active)).unwrap().state,
+        GraphLifecycle::Stale
+    );
+    drop(store);
+    // The next index pass picks the edit up and the graph is retried.
+    f.index_base();
+    assert_eq!(f.graph().unwrap().outcome, GraphOutcome::Built);
+}
+
+#[test]
+fn a_cancelled_graph_build_publishes_nothing() {
+    let mut f = fixture();
+    f.index_base();
+    let (mut store, active) = f.store();
+    let cancel = std::sync::atomic::AtomicBool::new(true);
+    let r = build_graph(
+        &mut store,
+        &f.root,
+        &active,
+        &GraphOptions {
+            workers: 2,
+            linker: None,
+            cancel: Some(&cancel),
+        },
+        &mut |_, _| {},
+    );
+    assert_eq!(r.unwrap_err(), GraphError::Cancelled);
+    assert!(!store.graph_visible(&active).unwrap());
+    assert_eq!(
+        store.graph_status(Some(&active)).unwrap().state,
+        GraphLifecycle::Failed
+    );
+    drop(store);
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM relationships WHERE build_id = ?1"),
+        0
+    );
 }

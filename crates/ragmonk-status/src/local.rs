@@ -86,6 +86,7 @@ pub fn collect_facts(
             published: None,
             published_missing: false,
             lease: None,
+            relationships: None,
         };
         let project = project_id_for_canonical(&s.path);
         let db = layout.project_db(&project);
@@ -100,9 +101,17 @@ pub fn collect_facts(
                 wanted,
                 i.cache_size_mb,
             ) {
-                Ok((summary, recent, n)) => {
+                Ok((summary, recent, graph, n)) => {
                     statements += n;
-                    if let Some(b) = summary {
+                    let visible = graph.as_ref().is_some_and(|g| g.state == "ready");
+                    facts.relationships = graph;
+                    if let Some(mut b) = summary {
+                        if !visible {
+                            // Graph rows of another base generation are
+                            // not part of what readers see.
+                            b.relationships = 0;
+                            b.links = 0;
+                        }
                         facts.published_at = normalize_time(b.published_at.as_deref());
                         facts.published = Some(PublishedCounts {
                             files: u(b.files),
@@ -167,6 +176,7 @@ pub fn collect_facts(
 type ProjectRead = (
     Option<ragmonk_storage::status::BuildSummary>,
     Vec<ErrorEvent>,
+    Option<RelationshipStatus>,
     u64,
 );
 
@@ -205,7 +215,22 @@ fn read_project(
             occurred_at: normalize_time(Some(&e.occurred_at)),
         })
         .collect();
-    Ok((summary, recent, n))
+    // The graph record came with the build summary (no extra statement).
+    let relationships = match (active, &summary) {
+        (Some(b), Some(sum)) => {
+            let graph = ProjectStore::graph_status_of(b, sum);
+            Some(RelationshipStatus {
+                state: graph.state.as_str().into(),
+                generation: (graph.generation > 0).then(|| graph.generation.to_string()),
+                base_build_id: graph.base_build_id,
+                last_success_at: normalize_time(graph.last_success_at.as_deref()),
+                last_error: graph.last_error,
+                stale_reason: graph.stale_reason,
+            })
+        }
+        _ => None,
+    };
+    Ok((summary, recent, relationships, n))
 }
 
 /// A complete local report.

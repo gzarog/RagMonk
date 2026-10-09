@@ -1419,6 +1419,10 @@ impl ProjectStore {
         types: &[&str],
         limit: i64,
     ) -> Result<Vec<RelationshipRow>> {
+        // Graph rows are only visible when they match the active base.
+        if !self.graph_visible(build_id)? {
+            return Ok(Vec::new());
+        }
         let mut sql = format!(
             "SELECT {RELATIONSHIP_COLUMNS} FROM relationships WHERE build_id = ?1 AND {column} = ?2"
         );

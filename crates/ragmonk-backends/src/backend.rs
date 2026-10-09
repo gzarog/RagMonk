@@ -40,8 +40,8 @@ pub struct SourceState {
     pub versions: Value,
     /// The whole stored document (catalog fields, lease, retired builds).
     pub doc: Value,
-    seq_no: i64,
-    primary_term: i64,
+    pub(crate) seq_no: i64,
+    pub(crate) primary_term: i64,
 }
 
 impl SourceState {
@@ -108,7 +108,7 @@ pub struct Lease {
 
 /// Painless: drop build `params.b` from a record; delete the record when
 /// no build is left.
-const DETACH_SCRIPT: &str = "def v = ctx._source.build_id; List l = new ArrayList(); \
+pub(crate) const DETACH_SCRIPT: &str = "def v = ctx._source.build_id; List l = new ArrayList(); \
     if (v instanceof List) { l.addAll(v) } else if (v != null) { l.add(v) } \
     l.removeIf(x -> x == params.b); \
     if (l.isEmpty()) { ctx.op = 'delete' } else { ctx._source.build_id = l }";
@@ -129,7 +129,7 @@ pub const MANUAL_BUILD: &str = "manual";
 /// Page size of every scan over the source-state index.
 pub const SCAN_PAGE: usize = 1000;
 
-fn check_lease(state: &SourceState, lease: Option<&Lease>) -> Result<()> {
+pub(crate) fn check_lease(state: &SourceState, lease: Option<&Lease>) -> Result<()> {
     let owner = state.doc["lease_owner"].as_str().unwrap_or_default();
     let token = state.doc["lease_token"].as_i64().unwrap_or(0);
     let live = state.doc["lease_expires_at"]
@@ -270,6 +270,11 @@ impl ServerBackend {
     pub fn with_gc_grace(mut self, grace: Duration) -> Self {
         self.gc_grace = grace;
         self
+    }
+
+    /// How long a replaced build (or graph generation) stays readable.
+    pub fn gc_grace(&self) -> Duration {
+        self.gc_grace
     }
 
     pub fn vector_spec(&self) -> Option<&VectorSpec> {
@@ -510,7 +515,7 @@ impl ServerBackend {
     /// concurrency. `lease` (when given) must still be the source's live
     /// writer lease; without one, a live lease held by anybody refuses the
     /// write. `patch` edits the stored fields; everything else is kept.
-    fn patch_state(
+    pub(crate) fn patch_state(
         &self,
         source_id: &str,
         lease: Option<&Lease>,
@@ -747,7 +752,7 @@ impl ServerBackend {
         }
     }
 
-    fn refresh_build_indexes(&self) -> Result<()> {
+    pub(crate) fn refresh_build_indexes(&self) -> Result<()> {
         let names: Vec<String> = IndexKind::BUILD_SCOPED
             .iter()
             .map(|k| self.index(*k))
@@ -820,7 +825,18 @@ impl ServerBackend {
             doc.insert("state".into(), json!("ready"));
             doc.insert("active_build_id".into(), json!(build_id));
             doc.insert("pending_build_id".into(), Value::Null);
-            doc.insert("versions".into(), versions.clone());
+            // The graph record survives a base publication (the opaque
+            // `versions` object carries it); readers treat a graph of
+            // another base build as stale.
+            let mut versions = versions.clone();
+            if let (Some(v), Some(g)) = (
+                versions.as_object_mut(),
+                doc.get("versions")
+                    .and_then(|v| v.get(crate::graph::GRAPH_KEY)),
+            ) {
+                v.insert(crate::graph::GRAPH_KEY.into(), g.clone());
+            }
+            doc.insert("versions".into(), versions);
             doc.insert("rebuild_reason".into(), Value::Null);
             doc.insert("published_at".into(), json!(now()));
             for (k, v) in extra {
@@ -928,7 +944,7 @@ impl ServerBackend {
     /// belongs to other builds too (copied forward) just loses this build
     /// id; a record that belonged only to this build is deleted. Shared
     /// records of other builds are never deleted.
-    fn delete_build_docs(&self, source_id: &str, build_id: &str) -> Result<u64> {
+    pub(crate) fn delete_build_docs(&self, source_id: &str, build_id: &str) -> Result<u64> {
         self.refresh_build_indexes()?;
         let names: Vec<String> = IndexKind::BUILD_SCOPED
             .iter()

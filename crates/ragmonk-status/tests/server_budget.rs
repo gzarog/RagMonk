@@ -88,6 +88,10 @@ impl Transport for Mock {
                         "state": if build.is_some() { "ready" } else { "needs_full_rebuild" },
                         "active_build_id": build, "published_at": "1791471600000",
                         "last_scan_at": "1791471600000",
+                        // Each published build has a ready graph generation.
+                        "versions": { "graph": build.as_ref().map(|b| json!({
+                            "state": "ready", "generation": format!("g-{b}"), "base_build_id": b,
+                        })) },
                     }, "sort": [id]})
                 })
                 .collect();
@@ -161,6 +165,18 @@ impl Transport for Mock {
                 })
                 .collect();
             return ok(json!({"hits": {"hits": hits}}));
+        }
+        if base == format!("/{P}-relationships/_search") {
+            // Graph generation counts.
+            let srcs: Vec<Value> = pairs
+                .iter()
+                .map(|(s, g)| {
+                    assert!(g.starts_with("g-"), "graph counts read a base build: {g}");
+                    json!({"key": s, "doc_count": 7, "kind": {"buckets": [
+                        {"key": "edge", "doc_count": 5}, {"key": "link", "doc_count": 2}]}})
+                })
+                .collect();
+            return ok(json!({"aggregations": {"by_source": {"buckets": srcs}}}));
         }
         if base.contains(&format!("{P}-code,")) {
             let names = ["code", "documents", "chunks", "relationships"];
@@ -313,9 +329,10 @@ fn ten_thousand_sources_page_without_truncation() {
     assert_eq!(r.summary.files.discovered, Some(published as u64 * 10));
     // Bounded by pages and batches, not by sources.
     let used = r.diagnostics.request_count.unwrap();
-    // 11 catalog pages + 11 re-check pages, 3 requests per 1000-source
-    // batch, runtime and cluster health.
-    assert!(used <= 2 * 11 + 3 * 11 + 2, "{used}");
+    // 11 catalog pages + 11 re-check pages, 4 requests per 1000-source
+    // batch (files, records, errors, graph generations), runtime and
+    // cluster health.
+    assert!(used <= 2 * 11 + 4 * 11 + 2, "{used}");
 }
 
 #[test]

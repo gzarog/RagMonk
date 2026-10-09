@@ -2962,6 +2962,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -3010,6 +3011,7 @@ dependencies = [
  "serde_json",
  "streaming-iterator",
  "tempfile",
+ "thiserror 2.0.21",
  "tracing",
  "tree-sitter",
  "tree-sitter-c-sharp",
@@ -3107,6 +3109,7 @@ dependencies = [
 name = "ragmonk-knowledge"
 version = "0.0.0"
 dependencies = [
+ "ragmonk-code",
  "ragmonk-config",
  "ragmonk-convert",
  "ragmonk-core",
@@ -3184,6 +3187,7 @@ dependencies = [
  "ragmonk-core",
  "ragmonk-documents",
  "ragmonk-indexing",
+ "ragmonk-knowledge",
  "ragmonk-ml",
  "ragmonk-storage",
  "regex",
@@ -3201,6 +3205,7 @@ dependencies = [
  "chrono",
  "ragmonk-ai",
  "ragmonk-backends",
+ "ragmonk-code",
  "ragmonk-config",
  "ragmonk-convert",
  "ragmonk-core",
@@ -3213,6 +3218,7 @@ dependencies = [
  "ragmonk-storage",
  "ragmonk-telemetry",
  "reqwest",
+ "serde",
  "serde_json",
  "signal-hook",
  "tempfile",

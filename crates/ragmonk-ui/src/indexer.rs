@@ -170,6 +170,32 @@ impl Indexer {
                 self.emit("scan_completed", row.clone());
                 rows.push(row);
             }
+            // Phase 2 (after every source indexed): reported on its own,
+            // never as an indexing failure.
+            SourceEvent::Relationships { source, outcome } => {
+                let mut row = outcome.json();
+                row["source_id"] = json!(source.id);
+                self.emit(
+                    if outcome.is_failure() {
+                        "relationships_failed"
+                    } else {
+                        "relationships_completed"
+                    },
+                    row.clone(),
+                );
+                if let Some(r) = rows
+                    .iter_mut()
+                    .find(|r| r["source_id"] == source.id.as_str())
+                {
+                    if let (Some(r), Some(extra)) = (r.as_object_mut(), row.as_object()) {
+                        for k in ["relationship_state", "relationship_error"] {
+                            if let Some(v) = extra.get(k) {
+                                r.insert(k.into(), v.clone());
+                            }
+                        }
+                    }
+                }
+            }
         })?;
         Ok(summary("index", &rows))
     }

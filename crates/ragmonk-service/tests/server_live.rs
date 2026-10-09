@@ -138,6 +138,16 @@ fn index(env: &Env, force_full: bool) -> (Vec<Value>, Vec<String>) {
             SourceEvent::Failed { source, error } | SourceEvent::Blocked { source, error } => {
                 bad.push(format!("{}: {}", source.id, error.message()))
             }
+            SourceEvent::Relationships { source, outcome } => {
+                if outcome.is_failure() {
+                    bad.push(format!(
+                        "{}: relationships {}: {}",
+                        source.id,
+                        outcome.state(),
+                        outcome.error().unwrap_or_default()
+                    ))
+                }
+            }
             SourceEvent::Started { .. } => {}
         },
     )

@@ -158,6 +158,18 @@ fn seed(b: &ServerBackend) {
             })
             .unwrap();
         }
+        w.finish().unwrap();
+        let graph = format!("{build}_g");
+        b.publish_build(
+            &src,
+            &build,
+            &json!({ "graph": { "state": "ready", "generation": graph, "base_build_id": build } }),
+            true,
+        )
+        .unwrap();
+        // Edges and links belong to the base's graph generation, written
+        // after the base publication (which collects foreign records).
+        let mut w = b.build_writer(&src, &graph);
         w.edge(&EdgeDoc {
             relationship_id: format!("{src}_r"),
             file_id: format!("{src}_ok0"),
@@ -183,7 +195,6 @@ fn seed(b: &ServerBackend) {
         })
         .unwrap();
         w.finish().unwrap();
-        b.publish_build(&src, &build, &json!({}), true).unwrap();
         b.set_online(&src, None, true, None).unwrap();
     }
     // A pending second build of source 0 with many records: invisible.
@@ -205,6 +216,7 @@ fn seed(b: &ServerBackend) {
     }
     w.finish().unwrap();
     refresh(b, IndexKind::Files);
+    refresh(b, IndexKind::Relationships);
 }
 
 fn refresh(b: &ServerBackend, kind: IndexKind) {

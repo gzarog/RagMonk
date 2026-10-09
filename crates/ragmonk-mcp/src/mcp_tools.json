@@ -2636,6 +2636,89 @@
         "unknown"
        ]
       },
+      "relationship_state": {
+       "description": "The relationship graph stage, independent of index_state: the published index is searchable whatever this says.",
+       "anyOf": [
+        {
+         "type": "object",
+         "properties": {
+          "state": {
+           "type": "string",
+           "enum": [
+            "disabled",
+            "pending",
+            "building",
+            "ready",
+            "stale",
+            "failed"
+           ]
+          },
+          "generation": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "base_build_id": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "last_success_at": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "last_error": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          },
+          "stale_reason": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "default": null
+          }
+         },
+         "required": [
+          "state"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
       "build": {
        "type": "object",
        "properties": {

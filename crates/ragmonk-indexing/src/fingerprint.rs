@@ -27,6 +27,14 @@ pub fn hash_file(path: &Path) -> std::io::Result<String> {
         .collect())
 }
 
+/// [`hash_file`] of bytes already in memory (the same digest).
+pub fn hash_bytes(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 pub fn stat_unchanged(prev_size: i64, prev_mtime: f64, size: i64, mtime: f64) -> bool {
     prev_size == size && (prev_mtime - mtime).abs() < MTIME_EPSILON
 }

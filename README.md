@@ -214,6 +214,7 @@ ragmonk init --storage-mode server --storage-engine opensearch \
 | Add / list / remove a folder | `ragmonk source add PATH [--include GLOB] [--exclude GLOB]` · `source list` · `source remove ID` |
 | Pause / resume a folder | `ragmonk source disable ID` · `source enable ID` |
 | Index now | `ragmonk index [--source ID]` |
+| Retry relationship graphs only | `ragmonk relationships build [--source ID]` |
 | Index automatically | `ragmonk daemon start` · `daemon status` · `daemon stop` |
 | Is it working? | `ragmonk status [--watch] [--errors] [--verbose] [--json]` |
 | Search | `ragmonk search "text" [--hybrid] [--table] [--json]` |

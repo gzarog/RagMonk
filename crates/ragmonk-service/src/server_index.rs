@@ -1,10 +1,12 @@
 //! Server-mode source passes (ADR 0033, P0-S02).
 //!
 //! The knowledge pipeline itself is backend-agnostic: scan, metadata-first
-//! diff, conversion, parsing, chunking, cross-file resolution, linking and
-//! embedding run exactly as in local mode, into a **disposable staging
-//! store** under `<home>/cache/server-staging/<index_prefix>/`. The
-//! server stays authoritative:
+//! diff, conversion, parsing, chunking and embedding run exactly as in
+//! local mode, into a **disposable staging store** under
+//! `<home>/cache/server-staging/<index_prefix>/`. The relationship graph is
+//! derived afterwards, in the staging store, by [`build_relationships`] and
+//! published as an independent graph generation. The server stays
+//! authoritative:
 //!
 //! * The pass holds the source's server writer lease (fencing token) for
 //!   its whole duration, renewed in the background; a superseded or
@@ -453,9 +455,193 @@ fn staged_pass(
         files_written = report.files_written,
         records_copied = report.records_copied,
         records_written = report.records_written,
-        relationships_written = report.relationships_written,
         seconds = report.seconds,
     );
     result.server_publish = Some(serde_json::to_value(&report).map_err(generic)?);
     Ok(result)
+}
+
+/// What a server-mode graph stage did.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ServerGraphRun {
+    pub graph: ragmonk_code::graph_stage::GraphReport,
+    pub publish: ragmonk_backends::graph::GraphPublishReport,
+}
+
+/// Why a server-mode graph stage did not publish.
+#[derive(Debug)]
+pub enum ServerGraphError {
+    /// Another process holds the source's writer lease.
+    Blocked(RagMonkError),
+    Graph(ragmonk_code::graph_stage::GraphError),
+    Other(RagMonkError),
+}
+
+/// The relationship graph stage of one server-mode source, after its base
+/// was published: derive the graph in the staging store (which must
+/// describe the server's active build) and publish it as a new graph
+/// generation, fenced by the writer lease and the expected active base. The
+/// caller holds the source's local lock.
+pub fn build_relationships(
+    home: &Home,
+    cfg: &RagMonkConfig,
+    server: &ServerBackend,
+    source: &SourceRecord,
+    opts: &Options,
+    progress: &mut ragmonk_code::graph_stage::GraphProgressFn<'_>,
+) -> Result<ServerGraphRun, ServerGraphError> {
+    use ragmonk_code::graph_stage::GraphError;
+    let ttl = Duration::from_secs_f64(cfg.storage.server.lease_seconds);
+    let lease = server
+        .acquire_lease(&source.id, &lease_owner(), ttl)
+        .map_err(|e| ServerGraphError::Blocked(server_err(e)))?;
+    let stop = AtomicBool::new(false);
+    let lost = AtomicBool::new(false);
+    let result = std::thread::scope(|s| {
+        let (stop_ref, lost_ref, lease_ref) = (&stop, &lost, &lease);
+        s.spawn(move || {
+            let step = (ttl / 3).max(Duration::from_millis(500));
+            let mut waited = Duration::ZERO;
+            while !stop_ref.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(100));
+                waited += Duration::from_millis(100);
+                if waited >= step {
+                    waited = Duration::ZERO;
+                    if server.renew_lease(lease_ref).is_err() {
+                        lost_ref.store(true, Ordering::SeqCst);
+                        return;
+                    }
+                }
+            }
+        });
+        let _renewal = Renewal { stop: &stop };
+        graph_pass(home, cfg, server, source, opts, &lease, &lost, progress)
+    });
+    match &result {
+        Err(ServerGraphError::Graph(GraphError::Stale(reason))) => {
+            let _ = server.set_graph_state(&source.id, Some(&lease), "stale", None, Some(reason));
+        }
+        Err(ServerGraphError::Graph(e)) => {
+            let _ = server.set_graph_state(
+                &source.id,
+                Some(&lease),
+                "failed",
+                Some(&e.to_string()),
+                None,
+            );
+        }
+        _ => {}
+    }
+    let _ = server.release_lease(&lease);
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn graph_pass(
+    home: &Home,
+    cfg: &RagMonkConfig,
+    server: &ServerBackend,
+    source: &SourceRecord,
+    opts: &Options,
+    lease: &Lease,
+    lost: &AtomicBool,
+    progress: &mut ragmonk_code::graph_stage::GraphProgressFn<'_>,
+) -> Result<ServerGraphRun, ServerGraphError> {
+    use ragmonk_code::graph_stage::GraphError;
+    let other = ServerGraphError::Other;
+    let root = staging_root(home, cfg);
+    let layout = StorageLayout::at(&root);
+    let server_active = server
+        .source_state(&source.id)
+        .map_err(|e| other(server_err(e)))?
+        .and_then(|s| s.active_build_id);
+    let Some(server_active) = server_active else {
+        return Err(ServerGraphError::Graph(GraphError::NotPublished));
+    };
+    let synced = std::fs::read_to_string(marker(&root, &source.id))
+        .ok()
+        .map(|s| s.trim().to_owned());
+    if synced.as_deref() != Some(server_active.as_str()) {
+        return Err(ServerGraphError::Graph(GraphError::Stale(
+            "the local staging copy does not describe the server's active build; run 'ragmonk index' first"
+                .into(),
+        )));
+    }
+    let cp = open_staging(&layout, cfg).map_err(other)?;
+    let local_build = cp
+        .state(&source.id)
+        .map_err(|e| other(db(e)))?
+        .active_build_id
+        .ok_or(ServerGraphError::Graph(GraphError::NotPublished))?;
+    let mut store = ProjectStore::open(
+        &layout,
+        &project_id_for_canonical(&source.path),
+        &source.id,
+        cfg.runtime.sqlite_cache_size_mb,
+    )
+    .map_err(|e| other(db(e)))?;
+    let graph = ragmonk_knowledge::build_graph(
+        &mut store,
+        std::path::Path::new(&source.path),
+        &local_build,
+        opts.workers,
+        Some(lost),
+        progress,
+    )
+    .map_err(ServerGraphError::Graph)?;
+    let generation = record::build_id(
+        &source.id,
+        &format!("graph-{}-{}-{}", now_iso(), std::process::id(), lease.token),
+    );
+    let publish = server
+        .publish_graph(&ragmonk_backends::graph::GraphPublishInput {
+            source_id: &source.id,
+            store: &store,
+            local_build: &local_build,
+            base_build_id: &server_active,
+            lease: Some(lease),
+            generation: &generation,
+        })
+        .map_err(|e| match e {
+            ragmonk_backends::BackendError::Conflict(m) => {
+                ServerGraphError::Graph(GraphError::Stale(m))
+            }
+            e => ServerGraphError::Graph(GraphError::Failed(
+                ragmonk_telemetry::redact::redact_urls_in_text(&e.to_string()),
+            )),
+        })?;
+    tracing::info!(
+        component = "indexing",
+        event = "server_graph_publish",
+        source_id = %source.id,
+        published = publish.published,
+        edges = publish.edges_written,
+        links = publish.links_written,
+        seconds = publish.seconds,
+    );
+    Ok(ServerGraphRun { graph, publish })
+}
+
+/// Marks a server source's graph disabled (hidden, never deleted). A
+/// source whose lease is held elsewhere is left for its holder's next run.
+pub fn mark_relationships_disabled(
+    cfg: &RagMonkConfig,
+    server: &ServerBackend,
+    source: &SourceRecord,
+) -> Result<(), RagMonkError> {
+    let Some((graph, _)) = server.graph(&source.id).map_err(server_err)? else {
+        return Ok(());
+    };
+    if graph.state == "disabled" {
+        return Ok(());
+    }
+    let ttl = Duration::from_secs_f64(cfg.storage.server.lease_seconds);
+    let lease = server
+        .acquire_lease(&source.id, &lease_owner(), ttl)
+        .map_err(server_err)?;
+    let r = server
+        .set_graph_state(&source.id, Some(&lease), "disabled", None, None)
+        .map_err(server_err);
+    let _ = server.release_lease(&lease);
+    r
 }

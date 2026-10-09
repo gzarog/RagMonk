@@ -11,6 +11,7 @@ publish.workspace = true
 chrono.workspace = true
 ragmonk-ai.workspace = true
 ragmonk-backends.workspace = true
+ragmonk-code.workspace = true
 ragmonk-config.workspace = true
 ragmonk-convert.workspace = true
 ragmonk-core.workspace = true
@@ -22,6 +23,7 @@ ragmonk-retrieval.workspace = true
 ragmonk-status.workspace = true
 ragmonk-storage.workspace = true
 ragmonk-telemetry.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 

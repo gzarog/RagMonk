@@ -74,7 +74,16 @@ fn workflow_end_to_end() {
     let t = out(&ragmonk(&home, &["index"]));
     assert!(t.contains("scanned=2 new=2"), "{t}");
     assert!(
-        t.ends_with("Index complete: 1 source(s) processed, 1 succeeded, 0 failed.\n"),
+        t.contains("Index complete: 1 source(s) processed, 1 succeeded, 0 failed.\n"),
+        "{t}"
+    );
+    // Phase 2 runs after every source indexed, reported on its own line.
+    let idx = t.find("Index complete").unwrap();
+    assert!(t[..idx].contains(": relationships ready"), "{t}");
+    assert!(
+        t.ends_with(
+            "Relationships: 1 source(s) attempted, 1 built, 0 up to date, 0 stale, 0 failed.\n"
+        ),
         "{t}"
     );
 
@@ -92,6 +101,42 @@ fn workflow_end_to_end() {
     assert_eq!(st["health"]["state"], "healthy");
     assert_eq!(st["summary"]["files"]["published_indexed"], 2);
     assert_eq!(st["sources"][0]["index_state"], "completed");
+    // Indexing and the relationship graph are reported independently.
+    assert_eq!(st["sources"][0]["relationship_state"]["state"], "ready");
+
+    // A graph-only retry reprocesses no content.
+    let t = out(&ragmonk(&home, &["relationships", "build"]));
+    assert!(t.contains(": relationships up_to_date"), "{t}");
+    assert!(t.contains("1 up to date"), "{t}");
+    let r = json(
+        &home,
+        &["relationships", "build", "--source", &id, "--json"],
+    );
+    assert_eq!(r["outcome"], "success", "{r}");
+    assert_eq!(r["sources"][0]["relationship_state"], "up_to_date", "{r}");
+
+    // Disabled: no graph jobs, the graph is hidden, the index stays.
+    let o = ragmonk(
+        &home,
+        &["config", "set", "indexing.relationships_enabled", "false"],
+    );
+    assert!(o.status.success(), "{}", out(&o));
+    let t = out(&ragmonk(&home, &["index"]));
+    assert!(t.contains("scanned=2 new=0 changed=0 unchanged=2"), "{t}");
+    assert!(!t.contains(": relationships"), "{t}");
+    assert!(t.contains("Relationships: disabled"), "{t}");
+    let st = json(&home, &["status", "--json"]);
+    assert_eq!(st["sources"][0]["relationship_state"]["state"], "disabled");
+    assert_eq!(st["summary"]["files"]["published_indexed"], 2);
+    assert!(!ragmonk(&home, &["relationships", "build"]).status.success());
+    let o = ragmonk(
+        &home,
+        &["config", "set", "indexing.relationships_enabled", "true"],
+    );
+    assert!(o.status.success(), "{}", out(&o));
+    let t = out(&ragmonk(&home, &["index"]));
+    assert!(t.contains(": relationships ready"), "{t}");
+
     let t = out(&ragmonk(&home, &["status"]));
     assert!(t.is_ascii(), "{t}");
     for part in [

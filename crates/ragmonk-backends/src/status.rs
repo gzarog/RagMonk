@@ -9,7 +9,9 @@
 //!    source in one aggregation per batch;
 //! 3. code/document/chunk/relationship counts of all four indexes grouped
 //!    by index, source and record kind in one aggregation per batch;
-//! 4. the newest file errors, globally sorted by `last_error_at`;
+//! 4. the newest file errors, globally sorted by `last_error_at`, and the
+//!    edge/link counts of each source's visible relationship graph
+//!    generation (graph records are never scoped to a base build);
 //! 5. run heartbeats (`{prefix}-runtime`);
 //! 6. cluster health of the RagMonk indexes;
 //! 7. one cheap re-read of the active builds to detect a publication that
@@ -227,6 +229,65 @@ impl ServerBackend {
                 ))
             })
             .collect()
+    }
+
+    /// `source_id → visible graph generation` of the given state documents
+    /// against the frozen base `pairs`.
+    pub fn graph_pairs_of(
+        states: &[Value],
+        pairs: &BTreeMap<String, String>,
+    ) -> BTreeMap<String, String> {
+        states
+            .iter()
+            .filter_map(|d| {
+                let source = d["source_id"].as_str()?;
+                let g = &d["versions"][crate::graph::GRAPH_KEY];
+                let base = pairs.get(source)?;
+                (g["state"].as_str() == Some("ready")
+                    && g["base_build_id"].as_str() == Some(base.as_str()))
+                .then(|| Some((source.to_owned(), g["generation"].as_str()?.to_owned())))
+                .flatten()
+            })
+            .collect()
+    }
+
+    /// `(edges, links)` of every graph generation pair.
+    pub fn graph_aggregates(
+        &self,
+        graphs: &BTreeMap<String, String>,
+    ) -> Result<BTreeMap<String, (u64, u64)>> {
+        let all: Vec<(&String, &String)> = graphs.iter().collect();
+        let mut out = BTreeMap::new();
+        for chunk in all.chunks(PAIR_BATCH) {
+            let v = self.post_json(
+                Method::Post,
+                &format!("/{}/_search", self.index(IndexKind::Relationships)),
+                &json!({
+                    "size": 0,
+                    "track_total_hits": false,
+                    "query": { "bool": { "filter": [ Self::pairs_filter(chunk) ] } },
+                    "aggs": { "by_source": {
+                        "terms": { "field": "source_id", "size": chunk.len() },
+                        "aggs": { "kind": { "terms": { "field": "record_kind", "size": 8 } } },
+                    } },
+                }),
+            )?;
+            for b in buckets(&v, "/aggregations/by_source/buckets") {
+                let Some(source) = b["key"].as_str() else {
+                    continue;
+                };
+                let mut counts = (0, 0);
+                for k in buckets(b, "/kind/buckets") {
+                    match k["key"].as_str() {
+                        Some("edge") => counts.0 = u(&k["doc_count"]),
+                        Some("link") => counts.1 = u(&k["doc_count"]),
+                        _ => {}
+                    }
+                }
+                out.insert(source.to_owned(), counts);
+            }
+        }
+        Ok(out)
     }
 
     /// Published counters of every pair, [`PAIR_BATCH`] sources per
@@ -522,6 +583,27 @@ impl ServerBackend {
                     for (s, b) in sub {
                         pairs.insert(s, b);
                     }
+                }
+            }
+            // Relationship counts come from each source's visible graph
+            // generation, never from a base build (graph records are not
+            // base-scoped); a missing or stale graph counts zero.
+            if let Ok(p) = &mut published {
+                let graphs = Self::graph_pairs_of(&states, &pairs);
+                for agg in p.values_mut() {
+                    agg.relationships = 0;
+                    agg.links = 0;
+                }
+                match self.graph_aggregates(&graphs) {
+                    Ok(counts) => {
+                        for (s, (edges, links)) in counts {
+                            if let Some(agg) = p.get_mut(&s) {
+                                agg.relationships = edges;
+                                agg.links = links;
+                            }
+                        }
+                    }
+                    Err(e) => published = Err(e.to_string()),
                 }
             }
             (Some(published), Some(errors))

@@ -23,6 +23,7 @@ ragmonk-config.workspace = true
 ragmonk-convert.workspace = true
 ragmonk-core.workspace = true
 ragmonk-indexing.workspace = true
+ragmonk-knowledge.workspace = true
 tempfile.workspace = true
 
 [lints]

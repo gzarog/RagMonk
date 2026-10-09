@@ -166,12 +166,24 @@ pub fn run_foreground(home: &Home, on_ready: impl FnOnce(i64)) -> Result<(), Rag
                 let open = || ControlPlane::open(&layout, cache).map_err(generic);
                 // The daemon's catalog connection, and each worker's own.
                 let mut runners: Vec<Box<dyn PassRunner>> = Vec::new();
+                let graph: ragmonk_indexing::daemon::GraphHook = {
+                    let (home, cfg) = (home.clone(), cfg.clone());
+                    Arc::new(move |source: &SourceRecord| {
+                        Some(daemon_graph(
+                            &home,
+                            &cfg,
+                            &crate::backend::Backend::Local,
+                            source,
+                        ))
+                    })
+                };
                 for _ in 0..workers {
                     runners.push(Box::new(CoordinatorRunner {
                         layout: layout.clone(),
                         control: open()?,
                         registry: registry(),
                         opts: Options::from_config(&cfg),
+                        graph: Some(graph.clone()),
                     }));
                 }
                 (Box::new(open()?), runners)
@@ -254,4 +266,41 @@ impl PassRunner for ServerRunner {
             progress,
         )
     }
+
+    fn run_graph(&mut self, source: &SourceRecord) -> Option<String> {
+        Some(daemon_graph(
+            &self.home,
+            &self.cfg,
+            &crate::backend::Backend::Server(self.server.clone()),
+            source,
+        ))
+    }
+}
+
+/// A daemon pass's relationship graph stage (the caller holds the source's
+/// lock): built when enabled, marked disabled otherwise.
+fn daemon_graph(
+    home: &ragmonk_core::paths::Home,
+    cfg: &ragmonk_config::RagMonkConfig,
+    backend: &crate::backend::Backend,
+    source: &SourceRecord,
+) -> String {
+    if !cfg.indexing.relationships_enabled {
+        if let Err(e) = crate::relationships::mark_disabled(home, cfg, backend, source) {
+            tracing::debug!(component = "daemon", event = "disable_not_recorded", source_id = %source.id, error = %e.message());
+        }
+        return "disabled".into();
+    }
+    let outcome = crate::relationships::graph_one(
+        home,
+        cfg,
+        backend,
+        source,
+        &Options::from_config(cfg),
+        None,
+    );
+    if let Some(e) = outcome.error() {
+        tracing::warn!(component = "daemon", event = "daemon_graph_not_published", source_id = %source.id, state = outcome.state(), error = %e);
+    }
+    outcome.state().into()
 }

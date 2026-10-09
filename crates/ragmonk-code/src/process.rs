@@ -1,19 +1,21 @@
-//! The code processor for the indexer.
+//! The code processor for the indexer, and per-file graph derivation.
 //!
 //! `prepare` runs on worker threads with no storage access: parse, reject
 //! files with syntax errors (isolated per-file failures reported as
-//! `CodeParseError`), extract, assign stable IDs, and
-//! resolve what the file itself can resolve. References that need other
-//! files are stored as `pending` with their raw text; [`CrossFileResolver`]
-//! resolves them against the complete build before it is published, so the
-//! outcome never depends on processing order.
+//! `CodeParseError`), extract and assign stable entity IDs. The primary
+//! index carries entities only: relationships are never derived while
+//! indexing. The post-index graph stage ([`crate::graph_stage`]) derives
+//! each file's relationships with [`file_relationships`] (references that
+//! need other files are stored as `pending` with their raw text) and then
+//! resolves them against the complete published build with
+//! [`resolve_build`], so the outcome never depends on processing order.
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use ragmonk_core::ids::record;
 use ragmonk_core::models::{Confidence, RelationshipType};
-use ragmonk_indexing::coordinator::{BuildFinalizer, PrepareInput, ProcessError, Processor};
+use ragmonk_indexing::coordinator::{PrepareInput, ProcessError, Processor};
 use ragmonk_storage::knowledge::{
     EntityRow, FileKnowledge, ProjectStore, RelationshipRow, Resolution,
 };
@@ -27,6 +29,17 @@ use crate::resolve::{self, Candidate, ResolvedTarget};
 /// change forces a full rebuild of every source. (2: an entity without a
 /// signature is indexed in code FTS under its name.)
 pub const CODE_DERIVATION_VERSION: &str = "rust-code-2";
+
+/// Derivation identity of the relationship graph (per-file edges, cross-file
+/// resolution and linking). Independent of the base index identity: a
+/// change recomputes graphs only, never reindexes content.
+pub const GRAPH_DERIVATION_VERSION: &str = "graph-1";
+
+/// The full graph identity recorded with every graph generation (it
+/// includes the code derivation, whose entity ids the graph points at).
+pub fn graph_derivation() -> String {
+    format!("{CODE_DERIVATION_VERSION}+{GRAPH_DERIVATION_VERSION}")
+}
 
 /// Resolver label of a reference awaiting whole-build resolution.
 pub const PENDING: &str = "pending";
@@ -301,18 +314,8 @@ fn resolve_locally(text: &str, same_file: &[Candidate<'_>]) -> ResolvedTarget {
     })
 }
 
-/// Pure per-file knowledge (entities + locally resolved relationships).
-pub fn file_knowledge(rel_path: &str, file_id: &str, prepared: &PreparedCode) -> FileKnowledge {
-    file_knowledge_with(rel_path, file_id, prepared, true)
-}
-
-/// [`file_knowledge`], optionally without relationships (entities only).
-pub fn file_knowledge_with(
-    rel_path: &str,
-    file_id: &str,
-    prepared: &PreparedCode,
-    relationships: bool,
-) -> FileKnowledge {
+/// Pure per-file knowledge of the primary index: entities only.
+pub fn file_knowledge(file_id: &str, prepared: &PreparedCode) -> FileKnowledge {
     let PreparedCode::Parsed {
         language,
         extraction,
@@ -321,35 +324,44 @@ pub fn file_knowledge_with(
         return FileKnowledge::default();
     };
     let ids = entity_ids(file_id, extraction);
-    let entities = entity_rows(file_id, language, extraction, &ids);
-    let relationships = if !relationships {
-        Vec::new()
-    } else {
-        let same_file = candidates(&entities);
-        build_relationships(rel_path, file_id, language, extraction, &ids, &mut |t| {
-            resolve_locally(t, &same_file)
-        })
-    };
     FileKnowledge {
-        entities,
-        relationships,
+        entities: entity_rows(file_id, language, extraction, &ids),
         ..FileKnowledge::default()
     }
 }
 
-/// The registered `FileKind::Code` processor.
-pub struct CodeProcessor {
-    /// When false, only entities are extracted (no relationships).
-    pub relationships: bool,
+/// A file's relationships (structural edges, references resolved within
+/// the file, the rest `pending`), derived by the graph stage from the
+/// exact bytes the base index published.
+pub fn file_relationships(
+    rel_path: &str,
+    file_id: &str,
+    source: &[u8],
+) -> Result<Vec<RelationshipRow>, ParseFailure> {
+    let PreparedCode::Parsed {
+        language,
+        extraction,
+    } = prepare_source(source, rel_path)?
+    else {
+        return Ok(Vec::new());
+    };
+    let ids = entity_ids(file_id, &extraction);
+    let entities = entity_rows(file_id, language, &extraction, &ids);
+    let same_file = candidates(&entities);
+    Ok(build_relationships(
+        rel_path,
+        file_id,
+        language,
+        &extraction,
+        &ids,
+        &mut |t| resolve_locally(t, &same_file),
+    ))
 }
 
-impl Default for CodeProcessor {
-    fn default() -> Self {
-        Self {
-            relationships: true,
-        }
-    }
-}
+/// The registered `FileKind::Code` processor (entities only, whatever the
+/// relationship setting).
+#[derive(Debug, Default)]
+pub struct CodeProcessor;
 
 impl Processor for CodeProcessor {
     fn prepare(&self, input: &PrepareInput) -> Result<FileKnowledge, ProcessError> {
@@ -366,17 +378,9 @@ impl Processor for CodeProcessor {
             ),
             transient: false,
         })?;
-        Ok(file_knowledge_with(
-            &input.rel_path,
-            &input.file_id,
-            &prepared,
-            self.relationships,
-        ))
+        Ok(file_knowledge(&input.file_id, &prepared))
     }
 }
-
-/// Resolves every cross-file reference of a build against all its entities.
-pub struct CrossFileResolver;
 
 /// Re-resolves cross-file references; returns the number of rows changed.
 pub fn resolve_build(
@@ -442,21 +446,4 @@ pub fn resolve_build(
         });
     }
     store.apply_resolutions(build_id, &outcomes)
-}
-
-impl BuildFinalizer for CrossFileResolver {
-    fn finalize(
-        &self,
-        store: &mut ProjectStore,
-        build_id: &str,
-        _touched: &[String],
-    ) -> Result<ragmonk_indexing::coordinator::FinalizeReport, ProcessError> {
-        resolve_build(store, build_id)
-            .map(|_| ragmonk_indexing::coordinator::FinalizeReport::default())
-            .map_err(|e| ProcessError {
-                code: "resolve_error".into(),
-                message: e.to_string(),
-                transient: false,
-            })
-    }
 }

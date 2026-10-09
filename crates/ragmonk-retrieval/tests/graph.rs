@@ -75,8 +75,18 @@ fn index(rel: &str) -> Indexed {
     )
     .unwrap();
     let build = cp.state(&src.id).unwrap().active_build_id.unwrap();
-    let store =
+    let mut store =
         ProjectStore::open(&layout, &project_id_for_canonical(&src.path), &src.id, 8).unwrap();
+    // Phase 2: the relationship graph of the published build.
+    ragmonk_knowledge::build_graph(
+        &mut store,
+        std::path::Path::new(&src.path),
+        &build,
+        2,
+        None,
+        &mut |_, _| {},
+    )
+    .unwrap();
     Indexed {
         _tmp: tmp,
         store,

@@ -38,7 +38,7 @@ pub fn rebuild_sources(
     // full rebuild; per-source locks (and, in server mode, writer leases)
     // keep each source's previous build visible until its new one
     // publishes.
-    let mut out = Vec::new();
+    let mut out: Vec<serde_json::Value> = Vec::new();
     index_sources_with(
         home,
         &sources,
@@ -50,6 +50,17 @@ pub fn rebuild_sources(
         |event| {
             let o = match event {
                 SourceEvent::Started { .. } => return,
+                SourceEvent::Relationships { source, outcome } => {
+                    // Phase 2 ends after every rebuild: annotate the row.
+                    if let Some(row) = out.iter_mut().find(|o| o["id"] == source.id.as_str()) {
+                        if let (Some(row), Some(extra)) =
+                            (row.as_object_mut(), outcome.json().as_object())
+                        {
+                            row.extend(extra.clone());
+                        }
+                    }
+                    return;
+                }
                 SourceEvent::Completed { source, run } => json!({
                     "id": source.id,
                     "path": source.path,

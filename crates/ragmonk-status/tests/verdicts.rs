@@ -33,6 +33,7 @@ fn facts(id: &str) -> SourceFacts {
         }),
         published_missing: false,
         lease: None,
+        relationships: None,
     }
 }
 
