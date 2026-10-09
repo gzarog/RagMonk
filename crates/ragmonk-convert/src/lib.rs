@@ -60,7 +60,8 @@ pub fn registry_with(config: &RagMonkConfig, opts: &RegistryOptions) -> Registry
         )))),
         cache: opts.cache_dir.clone().map(cache::ConversionCache::new),
     });
-    let mut r = ragmonk_code::registry();
+    let relationships = config.indexing.relationships_enabled;
+    let mut r = ragmonk_code::registry_with_relationships(relationships);
     // Toggling attachment extraction changes what an .eml yields, so it is
     // part of the identity (`+eml-attachments.1`).
     r.versions.converter_version = if d.email_attachments {
@@ -81,8 +82,10 @@ pub fn registry_with(config: &RagMonkConfig, opts: &RegistryOptions) -> Registry
         Some(ragmonk_documents::chunker::EMBEDDING_TEXT_VERSION.into());
     // Cross-domain links run after cross-file resolution, over the files
     // this build wrote; manual links are re-applied to every build.
-    r.finalizers
-        .push(Arc::new(ragmonk_knowledge::KnowledgeLinker));
+    if relationships {
+        r.finalizers
+            .push(Arc::new(ragmonk_knowledge::KnowledgeLinker));
+    }
     // Semantic vectors: every entity/chunk without a vector under the
     // current model is embedded after linking. A missing model leaves them
     // pending (logged) instead of failing the build.

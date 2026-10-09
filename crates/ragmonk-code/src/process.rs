@@ -303,6 +303,16 @@ fn resolve_locally(text: &str, same_file: &[Candidate<'_>]) -> ResolvedTarget {
 
 /// Pure per-file knowledge (entities + locally resolved relationships).
 pub fn file_knowledge(rel_path: &str, file_id: &str, prepared: &PreparedCode) -> FileKnowledge {
+    file_knowledge_with(rel_path, file_id, prepared, true)
+}
+
+/// [`file_knowledge`], optionally without relationships (entities only).
+pub fn file_knowledge_with(
+    rel_path: &str,
+    file_id: &str,
+    prepared: &PreparedCode,
+    relationships: bool,
+) -> FileKnowledge {
     let PreparedCode::Parsed {
         language,
         extraction,
@@ -312,7 +322,9 @@ pub fn file_knowledge(rel_path: &str, file_id: &str, prepared: &PreparedCode) ->
     };
     let ids = entity_ids(file_id, extraction);
     let entities = entity_rows(file_id, language, extraction, &ids);
-    let relationships = {
+    let relationships = if !relationships {
+        Vec::new()
+    } else {
         let same_file = candidates(&entities);
         build_relationships(rel_path, file_id, language, extraction, &ids, &mut |t| {
             resolve_locally(t, &same_file)
@@ -326,7 +338,18 @@ pub fn file_knowledge(rel_path: &str, file_id: &str, prepared: &PreparedCode) ->
 }
 
 /// The registered `FileKind::Code` processor.
-pub struct CodeProcessor;
+pub struct CodeProcessor {
+    /// When false, only entities are extracted (no relationships).
+    pub relationships: bool,
+}
+
+impl Default for CodeProcessor {
+    fn default() -> Self {
+        Self {
+            relationships: true,
+        }
+    }
+}
 
 impl Processor for CodeProcessor {
     fn prepare(&self, input: &PrepareInput) -> Result<FileKnowledge, ProcessError> {
@@ -343,7 +366,12 @@ impl Processor for CodeProcessor {
             ),
             transient: false,
         })?;
-        Ok(file_knowledge(&input.rel_path, &input.file_id, &prepared))
+        Ok(file_knowledge_with(
+            &input.rel_path,
+            &input.file_id,
+            &prepared,
+            self.relationships,
+        ))
     }
 }
 
