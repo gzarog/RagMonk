@@ -516,3 +516,46 @@ fn a_cancelled_graph_build_publishes_nothing() {
         0
     );
 }
+
+#[test]
+fn only_symbol_dependents_are_re_resolved_and_the_result_matches_a_full_build() {
+    let mut f = fixture();
+    f.index();
+    let total = f.count("SELECT COUNT(*) FROM files WHERE build_id = ?1") as usize;
+
+    // A new file that defines nothing anybody references: only it is
+    // re-resolved.
+    common::write(
+        &f.root,
+        "python/pkg/lonely.py",
+        "def lonely_xyz():\n    return 0\n",
+    );
+    f.index_base();
+    let g = f.graph().unwrap();
+    assert!(!g.full);
+    assert_eq!(g.files_reresolved, 1, "{g:?}");
+
+    // A new definition of a referenced symbol: its referencing (unchanged)
+    // files are re-resolved too, and resolve to it.
+    common::write(
+        &f.root,
+        "python/pkg/late.py",
+        "def unknown_function():\n    return 0\n",
+    );
+    f.index_base();
+    let g = f.graph().unwrap();
+    assert!(
+        g.files_reresolved > 1 && g.files_reresolved < total,
+        "{g:?}"
+    );
+    assert!(g.resolutions_changed > 0, "{g:?}");
+    let incremental = relationships_dump(&f);
+
+    let (mut store, _) = f.store();
+    store
+        .put_graph_state_with_files(&ragmonk_storage::graph::GraphState::default())
+        .unwrap();
+    drop(store);
+    assert!(f.graph().unwrap().full);
+    assert_eq!(relationships_dump(&f), incremental);
+}

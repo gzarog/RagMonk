@@ -617,6 +617,9 @@ fn graph_pass(
         published = publish.published,
         edges = publish.edges_written,
         links = publish.links_written,
+        files_copied = publish.files_copied,
+        files_written = publish.files_written,
+        records_copied = publish.records_copied,
         seconds = publish.seconds,
     );
     Ok(ServerGraphRun { graph, publish })

@@ -447,3 +447,60 @@ pub fn resolve_build(
     }
     store.apply_resolutions(build_id, &outcomes)
 }
+
+/// Re-resolves only the cross-file references recorded by `files`, looking
+/// candidates up by symbol (indexed queries) instead of loading the whole
+/// build. Produces exactly what [`resolve_build`] would for those rows.
+/// Returns the number of rows changed.
+pub fn resolve_files(
+    store: &mut ProjectStore,
+    build_id: &str,
+    files: &std::collections::BTreeSet<String>,
+) -> Result<usize, ragmonk_storage::StorageError> {
+    let mut by_qn: HashMap<String, Vec<EntityRow>> = HashMap::new();
+    let mut by_name: HashMap<String, Vec<EntityRow>> = HashMap::new();
+    let mut outcomes = Vec::new();
+    for file in files {
+        for r in store.file_cross_file_references(build_id, file)? {
+            let Some(text) = r.reference_text.as_deref() else {
+                continue;
+            };
+            let bare = resolve::bare_name(text);
+            if !by_qn.contains_key(text) {
+                let rows = store.entities_by_qualified_name(build_id, text)?;
+                by_qn.insert(text.to_owned(), rows);
+            }
+            if !by_name.contains_key(bare) {
+                let rows = store.entities_by_bare_name(build_id, bare)?;
+                by_name.insert(bare.to_owned(), rows);
+            }
+            let pick = |rows: &[EntityRow], take: usize| -> Vec<EntityRow> {
+                rows.iter()
+                    .filter(|e| e.file_id != r.file_id)
+                    .take(take)
+                    .cloned()
+                    .collect()
+            };
+            let qn_rows = pick(&by_qn[text], 2);
+            let name_rows = pick(&by_name[bare], 1);
+            let t =
+                resolve::resolve_cross_file(text, &candidates(&qn_rows), &candidates(&name_rows));
+            let target_symbol = t.entity_id.is_none().then(|| t.symbol.clone());
+            if r.target_entity_id == t.entity_id
+                && r.target_symbol == target_symbol
+                && r.resolver == t.resolver
+                && r.confidence == t.confidence.as_str()
+            {
+                continue;
+            }
+            outcomes.push(Resolution {
+                id: r.id,
+                target_entity_id: t.entity_id,
+                target_symbol,
+                resolver: t.resolver.into(),
+                confidence: t.confidence.as_str().into(),
+            });
+        }
+    }
+    store.apply_resolutions(build_id, &outcomes)
+}
