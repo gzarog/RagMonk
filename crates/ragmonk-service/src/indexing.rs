@@ -62,6 +62,12 @@ pub enum SourceEvent<'a> {
         source: &'a SourceRecord,
         outcome: &'a crate::relationships::RelationshipOutcome,
     },
+    /// The cross-source dependency stage ended for a consumer source (one
+    /// in this run or one impacted by it).
+    Dependencies {
+        source: &'a SourceRecord,
+        outcome: &'a crate::dependencies::DependencyOutcome,
+    },
 }
 
 /// The outcome of a whole run, with its concurrency metrics.
@@ -86,6 +92,8 @@ pub struct RunSummary {
     pub relationships_enabled: bool,
     /// Phase 2 totals (all zero when relationships are disabled).
     pub relationships: crate::relationships::StageSummary,
+    /// Cross-source dependency stage totals.
+    pub dependencies: crate::dependencies::DependencySummary,
 }
 
 impl RunSummary {
@@ -395,6 +403,27 @@ pub fn index_sources_with(
                     });
                 },
             );
+            // Stage 3: consumers of this run's sources (selected or not)
+            // are updated against their existing published bases.
+            match crate::sources::catalog(home).and_then(|c| c.list(false)) {
+                Ok(all) => crate::dependencies::run_stage(
+                    home,
+                    &cfg,
+                    &backend,
+                    &all,
+                    opts.lock_timeout,
+                    |source, outcome| {
+                        summary.dependencies.add(&outcome);
+                        on_event(SourceEvent::Dependencies {
+                            source,
+                            outcome: &outcome,
+                        });
+                    },
+                ),
+                Err(e) => {
+                    tracing::warn!(component = "relationships", event = "dependencies_skipped", error = %e.message())
+                }
+            }
         } else {
             // No graph jobs; existing graphs are hidden, never deleted.
             for s in &ready {

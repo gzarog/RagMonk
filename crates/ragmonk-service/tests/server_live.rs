@@ -148,7 +148,7 @@ fn index(env: &Env, force_full: bool) -> (Vec<Value>, Vec<String>) {
                     ))
                 }
             }
-            SourceEvent::Started { .. } => {}
+            SourceEvent::Started { .. } | SourceEvent::Dependencies { .. } => {}
         },
     )
     .unwrap();

@@ -339,6 +339,7 @@ pub fn index(source_id: Option<String>) -> Result<(), RagMonkError> {
             }
         }
         SourceEvent::Relationships { source, outcome } => print_relationships(&source.id, outcome),
+        SourceEvent::Dependencies { source, outcome } => print_dependencies(&source.id, outcome),
     })?;
     let (attempted, failed) = (summary.attempted, summary.failed_sources);
     if failed > 0 {
@@ -357,6 +358,26 @@ pub fn index(source_id: Option<String>) -> Result<(), RagMonkError> {
 
 /// One source's phase-2 line (`relationships: ...`), separate from its
 /// indexing line.
+fn print_dependencies(source_id: &str, outcome: &ragmonk_service::dependencies::DependencyOutcome) {
+    use ragmonk_service::dependencies::DependencyOutcome as O;
+    match outcome {
+        O::Current => {}
+        O::Updated {
+            references,
+            bound,
+            triggered_by,
+            ..
+        } => println!(
+            "{source_id}: cross-source dependencies updated ({references} reference(s) looked up, {bound} bound; triggered by {})",
+            triggered_by.join(", ")
+        ),
+        O::Stale { reason } | O::Pending { reason } => println!(
+            "{source_id}: cross-source dependencies {}: {reason}",
+            outcome.state()
+        ),
+    }
+}
+
 fn print_relationships(
     source_id: &str,
     outcome: &ragmonk_service::relationships::RelationshipOutcome,
@@ -366,9 +387,11 @@ fn print_relationships(
         O::Built(r) | O::UpToDate(r) => {
             let g = &r.graph;
             println!(
-                "{source_id}: relationships {} (generation {}, {} file(s) recomputed{}, {} edge(s), {} link(s))",
+                "{source_id}: relationships {} (generation {}, {}: {}, {} file(s) recomputed{}, {} edge(s), {} link(s))",
                 outcome.state(),
                 g.generation,
+                g.action.as_str(),
+                g.reason,
                 g.files_processed,
                 if g.full { ", full" } else { "" },
                 g.relationships_written,
@@ -397,6 +420,29 @@ fn print_relationship_totals(summary: &ragmonk_service::indexing::RunSummary) {
         "Relationships: {} source(s) attempted, {} built, {} up to date, {} stale, {} failed.",
         r.attempted, r.built, r.up_to_date, r.stale, r.failed
     );
+    println!("  {}", graph_work(r));
+    let d = &summary.dependencies;
+    if d.consumers > 0 {
+        println!(
+            "  Cross-source dependencies: {} consumer(s), {} current, {} updated, {} stale, {} pending.",
+            d.consumers, d.current, d.updated, d.stale, d.pending
+        );
+    }
+}
+
+/// One line of graph work by planned action.
+fn graph_work(r: &ragmonk_service::relationships::StageSummary) -> String {
+    format!(
+        "Graphs: {} skipped, {} rebound, {} incremental, {} full, {} retried; {} file(s) derived, {} re-resolved, {} relationship write(s).",
+        r.graph_skipped,
+        r.graph_rebound,
+        r.graph_incremental,
+        r.graph_full,
+        r.graph_retried,
+        r.files_processed,
+        r.files_reresolved,
+        r.relationships_written
+    )
 }
 
 // ------------------------------------------------------- relationships ---
@@ -438,6 +484,7 @@ pub fn relationships_build(
             summary.failed,
             summary.skipped
         );
+        println!("  {}", graph_work(&summary));
     }
     if summary.not_current() > 0 {
         return Err(RagMonkError::new(

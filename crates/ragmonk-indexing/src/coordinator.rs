@@ -689,6 +689,15 @@ pub fn run_source_with(
                 .publish_build(&source.id, &build_id, &registry.versions, full)
                 .map_err(db_err)?;
             store.mark_published(&build_id).map_err(db_err)?;
+            // The relationship graph is reused across base builds: carry
+            // its rows into the new build before the old one is collected
+            // (still invisible; the graph stage validates the snapshot).
+            // A failure only costs a full graph derivation.
+            if let Some(prev) = state.active_build_id.as_deref() {
+                if let Err(e) = store.carry_graph_forward(prev, &build_id) {
+                    tracing::warn!(component = "indexing", event = "graph_not_carried", source_id = %source.id, error = %e);
+                }
+            }
             store.gc_builds(Some(&build_id)).map_err(db_err)?;
         } else {
             store.touch_build(&build_id).map_err(db_err)?;

@@ -284,7 +284,7 @@ pub fn run_stage(
 }
 
 /// Totals of one relationship stage.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize)]
 pub struct StageSummary {
     pub attempted: usize,
     pub built: usize,
@@ -292,6 +292,34 @@ pub struct StageSummary {
     pub stale: usize,
     pub failed: usize,
     pub skipped: usize,
+    /// Published graphs by planned action: current (no work), rebound to
+    /// an equivalent snapshot, incrementally updated, fully derived, and
+    /// retried after a failure.
+    pub graph_skipped: usize,
+    pub graph_rebound: usize,
+    pub graph_incremental: usize,
+    pub graph_full: usize,
+    pub graph_retried: usize,
+    /// Work done, summed over sources.
+    pub files_processed: usize,
+    pub files_reresolved: usize,
+    pub resolutions_changed: usize,
+    pub relationships_written: usize,
+    /// Server mode: files copied forward / written, records copied forward
+    /// and records adopted from the server into a staging store.
+    pub files_copied: usize,
+    pub files_written: usize,
+    pub records_copied: u64,
+    pub records_hydrated: usize,
+    pub planning_seconds: f64,
+    /// Cross-source dependency stage (`relationships build` only; an index
+    /// run reports it in its own summary).
+    #[serde(skip_serializing_if = "is_default")]
+    pub dependencies: crate::dependencies::DependencySummary,
+}
+
+fn is_default(d: &crate::dependencies::DependencySummary) -> bool {
+    *d == crate::dependencies::DependencySummary::default()
 }
 
 impl StageSummary {
@@ -303,6 +331,30 @@ impl StageSummary {
             RelationshipOutcome::Stale(_) => self.stale += 1,
             RelationshipOutcome::Failed(_) | RelationshipOutcome::Blocked(_) => self.failed += 1,
             RelationshipOutcome::Skipped(_) => self.skipped += 1,
+        }
+        let Some(run) = o.run() else {
+            return;
+        };
+        let g = &run.graph;
+        use ragmonk_code::graph_stage::PlanAction as A;
+        match g.action {
+            A::Skip | A::Disabled => self.graph_skipped += 1,
+            A::Rebind => self.graph_rebound += 1,
+            A::Incremental => self.graph_incremental += 1,
+            A::Full => self.graph_full += 1,
+            A::Retry => self.graph_retried += 1,
+        }
+        self.files_processed += g.files_processed;
+        self.files_reresolved += g.files_reresolved;
+        self.resolutions_changed += g.resolutions_changed;
+        self.relationships_written += g.relationships_written;
+        self.planning_seconds += g.planning_seconds;
+        if let Some(p) = &run.server_publish {
+            self.files_copied += p.files_copied;
+            self.files_written += p.files_written;
+            self.records_copied += p.records_copied;
+            self.records_hydrated += p.records_hydrated;
+            self.relationships_written += p.edges_written + p.links_written;
         }
     }
 
@@ -350,6 +402,20 @@ pub fn build(
                     on_outcome(source, &outcome);
                 },
             );
+            // Consumers of the rebuilt graphs, with the same planner.
+            match crate::sources::catalog(home).and_then(|c| c.list(false)) {
+                Ok(all) => crate::dependencies::run_stage(
+                    home,
+                    &cfg,
+                    &backend,
+                    &all,
+                    opts.lock_timeout,
+                    |_, o| summary.dependencies.add(&o),
+                ),
+                Err(e) => {
+                    tracing::warn!(component = "relationships", event = "dependencies_skipped", error = %e.message())
+                }
+            }
             tracker.set_phase("done");
             Ok::<(), RagMonkError>(())
         },

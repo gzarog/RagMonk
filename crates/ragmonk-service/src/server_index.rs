@@ -461,6 +461,41 @@ fn staged_pass(
     Ok(result)
 }
 
+/// The source's staging store and staged build, when the staging copy
+/// describes the server's active build (`None` otherwise: another host
+/// published, or the cache was deleted).
+pub fn synced_staging_store(
+    home: &Home,
+    cfg: &RagMonkConfig,
+    server: &ServerBackend,
+    source: &SourceRecord,
+) -> Result<Option<(ProjectStore, String)>, RagMonkError> {
+    let active = server
+        .source_state(&source.id)
+        .map_err(server_err)?
+        .and_then(|s| s.active_build_id);
+    let root = staging_root(home, cfg);
+    let synced = std::fs::read_to_string(marker(&root, &source.id))
+        .ok()
+        .map(|s| s.trim().to_owned());
+    if active.is_none() || synced != active {
+        return Ok(None);
+    }
+    let layout = StorageLayout::at(&root);
+    let cp = open_staging(&layout, cfg)?;
+    let Some(local) = cp.state(&source.id).map_err(db)?.active_build_id else {
+        return Ok(None);
+    };
+    let store = ProjectStore::open(
+        &layout,
+        &project_id_for_canonical(&source.path),
+        &source.id,
+        cfg.runtime.sqlite_cache_size_mb,
+    )
+    .map_err(db)?;
+    Ok(Some((store, local)))
+}
+
 /// What a server-mode graph stage did.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ServerGraphRun {
@@ -491,6 +526,9 @@ pub fn build_relationships(
     progress: &mut ragmonk_code::graph_stage::GraphProgressFn<'_>,
 ) -> Result<ServerGraphRun, ServerGraphError> {
     use ragmonk_code::graph_stage::GraphError;
+    if let Some(run) = current_without_lease(home, cfg, server, source)? {
+        return Ok(run);
+    }
     let ttl = Duration::from_secs_f64(cfg.storage.server.lease_seconds);
     let lease = server
         .acquire_lease(&source.id, &lease_owner(), ttl)
@@ -534,6 +572,76 @@ pub fn build_relationships(
     }
     let _ = server.release_lease(&lease);
     result
+}
+
+/// The skip path: when the server's visible graph was derived from exactly
+/// the inputs the (synced) staging copy plans as current, nothing is
+/// hydrated, no lease is taken and nothing is written. Only cheap
+/// authoritative reads (the source-state document) are made; any doubt
+/// falls through to the leased pass, which re-plans under the lease.
+fn current_without_lease(
+    home: &Home,
+    cfg: &RagMonkConfig,
+    server: &ServerBackend,
+    source: &SourceRecord,
+) -> Result<Option<ServerGraphRun>, ServerGraphError> {
+    use ragmonk_code::graph_stage::{GraphOutcome, GraphReport, PlanAction};
+    let Some((graph, Some(active))) = server
+        .graph(&source.id)
+        .map_err(|e| ServerGraphError::Other(server_err(e)))?
+    else {
+        return Ok(None);
+    };
+    let Some(generation) = graph.visible_generation(Some(&active)).map(str::to_owned) else {
+        return Ok(None);
+    };
+    let root = staging_root(home, cfg);
+    let synced = std::fs::read_to_string(marker(&root, &source.id))
+        .ok()
+        .map(|s| s.trim().to_owned());
+    if synced.as_deref() != Some(active.as_str()) {
+        return Ok(None);
+    }
+    let layout = StorageLayout::at(&root);
+    let Ok(cp) = open_staging(&layout, cfg) else {
+        return Ok(None);
+    };
+    let Some(local) = cp.state(&source.id).ok().and_then(|s| s.active_build_id) else {
+        return Ok(None);
+    };
+    let Ok(store) = ProjectStore::open(
+        &layout,
+        &project_id_for_canonical(&source.path),
+        &source.id,
+        cfg.runtime.sqlite_cache_size_mb,
+    ) else {
+        return Ok(None);
+    };
+    let Ok(plan) = ragmonk_code::graph_stage::plan_graph(&store, &local) else {
+        return Ok(None);
+    };
+    if plan.action != PlanAction::Skip
+        || graph.input_digest.as_deref() != Some(plan.input_digest.as_str())
+    {
+        return Ok(None);
+    }
+    let state = store
+        .graph_state()
+        .map_err(|e| ServerGraphError::Other(db(e)))?;
+    Ok(Some(ServerGraphRun {
+        graph: GraphReport {
+            outcome: GraphOutcome::UpToDate,
+            action: PlanAction::Skip,
+            reason: "current",
+            generation: state.generation,
+            base_generation: plan.expected_base,
+            ..GraphReport::default()
+        },
+        publish: ragmonk_backends::graph::GraphPublishReport {
+            generation: Some(generation),
+            ..Default::default()
+        },
+    }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -580,6 +688,47 @@ fn graph_pass(
         cfg.runtime.sqlite_cache_size_mb,
     )
     .map_err(|e| other(db(e)))?;
+    // A staging store without a reusable graph (deleted cache, another
+    // writer host, a full staged rebuild that could not carry it) adopts the
+    // server's visible generation when its persisted manifest is usable,
+    // instead of deriving every file again.
+    let current = server
+        .graph(&source.id)
+        .map_err(|e| other(server_err(e)))?
+        .map(|(g, _)| g)
+        .unwrap_or_default();
+    let derivation = ragmonk_code::process::graph_derivation();
+    let mut hydrated = 0;
+    let plan = ragmonk_code::graph_stage::plan_graph(&store, &local_build)
+        .map_err(ServerGraphError::Graph)?;
+    if plan.full
+        && store
+            .graph_state()
+            .map_err(|e| other(db(e)))?
+            .base_build_id
+            .as_deref()
+            != Some(local_build.as_str())
+        && matches!(current.state.as_str(), "ready" | "stale")
+        && current.derivation.as_deref() == Some(derivation.as_str())
+        && current.manifest_version == u64::from(ragmonk_storage::graph::MANIFEST_VERSION)
+    {
+        if let Some(generation) = current.generation.as_deref() {
+            let records = server
+                .graph_records(&source.id, generation)
+                .map_err(|e| other(server_err(e)))?;
+            hydrated = records.edges.len() + records.links.len();
+            store
+                .adopt_graph(
+                    &local_build,
+                    &records.edges,
+                    &records.links,
+                    current.file_keys.clone(),
+                    &derivation,
+                    current.input_digest.as_deref(),
+                )
+                .map_err(|e| other(db(e)))?;
+        }
+    }
     let graph = ragmonk_knowledge::build_graph(
         &mut store,
         std::path::Path::new(&source.path),
@@ -589,11 +738,43 @@ fn graph_pass(
         progress,
     )
     .map_err(ServerGraphError::Graph)?;
+    let staged = store.graph_state_with_files().map_err(|e| other(db(e)))?;
+    let conflict = |e| match e {
+        ragmonk_backends::BackendError::Conflict(m) => {
+            ServerGraphError::Graph(GraphError::Stale(m))
+        }
+        e => ServerGraphError::Graph(GraphError::Failed(
+            ragmonk_telemetry::redact::redact_urls_in_text(&e.to_string()),
+        )),
+    };
+    // Identical inputs for a new base: rebind, write nothing.
+    if let (Some(generation), Some(digest)) = (
+        current.generation.as_deref(),
+        staged.input_digest.as_deref(),
+    ) {
+        if current.input_digest.as_deref() == Some(digest)
+            && current.base_build_id.as_deref() != Some(server_active.as_str())
+            && server
+                .rebind_graph(&source.id, Some(lease), generation, &server_active, digest)
+                .map_err(conflict)?
+        {
+            return Ok(ServerGraphRun {
+                graph,
+                publish: ragmonk_backends::graph::GraphPublishReport {
+                    generation: Some(generation.to_owned()),
+                    published: true,
+                    rebound: true,
+                    records_hydrated: hydrated,
+                    ..Default::default()
+                },
+            });
+        }
+    }
     let generation = record::build_id(
         &source.id,
         &format!("graph-{}-{}-{}", now_iso(), std::process::id(), lease.token),
     );
-    let publish = server
+    let mut publish = server
         .publish_graph(&ragmonk_backends::graph::GraphPublishInput {
             source_id: &source.id,
             store: &store,
@@ -601,15 +782,15 @@ fn graph_pass(
             base_build_id: &server_active,
             lease: Some(lease),
             generation: &generation,
+            input_digest: staged.input_digest.as_deref(),
+            manifest: Some(ragmonk_backends::graph::GraphManifest {
+                derivation: &derivation,
+                version: u64::from(ragmonk_storage::graph::MANIFEST_VERSION),
+                file_keys: &staged.files,
+            }),
         })
-        .map_err(|e| match e {
-            ragmonk_backends::BackendError::Conflict(m) => {
-                ServerGraphError::Graph(GraphError::Stale(m))
-            }
-            e => ServerGraphError::Graph(GraphError::Failed(
-                ragmonk_telemetry::redact::redact_urls_in_text(&e.to_string()),
-            )),
-        })?;
+        .map_err(conflict)?;
+    publish.records_hydrated = hydrated;
     tracing::info!(
         component = "indexing",
         event = "server_graph_publish",

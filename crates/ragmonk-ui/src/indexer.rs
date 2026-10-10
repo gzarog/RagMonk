@@ -170,6 +170,11 @@ impl Indexer {
                 self.emit("scan_completed", row.clone());
                 rows.push(row);
             }
+            SourceEvent::Dependencies { source, outcome } => {
+                let mut row = json!(outcome);
+                row["source_id"] = json!(source.id);
+                self.emit("dependencies_completed", row);
+            }
             // Phase 2 (after every source indexed): reported on its own,
             // never as an indexing failure.
             SourceEvent::Relationships { source, outcome } => {

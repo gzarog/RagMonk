@@ -73,7 +73,7 @@ fn run(env: &Env) -> (Vec<(String, &'static str)>, Result<(), ErrorKind>) {
         SourceEvent::Failed { source, error } | SourceEvent::Blocked { source, error } => {
             panic!("{}: {}", source.id, error.message())
         }
-        SourceEvent::Started { .. } => {}
+        SourceEvent::Started { .. } | SourceEvent::Dependencies { .. } => {}
     })
     .unwrap();
     (events, r.into_result().map(drop).map_err(|e| e.kind()))
@@ -245,4 +245,335 @@ fn a_disabled_fresh_home_never_builds_a_graph() {
         assert_eq!(s.count("cross_links", &b).unwrap(), 0);
         assert!(s.count("entities", &b).unwrap() > 0);
     }
+}
+
+/// The graph of `b` as normalized semantic tuples (ids are content-addressed,
+/// so equal tuples mean equal graphs).
+type Graph = (Vec<String>, Vec<String>);
+fn graph_of(s: &ProjectStore, b: &str) -> Graph {
+    let mut edges = Vec::new();
+    for f in s.files(b).unwrap() {
+        for r in s.file_relationships(b, &f.id).unwrap() {
+            edges.push(format!(
+                "{}|{}|{:?}|{:?}|{}|{}",
+                r.id, r.file_id, r.target_entity_id, r.target_symbol, r.resolver, r.confidence
+            ));
+        }
+    }
+    let mut links: Vec<String> = s
+        .links(b)
+        .unwrap()
+        .into_iter()
+        .map(|l| {
+            format!(
+                "{}|{}|{}|{:?}|{}",
+                l.id, l.entity_id, l.document_id, l.chunk_id, l.resolver
+            )
+        })
+        .collect();
+    edges.sort();
+    links.sort();
+    (edges, links)
+}
+
+fn graph_runs(
+    env: &Env,
+    run: &ragmonk_service::indexing::RunOptions,
+) -> Vec<ragmonk_code::graph_stage::GraphReport> {
+    let sources = selected_sources(&env.home, None).unwrap();
+    let mut out = Vec::new();
+    ragmonk_service::indexing::index_sources_with(&env.home, &sources, "index", run, |e| {
+        if let SourceEvent::Relationships { outcome, .. } = e {
+            out.push(outcome.run().expect("graph published").graph.clone());
+        }
+    })
+    .unwrap();
+    out
+}
+
+#[test]
+fn a_full_rebuild_with_unchanged_content_reuses_the_graph_without_deriving_anything() {
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    let (s, b1) = store(&env, 0);
+    let before = graph_of(&s, &b1);
+    assert!(!before.0.is_empty() && !before.1.is_empty());
+    drop(s);
+
+    let reports = graph_runs(
+        &env,
+        &ragmonk_service::indexing::RunOptions {
+            force_full: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(reports.len(), 3);
+    for r in &reports {
+        assert_eq!(
+            r.action,
+            ragmonk_code::graph_stage::PlanAction::Rebind,
+            "{r:?}"
+        );
+        assert_eq!(
+            (
+                r.files_processed,
+                r.files_reresolved,
+                r.relationships_written
+            ),
+            (0, 0, 0)
+        );
+    }
+    let (s, b2) = store(&env, 0);
+    assert_ne!(b1, b2, "a new base build");
+    assert!(s.graph_visible(&b2).unwrap());
+    assert_eq!(graph_of(&s, &b2), before);
+}
+
+#[test]
+fn a_full_rebuild_with_one_edit_derives_only_that_file_and_matches_a_clean_build() {
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    write(
+        &env.roots[0],
+        "app/util.py",
+        "def helper():\n    return 3\n\ndef extra():\n    return helper()\n",
+    );
+    let reports = graph_runs(
+        &env,
+        &ragmonk_service::indexing::RunOptions {
+            force_full: true,
+            ..Default::default()
+        },
+    );
+    let edited: Vec<_> = reports
+        .iter()
+        .filter(|r| r.action != ragmonk_code::graph_stage::PlanAction::Rebind)
+        .collect();
+    assert_eq!(edited.len(), 1, "{reports:?}");
+    assert_eq!(edited[0].files_processed, 1);
+    assert!(!edited[0].full);
+    let (s, b) = store(&env, 0);
+    let incremental = graph_of(&s, &b);
+    drop(s);
+
+    // Oracle: the same snapshot derived from scratch.
+    let (mut s, b) = store(&env, 0);
+    s.clear_graph(&b).unwrap();
+    s.put_graph_state_with_files(&Default::default()).unwrap();
+    let r =
+        ragmonk_knowledge::build_graph(&mut s, &env.roots[0], &b, 1, None, &mut |_, _| {}).unwrap();
+    assert!(r.full);
+    assert_eq!(graph_of(&s, &b), incremental);
+}
+
+#[test]
+fn a_graph_adopted_from_elsewhere_is_rebound_without_parsing() {
+    // What a server writer does after its staging cache was deleted: the
+    // rows and manifest come from the backend, not from local state.
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    let (mut s, b) = store(&env, 0);
+    let before = graph_of(&s, &b);
+    let state = s.graph_state_with_files().unwrap();
+    let edges: Vec<_> = s
+        .files(&b)
+        .unwrap()
+        .iter()
+        .flat_map(|f| s.file_relationships(&b, &f.id).unwrap())
+        .collect();
+    let links = s.links(&b).unwrap();
+    s.clear_graph(&b).unwrap();
+    s.put_graph_state_with_files(&Default::default()).unwrap();
+    s.adopt_graph(
+        &b,
+        &edges,
+        &links,
+        state.files.clone(),
+        state.derivation_version.as_deref().unwrap(),
+        state.input_digest.as_deref(),
+    )
+    .unwrap();
+    assert!(
+        !s.graph_visible(&b).unwrap(),
+        "adopted rows are not visible before validation"
+    );
+    let r =
+        ragmonk_knowledge::build_graph(&mut s, &env.roots[0], &b, 1, None, &mut |_, _| {}).unwrap();
+    assert_eq!(r.action, ragmonk_code::graph_stage::PlanAction::Rebind);
+    assert_eq!(r.files_processed, 0);
+    assert!(s.graph_visible(&b).unwrap());
+    assert_eq!(graph_of(&s, &b), before);
+}
+
+/// Rebuilds source `i`'s graph from scratch and returns it (the oracle).
+fn oracle(env: &Env, i: usize) -> Graph {
+    let (mut s, b) = store(env, i);
+    s.clear_graph(&b).unwrap();
+    s.put_graph_state_with_files(&Default::default()).unwrap();
+    ragmonk_knowledge::build_graph(&mut s, &env.roots[i], &b, 1, None, &mut |_, _| {}).unwrap();
+    graph_of(&s, &b)
+}
+
+fn report_of(
+    reports: &[ragmonk_code::graph_stage::GraphReport],
+) -> &ragmonk_code::graph_stage::GraphReport {
+    let changed: Vec<_> = reports
+        .iter()
+        .filter(|r| r.action != ragmonk_code::graph_stage::PlanAction::Skip)
+        .collect();
+    assert_eq!(changed.len(), 1, "{reports:?}");
+    changed[0]
+}
+
+#[test]
+fn a_body_edit_does_not_re_resolve_consumers_and_a_removed_definition_does() {
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    let default = ragmonk_service::indexing::RunOptions::default();
+
+    // Body-only edit of the definition main.py calls: only util.py.
+    write(
+        &env.roots[0],
+        "app/util.py",
+        "def helper():\n    x = 41\n    return x + 1\n",
+    );
+    let reports = graph_runs(&env, &default);
+    let r = report_of(&reports);
+    assert_eq!(r.action, ragmonk_code::graph_stage::PlanAction::Incremental);
+    assert_eq!((r.files_processed, r.files_reresolved), (1, 1), "{r:?}");
+    let (s, b) = store(&env, 0);
+    let incremental = graph_of(&s, &b);
+    drop(s);
+    assert_eq!(oracle(&env, 0), incremental);
+
+    // Removing the definition re-resolves its consumer and cleans its links.
+    write(&env.roots[0], "app/util.py", "def other():\n    return 1\n");
+    let reports = graph_runs(&env, &default);
+    let r = report_of(&reports);
+    assert_eq!((r.files_processed, r.files_reresolved), (1, 2), "{r:?}");
+    let (s, b) = store(&env, 0);
+    let incremental = graph_of(&s, &b);
+    drop(s);
+    assert_eq!(oracle(&env, 0), incremental);
+
+    // Adding it back resolves the unchanged consumer again.
+    write(
+        &env.roots[0],
+        "app/util.py",
+        "def helper():\n    return 1\n",
+    );
+    let reports = graph_runs(&env, &default);
+    assert_eq!(report_of(&reports).files_reresolved, 2);
+    let (s, b) = store(&env, 0);
+    let incremental = graph_of(&s, &b);
+    drop(s);
+    assert_eq!(oracle(&env, 0), incremental);
+}
+
+#[test]
+fn an_edited_manual_link_intent_is_applied_without_any_index_change() {
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    let (mut s, b) = store(&env, 0);
+    let entity = s
+        .all_entities(&b)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.name == "helper")
+        .unwrap();
+    // Recorded intent only (as another writer or an interrupted command
+    // would leave it): nothing is materialized yet.
+    s.add_manual_link(&ragmonk_storage::knowledge::ManualLink {
+        id: "manual-1".into(),
+        link_type: "documented_by".into(),
+        entity_qualified_name: entity.qualified_name,
+        document_rel_path: "docs/guide.md".into(),
+        attachment_index: None,
+        chunk_ordinal: None,
+        note: None,
+        created_at: "2026-01-01T00:00:00Z".into(),
+    })
+    .unwrap();
+    drop(s);
+    let reports = graph_runs(&env, &ragmonk_service::indexing::RunOptions::default());
+    let r = report_of(&reports);
+    assert_eq!(r.files_processed, 0);
+    let (s, b) = store(&env, 0);
+    assert!(s.graph_visible(&b).unwrap());
+    assert!(
+        s.links(&b).unwrap().iter().any(|l| l.resolver == "user"),
+        "manual link applied"
+    );
+    let incremental = graph_of(&s, &b);
+    drop(s);
+    assert_eq!(oracle(&env, 0), incremental);
+    // And it is now current.
+    let reports = graph_runs(&env, &ragmonk_service::indexing::RunOptions::default());
+    assert!(reports
+        .iter()
+        .all(|r| r.action == ragmonk_code::graph_stage::PlanAction::Skip));
+}
+
+#[test]
+fn an_unchanged_run_reports_every_graph_skipped_with_no_graph_work() {
+    let env = setup(true);
+    let sources = selected_sources(&env.home, None).unwrap();
+    let first = index_sources(&env.home, &sources, "index", |_| {}).unwrap();
+    assert_eq!(
+        first.relationships.graph_full, 3,
+        "first indexing initializes every graph"
+    );
+    let s = index_sources(&env.home, &sources, "index", |_| {}).unwrap();
+    let r = &s.relationships;
+    assert_eq!((r.graph_skipped, r.up_to_date), (3, 3), "{r:?}");
+    assert_eq!(
+        (
+            r.graph_rebound + r.graph_incremental + r.graph_full + r.graph_retried,
+            r.files_processed,
+            r.files_reresolved,
+            r.relationships_written
+        ),
+        (0, 0, 0, 0),
+        "{r:?}"
+    );
+    let json = serde_json::to_value(r).unwrap();
+    assert_eq!(json["graph_skipped"], 3);
+}
+
+#[test]
+fn a_cancelled_graph_build_publishes_nothing_and_the_retry_matches_a_clean_build() {
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    // Publish a new base without its graph.
+    set_relationships(&env, false);
+    write(
+        &env.roots[0],
+        "app/util.py",
+        "def helper():\n    return 7\n\ndef more():\n    return helper()\n",
+    );
+    assert_eq!(run(&env).1, Ok(()));
+    let (mut s, b) = store(&env, 0);
+    let before = s.count("relationships", &b).unwrap();
+    let cancel = std::sync::atomic::AtomicBool::new(true);
+    let e =
+        ragmonk_knowledge::build_graph(&mut s, &env.roots[0], &b, 1, Some(&cancel), &mut |_, _| {})
+            .unwrap_err();
+    assert_eq!(e, ragmonk_code::graph_stage::GraphError::Cancelled);
+    assert!(!s.graph_visible(&b).unwrap());
+    assert_eq!(s.graph_state().unwrap().state, GraphLifecycle::Failed);
+    assert_eq!(s.count("relationships", &b).unwrap(), before, "rolled back");
+    drop(s);
+
+    set_relationships(&env, true);
+    let reports = graph_runs(&env, &ragmonk_service::indexing::RunOptions::default());
+    let retried: Vec<_> = reports
+        .iter()
+        .filter(|r| r.action == ragmonk_code::graph_stage::PlanAction::Retry)
+        .collect();
+    assert_eq!(retried.len(), 1, "{reports:?}");
+    assert!(!retried[0].full);
+    let (s, b) = store(&env, 0);
+    let incremental = graph_of(&s, &b);
+    drop(s);
+    assert_eq!(oracle(&env, 0), incremental);
 }
