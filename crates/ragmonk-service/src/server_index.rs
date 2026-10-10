@@ -461,6 +461,41 @@ fn staged_pass(
     Ok(result)
 }
 
+/// The source's staging store and staged build, when the staging copy
+/// describes the server's active build (`None` otherwise: another host
+/// published, or the cache was deleted).
+pub fn synced_staging_store(
+    home: &Home,
+    cfg: &RagMonkConfig,
+    server: &ServerBackend,
+    source: &SourceRecord,
+) -> Result<Option<(ProjectStore, String)>, RagMonkError> {
+    let active = server
+        .source_state(&source.id)
+        .map_err(server_err)?
+        .and_then(|s| s.active_build_id);
+    let root = staging_root(home, cfg);
+    let synced = std::fs::read_to_string(marker(&root, &source.id))
+        .ok()
+        .map(|s| s.trim().to_owned());
+    if active.is_none() || synced != active {
+        return Ok(None);
+    }
+    let layout = StorageLayout::at(&root);
+    let cp = open_staging(&layout, cfg)?;
+    let Some(local) = cp.state(&source.id).map_err(db)?.active_build_id else {
+        return Ok(None);
+    };
+    let store = ProjectStore::open(
+        &layout,
+        &project_id_for_canonical(&source.path),
+        &source.id,
+        cfg.runtime.sqlite_cache_size_mb,
+    )
+    .map_err(db)?;
+    Ok(Some((store, local)))
+}
+
 /// What a server-mode graph stage did.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ServerGraphRun {

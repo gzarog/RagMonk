@@ -49,6 +49,8 @@ use crate::schema::IndexKind;
 
 /// Key of the graph record inside the state document's `versions`.
 pub const GRAPH_KEY: &str = "graph";
+/// Key of the cross-source dependency manifest inside `versions`.
+pub const EXTERNAL_KEY: &str = "graph_external";
 
 /// The graph record of one source (see the module docs).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -406,6 +408,38 @@ impl ServerBackend {
             Ok(())
         })?;
         Ok(rebound)
+    }
+
+    /// The source's cross-source dependency manifest as last persisted on
+    /// the server (`versions.graph_external`; opaque JSON).
+    pub fn graph_external(&self, source_id: &str) -> Result<Option<Value>> {
+        Ok(self.source_state(source_id)?.and_then(|s| {
+            s.doc
+                .get("versions")
+                .and_then(|v| v.get(EXTERNAL_KEY))
+                .filter(|v| !v.is_null())
+                .cloned()
+        }))
+    }
+
+    /// Persists the source's cross-source dependency manifest on the
+    /// authoritative backend (fenced by the writer lease).
+    pub fn set_graph_external(
+        &self,
+        source_id: &str,
+        lease: Option<&Lease>,
+        manifest: &Value,
+    ) -> Result<()> {
+        self.patch_state(source_id, lease, None, |doc, _| {
+            let versions = doc.entry("versions").or_insert_with(|| json!({}));
+            if !versions.is_object() {
+                *versions = json!({});
+            }
+            if let Some(v) = versions.as_object_mut() {
+                v.insert(EXTERNAL_KEY.into(), manifest.clone());
+            }
+            Ok(())
+        })
     }
 
     /// Every edge and link record of a graph generation of `source_id`.

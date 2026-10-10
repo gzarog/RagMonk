@@ -260,6 +260,13 @@ macro_rules! section {
     };
 }
 
+/// `"<consumer> -> <producer>"` of `indexing.relationship_dependencies`.
+pub fn parse_dependency(d: &str) -> Option<(&str, &str)> {
+    let (c, p) = d.split_once("->")?;
+    let (c, p) = (c.trim(), p.trim());
+    (!c.is_empty() && !p.is_empty() && c != p).then_some((c, p))
+}
+
 fn one_of(value: &str, allowed: &[&str]) -> Result<(), String> {
     if allowed.contains(&value) {
         return Ok(());
@@ -291,6 +298,16 @@ section! {
         // Call graphs and code<->document links. Off skips their extraction,
         // cross-file resolution and knowledge linking (faster indexing).
         relationships_enabled: bool = true;
+        // Explicit cross-source dependencies, "<consumer> -> <producer>"
+        // (source ids or paths). Unresolved references of the consumer are
+        // looked up by exact qualified name in its producers only; C#
+        // project references between registered sources are discovered.
+        relationship_dependencies: Vec<String> = Vec::new(), check = |v| {
+            match v.iter().find(|d| parse_dependency(d).is_none()) {
+                None => Ok(()),
+                Some(d) => Err(format!("{d:?} is not \"<consumer> -> <producer>\"")),
+            }
+        };
         lock_timeout_seconds: f64 = 30.0, check = |v| {
             if *v > 0.0 && *v <= 3600.0 { Ok(()) } else {
                 Err("must be > 0 and <= 3600".into())

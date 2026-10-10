@@ -315,6 +315,7 @@ Settings live in `~/.ragmonk/config.yaml` (Windows: `%LOCALAPPDATA%\RagMonk`); u
 | `indexing.watch` | `true` | Daemon watches folders for changes |
 | `indexing.max_file_size_mb` | `100` | Skip larger files |
 | `indexing.relationships_enabled` | `true` | Build relationship graphs (code edges, doc↔code links) after indexing |
+| `indexing.relationship_dependencies` | `[]` | Explicit cross-source dependencies, `"<consumer> -> <producer>"` (C# project references are discovered) |
 | `indexing.lock_timeout_seconds` | `30` | Max wait when another process is indexing |
 | `indexing.status_stall_threshold_seconds` | `120` | When `status` reports "stalled" |
 | `ai.provider` / `ai.model` | *(none)* | Optional AI answers for `ragmonk ask` |

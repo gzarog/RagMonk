@@ -73,7 +73,7 @@ fn run(env: &Env) -> (Vec<(String, &'static str)>, Result<(), ErrorKind>) {
         SourceEvent::Failed { source, error } | SourceEvent::Blocked { source, error } => {
             panic!("{}: {}", source.id, error.message())
         }
-        SourceEvent::Started { .. } => {}
+        SourceEvent::Started { .. } | SourceEvent::Dependencies { .. } => {}
     })
     .unwrap();
     (events, r.into_result().map(drop).map_err(|e| e.kind()))

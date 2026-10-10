@@ -9,6 +9,7 @@
 pub mod ask;
 pub mod backend;
 pub mod daemon;
+pub mod dependencies;
 pub mod evidence;
 pub mod indexing;
 pub mod query;

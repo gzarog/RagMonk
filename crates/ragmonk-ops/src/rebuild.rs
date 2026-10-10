@@ -50,6 +50,12 @@ pub fn rebuild_sources(
         |event| {
             let o = match event {
                 SourceEvent::Started { .. } => return,
+                SourceEvent::Dependencies { source, outcome } => {
+                    if let Some(row) = out.iter_mut().find(|o| o["id"] == source.id.as_str()) {
+                        row["dependencies"] = json!(outcome);
+                    }
+                    return;
+                }
                 SourceEvent::Relationships { source, outcome } => {
                     // Phase 2 ends after every rebuild: annotate the row.
                     if let Some(row) = out.iter_mut().find(|o| o["id"] == source.id.as_str()) {

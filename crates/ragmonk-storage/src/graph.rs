@@ -54,6 +54,76 @@ pub const MANIFEST_VERSION: u32 = 2;
 /// `(qualified name or "", start line, entity id)`.
 type CandidateOrder = (String, i64, String);
 
+/// `metadata` key holding the source's [`ExternalManifest`].
+pub const GRAPH_EXTERNAL_KEY: &str = "graph_external";
+
+/// One unresolved reference of a consumer source bound (or looked up)
+/// across sources. The source-local graph row is never changed: bindings
+/// are a separate layer over it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalBinding {
+    pub relationship_id: String,
+    pub file_id: String,
+    pub reference_text: String,
+    /// Producer source of the single candidate (`None` when unbound or
+    /// ambiguous).
+    #[serde(default)]
+    pub producer: Option<String>,
+    #[serde(default)]
+    pub target_entity_id: Option<String>,
+    /// Candidates in more than one producer (or several in one): never
+    /// guessed.
+    #[serde(default)]
+    pub ambiguous: bool,
+}
+
+/// A producer as a consumer's bindings saw it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProducerSnapshot {
+    /// The producer's base generation the bindings were computed against.
+    pub base_generation: String,
+    /// How the dependency is known: `declared` or `project_reference`.
+    pub via: String,
+}
+
+/// Cross-source dependencies of one consumer source: its scoped producers,
+/// the candidate fingerprint of every qualified lookup it made in each
+/// (empty for "no candidate", so introducing a definition invalidates it)
+/// and the resulting bindings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalManifest {
+    /// `current`, `stale` or `pending`.
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// Graph generation of the consumer the bindings were derived from.
+    #[serde(default)]
+    pub consumer_generation: u64,
+    #[serde(default)]
+    pub producers: BTreeMap<String, ProducerSnapshot>,
+    /// `producer -> qualified key -> candidate fingerprint`.
+    #[serde(default)]
+    pub lookups: BTreeMap<String, BTreeMap<String, String>>,
+    #[serde(default)]
+    pub bindings: Vec<ExternalBinding>,
+    /// References that cannot be followed automatically (package
+    /// references, project references outside every registered source).
+    #[serde(default)]
+    pub unsupported: Vec<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// Candidate fingerprint of a qualified lookup: the candidates' entity ids
+/// in resolution order (empty for none).
+pub fn candidates_fingerprint(rows: &[EntityRow]) -> String {
+    rows.iter()
+        .map(|e| e.id.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// Symbol key of a qualified name.
 pub fn qualified_key(qualified_name: &str) -> String {
     format!("q:{qualified_name}")
@@ -694,6 +764,41 @@ impl ProjectStore {
         state.metadata_complete = true;
         state.resolve_all = true;
         self.put_graph_state_with_files(&state)
+    }
+
+    /// Relative paths of the build's files ending in `suffix` (one indexed
+    /// query; dependency discovery never lists the whole build).
+    pub fn file_paths_with_suffix(&self, build_id: &str, suffix: &str) -> Result<Vec<String>> {
+        let pattern = format!("%{}", suffix.replace('%', "").replace('_', "\\_"));
+        self.query_rows(
+            "files by suffix",
+            "SELECT rel_path FROM files WHERE build_id = ?1 AND rel_path LIKE ?2 ESCAPE '\\'
+             ORDER BY rel_path",
+            &[&build_id, &pattern],
+            |r| r.get(0),
+        )
+    }
+
+    /// The source's cross-source dependency manifest (`None` when it never
+    /// had one or the record is unreadable).
+    pub fn external_manifest(&self) -> Result<Option<ExternalManifest>> {
+        let raw: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = ?1",
+                [GRAPH_EXTERNAL_KEY],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(StorageError::sqlite("read external manifest"))?;
+        Ok(raw.and_then(|r| serde_json::from_str(&r).ok()))
+    }
+
+    pub fn put_external_manifest(&mut self, m: &ExternalManifest) -> Result<()> {
+        let mut m = m.clone();
+        m.updated_at = Some(now_iso());
+        let value = serde_json::to_string(&m).map_err(invalid)?;
+        self.put_metadata(GRAPH_EXTERNAL_KEY, &value)
     }
 
     /// Revision of the manual link intent (user data): a digest of every

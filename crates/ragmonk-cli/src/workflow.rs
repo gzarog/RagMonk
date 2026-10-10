@@ -339,6 +339,7 @@ pub fn index(source_id: Option<String>) -> Result<(), RagMonkError> {
             }
         }
         SourceEvent::Relationships { source, outcome } => print_relationships(&source.id, outcome),
+        SourceEvent::Dependencies { source, outcome } => print_dependencies(&source.id, outcome),
     })?;
     let (attempted, failed) = (summary.attempted, summary.failed_sources);
     if failed > 0 {
@@ -357,6 +358,26 @@ pub fn index(source_id: Option<String>) -> Result<(), RagMonkError> {
 
 /// One source's phase-2 line (`relationships: ...`), separate from its
 /// indexing line.
+fn print_dependencies(source_id: &str, outcome: &ragmonk_service::dependencies::DependencyOutcome) {
+    use ragmonk_service::dependencies::DependencyOutcome as O;
+    match outcome {
+        O::Current => {}
+        O::Updated {
+            references,
+            bound,
+            triggered_by,
+            ..
+        } => println!(
+            "{source_id}: cross-source dependencies updated ({references} reference(s) looked up, {bound} bound; triggered by {})",
+            triggered_by.join(", ")
+        ),
+        O::Stale { reason } | O::Pending { reason } => println!(
+            "{source_id}: cross-source dependencies {}: {reason}",
+            outcome.state()
+        ),
+    }
+}
+
 fn print_relationships(
     source_id: &str,
     outcome: &ragmonk_service::relationships::RelationshipOutcome,
