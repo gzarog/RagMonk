@@ -48,7 +48,11 @@ pub const GRAPH_SYMBOLS_KEY: &str = "graph_symbols";
 
 /// Version of the dependency manifest layout ([`GraphState::files`],
 /// [`GraphState::symbols`]). A manifest of another version is not reused.
-pub const MANIFEST_VERSION: u32 = 1;
+pub const MANIFEST_VERSION: u32 = 2;
+
+/// A candidate's position in cross-file resolution order within its file:
+/// `(qualified name or "", start line, entity id)`.
+type CandidateOrder = (String, i64, String);
 
 /// Symbol key of a qualified name.
 pub fn qualified_key(qualified_name: &str) -> String {
@@ -71,6 +75,35 @@ pub struct FileSymbols {
     /// Keys every cross-file reference of the file resolves through.
     #[serde(default)]
     pub refs: Vec<String>,
+    /// Candidate fingerprint of each definition key: the file's entity ids
+    /// under that key in resolution order. Cross-file resolution only sees
+    /// a file's candidates through these (ids, and their order within the
+    /// file), so a reference is affected by an edit exactly when the
+    /// fingerprint of one of its keys changed; a body-only edit changes
+    /// none.
+    #[serde(default)]
+    pub fps: BTreeMap<String, String>,
+}
+
+impl FileSymbols {
+    /// Definition keys whose candidates differ between `old` and `new`
+    /// (a missing side counts as no candidates).
+    pub fn changed_keys<'a>(
+        old: Option<&'a FileSymbols>,
+        new: Option<&'a FileSymbols>,
+    ) -> Vec<&'a str> {
+        let o = old.map(|s| &s.fps);
+        let n = new.map(|s| &s.fps);
+        let get = |m: Option<&'a BTreeMap<String, String>>, k: &str| m.and_then(|m| m.get(k));
+        o.into_iter()
+            .chain(n)
+            .flat_map(|m| m.keys())
+            .filter(|k| get(o, k) != get(n, k))
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
 }
 
 /// Graph lifecycle.
@@ -424,10 +457,34 @@ impl ProjectStore {
     ) -> Result<BTreeMap<String, FileSymbols>> {
         let mut out: BTreeMap<String, FileSymbols> = BTreeMap::new();
         let add_defs = |rows: Vec<EntityRow>, out: &mut BTreeMap<String, FileSymbols>| {
+            // Per file and key, the candidates in cross-file resolution
+            // order: qualified lookups sort by line, bare-name lookups by
+            // qualified name (then line, id).
+            let mut by_key: BTreeMap<(String, String), Vec<CandidateOrder>> = BTreeMap::new();
             for e in rows {
-                let s = out.entry(e.file_id).or_default();
-                s.defs.push(qualified_key(&e.qualified_name));
-                s.defs.push(name_key(&e.name));
+                let q = qualified_key(&e.qualified_name);
+                let n = name_key(&e.name);
+                by_key.entry((e.file_id.clone(), q)).or_default().push((
+                    String::new(),
+                    e.start_line,
+                    e.id.clone(),
+                ));
+                by_key.entry((e.file_id.clone(), n)).or_default().push((
+                    e.qualified_name.clone(),
+                    e.start_line,
+                    e.id.clone(),
+                ));
+            }
+            for ((file, key), mut c) in by_key {
+                c.sort();
+                let fp = c
+                    .iter()
+                    .map(|(_, _, id)| id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let s = out.entry(file).or_default();
+                s.defs.push(key.clone());
+                s.fps.insert(key, fp);
             }
         };
         let add_refs = |rows: Vec<RelationshipRow>, out: &mut BTreeMap<String, FileSymbols>| {
@@ -639,6 +696,29 @@ impl ProjectStore {
         self.put_graph_state_with_files(&state)
     }
 
+    /// Revision of the manual link intent (user data): a digest of every
+    /// manual link, part of the graph input digest so an edited intent is
+    /// re-applied even when no indexed content changed.
+    pub fn manual_link_revision(&self) -> Result<String> {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        for m in self.manual_links()? {
+            h.update(
+                format!(
+                    "{}|{}|{}|{}|{:?}|{:?}\n",
+                    m.id,
+                    m.link_type,
+                    m.entity_qualified_name,
+                    m.document_rel_path,
+                    m.attachment_index,
+                    m.chunk_ordinal
+                )
+                .as_bytes(),
+            );
+        }
+        Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    }
+
     /// Inserts relationship rows into `build_id`.
     pub fn put_relationships(&mut self, build_id: &str, rows: &[RelationshipRow]) -> Result<()> {
         write_tx(&mut self.conn, |tx| {
@@ -724,6 +804,25 @@ mod tests {
         let read = s.graph_state_with_files().unwrap();
         assert_eq!(read.manifest_error, Some("manifest_corrupt"));
         assert!(!read.manifest_usable());
+    }
+
+    #[test]
+    fn only_candidate_changes_count_as_changed_keys() {
+        let a = FileSymbols {
+            fps: [
+                ("q:A.f".to_owned(), "e1".to_owned()),
+                ("n:f".to_owned(), "e1".to_owned()),
+            ]
+            .into(),
+            ..FileSymbols::default()
+        };
+        assert!(FileSymbols::changed_keys(Some(&a), Some(&a)).is_empty());
+        let mut b = a.clone();
+        b.fps.insert("n:f".into(), "e1,e2".into());
+        assert_eq!(FileSymbols::changed_keys(Some(&a), Some(&b)), vec!["n:f"]);
+        let mut removed = FileSymbols::changed_keys(Some(&a), None);
+        removed.sort();
+        assert_eq!(removed, vec!["n:f", "q:A.f"]);
     }
 
     #[test]

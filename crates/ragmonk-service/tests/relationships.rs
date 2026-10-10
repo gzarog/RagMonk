@@ -404,3 +404,112 @@ fn a_graph_adopted_from_elsewhere_is_rebound_without_parsing() {
     assert!(s.graph_visible(&b).unwrap());
     assert_eq!(graph_of(&s, &b), before);
 }
+
+/// Rebuilds source `i`'s graph from scratch and returns it (the oracle).
+fn oracle(env: &Env, i: usize) -> Graph {
+    let (mut s, b) = store(env, i);
+    s.clear_graph(&b).unwrap();
+    s.put_graph_state_with_files(&Default::default()).unwrap();
+    ragmonk_knowledge::build_graph(&mut s, &env.roots[i], &b, 1, None, &mut |_, _| {}).unwrap();
+    graph_of(&s, &b)
+}
+
+fn report_of(
+    reports: &[ragmonk_code::graph_stage::GraphReport],
+) -> &ragmonk_code::graph_stage::GraphReport {
+    let changed: Vec<_> = reports
+        .iter()
+        .filter(|r| r.action != ragmonk_code::graph_stage::PlanAction::Skip)
+        .collect();
+    assert_eq!(changed.len(), 1, "{reports:?}");
+    changed[0]
+}
+
+#[test]
+fn a_body_edit_does_not_re_resolve_consumers_and_a_removed_definition_does() {
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    let default = ragmonk_service::indexing::RunOptions::default();
+
+    // Body-only edit of the definition main.py calls: only util.py.
+    write(
+        &env.roots[0],
+        "app/util.py",
+        "def helper():\n    x = 41\n    return x + 1\n",
+    );
+    let reports = graph_runs(&env, &default);
+    let r = report_of(&reports);
+    assert_eq!(r.action, ragmonk_code::graph_stage::PlanAction::Incremental);
+    assert_eq!((r.files_processed, r.files_reresolved), (1, 1), "{r:?}");
+    let (s, b) = store(&env, 0);
+    let incremental = graph_of(&s, &b);
+    drop(s);
+    assert_eq!(oracle(&env, 0), incremental);
+
+    // Removing the definition re-resolves its consumer and cleans its links.
+    write(&env.roots[0], "app/util.py", "def other():\n    return 1\n");
+    let reports = graph_runs(&env, &default);
+    let r = report_of(&reports);
+    assert_eq!((r.files_processed, r.files_reresolved), (1, 2), "{r:?}");
+    let (s, b) = store(&env, 0);
+    let incremental = graph_of(&s, &b);
+    drop(s);
+    assert_eq!(oracle(&env, 0), incremental);
+
+    // Adding it back resolves the unchanged consumer again.
+    write(
+        &env.roots[0],
+        "app/util.py",
+        "def helper():\n    return 1\n",
+    );
+    let reports = graph_runs(&env, &default);
+    assert_eq!(report_of(&reports).files_reresolved, 2);
+    let (s, b) = store(&env, 0);
+    let incremental = graph_of(&s, &b);
+    drop(s);
+    assert_eq!(oracle(&env, 0), incremental);
+}
+
+#[test]
+fn an_edited_manual_link_intent_is_applied_without_any_index_change() {
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    let (mut s, b) = store(&env, 0);
+    let entity = s
+        .all_entities(&b)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.name == "helper")
+        .unwrap();
+    // Recorded intent only (as another writer or an interrupted command
+    // would leave it): nothing is materialized yet.
+    s.add_manual_link(&ragmonk_storage::knowledge::ManualLink {
+        id: "manual-1".into(),
+        link_type: "documented_by".into(),
+        entity_qualified_name: entity.qualified_name,
+        document_rel_path: "docs/guide.md".into(),
+        attachment_index: None,
+        chunk_ordinal: None,
+        note: None,
+        created_at: "2026-01-01T00:00:00Z".into(),
+    })
+    .unwrap();
+    drop(s);
+    let reports = graph_runs(&env, &ragmonk_service::indexing::RunOptions::default());
+    let r = report_of(&reports);
+    assert_eq!(r.files_processed, 0);
+    let (s, b) = store(&env, 0);
+    assert!(s.graph_visible(&b).unwrap());
+    assert!(
+        s.links(&b).unwrap().iter().any(|l| l.resolver == "user"),
+        "manual link applied"
+    );
+    let incremental = graph_of(&s, &b);
+    drop(s);
+    assert_eq!(oracle(&env, 0), incremental);
+    // And it is now current.
+    let reports = graph_runs(&env, &ragmonk_service::indexing::RunOptions::default());
+    assert!(reports
+        .iter()
+        .all(|r| r.action == ragmonk_code::graph_stage::PlanAction::Skip));
+}

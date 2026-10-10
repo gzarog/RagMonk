@@ -37,7 +37,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use ragmonk_storage::graph::{GraphFile, GraphLifecycle, GraphState};
+use ragmonk_storage::graph::{FileSymbols, GraphFile, GraphLifecycle, GraphState};
 use ragmonk_storage::knowledge::{ProjectStore, RelationshipRow};
 use ragmonk_storage::StorageError;
 use serde::Serialize;
@@ -190,12 +190,14 @@ pub fn plan_graph(store: &ProjectStore, build_id: &str) -> Result<RelationshipPl
     };
     let prev = store.graph_state_with_files().map_err(failed)?;
     let files = store.graph_files(build_id).map_err(failed)?;
+    let extra = format!("manual:{}", store.manual_link_revision().map_err(failed)?);
     Ok(plan_from(
         &prev,
         build_id,
         generation,
         &files,
         &graph_derivation(),
+        &extra,
     ))
 }
 
@@ -205,11 +207,12 @@ fn plan_from(
     generation: String,
     files: &[GraphFile],
     derivation: &str,
+    extra: &str,
 ) -> RelationshipPlan {
     let digest = ragmonk_storage::graph::graph_input_digest(
         derivation,
         files.iter().map(|f| (f.id.as_str(), f.key.as_str())),
-        "",
+        extra,
     );
     let same_rows = prev.base_build_id.as_deref() == Some(build_id);
     let same_derivation = prev.derivation_version.as_deref() == Some(derivation);
@@ -246,6 +249,7 @@ fn plan_from(
     if prev.state == GraphLifecycle::Ready
         && prev.base_generation.as_deref() == Some(generation.as_str())
         && same_derivation
+        && prev.input_digest.as_deref() == Some(digest.as_str())
     {
         return plan(PlanAction::Skip, "current", false);
     }
@@ -464,19 +468,15 @@ fn build(
         let symbols = store.file_symbols(build_id, None).map_err(failed)?;
         (symbols, n, files.len())
     } else {
-        // Symbols whose definitions changed: the old definitions of every
-        // changed or removed file and the new ones of every changed file.
+        // Symbols whose candidates changed: a definition added, removed,
+        // renamed, re-identified or reordered in a changed or removed file
+        // (a body-only edit changes none).
         let fresh = store
             .file_symbols(build_id, Some(&changed_ids))
             .map_err(failed)?;
         let mut keys: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
         for f in changed_ids.iter().chain(removed.iter().copied()) {
-            if let Some(s) = prev.symbols.get(f) {
-                keys.extend(s.defs.iter().map(String::as_str));
-            }
-            if let Some(s) = fresh.get(f) {
-                keys.extend(s.defs.iter().map(String::as_str));
-            }
+            keys.extend(FileSymbols::changed_keys(prev.symbols.get(f), fresh.get(f)));
         }
         // Re-resolve the changed files and every unchanged file with a
         // reference through one of those symbols.
@@ -604,7 +604,7 @@ pub fn mark_disabled(store: &mut ProjectStore) -> Result<(), StorageError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ragmonk_storage::graph::{file_key, graph_input_digest, FileSymbols};
+    use ragmonk_storage::graph::{file_key, graph_input_digest};
 
     fn file(id: &str, hash: &str) -> GraphFile {
         GraphFile {
@@ -641,7 +641,7 @@ mod tests {
     }
 
     fn plan(prev: &GraphState, generation: &str, files: &[GraphFile]) -> RelationshipPlan {
-        plan_from(prev, "b", generation.into(), files, &graph_derivation())
+        plan_from(prev, "b", generation.into(), files, &graph_derivation(), "")
     }
 
     #[test]
