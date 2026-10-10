@@ -302,5 +302,21 @@ fn daemon_graph(
     if let Some(e) = outcome.error() {
         tracing::warn!(component = "daemon", event = "daemon_graph_not_published", source_id = %source.id, state = outcome.state(), error = %e);
     }
+    // Consumers impacted by this source (and this source as a consumer).
+    // A consumer that cannot be updated now stays marked stale in its
+    // manifest and is retried by the next pass.
+    if let Ok(all) = crate::sources::catalog(home).and_then(|c| c.list(false)) {
+        crate::dependencies::run_stage_holding(
+            home,
+            cfg,
+            backend,
+            &all,
+            Options::from_config(cfg).lock_timeout,
+            Some(&source.id),
+            |consumer, o| {
+                tracing::debug!(component = "daemon", event = "dependencies", source_id = %consumer.id, state = o.state());
+            },
+        );
+    }
     outcome.state().into()
 }

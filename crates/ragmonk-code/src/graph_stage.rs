@@ -69,10 +69,11 @@ pub struct GraphOptions<'a> {
     pub cancel: Option<&'a AtomicBool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum GraphOutcome {
     /// The published graph already matches the active base.
+    #[default]
     UpToDate,
     /// The committed graph was rebound to an equivalent new base snapshot.
     Rebound,
@@ -80,7 +81,7 @@ pub enum GraphOutcome {
 }
 
 /// What one graph build did.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
 pub struct GraphReport {
     pub outcome: GraphOutcome,
     pub action: PlanAction,
@@ -99,6 +100,12 @@ pub struct GraphReport {
     /// a full build; changed files plus their symbol dependents otherwise).
     pub files_reresolved: usize,
     pub links: usize,
+    /// Published changes the plan was made from.
+    pub files_added: usize,
+    pub files_modified: usize,
+    pub files_removed: usize,
+    /// Time spent planning (graph state and file rows only).
+    pub planning_seconds: f64,
     pub seconds: f64,
 }
 
@@ -125,10 +132,11 @@ fn failed(e: impl std::fmt::Display) -> GraphError {
 pub type GraphProgressFn<'a> = dyn FnMut(usize, usize) + 'a;
 
 /// What the graph stage does for one source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanAction {
     /// The committed graph is current for the active base.
+    #[default]
     Skip,
     /// The base was republished with semantically identical inputs: the
     /// committed rows are rebound to the new snapshot without parsing or
@@ -143,6 +151,19 @@ pub enum PlanAction {
     Retry,
     /// `indexing.relationships_enabled: false`.
     Disabled,
+}
+
+impl PlanAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PlanAction::Skip => "skip",
+            PlanAction::Rebind => "rebind",
+            PlanAction::Incremental => "incremental",
+            PlanAction::Full => "full",
+            PlanAction::Retry => "retry",
+            PlanAction::Disabled => "disabled",
+        }
+    }
 }
 
 /// The published changes between the committed graph's inputs and the
@@ -294,7 +315,10 @@ pub fn build_graph(
 ) -> Result<GraphReport, GraphError> {
     let started = Instant::now();
     let plan = plan_graph(store, build_id)?;
+    let planning_seconds = started.elapsed().as_secs_f64();
+    tracing::debug!(component = "relationships", event = "graph_planned", action = ?plan.action, reason = plan.reason, added = plan.changes.added.len(), modified = plan.changes.modified.len(), removed = plan.changes.removed.len());
     build_planned(store, root, build_id, &plan, opts, progress).map(|mut r| {
+        r.planning_seconds = planning_seconds;
         r.seconds = started.elapsed().as_secs_f64();
         r
     })
@@ -313,18 +337,14 @@ pub fn build_planned(
     let derivation = graph_derivation();
     let prev = store.graph_state_with_files().map_err(failed)?;
     let mut report = GraphReport {
-        outcome: GraphOutcome::UpToDate,
         action: plan.action,
         reason: plan.reason,
-        full: false,
         generation: prev.generation,
         base_generation: generation.clone(),
-        files_processed: 0,
-        relationships_written: 0,
-        resolutions_changed: 0,
-        files_reresolved: 0,
-        links: 0,
-        seconds: 0.0,
+        files_added: plan.changes.added.len(),
+        files_modified: plan.changes.modified.len(),
+        files_removed: plan.changes.removed.len(),
+        ..GraphReport::default()
     };
     match plan.action {
         PlanAction::Skip => return Ok(report),
@@ -373,6 +393,9 @@ pub fn build_planned(
         Ok(mut built) => {
             built.action = plan.action;
             built.reason = plan.reason;
+            built.files_added = report.files_added;
+            built.files_modified = report.files_modified;
+            built.files_removed = report.files_removed;
             Ok(built)
         }
         Err(e) => {
@@ -535,7 +558,7 @@ fn build(
         resolutions_changed,
         files_reresolved,
         links,
-        seconds: 0.0,
+        ..GraphReport::default()
     })
 }
 

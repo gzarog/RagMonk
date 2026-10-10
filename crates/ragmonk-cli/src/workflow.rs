@@ -387,9 +387,11 @@ fn print_relationships(
         O::Built(r) | O::UpToDate(r) => {
             let g = &r.graph;
             println!(
-                "{source_id}: relationships {} (generation {}, {} file(s) recomputed{}, {} edge(s), {} link(s))",
+                "{source_id}: relationships {} (generation {}, {}: {}, {} file(s) recomputed{}, {} edge(s), {} link(s))",
                 outcome.state(),
                 g.generation,
+                g.action.as_str(),
+                g.reason,
                 g.files_processed,
                 if g.full { ", full" } else { "" },
                 g.relationships_written,
@@ -418,6 +420,29 @@ fn print_relationship_totals(summary: &ragmonk_service::indexing::RunSummary) {
         "Relationships: {} source(s) attempted, {} built, {} up to date, {} stale, {} failed.",
         r.attempted, r.built, r.up_to_date, r.stale, r.failed
     );
+    println!("  {}", graph_work(r));
+    let d = &summary.dependencies;
+    if d.consumers > 0 {
+        println!(
+            "  Cross-source dependencies: {} consumer(s), {} current, {} updated, {} stale, {} pending.",
+            d.consumers, d.current, d.updated, d.stale, d.pending
+        );
+    }
+}
+
+/// One line of graph work by planned action.
+fn graph_work(r: &ragmonk_service::relationships::StageSummary) -> String {
+    format!(
+        "Graphs: {} skipped, {} rebound, {} incremental, {} full, {} retried; {} file(s) derived, {} re-resolved, {} relationship write(s).",
+        r.graph_skipped,
+        r.graph_rebound,
+        r.graph_incremental,
+        r.graph_full,
+        r.graph_retried,
+        r.files_processed,
+        r.files_reresolved,
+        r.relationships_written
+    )
 }
 
 // ------------------------------------------------------- relationships ---
@@ -459,6 +484,7 @@ pub fn relationships_build(
             summary.failed,
             summary.skipped
         );
+        println!("  {}", graph_work(&summary));
     }
     if summary.not_current() > 0 {
         return Err(RagMonkError::new(

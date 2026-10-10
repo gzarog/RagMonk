@@ -581,6 +581,21 @@ pub fn run_stage(
     backend: &Backend,
     sources: &[SourceRecord],
     lock_timeout: std::time::Duration,
+    on_outcome: impl FnMut(&SourceRecord, DependencyOutcome),
+) {
+    run_stage_holding(home, cfg, backend, sources, lock_timeout, None, on_outcome)
+}
+
+/// [`run_stage`] when the caller already holds the lock of source `held`
+/// (the daemon's graph pass): that consumer is updated without locking it
+/// again.
+pub fn run_stage_holding(
+    home: &Home,
+    cfg: &ragmonk_config::RagMonkConfig,
+    backend: &Backend,
+    sources: &[SourceRecord],
+    lock_timeout: std::time::Duration,
+    held: Option<&str>,
     mut on_outcome: impl FnMut(&SourceRecord, DependencyOutcome),
 ) {
     let reg = discover(home, cfg, backend, sources);
@@ -591,18 +606,25 @@ pub fn run_stage(
         let Some(consumer) = sources.iter().find(|s| s.id == consumer_id) else {
             continue;
         };
-        let outcome = match RunLock::acquire(
-            &source_lock_path(home, &consumer.id),
-            "dependencies",
-            Some(&consumer.id),
-            lock_timeout,
-        ) {
-            Err(e) => stale(format!("consumer is locked: {}", e.message())),
-            Ok(lock) => {
-                let o = update_consumer(home, cfg, backend, &reg, sources, consumer)
-                    .unwrap_or_else(|e| stale(e.message().to_owned()));
-                lock.release();
-                o
+        let update = || {
+            update_consumer(home, cfg, backend, &reg, sources, consumer)
+                .unwrap_or_else(|e| stale(e.message().to_owned()))
+        };
+        let outcome = if held == Some(consumer.id.as_str()) {
+            update()
+        } else {
+            match RunLock::acquire(
+                &source_lock_path(home, &consumer.id),
+                "dependencies",
+                Some(&consumer.id),
+                lock_timeout,
+            ) {
+                Err(e) => stale(format!("consumer is locked: {}", e.message())),
+                Ok(lock) => {
+                    let o = update();
+                    lock.release();
+                    o
+                }
             }
         };
         if matches!(

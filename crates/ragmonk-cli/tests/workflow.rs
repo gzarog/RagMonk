@@ -81,9 +81,13 @@ fn workflow_end_to_end() {
     let idx = t.find("Index complete").unwrap();
     assert!(t[..idx].contains(": relationships ready"), "{t}");
     assert!(
-        t.ends_with(
+        t.contains(
             "Relationships: 1 source(s) attempted, 1 built, 0 up to date, 0 stale, 0 failed.\n"
         ),
+        "{t}"
+    );
+    assert!(
+        t.ends_with("  Graphs: 0 skipped, 0 rebound, 0 incremental, 1 full, 0 retried; 2 file(s) derived, 2 re-resolved, 2 relationship write(s).\n"),
         "{t}"
     );
 

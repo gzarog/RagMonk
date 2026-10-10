@@ -513,3 +513,29 @@ fn an_edited_manual_link_intent_is_applied_without_any_index_change() {
         .iter()
         .all(|r| r.action == ragmonk_code::graph_stage::PlanAction::Skip));
 }
+
+#[test]
+fn an_unchanged_run_reports_every_graph_skipped_with_no_graph_work() {
+    let env = setup(true);
+    let sources = selected_sources(&env.home, None).unwrap();
+    let first = index_sources(&env.home, &sources, "index", |_| {}).unwrap();
+    assert_eq!(
+        first.relationships.graph_full, 3,
+        "first indexing initializes every graph"
+    );
+    let s = index_sources(&env.home, &sources, "index", |_| {}).unwrap();
+    let r = &s.relationships;
+    assert_eq!((r.graph_skipped, r.up_to_date), (3, 3), "{r:?}");
+    assert_eq!(
+        (
+            r.graph_rebound + r.graph_incremental + r.graph_full + r.graph_retried,
+            r.files_processed,
+            r.files_reresolved,
+            r.relationships_written
+        ),
+        (0, 0, 0, 0),
+        "{r:?}"
+    );
+    let json = serde_json::to_value(r).unwrap();
+    assert_eq!(json["graph_skipped"], 3);
+}

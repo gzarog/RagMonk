@@ -633,15 +633,9 @@ fn current_without_lease(
             outcome: GraphOutcome::UpToDate,
             action: PlanAction::Skip,
             reason: "current",
-            full: false,
             generation: state.generation,
             base_generation: plan.expected_base,
-            files_processed: 0,
-            relationships_written: 0,
-            resolutions_changed: 0,
-            files_reresolved: 0,
-            links: 0,
-            seconds: 0.0,
+            ..GraphReport::default()
         },
         publish: ragmonk_backends::graph::GraphPublishReport {
             generation: Some(generation),
