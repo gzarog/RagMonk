@@ -3,11 +3,15 @@
 //! Runs only after a source's base index is published, against that exact
 //! published build, and never changes a base row:
 //!
-//! 1. The recorded [`GraphState`] decides the work: nothing when the graph
-//!    is `ready` for the active base generation and derivation; a full
-//!    recomputation when the graph belongs to another base build, another
-//!    derivation, or has no dependency metadata; otherwise only the files
-//!    whose dependency key (content hash + base write time) changed.
+//! 1. [`plan_graph`] compares the recorded [`GraphState`] with the active
+//!    base and yields a [`RelationshipPlan`] with a stable reason code:
+//!    `skip` when the graph is `ready` for the active base generation and
+//!    derivation; `rebind` when the base was republished with semantically
+//!    identical inputs (same [`graph_input_digest`](ragmonk_storage::graph::graph_input_digest),
+//!    no parsing or resolution); `full` when the graph's rows or dependency
+//!    metadata cannot be reused; otherwise `incremental` (or `retry` after a
+//!    failure) over the files whose semantic key (kind, status, content
+//!    hash; never write times) changed.
 //! 2. Each code file to derive is re-read from the source root and its
 //!    sha256 compared with the published `content_hash`. A mismatch means
 //!    the file changed after indexing: the graph is marked `stale` and
@@ -70,6 +74,8 @@ pub struct GraphOptions<'a> {
 pub enum GraphOutcome {
     /// The published graph already matches the active base.
     UpToDate,
+    /// The committed graph was rebound to an equivalent new base snapshot.
+    Rebound,
     Built,
 }
 
@@ -77,6 +83,9 @@ pub enum GraphOutcome {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GraphReport {
     pub outcome: GraphOutcome,
+    pub action: PlanAction,
+    /// Stable reason code of the plan.
+    pub reason: &'static str,
     /// Recomputed from scratch (no usable dependency metadata).
     pub full: bool,
     pub generation: u64,
@@ -115,6 +124,162 @@ fn failed(e: impl std::fmt::Display) -> GraphError {
 /// Progress of one graph build: `(files done, files to process)`.
 pub type GraphProgressFn<'a> = dyn FnMut(usize, usize) + 'a;
 
+/// What the graph stage does for one source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanAction {
+    /// The committed graph is current for the active base.
+    Skip,
+    /// The base was republished with semantically identical inputs: the
+    /// committed rows are rebound to the new snapshot without parsing or
+    /// resolving anything.
+    Rebind,
+    /// Only the changed files (and their symbol dependents) are derived.
+    Incremental,
+    /// Everything is derived from scratch.
+    Full,
+    /// The last attempt failed or went stale; derived again (incrementally
+    /// when the dependency metadata allows it).
+    Retry,
+    /// `indexing.relationships_enabled: false`.
+    Disabled,
+}
+
+/// The published changes between the committed graph's inputs and the
+/// active base, from the authoritative published file rows (a failed or
+/// offline pass publishes nothing, so it never yields a change set).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct PublishedChangeSet {
+    pub added: Vec<String>,
+    pub modified: Vec<String>,
+    pub removed: Vec<String>,
+    /// `false` when the previous inputs are unknown: every file is treated
+    /// as changed (a conservative full derivation).
+    pub complete: bool,
+}
+
+impl PublishedChangeSet {
+    pub fn is_empty(&self) -> bool {
+        self.complete
+            && self.added.is_empty()
+            && self.modified.is_empty()
+            && self.removed.is_empty()
+    }
+}
+
+/// The graph work planned for one source against one published base.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RelationshipPlan {
+    pub action: PlanAction,
+    /// Stable reason code (`current`, `first_build`, `files_changed`, ...).
+    pub reason: &'static str,
+    /// Publication fence: the base generation the plan was made against.
+    pub expected_base: String,
+    pub input_digest: String,
+    /// Derive every file (no reusable dependency metadata).
+    pub full: bool,
+    #[serde(skip)]
+    pub changes: PublishedChangeSet,
+}
+
+/// Plans the graph work of `build_id`, the source's active published build
+/// (cheap: reads only the graph state and the build's file rows).
+pub fn plan_graph(store: &ProjectStore, build_id: &str) -> Result<RelationshipPlan, GraphError> {
+    let Some(generation) = store.base_generation(build_id).map_err(failed)? else {
+        return Err(GraphError::NotPublished);
+    };
+    let prev = store.graph_state_with_files().map_err(failed)?;
+    let files = store.graph_files(build_id).map_err(failed)?;
+    Ok(plan_from(
+        &prev,
+        build_id,
+        generation,
+        &files,
+        &graph_derivation(),
+    ))
+}
+
+fn plan_from(
+    prev: &GraphState,
+    build_id: &str,
+    generation: String,
+    files: &[GraphFile],
+    derivation: &str,
+) -> RelationshipPlan {
+    let digest = ragmonk_storage::graph::graph_input_digest(
+        derivation,
+        files.iter().map(|f| (f.id.as_str(), f.key.as_str())),
+        "",
+    );
+    let same_rows = prev.base_build_id.as_deref() == Some(build_id);
+    let same_derivation = prev.derivation_version.as_deref() == Some(derivation);
+    let has_metadata = !prev.files.is_empty() && !prev.symbols.is_empty();
+    let complete = same_rows && same_derivation && has_metadata;
+    let mut changes = PublishedChangeSet {
+        complete,
+        ..PublishedChangeSet::default()
+    };
+    let current: std::collections::BTreeSet<&str> = files.iter().map(|f| f.id.as_str()).collect();
+    for f in files {
+        match prev.files.get(&f.id) {
+            _ if !complete => changes.modified.push(f.id.clone()),
+            None => changes.added.push(f.id.clone()),
+            Some(k) if *k != f.key => changes.modified.push(f.id.clone()),
+            Some(_) => {}
+        }
+    }
+    if complete {
+        changes.removed = prev
+            .files
+            .keys()
+            .filter(|f| !current.contains(f.as_str()))
+            .cloned()
+            .collect();
+    }
+    let plan = |action, reason, full| RelationshipPlan {
+        action,
+        reason,
+        expected_base: generation.clone(),
+        input_digest: digest.clone(),
+        full,
+        changes: changes.clone(),
+    };
+    if prev.state == GraphLifecycle::Ready
+        && prev.base_generation.as_deref() == Some(generation.as_str())
+        && same_derivation
+    {
+        return plan(PlanAction::Skip, "current", false);
+    }
+    if same_rows && same_derivation && prev.input_digest.as_deref() == Some(digest.as_str()) {
+        return plan(PlanAction::Rebind, "equivalent_snapshot", false);
+    }
+    let retry = matches!(
+        prev.state,
+        GraphLifecycle::Failed | GraphLifecycle::Stale | GraphLifecycle::Building
+    );
+    if !complete {
+        let reason = if prev.base_build_id.is_none() {
+            "first_build"
+        } else if !same_derivation {
+            "derivation_changed"
+        } else if !same_rows {
+            "base_rebuilt"
+        } else {
+            "metadata_missing"
+        };
+        let action = if retry {
+            PlanAction::Retry
+        } else {
+            PlanAction::Full
+        };
+        return plan(action, reason, true);
+    }
+    if retry {
+        return plan(PlanAction::Retry, "retry_after_failure", false);
+    }
+    plan(PlanAction::Incremental, "files_changed", false)
+}
+
 /// Builds (or confirms) the relationship graph of `build_id`, the source's
 /// active published build. The caller holds the source's lock (and lease).
 pub fn build_graph(
@@ -125,27 +290,64 @@ pub fn build_graph(
     progress: &mut GraphProgressFn<'_>,
 ) -> Result<GraphReport, GraphError> {
     let started = Instant::now();
-    let Some(generation) = store.base_generation(build_id).map_err(failed)? else {
-        return Err(GraphError::NotPublished);
-    };
+    let plan = plan_graph(store, build_id)?;
+    build_planned(store, root, build_id, &plan, opts, progress).map(|mut r| {
+        r.seconds = started.elapsed().as_secs_f64();
+        r
+    })
+}
+
+/// Executes `plan` (from [`plan_graph`]).
+pub fn build_planned(
+    store: &mut ProjectStore,
+    root: &Path,
+    build_id: &str,
+    plan: &RelationshipPlan,
+    opts: &GraphOptions<'_>,
+    progress: &mut GraphProgressFn<'_>,
+) -> Result<GraphReport, GraphError> {
+    let generation = plan.expected_base.clone();
     let derivation = graph_derivation();
     let prev = store.graph_state_with_files().map_err(failed)?;
-    if prev.state == GraphLifecycle::Ready
-        && prev.base_generation.as_deref() == Some(generation.as_str())
-        && prev.derivation_version.as_deref() == Some(derivation.as_str())
-    {
-        return Ok(GraphReport {
-            outcome: GraphOutcome::UpToDate,
-            full: false,
-            generation: prev.generation,
-            base_generation: generation,
-            files_processed: 0,
-            relationships_written: 0,
-            resolutions_changed: 0,
-            files_reresolved: 0,
-            links: 0,
-            seconds: started.elapsed().as_secs_f64(),
-        });
+    let mut report = GraphReport {
+        outcome: GraphOutcome::UpToDate,
+        action: plan.action,
+        reason: plan.reason,
+        full: false,
+        generation: prev.generation,
+        base_generation: generation.clone(),
+        files_processed: 0,
+        relationships_written: 0,
+        resolutions_changed: 0,
+        files_reresolved: 0,
+        links: 0,
+        seconds: 0.0,
+    };
+    match plan.action {
+        PlanAction::Skip => return Ok(report),
+        PlanAction::Rebind => {
+            // Same rows, same inputs: only the snapshot binding moves,
+            // fenced in one transaction against a concurrent publication.
+            store.begin_session().map_err(failed)?;
+            let fenced = store.base_generation(build_id).map_err(failed)?;
+            if fenced.as_deref() != Some(generation.as_str()) {
+                let _ = store.rollback_session();
+                return Err(GraphError::Stale(
+                    "the base index was republished during the relationship build".into(),
+                ));
+            }
+            let mut state = prev.clone();
+            state.state = GraphLifecycle::Ready;
+            state.base_generation = Some(generation.clone());
+            state.last_error = None;
+            state.stale_reason = None;
+            store.put_graph_state(&state).map_err(failed)?;
+            store.commit_session().map_err(failed)?;
+            report.outcome = GraphOutcome::Rebound;
+            return Ok(report);
+        }
+        PlanAction::Disabled => return Ok(report),
+        _ => {}
     }
     store
         .set_graph_lifecycle(GraphLifecycle::Building, prev.last_error.as_deref(), None)
@@ -157,13 +359,15 @@ pub fn build_graph(
         &generation,
         &derivation,
         &prev,
+        plan,
         opts,
         progress,
     );
     match outcome {
-        Ok(mut report) => {
-            report.seconds = started.elapsed().as_secs_f64();
-            Ok(report)
+        Ok(mut built) => {
+            built.action = plan.action;
+            built.reason = plan.reason;
+            Ok(built)
         }
         Err(e) => {
             if store.in_session() {
@@ -193,26 +397,27 @@ fn build(
     generation: &str,
     derivation: &str,
     prev: &GraphState,
+    plan: &RelationshipPlan,
     opts: &GraphOptions<'_>,
     progress: &mut GraphProgressFn<'_>,
 ) -> Result<GraphReport, GraphError> {
     let files = store.graph_files(build_id).map_err(failed)?;
     // Incremental only on top of a complete record of this base build:
     // its file keys and its per-file symbol dependencies.
-    let full = prev.base_build_id.as_deref() != Some(build_id)
-        || prev.derivation_version.as_deref() != Some(derivation)
-        || prev.files.is_empty()
-        || prev.symbols.is_empty();
+    let full = plan.full;
+    let changed_set: std::collections::BTreeSet<&str> = plan
+        .changes
+        .added
+        .iter()
+        .chain(&plan.changes.modified)
+        .map(String::as_str)
+        .collect();
     let changed: Vec<&GraphFile> = files
         .iter()
-        .filter(|f| full || prev.files.get(&f.id) != Some(&f.key))
+        .filter(|f| full || changed_set.contains(f.id.as_str()))
         .collect();
     let current: std::collections::BTreeSet<&str> = files.iter().map(|f| f.id.as_str()).collect();
-    let removed: Vec<&String> = prev
-        .files
-        .keys()
-        .filter(|f| !current.contains(f.as_str()))
-        .collect();
+    let removed: Vec<&String> = plan.changes.removed.iter().collect();
     let total = changed.len();
     progress(0, total);
 
@@ -299,6 +504,7 @@ fn build(
         base_build_id: Some(build_id.to_owned()),
         base_generation: Some(generation.to_owned()),
         derivation_version: Some(derivation.to_owned()),
+        input_digest: Some(plan.input_digest.clone()),
         files: files
             .iter()
             .map(|f| (f.id.clone(), f.key.clone()))
@@ -313,6 +519,8 @@ fn build(
     store.commit_session().map_err(failed)?;
     Ok(GraphReport {
         outcome: GraphOutcome::Built,
+        action: plan.action,
+        reason: plan.reason,
         full,
         generation: state.generation,
         base_generation: generation.to_owned(),
@@ -385,4 +593,96 @@ pub fn mark_disabled(store: &mut ProjectStore) -> Result<(), StorageError> {
         store.set_graph_lifecycle(GraphLifecycle::Disabled, None, None)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ragmonk_storage::graph::{file_key, graph_input_digest, FileSymbols};
+
+    fn file(id: &str, hash: &str) -> GraphFile {
+        GraphFile {
+            id: id.into(),
+            rel_path: format!("{id}.py"),
+            kind: "code".into(),
+            status: "indexed".into(),
+            content_hash: Some(hash.into()),
+            key: file_key("code", "indexed", Some(hash)),
+        }
+    }
+
+    fn committed(files: &[GraphFile], generation: &str) -> GraphState {
+        GraphState {
+            state: GraphLifecycle::Ready,
+            generation: 1,
+            base_build_id: Some("b".into()),
+            base_generation: Some(generation.into()),
+            derivation_version: Some(graph_derivation()),
+            input_digest: Some(graph_input_digest(
+                &graph_derivation(),
+                files.iter().map(|f| (f.id.as_str(), f.key.as_str())),
+                "",
+            )),
+            files: files
+                .iter()
+                .map(|f| (f.id.clone(), f.key.clone()))
+                .collect(),
+            symbols: [("a".to_owned(), FileSymbols::default())].into(),
+            ..GraphState::default()
+        }
+    }
+
+    fn plan(prev: &GraphState, generation: &str, files: &[GraphFile]) -> RelationshipPlan {
+        plan_from(prev, "b", generation.into(), files, &graph_derivation())
+    }
+
+    #[test]
+    fn a_current_graph_is_skipped() {
+        let files = [file("a", "1"), file("b", "2")];
+        let p = plan(&committed(&files, "b@t1"), "b@t1", &files);
+        assert_eq!((p.action, p.reason), (PlanAction::Skip, "current"));
+    }
+
+    #[test]
+    fn a_republication_with_identical_content_is_rebound_not_rebuilt() {
+        let files = [file("a", "1"), file("b", "2")];
+        let p = plan(&committed(&files, "b@t1"), "b@t2", &files);
+        assert_eq!(p.action, PlanAction::Rebind);
+        assert!(p.changes.is_empty());
+    }
+
+    #[test]
+    fn only_semantically_changed_files_are_planned() {
+        let files = [file("a", "1"), file("b", "2")];
+        let prev = committed(&files, "b@t1");
+        let now = [file("a", "1"), file("b", "3"), file("c", "4")];
+        let p = plan(&prev, "b@t2", &now);
+        assert_eq!(p.action, PlanAction::Incremental);
+        assert_eq!(p.changes.modified, vec!["b".to_owned()]);
+        assert_eq!(p.changes.added, vec!["c".to_owned()]);
+        let p = plan(&prev, "b@t2", &files[..1]);
+        assert_eq!(p.changes.removed, vec!["b".to_owned()]);
+    }
+
+    #[test]
+    fn missing_or_failed_graphs_are_scheduled_even_without_index_changes() {
+        let files = [file("a", "1")];
+        let p = plan(&GraphState::default(), "b@t1", &files);
+        assert_eq!(
+            (p.action, p.reason, p.full),
+            (PlanAction::Full, "first_build", true)
+        );
+        let mut failed = committed(&files, "b@t0");
+        failed.state = GraphLifecycle::Failed;
+        failed.input_digest = None;
+        let p = plan(&failed, "b@t1", &files);
+        assert_eq!(p.action, PlanAction::Retry);
+        let mut old = committed(&files, "b@t1");
+        old.derivation_version = Some("other".into());
+        let p = plan(&old, "b@t1", &files);
+        assert_eq!(
+            (p.action, p.reason),
+            (PlanAction::Full, "derivation_changed")
+        );
+    }
 }

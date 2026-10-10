@@ -491,6 +491,9 @@ pub fn build_relationships(
     progress: &mut ragmonk_code::graph_stage::GraphProgressFn<'_>,
 ) -> Result<ServerGraphRun, ServerGraphError> {
     use ragmonk_code::graph_stage::GraphError;
+    if let Some(run) = current_without_lease(home, cfg, server, source)? {
+        return Ok(run);
+    }
     let ttl = Duration::from_secs_f64(cfg.storage.server.lease_seconds);
     let lease = server
         .acquire_lease(&source.id, &lease_owner(), ttl)
@@ -534,6 +537,82 @@ pub fn build_relationships(
     }
     let _ = server.release_lease(&lease);
     result
+}
+
+/// The skip path: when the server's visible graph was derived from exactly
+/// the inputs the (synced) staging copy plans as current, nothing is
+/// hydrated, no lease is taken and nothing is written. Only cheap
+/// authoritative reads (the source-state document) are made; any doubt
+/// falls through to the leased pass, which re-plans under the lease.
+fn current_without_lease(
+    home: &Home,
+    cfg: &RagMonkConfig,
+    server: &ServerBackend,
+    source: &SourceRecord,
+) -> Result<Option<ServerGraphRun>, ServerGraphError> {
+    use ragmonk_code::graph_stage::{GraphOutcome, GraphReport, PlanAction};
+    let Some((graph, Some(active))) = server
+        .graph(&source.id)
+        .map_err(|e| ServerGraphError::Other(server_err(e)))?
+    else {
+        return Ok(None);
+    };
+    let Some(generation) = graph.visible_generation(Some(&active)).map(str::to_owned) else {
+        return Ok(None);
+    };
+    let root = staging_root(home, cfg);
+    let synced = std::fs::read_to_string(marker(&root, &source.id))
+        .ok()
+        .map(|s| s.trim().to_owned());
+    if synced.as_deref() != Some(active.as_str()) {
+        return Ok(None);
+    }
+    let layout = StorageLayout::at(&root);
+    let Ok(cp) = open_staging(&layout, cfg) else {
+        return Ok(None);
+    };
+    let Some(local) = cp.state(&source.id).ok().and_then(|s| s.active_build_id) else {
+        return Ok(None);
+    };
+    let Ok(store) = ProjectStore::open(
+        &layout,
+        &project_id_for_canonical(&source.path),
+        &source.id,
+        cfg.runtime.sqlite_cache_size_mb,
+    ) else {
+        return Ok(None);
+    };
+    let Ok(plan) = ragmonk_code::graph_stage::plan_graph(&store, &local) else {
+        return Ok(None);
+    };
+    if plan.action != PlanAction::Skip
+        || graph.input_digest.as_deref() != Some(plan.input_digest.as_str())
+    {
+        return Ok(None);
+    }
+    let state = store
+        .graph_state()
+        .map_err(|e| ServerGraphError::Other(db(e)))?;
+    Ok(Some(ServerGraphRun {
+        graph: GraphReport {
+            outcome: GraphOutcome::UpToDate,
+            action: PlanAction::Skip,
+            reason: "current",
+            full: false,
+            generation: state.generation,
+            base_generation: plan.expected_base,
+            files_processed: 0,
+            relationships_written: 0,
+            resolutions_changed: 0,
+            files_reresolved: 0,
+            links: 0,
+            seconds: 0.0,
+        },
+        publish: ragmonk_backends::graph::GraphPublishReport {
+            generation: Some(generation),
+            ..Default::default()
+        },
+    }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -601,6 +680,11 @@ fn graph_pass(
             base_build_id: &server_active,
             lease: Some(lease),
             generation: &generation,
+            input_digest: store
+                .graph_state()
+                .ok()
+                .and_then(|s| s.input_digest)
+                .as_deref(),
         })
         .map_err(|e| match e {
             ragmonk_backends::BackendError::Conflict(m) => {

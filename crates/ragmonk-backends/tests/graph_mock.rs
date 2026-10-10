@@ -188,6 +188,7 @@ fn input<'a>(
         base_build_id: base,
         lease: None,
         generation,
+        input_digest: None,
     }
 }
 

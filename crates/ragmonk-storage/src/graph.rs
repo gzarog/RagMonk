@@ -108,9 +108,12 @@ pub struct GraphState {
     /// Graph derivation identity (code parser + graph rules).
     #[serde(default)]
     pub derivation_version: Option<String>,
-    /// Dependency metadata: `file_id -> file key` (content hash and the
-    /// time the base last wrote the file) each file's graph rows were
-    /// derived from. Stored under [`GRAPH_FILES_KEY`], loaded only by
+    /// Semantic digest of every graph input ([`graph_input_digest`]):
+    /// two base snapshots with the same digest have the same graph.
+    #[serde(default)]
+    pub input_digest: Option<String>,
+    /// Dependency metadata: `file_id -> semantic file key` ([`GraphFile::key`])
+    /// each file's graph rows were derived from. Stored under [`GRAPH_FILES_KEY`], loaded only by
     /// [`ProjectStore::graph_state_with_files`]. Empty means "recompute
     /// everything".
     #[serde(skip)]
@@ -175,8 +178,38 @@ pub struct GraphFile {
     pub kind: String,
     pub status: String,
     pub content_hash: Option<String>,
-    /// Content hash plus the time the base last wrote the file's rows.
+    /// Semantic key: kind, status and content hash. Write timestamps are
+    /// deliberately left out, so reprocessing identical content is not a
+    /// graph change (parser changes are covered by the derivation version).
     pub key: String,
+}
+
+/// The semantic key of one published file.
+pub fn file_key(kind: &str, status: &str, content_hash: Option<&str>) -> String {
+    format!("{kind}:{status}:{}", content_hash.unwrap_or(""))
+}
+
+/// Digest of everything a source's graph is derived from: the derivation
+/// identity, every file's id and semantic key, and `extra` (link intent and
+/// dependency bindings). Never covers build ids or publication times.
+pub fn graph_input_digest<'a>(
+    derivation: &str,
+    files: impl IntoIterator<Item = (&'a str, &'a str)>,
+    extra: &str,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(derivation.as_bytes());
+    h.update([0]);
+    for (id, key) in files {
+        h.update(id.as_bytes());
+        h.update([1]);
+        h.update(key.as_bytes());
+        h.update([0]);
+    }
+    h.update([2]);
+    h.update(extra.as_bytes());
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn invalid(e: impl std::fmt::Display) -> StorageError {
@@ -317,26 +350,23 @@ impl ProjectStore {
         Ok(self.graph_state()?.status(generation.as_deref()))
     }
 
-    /// Every file of a published build with its graph dependency key.
+    /// Every file of a published build with its semantic graph key.
     pub fn graph_files(&self, build_id: &str) -> Result<Vec<GraphFile>> {
         self.query_rows(
             "graph files",
-            "SELECT id, rel_path, kind, status, content_hash, last_indexed_at
+            "SELECT id, rel_path, kind, status, content_hash
              FROM files WHERE build_id = ?1 ORDER BY id",
             &[&build_id],
             |r| {
+                let kind: String = r.get(2)?;
+                let status: String = r.get(3)?;
                 let hash: Option<String> = r.get(4)?;
-                let at: Option<String> = r.get(5)?;
                 Ok(GraphFile {
                     id: r.get(0)?,
                     rel_path: r.get(1)?,
-                    kind: r.get(2)?,
-                    status: r.get(3)?,
-                    key: format!(
-                        "{}@{}",
-                        hash.as_deref().unwrap_or(""),
-                        at.as_deref().unwrap_or("")
-                    ),
+                    key: file_key(&kind, &status, hash.as_deref()),
+                    kind,
+                    status,
                     content_hash: hash,
                 })
             },
@@ -525,6 +555,16 @@ mod tests {
             ..GraphState::default()
         };
         assert!(!serde_json::to_string(&s).unwrap().contains("\"f\""));
+    }
+
+    #[test]
+    fn file_keys_ignore_write_times_and_digest_ignores_snapshot_ids() {
+        assert_eq!(file_key("code", "indexed", Some("h")), "code:indexed:h");
+        let a = graph_input_digest("d", [("f", "code:indexed:h")], "");
+        assert_eq!(a, graph_input_digest("d", [("f", "code:indexed:h")], ""));
+        assert_ne!(a, graph_input_digest("d", [("f", "code:indexed:x")], ""));
+        assert_ne!(a, graph_input_digest("d2", [("f", "code:indexed:h")], ""));
+        assert_ne!(a, graph_input_digest("d", [("f", "code:indexed:h")], "m"));
     }
 
     #[test]

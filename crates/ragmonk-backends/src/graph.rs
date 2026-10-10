@@ -47,6 +47,9 @@ pub struct ServerGraph {
     pub generation: Option<String>,
     pub base_build_id: Option<String>,
     pub digest: Option<String>,
+    /// Semantic digest of the inputs the promoted generation was derived
+    /// from (see `ragmonk_storage::graph::graph_input_digest`).
+    pub input_digest: Option<String>,
     pub pending: Option<String>,
     pub published_at: Option<String>,
     pub last_error: Option<String>,
@@ -74,6 +77,7 @@ impl ServerGraph {
             generation: s("generation"),
             base_build_id: s("base_build_id"),
             digest: s("digest"),
+            input_digest: s("input_digest"),
             pending: s("pending"),
             published_at: s("published_at"),
             last_error: s("last_error"),
@@ -125,6 +129,9 @@ pub struct GraphPublishInput<'a> {
     pub lease: Option<&'a Lease>,
     /// The new graph generation id.
     pub generation: &'a str,
+    /// Semantic digest of the staged graph's inputs, recorded with the
+    /// generation so an unchanged source is recognized without staging.
+    pub input_digest: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -480,6 +487,7 @@ impl ServerBackend {
                     "generation": input.generation,
                     "base_build_id": input.base_build_id,
                     "digest": digest,
+                    "input_digest": input.input_digest,
                     "file_digests": file_digests,
                     "pending": null,
                     "published_at": crate::backend::now(),
