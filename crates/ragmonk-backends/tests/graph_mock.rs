@@ -20,8 +20,8 @@ use serde_json::{json, Value};
 struct Engine0 {
     state: Value,
     seq: i64,
-    /// `(build ids, record_kind, file_id)` of every record.
-    records: Vec<(Vec<String>, String, String)>,
+    /// `(build ids, record_kind, file_id, source)` of every record.
+    records: Vec<(Vec<String>, String, String, Value)>,
     fail_bulk: bool,
     /// Publishes another base build when the graph records are refreshed
     /// (a concurrent base publication between write and promotion).
@@ -69,7 +69,8 @@ impl Transport for Mock {
                 let v: Value = serde_json::from_str(line).unwrap();
                 if let (Some(b), Some(k)) = (v["build_id"].as_str(), v["record_kind"].as_str()) {
                     let f = v["file_id"].as_str().unwrap_or_default().to_owned();
-                    e.records.push((vec![b.to_owned()], k.to_owned(), f));
+                    e.records
+                        .push((vec![b.to_owned()], k.to_owned(), f, v.clone()));
                 }
             }
             return ok(json!({"errors": false, "items": []}));
@@ -80,6 +81,18 @@ impl Transport for Mock {
                 e.seq += 1;
             }
             return ok(json!({}));
+        }
+        if base == "/rm-relationships/_search" {
+            let v: Value = serde_json::from_slice(body.unwrap().0).unwrap();
+            let filter = v["query"]["bool"]["filter"].as_array().unwrap().clone();
+            let build = filter[1]["term"]["build_id"].as_str().unwrap().to_owned();
+            let hits: Vec<Value> = e
+                .records
+                .iter()
+                .filter(|(b, _, _, _)| b.contains(&build))
+                .map(|(_, _, _, d)| json!({"_source": d, "sort": [d["relationship_id"]]}))
+                .collect();
+            return ok(json!({"hits": {"hits": hits}}));
         }
         if base.ends_with("/_update_by_query") {
             let v: Value = serde_json::from_slice(body.unwrap().0).unwrap();
@@ -100,7 +113,7 @@ impl Transport for Mock {
                     .map(|f| f.as_str().unwrap().to_owned())
                     .collect();
                 let mut updated = 0;
-                for (builds, _, f) in &mut e.records {
+                for (builds, _, f, _) in &mut e.records {
                     if builds.contains(&from) && files.contains(f) {
                         builds.retain(|x| keep.contains(x));
                         if !builds.contains(&b) {
@@ -112,10 +125,10 @@ impl Transport for Mock {
                 return ok(json!({"updated": updated, "failures": []}));
             }
             let before = e.records.len();
-            for (builds, _, _) in &mut e.records {
+            for (builds, _, _, _) in &mut e.records {
                 builds.retain(|x| *x != b);
             }
-            e.records.retain(|(builds, _, _)| !builds.is_empty());
+            e.records.retain(|(builds, _, _, _)| !builds.is_empty());
             return ok(json!({"deleted": before - e.records.len(), "failures": []}));
         }
         panic!("unexpected request {method:?} {path}");
@@ -188,7 +201,8 @@ fn input<'a>(
         base_build_id: base,
         lease: None,
         generation,
-        input_digest: None,
+        input_digest: Some("digest-1"),
+        manifest: None,
     }
 }
 
@@ -207,7 +221,7 @@ fn edges_of(m: &Mock, generation: &str) -> usize {
         .unwrap()
         .records
         .iter()
-        .filter(|(b, k, _)| b.iter().any(|x| x == generation) && k == "edge")
+        .filter(|(b, k, _, _)| b.iter().any(|x| x == generation) && k == "edge")
         .count()
 }
 
@@ -382,4 +396,54 @@ fn unchanged_files_are_copied_forward_and_only_changed_files_are_written() {
     );
     assert_eq!(b.visible_graph("s1", "b2").unwrap().as_deref(), Some("g3"));
     assert_eq!(edges_of(&m, "g3"), 6);
+}
+
+#[test]
+fn an_equivalent_new_base_rebinds_the_generation_without_writing_records() {
+    let (m, b, dir) = setup();
+    let (store, local) = staged(dir.path());
+    b.publish_graph(&input(&store, &local, "b1", "g1")).unwrap();
+    let written = m.0.lock().unwrap().records.len();
+    m.0.lock().unwrap().state["active_build_id"] = json!("b2");
+    assert_eq!(b.visible_graph("s1", "b2").unwrap(), None);
+    // Other inputs: refused (the caller derives and publishes instead).
+    assert!(!b.rebind_graph("s1", None, "g1", "b2", "other").unwrap());
+    assert!(!b.rebind_graph("s1", None, "g0", "b2", "digest-1").unwrap());
+    // A superseded base: a conflict, nothing rebound.
+    let e = b
+        .rebind_graph("s1", None, "g1", "b1", "digest-1")
+        .unwrap_err();
+    assert!(matches!(e, BackendError::Conflict(_)), "{e}");
+    assert!(b.rebind_graph("s1", None, "g1", "b2", "digest-1").unwrap());
+    assert_eq!(b.visible_graph("s1", "b2").unwrap().as_deref(), Some("g1"));
+    assert_eq!(
+        m.0.lock().unwrap().records.len(),
+        written,
+        "no record written"
+    );
+}
+
+#[test]
+fn the_manifest_and_records_of_a_generation_can_be_read_back_by_another_host() {
+    let (_m, b, dir) = setup();
+    let (store, local) = staged(dir.path());
+    let keys: std::collections::BTreeMap<String, String> =
+        [("f1".to_owned(), "code:indexed:h".to_owned())].into();
+    let mut i = input(&store, &local, "b1", "g1");
+    i.manifest = Some(ragmonk_backends::graph::GraphManifest {
+        derivation: "d1",
+        version: 1,
+        file_keys: &keys,
+    });
+    b.publish_graph(&i).unwrap();
+    let (g, _) = b.graph("s1").unwrap().unwrap();
+    assert_eq!(g.file_keys, keys);
+    assert_eq!(g.derivation.as_deref(), Some("d1"));
+    assert_eq!(g.manifest_version, 1);
+    assert_eq!(g.input_digest.as_deref(), Some("digest-1"));
+    let records = b.graph_records("s1", "g1").unwrap();
+    let mut ids: Vec<_> = records.edges.iter().map(|r| r.id.clone()).collect();
+    ids.sort();
+    assert_eq!(ids, ["r0", "r1", "r2"]);
+    assert!(records.edges.iter().all(|r| r.file_id == "f1"));
 }

@@ -17,6 +17,13 @@
 //! * Graph rows are written and the state is promoted to `ready` in one
 //!   SQLite transaction, so a failed or crashed graph build is never
 //!   visible and never touches base rows.
+//! * The dependency manifest (semantic file keys, per-file symbols, the
+//!   [`GraphState::input_digest`] and an explicit completeness flag) lets
+//!   the graph outlive base builds: a full base rebuild carries the graph
+//!   rows into the new build ([`ProjectStore::carry_graph_forward`]) and a
+//!   server writer without local state adopts the published rows
+//!   ([`ProjectStore::adopt_graph`]). Either way the rows stay invisible
+//!   until the graph stage rebinds or incrementally updates them.
 
 use std::collections::BTreeMap;
 
@@ -38,6 +45,10 @@ pub const GRAPH_FILES_KEY: &str = "graph_files";
 /// `metadata` key holding the graph's per-file symbol dependencies (JSON
 /// `file_id -> FileSymbols`), read only by the graph stage.
 pub const GRAPH_SYMBOLS_KEY: &str = "graph_symbols";
+
+/// Version of the dependency manifest layout ([`GraphState::files`],
+/// [`GraphState::symbols`]). A manifest of another version is not reused.
+pub const MANIFEST_VERSION: u32 = 1;
 
 /// Symbol key of a qualified name.
 pub fn qualified_key(qualified_name: &str) -> String {
@@ -112,6 +123,23 @@ pub struct GraphState {
     /// two base snapshots with the same digest have the same graph.
     #[serde(default)]
     pub input_digest: Option<String>,
+    /// [`MANIFEST_VERSION`] of the recorded dependency metadata.
+    #[serde(default)]
+    pub manifest_version: u32,
+    /// The recorded dependency metadata describes every file of the
+    /// committed graph (also when it has no files or no symbols: a valid
+    /// empty graph is not missing metadata).
+    #[serde(default)]
+    pub metadata_complete: bool,
+    /// The committed rows were adopted from the server without the old
+    /// definitions of changed files: the next derivation re-resolves every
+    /// reference once (no parsing) instead of trusting the symbol scope.
+    #[serde(default)]
+    pub resolve_all: bool,
+    /// Set when the stored dependency metadata could not be read (a
+    /// reason-coded full fallback); never stored.
+    #[serde(skip)]
+    pub manifest_error: Option<&'static str>,
     /// Dependency metadata: `file_id -> semantic file key` ([`GraphFile::key`])
     /// each file's graph rows were derived from. Stored under [`GRAPH_FILES_KEY`], loaded only by
     /// [`ProjectStore::graph_state_with_files`]. Empty means "recompute
@@ -147,6 +175,13 @@ pub struct GraphStatus {
 }
 
 impl GraphState {
+    /// Whether the recorded dependency metadata can be reused.
+    pub fn manifest_usable(&self) -> bool {
+        self.metadata_complete
+            && self.manifest_version == MANIFEST_VERSION
+            && self.manifest_error.is_none()
+    }
+
     /// The effective status given the active base generation.
     pub fn status(&self, active_generation: Option<&str>) -> GraphStatus {
         let mut state = self.state;
@@ -246,9 +281,11 @@ impl ProjectStore {
             )
             .optional()
             .map_err(StorageError::sqlite("read graph files"))?;
-        state.files = raw
-            .and_then(|r| serde_json::from_str(&r).ok())
-            .unwrap_or_default();
+        match raw.map(|r| serde_json::from_str(&r)) {
+            Some(Ok(files)) => state.files = files,
+            Some(Err(_)) => state.manifest_error = Some("manifest_corrupt"),
+            None => {}
+        }
         let raw: Option<String> = self
             .conn
             .query_row(
@@ -258,9 +295,14 @@ impl ProjectStore {
             )
             .optional()
             .map_err(StorageError::sqlite("read graph symbols"))?;
-        state.symbols = raw
-            .and_then(|r| serde_json::from_str(&r).ok())
-            .unwrap_or_default();
+        match raw.map(|r| serde_json::from_str(&r)) {
+            Some(Ok(symbols)) => state.symbols = symbols,
+            Some(Err(_)) => state.manifest_error = Some("manifest_corrupt"),
+            None => {}
+        }
+        if state.manifest_error.is_some() {
+            state.metadata_complete = false;
+        }
         Ok(state)
     }
 
@@ -498,6 +540,105 @@ impl ProjectStore {
         })
     }
 
+    /// Carries the committed graph of `from` (the build being superseded)
+    /// into the newly published build `to`, before `from` is collected:
+    /// relationships of files that still exist and links whose entity and
+    /// document still exist (ids are content-addressed, so they are
+    /// identical across builds). The graph state then names `to` as the
+    /// build holding its rows but keeps its old base generation, so nothing
+    /// becomes visible until the graph stage validated the new snapshot
+    /// (rebind, or an incremental update of the changed files against the
+    /// dependency manifest). Returns `false` when `from` holds no graph.
+    pub fn carry_graph_forward(&mut self, from: &str, to: &str) -> Result<bool> {
+        let mut state = self.graph_state()?;
+        if state.base_build_id.as_deref() != Some(from) || from == to {
+            return Ok(false);
+        }
+        write_tx(&mut self.conn, |tx| {
+            for sql in [
+                "INSERT OR IGNORE INTO relationships (id, build_id, file_id, relationship_type,
+                    source_entity_id, target_entity_id, target_symbol, resolver, confidence,
+                    source_location, evidence, reference_text)
+                 SELECT r.id, ?2, r.file_id, r.relationship_type, r.source_entity_id,
+                    r.target_entity_id, r.target_symbol, r.resolver, r.confidence,
+                    r.source_location, r.evidence, r.reference_text
+                 FROM relationships r
+                 WHERE r.build_id = ?1
+                   AND r.file_id IN (SELECT id FROM files WHERE build_id = ?2)",
+                "INSERT OR IGNORE INTO cross_links (id, build_id, link_type, entity_id,
+                    document_id, chunk_id, resolver, confidence, evidence)
+                 SELECT l.id, ?2, l.link_type, l.entity_id, l.document_id, l.chunk_id,
+                    l.resolver, l.confidence, l.evidence
+                 FROM cross_links l
+                 WHERE l.build_id = ?1
+                   AND l.entity_id IN (SELECT id FROM entities WHERE build_id = ?2)
+                   AND l.document_id IN (SELECT id FROM documents WHERE build_id = ?2)",
+            ] {
+                cached(tx, sql, params![from, to])
+                    .map_err(StorageError::sqlite("carry graph forward"))?;
+            }
+            Ok(())
+        })?;
+        state.base_build_id = Some(to.to_owned());
+        self.put_graph_state(&state)?;
+        Ok(true)
+    }
+
+    /// Adopts graph rows published elsewhere (the server's visible
+    /// generation) into `build_id`, whose own graph is empty: rows of files
+    /// absent from the build and links to absent entities or documents are
+    /// dropped. `files` is the manifest the rows were derived from. Like
+    /// [`Self::carry_graph_forward`], the result is not visible until the
+    /// graph stage validated it; the symbol scope is rebuilt from the rows
+    /// and, because the old definitions of changed files are unknown, the
+    /// next derivation re-resolves every reference ([`GraphState::resolve_all`]).
+    pub fn adopt_graph(
+        &mut self,
+        build_id: &str,
+        edges: &[RelationshipRow],
+        links: &[crate::knowledge::LinkRow],
+        files: FileKeys,
+        derivation: &str,
+        input_digest: Option<&str>,
+    ) -> Result<()> {
+        let present: std::collections::HashSet<String> =
+            self.files(build_id)?.into_iter().map(|f| f.id).collect();
+        let entities: std::collections::HashSet<String> = self
+            .all_entities(build_id)?
+            .into_iter()
+            .map(|e| e.id)
+            .collect();
+        let docs: std::collections::HashSet<String> = self
+            .documents(build_id)?
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        self.clear_graph(build_id)?;
+        let edges: Vec<RelationshipRow> = edges
+            .iter()
+            .filter(|r| present.contains(&r.file_id))
+            .cloned()
+            .collect();
+        self.put_relationships(build_id, &edges)?;
+        let links: Vec<crate::knowledge::LinkRow> = links
+            .iter()
+            .filter(|l| entities.contains(&l.entity_id) && docs.contains(&l.document_id))
+            .cloned()
+            .collect();
+        self.put_links(build_id, &links)?;
+        let mut state = self.graph_state()?;
+        state.base_build_id = Some(build_id.to_owned());
+        state.base_generation = None;
+        state.derivation_version = Some(derivation.to_owned());
+        state.input_digest = input_digest.map(str::to_owned);
+        state.files = files;
+        state.symbols = self.file_symbols(build_id, None)?;
+        state.manifest_version = MANIFEST_VERSION;
+        state.metadata_complete = true;
+        state.resolve_all = true;
+        self.put_graph_state_with_files(&state)
+    }
+
     /// Inserts relationship rows into `build_id`.
     pub fn put_relationships(&mut self, build_id: &str, rows: &[RelationshipRow]) -> Result<()> {
         write_tx(&mut self.conn, |tx| {
@@ -565,6 +706,24 @@ mod tests {
         assert_ne!(a, graph_input_digest("d", [("f", "code:indexed:x")], ""));
         assert_ne!(a, graph_input_digest("d2", [("f", "code:indexed:h")], ""));
         assert_ne!(a, graph_input_digest("d", [("f", "code:indexed:h")], "m"));
+    }
+
+    #[test]
+    fn a_corrupt_manifest_is_reported_not_mistaken_for_an_empty_one() {
+        let d = tempfile::tempdir().unwrap();
+        let mut s = ProjectStore::open(&crate::StorageLayout::at(d.path()), "p", "s", 8).unwrap();
+        let ok = GraphState {
+            manifest_version: MANIFEST_VERSION,
+            metadata_complete: true,
+            ..GraphState::default()
+        };
+        s.put_graph_state_with_files(&ok).unwrap();
+        let read = s.graph_state_with_files().unwrap();
+        assert!(read.manifest_usable(), "a valid empty manifest is usable");
+        s.put_metadata(GRAPH_SYMBOLS_KEY, "{not json").unwrap();
+        let read = s.graph_state_with_files().unwrap();
+        assert_eq!(read.manifest_error, Some("manifest_corrupt"));
+        assert!(!read.manifest_usable());
     }
 
     #[test]

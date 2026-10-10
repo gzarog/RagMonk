@@ -659,6 +659,47 @@ fn graph_pass(
         cfg.runtime.sqlite_cache_size_mb,
     )
     .map_err(|e| other(db(e)))?;
+    // A staging store without a reusable graph (deleted cache, another
+    // writer host, a full staged rebuild that could not carry it) adopts the
+    // server's visible generation when its persisted manifest is usable,
+    // instead of deriving every file again.
+    let current = server
+        .graph(&source.id)
+        .map_err(|e| other(server_err(e)))?
+        .map(|(g, _)| g)
+        .unwrap_or_default();
+    let derivation = ragmonk_code::process::graph_derivation();
+    let mut hydrated = 0;
+    let plan = ragmonk_code::graph_stage::plan_graph(&store, &local_build)
+        .map_err(ServerGraphError::Graph)?;
+    if plan.full
+        && store
+            .graph_state()
+            .map_err(|e| other(db(e)))?
+            .base_build_id
+            .as_deref()
+            != Some(local_build.as_str())
+        && matches!(current.state.as_str(), "ready" | "stale")
+        && current.derivation.as_deref() == Some(derivation.as_str())
+        && current.manifest_version == u64::from(ragmonk_storage::graph::MANIFEST_VERSION)
+    {
+        if let Some(generation) = current.generation.as_deref() {
+            let records = server
+                .graph_records(&source.id, generation)
+                .map_err(|e| other(server_err(e)))?;
+            hydrated = records.edges.len() + records.links.len();
+            store
+                .adopt_graph(
+                    &local_build,
+                    &records.edges,
+                    &records.links,
+                    current.file_keys.clone(),
+                    &derivation,
+                    current.input_digest.as_deref(),
+                )
+                .map_err(|e| other(db(e)))?;
+        }
+    }
     let graph = ragmonk_knowledge::build_graph(
         &mut store,
         std::path::Path::new(&source.path),
@@ -668,11 +709,43 @@ fn graph_pass(
         progress,
     )
     .map_err(ServerGraphError::Graph)?;
+    let staged = store.graph_state_with_files().map_err(|e| other(db(e)))?;
+    let conflict = |e| match e {
+        ragmonk_backends::BackendError::Conflict(m) => {
+            ServerGraphError::Graph(GraphError::Stale(m))
+        }
+        e => ServerGraphError::Graph(GraphError::Failed(
+            ragmonk_telemetry::redact::redact_urls_in_text(&e.to_string()),
+        )),
+    };
+    // Identical inputs for a new base: rebind, write nothing.
+    if let (Some(generation), Some(digest)) = (
+        current.generation.as_deref(),
+        staged.input_digest.as_deref(),
+    ) {
+        if current.input_digest.as_deref() == Some(digest)
+            && current.base_build_id.as_deref() != Some(server_active.as_str())
+            && server
+                .rebind_graph(&source.id, Some(lease), generation, &server_active, digest)
+                .map_err(conflict)?
+        {
+            return Ok(ServerGraphRun {
+                graph,
+                publish: ragmonk_backends::graph::GraphPublishReport {
+                    generation: Some(generation.to_owned()),
+                    published: true,
+                    rebound: true,
+                    records_hydrated: hydrated,
+                    ..Default::default()
+                },
+            });
+        }
+    }
     let generation = record::build_id(
         &source.id,
         &format!("graph-{}-{}-{}", now_iso(), std::process::id(), lease.token),
     );
-    let publish = server
+    let mut publish = server
         .publish_graph(&ragmonk_backends::graph::GraphPublishInput {
             source_id: &source.id,
             store: &store,
@@ -680,20 +753,15 @@ fn graph_pass(
             base_build_id: &server_active,
             lease: Some(lease),
             generation: &generation,
-            input_digest: store
-                .graph_state()
-                .ok()
-                .and_then(|s| s.input_digest)
-                .as_deref(),
+            input_digest: staged.input_digest.as_deref(),
+            manifest: Some(ragmonk_backends::graph::GraphManifest {
+                derivation: &derivation,
+                version: u64::from(ragmonk_storage::graph::MANIFEST_VERSION),
+                file_keys: &staged.files,
+            }),
         })
-        .map_err(|e| match e {
-            ragmonk_backends::BackendError::Conflict(m) => {
-                ServerGraphError::Graph(GraphError::Stale(m))
-            }
-            e => ServerGraphError::Graph(GraphError::Failed(
-                ragmonk_telemetry::redact::redact_urls_in_text(&e.to_string()),
-            )),
-        })?;
+        .map_err(conflict)?;
+    publish.records_hydrated = hydrated;
     tracing::info!(
         component = "indexing",
         event = "server_graph_publish",

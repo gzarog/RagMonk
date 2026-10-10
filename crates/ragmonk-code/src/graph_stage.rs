@@ -213,8 +213,7 @@ fn plan_from(
     );
     let same_rows = prev.base_build_id.as_deref() == Some(build_id);
     let same_derivation = prev.derivation_version.as_deref() == Some(derivation);
-    let has_metadata = !prev.files.is_empty() && !prev.symbols.is_empty();
-    let complete = same_rows && same_derivation && has_metadata;
+    let complete = same_rows && same_derivation && prev.manifest_usable();
     let mut changes = PublishedChangeSet {
         complete,
         ..PublishedChangeSet::default()
@@ -250,7 +249,7 @@ fn plan_from(
     {
         return plan(PlanAction::Skip, "current", false);
     }
-    if same_rows && same_derivation && prev.input_digest.as_deref() == Some(digest.as_str()) {
+    if complete && prev.input_digest.as_deref() == Some(digest.as_str()) {
         return plan(PlanAction::Rebind, "equivalent_snapshot", false);
     }
     let retry = matches!(
@@ -265,7 +264,7 @@ fn plan_from(
         } else if !same_rows {
             "base_rebuilt"
         } else {
-            "metadata_missing"
+            prev.manifest_error.unwrap_or("metadata_missing")
         };
         let action = if retry {
             PlanAction::Retry
@@ -341,6 +340,9 @@ pub fn build_planned(
             state.base_generation = Some(generation.clone());
             state.last_error = None;
             state.stale_reason = None;
+            // The rows match the inputs exactly, so the symbol scope read
+            // from them is exact too.
+            state.resolve_all = false;
             store.put_graph_state(&state).map_err(failed)?;
             store.commit_session().map_err(failed)?;
             report.outcome = GraphOutcome::Rebound;
@@ -457,7 +459,7 @@ fn build(
         progress(done, total);
     }
     let changed_ids: Vec<String> = changed.iter().map(|f| f.id.clone()).collect();
-    let (symbols, resolutions_changed, files_reresolved) = if full {
+    let (symbols, resolutions_changed, files_reresolved) = if full || prev.resolve_all {
         let n = resolve_build(store, build_id).map_err(failed)?;
         let symbols = store.file_symbols(build_id, None).map_err(failed)?;
         (symbols, n, files.len())
@@ -505,6 +507,10 @@ fn build(
         base_generation: Some(generation.to_owned()),
         derivation_version: Some(derivation.to_owned()),
         input_digest: Some(plan.input_digest.clone()),
+        manifest_version: ragmonk_storage::graph::MANIFEST_VERSION,
+        metadata_complete: true,
+        resolve_all: false,
+        manifest_error: None,
         files: files
             .iter()
             .map(|f| (f.id.clone(), f.key.clone()))
@@ -628,6 +634,8 @@ mod tests {
                 .map(|f| (f.id.clone(), f.key.clone()))
                 .collect(),
             symbols: [("a".to_owned(), FileSymbols::default())].into(),
+            manifest_version: ragmonk_storage::graph::MANIFEST_VERSION,
+            metadata_complete: true,
             ..GraphState::default()
         }
     }

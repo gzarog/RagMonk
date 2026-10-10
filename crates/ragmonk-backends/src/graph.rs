@@ -9,8 +9,18 @@
 //!
 //! ```json
 //! { "state": "ready", "generation": "<id>", "base_build_id": "<base>",
-//!   "digest": "...", "published_at": "...", "retired": [...] }
+//!   "digest": "...", "input_digest": "...", "derivation": "...",
+//!   "manifest_version": 1, "file_keys": {...}, "file_digests": {...},
+//!   "published_at": "...", "retired": [...] }
 //! ```
+//!
+//! `input_digest`, `derivation` and `file_keys` are the generation's
+//! dependency manifest, stored on the authoritative backend so a writer
+//! that lost its staging cache (or another host) plans from it and adopts
+//! the generation's records ([`ServerBackend::graph_records`]) instead of
+//! deriving everything. A new base with identical inputs is handled by
+//! [`ServerBackend::rebind_graph`]: one fenced compare-and-swap, no record
+//! written.
 //!
 //! [`ServerBackend::publish_graph`] writes a generation invisibly (files
 //! whose graph records did not change since the previous generation are
@@ -50,6 +60,10 @@ pub struct ServerGraph {
     /// Semantic digest of the inputs the promoted generation was derived
     /// from (see `ragmonk_storage::graph::graph_input_digest`).
     pub input_digest: Option<String>,
+    /// Graph derivation identity of the promoted generation.
+    pub derivation: Option<String>,
+    /// Layout version of the persisted manifest (`file_keys`).
+    pub manifest_version: u64,
     pub pending: Option<String>,
     pub published_at: Option<String>,
     pub last_error: Option<String>,
@@ -58,6 +72,12 @@ pub struct ServerGraph {
     /// copy unchanged files' records forward.
     #[serde(skip)]
     pub file_digests: BTreeMap<String, String>,
+    /// The generation's dependency manifest: `file_id -> semantic file
+    /// key` of the inputs it was derived from. Persisted with the
+    /// generation so graph planning survives the loss of a host's staging
+    /// cache or a change of writer host.
+    #[serde(skip)]
+    pub file_keys: BTreeMap<String, String>,
     /// Retired generations still inside the reader grace window.
     #[serde(skip)]
     pub retired: Vec<String>,
@@ -78,12 +98,26 @@ impl ServerGraph {
             base_build_id: s("base_build_id"),
             digest: s("digest"),
             input_digest: s("input_digest"),
+            derivation: s("derivation"),
+            manifest_version: g
+                .get("manifest_version")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
             pending: s("pending"),
             published_at: s("published_at"),
             last_error: s("last_error"),
             stale_reason: s("stale_reason"),
             file_digests: g
                 .get("file_digests")
+                .and_then(Value::as_object)
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            file_keys: g
+                .get("file_keys")
                 .and_then(Value::as_object)
                 .map(|m| {
                     m.iter()
@@ -132,6 +166,23 @@ pub struct GraphPublishInput<'a> {
     /// Semantic digest of the staged graph's inputs, recorded with the
     /// generation so an unchanged source is recognized without staging.
     pub input_digest: Option<&'a str>,
+    /// The staged graph's dependency manifest (see [`ServerGraph::file_keys`]).
+    pub manifest: Option<GraphManifest<'a>>,
+}
+
+/// The persisted part of a graph's dependency manifest.
+#[derive(Clone, Copy)]
+pub struct GraphManifest<'a> {
+    pub derivation: &'a str,
+    pub version: u64,
+    pub file_keys: &'a BTreeMap<String, String>,
+}
+
+/// Records of one visible generation, as the staging store stores them.
+#[derive(Debug, Default)]
+pub struct GraphRecords {
+    pub edges: Vec<ragmonk_storage::knowledge::RelationshipRow>,
+    pub links: Vec<ragmonk_storage::knowledge::LinkRow>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -139,6 +190,12 @@ pub struct GraphPublishReport {
     pub generation: Option<String>,
     /// `false` when the server already had exactly this graph.
     pub published: bool,
+    /// The visible generation was rebound to the new base without writing
+    /// any record (identical graph inputs).
+    pub rebound: bool,
+    /// Edge and link records adopted from the server into a staging store
+    /// that had lost its graph (cache deletion or a new writer host).
+    pub records_hydrated: usize,
     pub edges_written: usize,
     pub links_written: usize,
     /// Files whose graph records were copied forward server-side (the
@@ -303,6 +360,115 @@ impl ServerBackend {
             put_graph(doc, Value::Object(g));
             Ok(())
         })
+    }
+
+    /// Rebinds the visible generation to a new active base whose graph
+    /// inputs are identical (`input_digest`), without writing any record:
+    /// one compare-and-swap fenced by the lease, the expected active base
+    /// and the expected generation. Returns `false` when the server's graph
+    /// is not exactly that generation with that digest (the caller then
+    /// publishes normally).
+    pub fn rebind_graph(
+        &self,
+        source_id: &str,
+        lease: Option<&Lease>,
+        generation: &str,
+        base_build_id: &str,
+        input_digest: &str,
+    ) -> Result<bool> {
+        let mut rebound = false;
+        self.patch_state(source_id, lease, None, |doc, p| {
+            let active = p.and_then(|p| p.active_build_id.as_deref());
+            if active != Some(base_build_id) {
+                return Err(BackendError::Conflict(format!(
+                    "base build {base_build_id} of {source_id} was superseded; the graph was not rebound"
+                )));
+            }
+            let mut g = graph_value(doc);
+            let matches = |k: &str, v: &str| g.get(k).and_then(Value::as_str) == Some(v);
+            if !(matches("generation", generation)
+                && matches("input_digest", input_digest)
+                && g.get("pending").is_none_or(Value::is_null)
+                && matches!(
+                    g.get("state").and_then(Value::as_str),
+                    Some("ready" | "stale")
+                ))
+            {
+                return Ok(());
+            }
+            g.insert("state".into(), json!("ready"));
+            g.insert("base_build_id".into(), json!(base_build_id));
+            g.insert("last_error".into(), Value::Null);
+            g.insert("stale_reason".into(), Value::Null);
+            g.insert("published_at".into(), json!(crate::backend::now()));
+            put_graph(doc, Value::Object(g));
+            rebound = true;
+            Ok(())
+        })?;
+        Ok(rebound)
+    }
+
+    /// Every edge and link record of a graph generation of `source_id`.
+    pub fn graph_records(&self, source_id: &str, generation: &str) -> Result<GraphRecords> {
+        let path = format!("/{}/_search", self.index(IndexKind::Relationships));
+        let mut out = GraphRecords::default();
+        let mut after: Option<Value> = None;
+        let s = |d: &Value, k: &str| d.get(k).and_then(Value::as_str).map(str::to_owned);
+        loop {
+            let mut body = json!({
+                "size": 1000,
+                "query": { "bool": { "filter": [
+                    { "term": { "source_id": source_id } },
+                    { "term": { "build_id": generation } },
+                    { "terms": { "record_kind": ["edge", "link"] } },
+                ] } },
+                "sort": [ { "relationship_id": "asc" } ],
+                "track_total_hits": false,
+            });
+            if let Some(a) = &after {
+                body["search_after"] = a.clone();
+            }
+            let v = self.post_json(crate::transport::Method::Post, &path, &body)?;
+            let hits = v
+                .pointer("/hits/hits")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            for h in &hits {
+                let d = &h["_source"];
+                let id = s(d, "relationship_id").unwrap_or_default();
+                match d.get("record_kind").and_then(Value::as_str) {
+                    Some("edge") => out.edges.push(ragmonk_storage::knowledge::RelationshipRow {
+                        id,
+                        file_id: s(d, "file_id").unwrap_or_default(),
+                        relationship_type: s(d, "relationship_type").unwrap_or_default(),
+                        source_entity_id: s(d, "source_entity_id").unwrap_or_default(),
+                        target_entity_id: s(d, "target_entity_id"),
+                        target_symbol: s(d, "target_symbol"),
+                        resolver: s(d, "resolver").unwrap_or_default(),
+                        confidence: s(d, "confidence").unwrap_or_default(),
+                        source_location: s(d, "source_location"),
+                        evidence: s(d, "evidence"),
+                        reference_text: s(d, "reference_text"),
+                    }),
+                    Some("link") => out.links.push(ragmonk_storage::knowledge::LinkRow {
+                        id,
+                        link_type: s(d, "relationship_type").unwrap_or_default(),
+                        entity_id: s(d, "entity_id").unwrap_or_default(),
+                        document_id: s(d, "document_id").unwrap_or_default(),
+                        chunk_id: s(d, "chunk_id"),
+                        resolver: s(d, "resolver").unwrap_or_default(),
+                        confidence: s(d, "confidence").unwrap_or_default(),
+                        evidence: s(d, "evidence"),
+                    }),
+                    _ => {}
+                }
+            }
+            after = hits.last().map(|h| h["sort"].clone());
+            if hits.len() < 1000 {
+                return Ok(out);
+            }
+        }
     }
 
     /// Publishes the staged graph as a new generation (see the module docs).
@@ -488,6 +654,9 @@ impl ServerBackend {
                     "base_build_id": input.base_build_id,
                     "digest": digest,
                     "input_digest": input.input_digest,
+                    "derivation": input.manifest.map(|m| m.derivation),
+                    "manifest_version": input.manifest.map(|m| m.version),
+                    "file_keys": input.manifest.map(|m| m.file_keys),
                     "file_digests": file_digests,
                     "pending": null,
                     "published_at": crate::backend::now(),

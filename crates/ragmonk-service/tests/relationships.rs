@@ -246,3 +246,161 @@ fn a_disabled_fresh_home_never_builds_a_graph() {
         assert!(s.count("entities", &b).unwrap() > 0);
     }
 }
+
+/// The graph of `b` as normalized semantic tuples (ids are content-addressed,
+/// so equal tuples mean equal graphs).
+type Graph = (Vec<String>, Vec<String>);
+fn graph_of(s: &ProjectStore, b: &str) -> Graph {
+    let mut edges = Vec::new();
+    for f in s.files(b).unwrap() {
+        for r in s.file_relationships(b, &f.id).unwrap() {
+            edges.push(format!(
+                "{}|{}|{:?}|{:?}|{}|{}",
+                r.id, r.file_id, r.target_entity_id, r.target_symbol, r.resolver, r.confidence
+            ));
+        }
+    }
+    let mut links: Vec<String> = s
+        .links(b)
+        .unwrap()
+        .into_iter()
+        .map(|l| {
+            format!(
+                "{}|{}|{}|{:?}|{}",
+                l.id, l.entity_id, l.document_id, l.chunk_id, l.resolver
+            )
+        })
+        .collect();
+    edges.sort();
+    links.sort();
+    (edges, links)
+}
+
+fn graph_runs(
+    env: &Env,
+    run: &ragmonk_service::indexing::RunOptions,
+) -> Vec<ragmonk_code::graph_stage::GraphReport> {
+    let sources = selected_sources(&env.home, None).unwrap();
+    let mut out = Vec::new();
+    ragmonk_service::indexing::index_sources_with(&env.home, &sources, "index", run, |e| {
+        if let SourceEvent::Relationships { outcome, .. } = e {
+            out.push(outcome.run().expect("graph published").graph.clone());
+        }
+    })
+    .unwrap();
+    out
+}
+
+#[test]
+fn a_full_rebuild_with_unchanged_content_reuses_the_graph_without_deriving_anything() {
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    let (s, b1) = store(&env, 0);
+    let before = graph_of(&s, &b1);
+    assert!(!before.0.is_empty() && !before.1.is_empty());
+    drop(s);
+
+    let reports = graph_runs(
+        &env,
+        &ragmonk_service::indexing::RunOptions {
+            force_full: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(reports.len(), 3);
+    for r in &reports {
+        assert_eq!(
+            r.action,
+            ragmonk_code::graph_stage::PlanAction::Rebind,
+            "{r:?}"
+        );
+        assert_eq!(
+            (
+                r.files_processed,
+                r.files_reresolved,
+                r.relationships_written
+            ),
+            (0, 0, 0)
+        );
+    }
+    let (s, b2) = store(&env, 0);
+    assert_ne!(b1, b2, "a new base build");
+    assert!(s.graph_visible(&b2).unwrap());
+    assert_eq!(graph_of(&s, &b2), before);
+}
+
+#[test]
+fn a_full_rebuild_with_one_edit_derives_only_that_file_and_matches_a_clean_build() {
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    write(
+        &env.roots[0],
+        "app/util.py",
+        "def helper():\n    return 3\n\ndef extra():\n    return helper()\n",
+    );
+    let reports = graph_runs(
+        &env,
+        &ragmonk_service::indexing::RunOptions {
+            force_full: true,
+            ..Default::default()
+        },
+    );
+    let edited: Vec<_> = reports
+        .iter()
+        .filter(|r| r.action != ragmonk_code::graph_stage::PlanAction::Rebind)
+        .collect();
+    assert_eq!(edited.len(), 1, "{reports:?}");
+    assert_eq!(edited[0].files_processed, 1);
+    assert!(!edited[0].full);
+    let (s, b) = store(&env, 0);
+    let incremental = graph_of(&s, &b);
+    drop(s);
+
+    // Oracle: the same snapshot derived from scratch.
+    let (mut s, b) = store(&env, 0);
+    s.clear_graph(&b).unwrap();
+    s.put_graph_state_with_files(&Default::default()).unwrap();
+    let r =
+        ragmonk_knowledge::build_graph(&mut s, &env.roots[0], &b, 1, None, &mut |_, _| {}).unwrap();
+    assert!(r.full);
+    assert_eq!(graph_of(&s, &b), incremental);
+}
+
+#[test]
+fn a_graph_adopted_from_elsewhere_is_rebound_without_parsing() {
+    // What a server writer does after its staging cache was deleted: the
+    // rows and manifest come from the backend, not from local state.
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    let (mut s, b) = store(&env, 0);
+    let before = graph_of(&s, &b);
+    let state = s.graph_state_with_files().unwrap();
+    let edges: Vec<_> = s
+        .files(&b)
+        .unwrap()
+        .iter()
+        .flat_map(|f| s.file_relationships(&b, &f.id).unwrap())
+        .collect();
+    let links = s.links(&b).unwrap();
+    s.clear_graph(&b).unwrap();
+    s.put_graph_state_with_files(&Default::default()).unwrap();
+    s.adopt_graph(
+        &b,
+        &edges,
+        &links,
+        state.files.clone(),
+        state.derivation_version.as_deref().unwrap(),
+        state.input_digest.as_deref(),
+    )
+    .unwrap();
+    assert!(
+        !s.graph_visible(&b).unwrap(),
+        "adopted rows are not visible before validation"
+    );
+    let r =
+        ragmonk_knowledge::build_graph(&mut s, &env.roots[0], &b, 1, None, &mut |_, _| {}).unwrap();
+    assert_eq!(r.action, ragmonk_code::graph_stage::PlanAction::Rebind);
+    assert_eq!(r.files_processed, 0);
+    assert!(s.graph_visible(&b).unwrap());
+    assert_eq!(graph_of(&s, &b), before);
+}
