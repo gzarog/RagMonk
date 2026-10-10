@@ -539,3 +539,41 @@ fn an_unchanged_run_reports_every_graph_skipped_with_no_graph_work() {
     let json = serde_json::to_value(r).unwrap();
     assert_eq!(json["graph_skipped"], 3);
 }
+
+#[test]
+fn a_cancelled_graph_build_publishes_nothing_and_the_retry_matches_a_clean_build() {
+    let env = setup(true);
+    assert_eq!(run(&env).1, Ok(()));
+    // Publish a new base without its graph.
+    set_relationships(&env, false);
+    write(
+        &env.roots[0],
+        "app/util.py",
+        "def helper():\n    return 7\n\ndef more():\n    return helper()\n",
+    );
+    assert_eq!(run(&env).1, Ok(()));
+    let (mut s, b) = store(&env, 0);
+    let before = s.count("relationships", &b).unwrap();
+    let cancel = std::sync::atomic::AtomicBool::new(true);
+    let e =
+        ragmonk_knowledge::build_graph(&mut s, &env.roots[0], &b, 1, Some(&cancel), &mut |_, _| {})
+            .unwrap_err();
+    assert_eq!(e, ragmonk_code::graph_stage::GraphError::Cancelled);
+    assert!(!s.graph_visible(&b).unwrap());
+    assert_eq!(s.graph_state().unwrap().state, GraphLifecycle::Failed);
+    assert_eq!(s.count("relationships", &b).unwrap(), before, "rolled back");
+    drop(s);
+
+    set_relationships(&env, true);
+    let reports = graph_runs(&env, &ragmonk_service::indexing::RunOptions::default());
+    let retried: Vec<_> = reports
+        .iter()
+        .filter(|r| r.action == ragmonk_code::graph_stage::PlanAction::Retry)
+        .collect();
+    assert_eq!(retried.len(), 1, "{reports:?}");
+    assert!(!retried[0].full);
+    let (s, b) = store(&env, 0);
+    let incremental = graph_of(&s, &b);
+    drop(s);
+    assert_eq!(oracle(&env, 0), incremental);
+}
